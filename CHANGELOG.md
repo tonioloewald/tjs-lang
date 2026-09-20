@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-09-20
+
+**A language release.** The tosijs-ui-hosted site was what 0.14.0 was originally reserved for;
+that work is real but lands separately, as a non-breaking change to build tooling that does not
+touch the published surface. The version number follows the narrative rather than a name
+reserved in advance.
+
+**If you only read one line:** a runtime type now reports `typeof === 'function'` instead of
+`'object'`. `.check()`, `isRuntimeType()`, `Object.keys()` and spread are unchanged, and
+serialisation improved from _throwing_ to working — so unless you branch on `typeof`, nothing
+moves under you.
+
 ### Changed
+
+- **`tosijs-ui` 1.14.1 → 1.15.0, `tosijs` 1.6.1 → 1.10.3** (devDependencies; no effect on your
+  install). 1.15.0 fixes two of the three defects that were blocking the doc-system migration:
+  `SiteConfig` gained `ignoreDocPaths`, and `extractDocs`'s frontmatter match is anchored to
+  line start — so `CLAUDE.md`, which documents the format, is no longer classified as a
+  playground example by its own illustration. The third (`docsJson` defaulting outside
+  `outputDir`) is documented rather than fixed, which is workable since we set it explicitly.
+
+  The `tosijs` upgrade tightened `Component`'s typing and caught two long-standing misuses in
+  our demo: reading `contentVisible` (a static initAttribute) instead of the intended
+  `navVisible`, and assigning a raw boolean to a `BoxedScalar`. Both had "worked" only because
+  the old types permitted arbitrary property access.
 
 - **Runtime types are now FUNCTIONS with properties, not objects with a callable `check`.**
   `Type`, `Enum`, `Union` and `FunctionPredicate` all return callables:
@@ -3144,7 +3168,8 @@ playground + editor integrations (Monaco / CodeMirror / Ace, linter, autocomplet
   intermediate wrapping. This is the VM-return-flattening change; it landed in **0.2.0**
   (before 0.7.8) and was only recorded in the git log until this backfill.
 
-[Unreleased]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.13...HEAD
+[Unreleased]: https://github.com/tonioloewald/tjs-lang/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.13...v0.14.0
 [0.13.13]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.12...v0.13.13
 [0.13.12]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.11...v0.13.12
 [0.13.11]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.10...v0.13.11

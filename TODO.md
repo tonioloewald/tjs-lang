@@ -476,7 +476,11 @@ the same components. We are not porting a playground; we are **retiring** one.
 > | #153  | B1 cleanup (drops our `DOC_FILES` walker)                           | closed upstream, **NOT in any release** — `SiteConfig` still has no `ignore`                                                          |
 > | #156  | B1 cleanup (drops `stripMisreadFrontmatter`)                        | closed upstream, **NOT in any release** — the match is still unanchored, which is why `bun run docs` still warns on `UPSTREAM.md`     |
 >
-> **The binding constraint is a tosijs-ui RELEASE, not the fixes.** 1.14.1 shipped
+> **RESOLVED 2026-09-20: tosijs-ui 1.15.0 shipped** and carries #153 and #156. #154 is partial
+> and #135/#155 remain open. Phase B's remaining work is no longer blocked on a release — it is
+> now ordinary work. Kept below because the diagnosis is the reusable part.
+>
+> **The binding constraint WAS a tosijs-ui RELEASE, not the fixes.** 1.14.1 shipped
 > 2026-09-09T13:55Z; #153/#154/#156 closed 2026-09-10T04:49Z — about fifteen hours later —
 > and nothing has shipped since. A `1.14.2` publish appeared to run green on 2026-09-16 but
 > **is not on the registry** (`npm view tosijs-ui versions` ends at 1.14.1), so if that
