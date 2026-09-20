@@ -728,6 +728,92 @@ that does not need to exist**, and this repo has already paid for one instance o
 AST-only VM makes a whole category unreachable by construction, and hands embedders a **56 KB**
 artifact instead of a 221 KB one.
 
+## Browser-derived `tjs-lang/css` data — probe once, ship the contract (idea 2026-09-20)
+
+**Tonio:** ship a version of `tjs-lang/css` that builds its data from the browser —
+`getComputedStyle(document.body)` for the property list, `CSS.supports(prop, value)` for value
+validity — instead of from hand-maintained tables.
+
+Good idea, and the machinery is half-built: `experiments/ambient/css-style-probe.demo.test.ts`
+already probes a real `CSSStyleDeclaration`, and `docs/ambient-contracts.md` is the thesis.
+
+### The constraint that decides the shape (measured, not assumed)
+
+A predicate **cannot call the browser**:
+
+    function isColor(v) { return CSS.supports('color', v) }
+      -> verifyPredicate: safe=false — "method '.supports()' is not a known pure method"
+
+    const NAMED = [...]              // probed data, baked in
+    function isColor(v) { return NAMED.includes(v) }
+      -> verifyPredicate: safe=true
+
+So the probe happens **at init or at build time**, bakes to a table, and the predicate closes
+over pure data. That is not a workaround — it is what makes the output a **contract**: a
+serializable artifact derived from reality, shippable to environments with no browser.
+
+| approach                                 | accurate            | verifiable | portable |
+| ---------------------------------------- | ------------------- | ---------- | -------- |
+| hand-maintained tables (today)           | as of the last edit | yes        | yes      |
+| live `CSS.supports` inside the predicate | yes                 | **no**     | **no**   |
+| **probe → contract → pure predicate**    | **yes**             | **yes**    | **yes**  |
+
+### What the browser can actually tell us
+
+- [ ] **Property names** — `Array.from(getComputedStyle(document.body))` enumerates every
+      property that browser supports. Replaces the hand-kept list behind `isCssProperty`.
+- [ ] **Value validity** — `CSS.supports(prop, value)` is natively the question
+      `isStyleValueFor` asks. Note it is a BINARY relation, which is why that one is
+      deliberately not a `Predicate` (see `src/css/index.ts`).
+- [ ] **Named colours / units** — `CSS.supports('color', name)`, or set-and-read-back on a
+      detached element.
+
+### The asymmetry that limits this: properties ENUMERATE, values do not
+
+`getComputedStyle(document.body)` is **iterable** — the browser hands you the property list.
+But there is no reflection API for value grammars. `CSS.supports(prop, value)` is a **point-wise
+oracle**: you can ask _"is `rebeccapurple` a colour?"_ and get an answer, but you cannot ask
+_"what are the colours?"_
+
+So the probe cannot GENERATE a candidate list, only CONFIRM one — which means the
+hand-maintained tables do not go away. What changes is their status: they stop being the source
+of truth and become a **candidate set that the browser verifies and prunes**. That is still
+worth having (it catches drift, and drift is otherwise invisible), but it is a different and
+smaller claim than "builds its data from the browser".
+
+Properties are the exception, and there the win is real: `isCssProperty` could be genuinely
+derived rather than maintained.
+
+### Fundamentally, the DOM should provide this
+
+Worth stating as the framing rather than a grumble, because it explains the whole shape of the
+work. **The browser knows all of it** — the property list, the value grammars, the named
+colours, which units are legal where. It parses exactly this, constantly. It simply does not
+expose any of it declaratively.
+
+`CSS.supports` is the whole reflection surface, and it is yes/no. So every consumer that needs
+to _describe_ CSS rather than merely _validate one value at a time_ is reduced to
+reverse-engineering a grammar the parser already holds — which is why hand-maintained tables
+exist in every CSS tool, ours included, and why they all drift.
+
+This is the same shape as the TypeScript `e.target` pessimism that opens
+`docs/ambient-contracts.md`: the runtime has the information and the interface withholds it. The
+north-star answer is the same too — **a serializable predicate contract is what the platform
+should hand you**, and until it does, deriving one by probing is the closest available thing.
+
+### The question to answer before building it
+
+**Whose truth do you ship?** Browser-derived data is exactly what _that_ browser supports, so a
+contract probed in Chrome and one probed in Safari will differ. Options: ship the intersection
+(conservative — never claims support that is missing), the union (permissive), or a probed
+contract per target with the shipped default being the intersection. This is the real design
+decision; the probing is easy.
+
+Secondary: does the probe run at **build** time (deterministic, needs a browser in CI) or at
+**init** in the browser (always current, costs startup and makes the data environment-specific)?
+The contract framing allows both — build-time for the shipped default, init-time as an opt-in
+refinement.
+
 ## Socket-based services as a capability — and what "gas" means for one (proposed 2026-09-17)
 
 **NOT for 0.14.0.** Prototype it as a **battery** first, so the design can be exercised
