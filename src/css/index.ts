@@ -277,3 +277,9 @@ export function suggestColor(prefix = '', limit = 50): Suggestion[] {
     limit,
   })
 }
+
+// Re-exported so a consumer of this subpath can write `isColor instanceof Predicate` without
+// also importing `tjs-lang`. Fused through a global slot (predicate-brand.ts), so it is the
+// SAME class the main entry exports — otherwise instanceof would be false across bundles,
+// which is the defect this exists to avoid rather than create.
+export { Predicate } from '../types/predicate-brand'

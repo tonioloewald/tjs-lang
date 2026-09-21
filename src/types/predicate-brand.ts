@@ -23,9 +23,30 @@
  * and read as ordinary functions to everything that does not know better.
  */
 
-/** The brand. Every runtime type and verified predicate is `instanceof` this. */
-export class Predicate {}
-Object.setPrototypeOf(Predicate.prototype, Function.prototype)
+/**
+ * The brand. Every runtime type and verified predicate is `instanceof` this.
+ *
+ * **Claimed through a shape-versioned global slot**, exactly as `MonadicError` is
+ * (`docs/runtime-fusion.md`: *code fuses, data unions*). Six published bundles each carry their
+ * own copy of this module, so without the slot `tjs-lang`'s `Predicate` and `tjs-lang/css`'s
+ * would be different classes — and `isColor instanceof Predicate` would be **false** for a
+ * consumer who imported the brand from one and the predicate from the other. Measured before
+ * fixing: `Object.getPrototypeOf(main.Type('Age',0)) !== Object.getPrototypeOf(css.isColor)`.
+ *
+ * Fusing is sound here for the same reason it is for `MonadicError`: this class is a pure
+ * brand with no behaviour, so every copy is observationally identical and which one wins is
+ * immaterial. Keyed by SHAPE (`_1`), not by release — keying on the version would mint a new
+ * slot every release and fuse nothing.
+ */
+class PredicateBrand {}
+Object.setPrototypeOf(PredicateBrand.prototype, Function.prototype)
+
+const PREDICATE_SLOT = '__tjs_Predicate_1'
+const g = globalThis as any
+export const Predicate: typeof PredicateBrand = (g[PREDICATE_SLOT] ??=
+  PredicateBrand)
+/** The instance type, so `Predicate` still works in type position. */
+export type Predicate = PredicateBrand
 
 /** What a predicate carries beyond deciding. All optional — the minimum is `check`. */
 export interface PredicateFacts {

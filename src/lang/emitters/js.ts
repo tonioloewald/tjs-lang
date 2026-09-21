@@ -1984,6 +1984,29 @@ export function transpileToJS(
         `function __oneOf(v,ms){v=__ub(__proj(v));if(v===undefined)v=null;return ms.indexOf(v)!==-1}`
       )
     }
+    // `__pred` — shared by EVERY constructor below, so it is gated on any of them rather
+    // than on `needsType`. It lived inside the Type/Generic block until the 0.14.0 review
+    // found the consequence: a file declaring only an `Enum` emitted a `__pred(...)` call
+    // with no `__pred` defined, so the module threw `__pred is not defined` at load.
+    //
+    // A runtime type is a FUNCTION with properties, matching the real runtime (`asPredicate`,
+    // src/types/Type.ts). `check` IS the function, so the two cannot drift; `name` is set
+    // because it is real introspection (autocomplete, messages) where `length` is not. No
+    // prototype chain here — the stub has no `Predicate` to point at, and callability plus
+    // the brand is what emitted code can observe.
+    if (
+      needsType ||
+      needsGeneric ||
+      needsEnum ||
+      needsUnion ||
+      needsExactly ||
+      needsFunctionPredicate
+    ) {
+      inlineParts.push(
+        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});return f}`
+      )
+    }
+
     if (needsType || needsGeneric) {
       // `check` matches the value against the EXAMPLE, structurally.
       //
@@ -2017,12 +2040,6 @@ export function transpileToJS(
         // so adding a `predicate` that returns `true` — adding no constraint at all —
         // made a type MORE permissive. A predicate must only ever narrow. Both checkers
         // are open now, so they agree.
-        // A runtime type is a FUNCTION with properties, matching the real runtime
-        // (`asPredicate`, src/types/Type.ts). `check` IS the function, so the two cannot
-        // drift; `name` is set because it is real introspection (autocomplete, messages)
-        // where `length` is not. No prototype chain here — the stub has no `Predicate` to
-        // point at, and callability plus the brand is what emitted code can observe.
-        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});return f}`,
         `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
       )
       const typeExtras = needsExampleSchema
@@ -2059,7 +2076,7 @@ export function transpileToJS(
     }
     if (needsFunctionPredicate) {
       inlineParts.push(
-        `function FunctionPredicate(n,s,b){if(Array.isArray(s)&&b){const f=(...a)=>FunctionPredicate(n,b(...a));f.typeParamNames=s.map(p=>Array.isArray(p)?p[0]:p);f.description=n;f.__runtimeType=true;return f}const spec=typeof s==='function'?{}:s||{};return{description:n,params:spec.params||{},returns:spec.returns,returnContract:spec.returnContract||'assertReturns',check:v=>typeof v==='function',__runtimeType:true}}`
+        `function FunctionPredicate(n,s,b){if(Array.isArray(s)&&b){const f=(...a)=>FunctionPredicate(n,b(...a));f.typeParamNames=s.map(p=>Array.isArray(p)?p[0]:p);f.description=n;f.__runtimeType=true;return f}const spec=typeof s==='function'?{}:s||{};return __pred({description:n,params:spec.params||{},returns:spec.returns,returnContract:spec.returnContract||'assertReturns',check:v=>typeof v==='function',__runtimeType:true},n)}`
       )
     }
     // An enum/union is a closed set of values, so its schema is just that set.
@@ -2073,12 +2090,12 @@ export function transpileToJS(
         // `values`, so that documented access returned `undefined` in every emitted file.
         // The stub is not a fallback (it always wins in emitted code), so a field it omits
         // is a field the language does not have — see docs/type-identity.md.
-        `function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;return{description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true${setSchema}}}`
+        `function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;return __pred({description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true${setSchema}},d)}`
       )
     }
     if (needsUnion) {
       inlineParts.push(
-        `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}}}`
+        `function Union(d,...v){const vals=v.flat();return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}})}`
       )
     }
     // Exactly — a closed set of VALUES, for literals and discriminants. Emitted as a value
@@ -2086,7 +2103,7 @@ export function transpileToJS(
     // is evaluated at runtime.
     if (needsExactly) {
       inlineParts.push(
-        `function Exactly(...v){const vals=v.flat();return{description:'exactly '+vals.map(x=>JSON.stringify(x)).join(' | '),check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}}}`
+        `function Exactly(...v){const vals=v.flat();return __pred({description:'exactly '+vals.map(x=>JSON.stringify(x)).join(' | '),check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}})}`
       )
     }
     // toBool — honest truthiness (unwraps boxed primitives)

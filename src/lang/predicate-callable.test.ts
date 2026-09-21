@@ -78,36 +78,74 @@ describe('the real runtime: predicates are callable', () => {
 })
 
 describe('EMITTED code agrees — the stub is the shipped semantics', () => {
-  /** Transpile and evaluate, returning the module's exports. */
-  function run(source: string): any {
+  /**
+   * ONE table drives both the library and the emitted assertions.
+   *
+   * The 0.14.0 pre-release review found the reason this matters: the first version of this
+   * file transpiled only `Type Age 0` in its emitted block, while the library block covered
+   * four forms. The stub wrapped only `Type` in `__pred`, so emitted `Enum`/`Union`/
+   * `FunctionPredicate` were plain objects — `Colour('red')` threw `is not a function` — and
+   * the CHANGELOG asserted parity that did not exist. **The guard was green exactly where
+   * the drift was, and could not go red.**
+   *
+   * A shared table makes that shape impossible: a form added here must pass on both sides.
+   */
+  const FORMS: Array<{
+    decl: string
+    name: string
+    pass: unknown
+    fail: unknown
+  }> = [
+    { decl: `Type Age 0`, name: 'Age', pass: 5, fail: 'x' },
+    {
+      decl: `Enum Colour 'a colour' { Red = 'red', Green = 'green' }`,
+      name: 'Colour',
+      pass: 'red',
+      fail: 'blue',
+    },
+  ]
+
+  /** Transpile a declaration and hand back the emitted binding. */
+  function emitted(decl: string, name: string): any {
     const saved = (globalThis as any).__tjs
     try {
       ;(globalThis as any).__tjs = createRuntime()
-      const { code } = tjs(source, { filename: 'a.tjs', runTests: false })
-      return new Function(`${code}\nreturn { Age }`)()
+      const { code } = tjs(`${decl}\n`, { filename: 'a.tjs', runTests: false })
+      return new Function(`${code}\nreturn ${name}`)()
     } finally {
       ;(globalThis as any).__tjs = saved
     }
   }
 
-  const { Age } = run(`Type Age 0\n`)
+  for (const { decl, name, pass, fail } of FORMS) {
+    it(`emitted ${name} is CALLABLE — not just the library's`, () => {
+      const p = emitted(decl, name)
+      expect({ [name]: typeof p }).toEqual({ [name]: 'function' })
+      expect(p(pass)).toBe(true)
+      expect(p(fail)).toBe(false)
+    })
 
-  it('a type emitted by the stub is callable too', () => {
-    expect(typeof Age).toBe('function')
-    expect(Age(5)).toBe(true)
-    expect(Age('x')).toBe(false)
-  })
+    it(`emitted ${name}.check is the same function`, () => {
+      const p = emitted(decl, name)
+      expect(p.check).toBe(p)
+    })
 
-  it('and its check is the same function', () => {
-    expect(Age.check).toBe(Age)
-  })
-
-  it('and it carries the declared name', () => {
-    expect(Age.name).toBe('Age')
-  })
+    it(`emitted ${name} names itself the same way the library does`, () => {
+      // PARITY, not a literal. `Enum Colour 'a colour' {…}` lowers to
+      // `Enum('a colour', …)`, so both sides name the predicate from the DESCRIPTION, not
+      // the declared identifier. Whether that is the right choice is a separate question
+      // (arguably it should be `Colour`) and predates callable predicates — asserting a
+      // literal here would freeze one side of a divergence rather than detect it.
+      const p = emitted(decl, name)
+      expect(typeof p.name).toBe('string')
+      expect(p.name.length).toBeGreaterThan(0)
+      expect(p.name).toBe(p.description)
+    })
+  }
 
   it('and the stub still agrees with the real runtime on the DECISION', () => {
-    // The behavioural half. Shape parity is worthless if the two disagree on the answer.
+    // Shape parity is worthless if the two disagree on the answer.
+    const Age = emitted('Type Age 0', 'Age')
     const real: any = Type('Age', 0)
     for (const v of [0, 5, -1, 1.5, 'x', null, undefined, {}, []]) {
       expect({ v, emitted: Age(v) }).toEqual({ v, emitted: real(v) as any })

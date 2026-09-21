@@ -5,6 +5,10 @@
  */
 
 export {
+  // The Predicate brand. Omitted from this list until 0.14.0, which meant it reached NO
+  // published entry point — `import { Predicate } from 'tjs-lang'` was a hard SyntaxError
+  // while the CHANGELOG shipped `Age instanceof Predicate` as a copyable example.
+  Predicate,
   Type,
   isRuntimeType,
   type RuntimeType,

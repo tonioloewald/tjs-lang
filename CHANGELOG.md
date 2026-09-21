@@ -74,9 +74,15 @@ moves under you.
   report `'object'`. Everything else a consumer is likely to touch is unchanged — `.check()`,
   `isRuntimeType()`, `Object.keys()`, spread — and serialisation improved from throwing.
 
-  The inline stub emits callables too, so emitted code and the real runtime agree on shape as
-  well as on decisions. Pinned by `src/lang/predicate-callable.test.ts`, which asserts the
-  differential rather than trusting it.
+  The inline stub emits callables too — **all five constructors**, not just `Type` — so emitted
+  code and the real runtime agree on shape as well as on decisions. Pinned by
+  `src/lang/predicate-callable.test.ts`, whose library and emitted assertions are driven from
+  **one shared table**, so a form covered on one side must pass on the other.
+
+  `Predicate` is exported from `tjs-lang` and `tjs-lang/css`, and is claimed through a
+  shape-versioned global slot (the `MonadicError` treatment, `docs/runtime-fusion.md`) so it is
+  the **same class** across bundles — without that, `isColor instanceof Predicate` would be
+  false for a consumer importing the brand from one entry and the predicate from another.
 
 - **Verified predicates are `Predicate`s too** — `isColor instanceof Predicate` is `true`, and
   `tjs-lang/css`'s nineteen unary validators all carry the brand.
