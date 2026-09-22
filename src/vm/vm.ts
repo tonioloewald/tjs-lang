@@ -12,7 +12,7 @@ import {
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
-import { astVersionProblem } from './ast-version'
+import { checkAstVersion } from './ast-version'
 
 /**
  * The transpiler, INJECTED rather than imported.
@@ -254,8 +254,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // version field nobody acts on is decoration — running an AST whose format we do not
     // understand means guessing at the meaning of untrusted code, which is the one thing a
     // sandbox must not do. See src/vm/ast-version.ts.
-    const versionProblem = astVersionProblem(ast)
-    if (versionProblem) throw new Error(versionProblem)
+    checkAstVersion(ast, 'AgentVM.run')
 
     if (ast.op !== 'seq')
       throw new Error(

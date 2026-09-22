@@ -1,4 +1,5 @@
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
+import { checkAstVersion } from './ast-version'
 import { reDoSRisk, alternationOverlapRisk } from '../redos'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
 
@@ -425,6 +426,10 @@ export function resolveProcedureToken(token: string): any {
     procedureStore.delete(token) // Clean up expired entry
     throw new Error(`Procedure expired: ${token}`)
   }
+  // BOUNDARY: a stored AST re-enters the system here, so the version gate applies. This is
+  // how `agentRun` receives an AST — it resolves a token and hands the result to `seq`,
+  // never passing through `AgentVM.run()`. See checkAstVersion in ./ast-version.
+  checkAstVersion(entry.ast, 'resolveProcedureToken')
   return entry.ast
 }
 
@@ -4573,6 +4578,11 @@ export const storeProcedure = defineAtom(
   s.string,
   async ({ ast, ttl, maxSize }, ctx) => {
     const resolvedAst = resolveValue(ast, ctx)
+    // BOUNDARY: an AST arrives from outside and is PERSISTED here. Gating at storage rather
+    // than only at execution is the point — storing an AST this build cannot run defers the
+    // failure to whoever resolves the token later, which is someone who did not write it and
+    // has no context for the error. Fail at the door instead.
+    checkAstVersion(resolvedAst, 'storeProcedure')
     const resolvedTtl = ttl ? resolveValue(ttl, ctx) : DEFAULT_PROCEDURE_TTL
     const resolvedMaxSize = maxSize
       ? resolveValue(maxSize, ctx)

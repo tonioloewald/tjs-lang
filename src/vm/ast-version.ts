@@ -89,3 +89,28 @@ export function astVersionProblem(ast: unknown): string | null {
     `with this version.`
   )
 }
+
+/**
+ * Accept an AST at a system boundary — the ONE place the version gate is applied.
+ *
+ * ## Why this exists rather than a check at each call site
+ *
+ * The 0.14.0 review found the gate consulted only in `AgentVM.run()`, while **two other paths
+ * accept an AST from outside and never reach it**: `agentRun` resolves a procedure token and
+ * hands the result straight to the `seq` atom, and `storeProcedure` takes `ast: s.any` and
+ * persists it. The second is the worse one — it stores an AST that may not be runnable, so the
+ * failure surfaces later, somewhere else, to someone who did not write it.
+ *
+ * A version gate behind one of three doors is not a gate. And the general defect is not "two
+ * call sites were missed" — it is that **nothing made the set of doors enumerable**, so the
+ * next door is missed too. `checkAstVersion` is that enumerable point: every boundary calls
+ * it, and `ast-version-boundaries.test.ts` PARSES this package to assert no boundary skips it.
+ *
+ * Boundaries are where an AST **arrives from outside**, not where nodes are evaluated. Gating
+ * per-node would charge the check on every step of every run to catch something that can only
+ * be wrong once, at the edge.
+ */
+export function checkAstVersion(ast: unknown, where: string): void {
+  const problem = astVersionProblem(ast)
+  if (problem) throw new Error(`${where}: ${problem}`)
+}

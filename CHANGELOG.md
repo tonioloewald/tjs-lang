@@ -127,6 +127,19 @@ Predicate` to "callable and boolean-ish".
   **before** the root shape, so a newer AST reports its version rather than "Root AST must be
   `'seq'`" — a diagnosis that would send the reader to entirely the wrong problem.
 
+  **The gate applies at every boundary an AST enters through**, not just `AgentVM.run()`:
+  `resolveProcedureToken` (which is how `agentRun` receives one) and `storeProcedure` are
+  gated too. `storeProcedure` matters most — it validates at **storage**, because persisting
+  an AST this build cannot run defers the failure to whoever resolves the token later, who did
+  not write it and has no context for the error.
+
+  The general defect was that nothing made the boundary set **enumerable**, so the next entry
+  point would have been missed the same way while every existing test stayed green.
+  `src/vm/ast-version-boundaries.test.ts` closes that: it drives a future-version AST through
+  each boundary, asserts the gate is present in each function body, and flags **any** other
+  reader of `procedureStore` that is ungated — so a fourth boundary nobody listed fails there.
+  Mutation-tested: removing any one gate turns it red.
+
   Groundwork for `docs/ajs-native-vm.md` (a Rust → wasm VM), where a second implementation
   reading the same ASTs makes versioning load-bearing rather than merely prudent.
 
