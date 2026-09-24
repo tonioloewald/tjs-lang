@@ -71,6 +71,9 @@ actually the stub answering twice.
 
 **Nowhere in the corpus.** The list is empty, and the harness stays.
 
+_On decisions_ — which is what this page is about, and what the harness measures. Surface
+disagreements are a separate, shorter list; see "Surface, not decisions" below.
+
 Four cases used to live here:
 
 | Type | Value | was | cause |
@@ -125,6 +128,36 @@ asking to be deleted — so a fix cannot rot into slack a regression could occup
 predicate covers a top-level scalar only. It is the one case that would need the
 structural walk, and it is not currently measured. Adding it to the corpus is the honest
 next step; building the walk before something measures it is not.
+
+## Surface, not decisions
+
+The list above is about **verdicts** — does `v` satisfy `T`. The two implementations can also
+differ in what a type *exposes*, which no decision test can see. That list is short and, unlike
+the verdict list, not empty:
+
+| fact | real runtime | inline stub | consequence |
+| --- | --- | --- | --- |
+| a `Type`'s witness | `example` | `__ex` | `Age.example` is `undefined` in emitted code — and emitted code is the shipped semantics |
+
+Same information under two names, so nothing is *lost*; it is simply not where the documented
+surface says it is. Unifying them changes the serialised shape of every emitted type, so it is
+tracked in `TODO.md` as a deliberate change rather than made in passing. Pinned by
+`predicate-callable.test.ts`, which asserts the divergence in both directions — the stub has no
+`example`, the real runtime has no `__ex` — so closing it fails a test rather than drifting.
+
+Two surface gaps have already closed this way and are worth naming, because both were found
+the same way: by asking what the stub omits rather than what it decides.
+
+- `Enum.members` / `names` / `keys` — the real `Enum` documents `Color.members.Red` as **the**
+  way to reference a member, and the stub carried only `values`, so the documented access
+  returned `undefined` in every emitted file.
+- `toJSON` — the real runtime got it and the stub did not, so `JSON.stringify(EmittedType)`
+  returned `undefined` and the key silently vanished from any object containing one. The 0.14.0
+  review caught it; the stub now serialises to byte-identically the pre-0.14.0 shape.
+
+The general lesson is the page's own thesis applied one level up: **a field the stub omits is a
+field the language does not have.** Adding one to `src/types/Type.ts` alone adds it to the
+library only.
 
 ## What this blocks
 

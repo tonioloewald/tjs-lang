@@ -143,6 +143,63 @@ describe('EMITTED code agrees — the stub is the shipped semantics', () => {
     })
   }
 
+  for (const { decl, name } of FORMS) {
+    it(`emitted ${name} SERIALISES — the silent data-loss case`, () => {
+      // Making runtime types callable turned `JSON.stringify(Age)` into `undefined` and
+      // `JSON.stringify({field: Age})` into `{}` — the key vanishing with no error. The real
+      // runtime got `toJSON` in `asPredicate`; the stub did not, and the stub IS the shipped
+      // semantics for emitted code, so "runtime types serialise" was only true of the library.
+      const p = emitted(decl, name)
+      const solo = JSON.stringify(p)
+      expect({ [name]: typeof solo }).toEqual({ [name]: 'string' })
+
+      // Nested is the case that actually matters — a type is far likelier to be part of a
+      // payload than stringified alone, and this is where the loss was silent rather than loud.
+      const nested = JSON.parse(JSON.stringify({ field: p }))
+      expect(Object.keys(nested)).toEqual(['field'])
+      expect(nested.field.description).toBe(p.description)
+      expect(nested.field.__runtimeType).toBe(true)
+
+      // The implementation is excluded, not serialised: `check` is the function itself, so
+      // including it would recurse through this very method.
+      expect('check' in nested.field).toBe(false)
+      expect('toJSON' in nested.field).toBe(false)
+    })
+  }
+
+  it('emitted Type serialises to exactly its pre-0.14.0 shape — a regression fix, not a new format', () => {
+    // Before runtime types were callable the emitted `Type('Age',0)` was a plain object. This
+    // is what it stringified to, byte for byte. Asserting the literal is the only way to show
+    // the fix RESTORED behaviour rather than inventing a shape that merely looks reasonable.
+    expect(JSON.stringify(emitted('Type Age 0', 'Age'))).toBe(
+      '{"description":"Age","__runtimeType":true,"default":0,"__ex":0}'
+    )
+  })
+
+  it('emitted and real Enum serialise to the same facts', () => {
+    // The forms where both sides carry the same field names must agree, or "serialises" means
+    // something different depending on which runtime you reached.
+    const p = emitted(FORMS[1].decl, FORMS[1].name)
+    const real: any = Enum('a colour', { Red: 'red', Green: 'green' } as any)
+    expect(JSON.parse(JSON.stringify(p))).toEqual(
+      JSON.parse(JSON.stringify(real))
+    )
+  })
+
+  it('but the stub names a Type’s witness `__ex` where the real runtime says `example`', () => {
+    // A MEASURED divergence, asserted rather than glossed. Same information, two names — so
+    // `Age.example` is `undefined` in emitted code, which is the shipped semantics. Recorded in
+    // docs/type-identity.md ("Surface, not decisions") and tracked in TODO.md. Pinned here so
+    // unifying them is a deliberate change that fails this test, not a silent drift.
+    const p = emitted('Type Age 0', 'Age')
+    const real: any = Type('Age', 0)
+    expect({ stub: p.__ex, real: real.example }).toEqual({ stub: 0, real: 0 })
+    expect({
+      stubHasExample: 'example' in p,
+      realHasEx: '__ex' in real,
+    }).toEqual({ stubHasExample: false, realHasEx: false })
+  })
+
   it('and the stub still agrees with the real runtime on the DECISION', () => {
     // Shape parity is worthless if the two disagree on the answer.
     const Age = emitted('Type Age 0', 'Age')

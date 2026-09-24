@@ -4244,6 +4244,26 @@ listener (identity is now the command line — `6596ae3`); issue #4's stale publ
 (correction posted); the five declaration transforms rewriting TJS inside string literals
 (`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`).
 
+## Open findings — 0.14.0 pre-release review (BLOCK, 2026-09-23)
+
+Full report: [`docs/reviews/0.14.0-pre-release-review.md`](docs/reviews/0.14.0-pre-release-review.md).
+Both blockers and all four verified majors are fixed; each carries a dated **STATUS: RESOLVED**
+block in the report. What is deferred is named here.
+
+- [ ] **Unify the inline stub's `__ex` with the real runtime's `example`** (from M1). A `Type`'s
+      witness has two names: `Age.example` on the real runtime, `Age.__ex` in emitted code — and
+      emitted code is the shipped semantics, so the documented surface is the one that is absent
+      where it matters. No information is lost, which is why this is deferred rather than a
+      blocker, but it changes the serialised shape of every emitted type, so it is a deliberate
+      change with a migration note, not a drive-by rename. Pinned in both directions by
+      `src/lang/predicate-callable.test.ts` and recorded in `docs/type-identity.md` under
+      "Surface, not decisions" — closing it fails a test rather than drifting.
+
+      Worth doing alongside the related duplication M1 surfaced: `asPredicate`
+      (`src/types/Type.ts`) and `brandPredicate` (`src/types/predicate-brand.ts`) are two
+      hand-maintained copies of the same `toJSON` rule, and `__pred` in `emitters/js.ts` is a
+      third. Three addresses for one rule is the shape M2 was.
+
 ## Open findings — 0.13.10 pre-release review (BLOCK, 2026-09-03)
 
 Full report: [`docs/reviews/0.13.10-pre-release-review.md`](docs/reviews/0.13.10-pre-release-review.md).

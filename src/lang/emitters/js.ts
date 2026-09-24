@@ -1994,6 +1994,17 @@ export function transpileToJS(
     // because it is real introspection (autocomplete, messages) where `length` is not. No
     // prototype chain here — the stub has no `Predicate` to point at, and callability plus
     // the brand is what emitted code can observe.
+    //
+    // `toJSON` because making types callable would otherwise be a **silent data-loss break**
+    // for emitted code: `JSON.stringify` drops functions, so `JSON.stringify(Age)` returned
+    // `undefined` and `JSON.stringify({field: Age})` returned `{}` — the key vanishing with no
+    // error, which is the worst kind of break. The real runtime got this in `asPredicate` and
+    // the stub did not, and the stub IS the shipped semantics for emitted code
+    // (docs/type-identity.md), so the fix had to land in both. Same exclusion rule as the real
+    // one: `check` is the function itself (spreading it recurses through this method), `toJSON`
+    // likewise, `schema` carries cycles, and functions are behaviour that JSON drops anyway.
+    // This restores exactly the pre-0.14.0 emitted shape — the output is byte-identical to
+    // what a plain-object type stringified to, so it is a regression fix, not a new format.
     if (
       needsType ||
       needsGeneric ||
@@ -2003,7 +2014,7 @@ export function transpileToJS(
       needsFunctionPredicate
     ) {
       inlineParts.push(
-        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});return f}`
+        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});f.toJSON=()=>{const o={};for(const [k,v] of Object.entries(f)){if(k==='check'||k==='toJSON'||k==='schema')continue;if(typeof v==='function')continue;o[k]=v}return o};return f}`
       )
     }
 

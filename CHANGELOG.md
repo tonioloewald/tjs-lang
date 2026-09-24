@@ -67,6 +67,21 @@ moves under you.
   // {"description":"Age","example":0,"default":0,"__runtimeType":true}
   ```
 
+  **In emitted code too** — and that is not a footnote. The `toJSON` first landed only in the
+  real runtime, while emitted files call the inline `__pred` stub through their own `__tjs_rt`,
+  so the stub always wins and **is** the shipped semantics (`docs/type-identity.md`). For a
+  release cycle the claim above was true of the library and false of every emitted `.tjs`,
+  where `JSON.stringify(Age)` returned `undefined` and `JSON.stringify({field: Age})` returned
+  `{}` — the key vanishing with no error, which is exactly the silent data loss the `toJSON`
+  exists to prevent. The stub now serialises to **byte-identically what a pre-0.14.0
+  plain-object type produced**, so this is a restoration rather than a new format, and the
+  emitted and real `Enum` serialise to the same facts.
+
+  One measured divergence remains and is pinned rather than glossed: the stub names a Type's
+  witness `__ex` where the real runtime says `example`. Same information, two names, so
+  `Age.example` is `undefined` in emitted code. Unifying them changes the serialised shape, so
+  it is tracked in `TODO.md` as a deliberate change rather than made in passing.
+
   New capability rather than restored behaviour — worth stating precisely, because it looks
   like a regression fix and is not.
 
