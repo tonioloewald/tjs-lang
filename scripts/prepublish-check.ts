@@ -45,10 +45,13 @@
  * check above is structurally blind to it, and CI rebuilds before asserting freshness, so
  * that guard cannot fail where it runs.
  *
- * The actual fix is upstream of this file: `prepublishOnly` now runs `bun run make` FIRST,
- * so `dist/` is rebuilt from the tree being published every single time and staleness is not
- * a state the publish can be in. That makes a post-publish "did it work?" ritual unnecessary,
- * which is the point — a check you have to remember is not a control.
+ * The actual fix is upstream of this file, in `scripts/release-gate.ts`, which runs before
+ * this in `prepublishOnly`. Either it rebuilds `dist/` from the committed tree and runs the
+ * full suite, or it SKIPS both because a stamp proves they already ran for exactly this
+ * commit and this `dist/` (same SHA, clean tree, identical `dist/` hash — see
+ * `release-stamp.ts`). Either way staleness is not a state the publish can be in. (This said
+ * "`make` runs FIRST, every single time" until the stamp made that untrue — 0.14.0
+ * re-review.)
  *
  * What remains here is the cheap backstop for the OTHER half: a build that half-succeeds.
  * `make` starts with `rm -rf dist`, so an interrupted or partially-failed build leaves a tree
@@ -289,7 +292,7 @@ if (missing.length) {
     `the built tree does not satisfy package.json "exports" — a consumer's import would ` +
       `fail on:\n      ${missing.join(
         '\n      '
-      )}\n    (prepublishOnly runs \`bun run make\` first, so this means the BUILD failed, not that you forgot to run it)`
+      )}\n    (release-gate rebuilds dist/ or verified it by stamp, so this means the BUILD failed, not that you forgot to run it)`
   )
 }
 

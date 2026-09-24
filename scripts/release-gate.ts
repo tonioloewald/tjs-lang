@@ -50,8 +50,10 @@
  *
  * Anything else — no stamp, another SHA, a dirty tree, a changed `dist/` — and the publish
  * runs the full gate itself, exactly as before. So skipping `release:ready` costs time, never
- * safety. And `release:ready` refuses to stamp if `make` dirtied tracked files: the stamp
- * would then name a SHA that is not the code it tested.
+ * safety — PROVIDED no stamp is ever written for uncommitted code, which `writeStamp`
+ * enforces (the 0.14.0 re-review's B-1 was the path where it was not). Both modes refuse a
+ * dirty tree before building, and again if `make` dirtied tracked files: a stamp would then
+ * name a SHA that is not the code it tested.
  *
  * ## What it deliberately does NOT do
  *
@@ -59,9 +61,9 @@
  * and `SKIP_AUDIT` — precisely the three categories most likely to rot unseen, and the
  * reason the full run is the release gate at all (CLAUDE.md → "Full run before tagging").
  */
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { hashDist, releaseStampProblem } from './release-stamp'
+import { releaseStampProblem, writeStamp } from './release-stamp'
 
 const ROOT = join(import.meta.dir, '..')
 
@@ -83,11 +85,9 @@ const fail = (msg: string): never => {
 }
 
 const PREPARE = process.argv.includes('--prepare')
-const STAMP = join(ROOT, '.release-gate')
 
 const head = () => sh(['git', 'rev-parse', 'HEAD']).out
 const treeClean = () => sh(['git', 'status', '--porcelain']).out === ''
-const distHash = () => hashDist(ROOT)
 const stampProblem = () => releaseStampProblem(ROOT)
 
 // The fast path — the whole point of `release:ready`.
@@ -107,11 +107,18 @@ if (!PREPARE) {
     `release-gate: no valid stamp (${problem}) — running the build and the full suite now.\n` +
       `  Next time: \`bun run release:ready\` beforehand, and the publish takes seconds.`
   )
-} else if (!treeClean()) {
-  fail(
-    'the working tree is dirty. A stamp names a COMMIT, so it must describe committed code — commit or stash, then run release:ready again.'
-  )
 }
+
+// Clean tree, in BOTH modes, before anything is built. This used to run only under
+// `--prepare`, so a plain `npm publish` on a dirty tree built, tested and STAMPED uncommitted
+// code (0.14.0 re-review, B-1). `writeStamp` now refuses a dirty tree too — this early check is
+// for speed and a clear message; the writer's is the one that cannot be forgotten.
+if (!treeClean())
+  fail(
+    'the working tree is dirty — commit or stash first. A publish packs the working tree, so ' +
+      'publishing uncommitted code would ship something no commit names; prepublish-check ' +
+      'refuses it for the same reason.'
+  )
 
 // Preflight the LLM server BEFORE spending three minutes discovering it is down. The full
 // suite includes live LLM tests, and a cold server fails the first run on model load.
@@ -131,7 +138,7 @@ if (!sh(['curl', '-s', '--max-time', '5', `${LLM_URL}/models`]).ok) {
 // The build moved IN here from `prepublishOnly`, so that a valid stamp skips it too.
 if (!sh(['bun', 'run', 'make'], { inherit: true }).ok)
   fail('`bun run make` FAILED — nothing was published.')
-if (PREPARE && !treeClean())
+if (!treeClean())
   fail(
     '`make` changed tracked files (regenerated docs/editors output?). Commit them and run release:ready again — otherwise the stamp would name a SHA that is not the code it tested.'
   )
@@ -149,26 +156,14 @@ if (!sh(['bun', 'test'], { inherit: true }).ok) {
   )
 }
 
-const sha = head()
-if (!sha)
-  fail('could not resolve HEAD — refusing to stamp a gate I cannot name.')
-
-// Line 1 is the SHA and nothing else: `.githooks/pre-push` reads it with `head -n1`.
-writeFileSync(
-  STAMP,
-  `${sha}\n`.concat(
-    `dist-sha256 ${distHash()}\n`,
-    '# Written by scripts/release-gate.ts: the full suite passed for this commit.\n',
-    '# .githooks/pre-push skips its own run when line 1 names the SHA being tagged;\n',
-    '# prepublishOnly skips when line 1 is HEAD, the tree is clean, and dist/ still hashes the same.\n'
-  )
-)
-
-// The LEDGER: every SHA whose full suite passed here. The stamp names only the latest, and a
-// later `release:ready` overwrites it — so without this, the commit you published from is
-// forgotten the moment you prepare the next one, and tagging it later re-tests it for nothing.
-// `.githooks/pre-push` reads both. Gitignored: it describes a local act.
-appendFileSync(join(ROOT, '.release-gate-verified'), `${sha}\n`)
+// The writer refuses a dirty tree itself — the suite may have dirtied it — and writes the
+// stamp and the ledger together or not at all. See `writeStamp`.
+const stamped = writeStamp(ROOT)
+const sha = stamped.ok
+  ? stamped.sha
+  : fail(
+      `the suite passed but NOTHING was stamped: ${stamped.reason}. The next publish will re-run the gate.`
+    )
 
 console.log(`release-gate: full suite green — stamped ${sha.slice(0, 7)}.`)
 if (PREPARE) {

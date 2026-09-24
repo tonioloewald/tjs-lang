@@ -4,10 +4,17 @@
  * case here, against a real scratch git repo, plus the one case where it does.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hashDist, releaseStampProblem } from './release-stamp'
+import { hashDist, releaseStampProblem, writeStamp } from './release-stamp'
 
 let root = ''
 const git = (...args: string[]) => {
@@ -27,7 +34,10 @@ beforeEach(() => {
   git('config', 'user.email', 't@t')
   git('config', 'user.name', 't')
   // dist/ and the stamp are gitignored, as in the real repo — so git cannot see them.
-  writeFileSync(join(root, '.gitignore'), 'dist/\n.release-gate\n')
+  writeFileSync(
+    join(root, '.gitignore'),
+    'dist/\n.release-gate\n.release-gate-verified\n'
+  )
   writeFileSync(join(root, 'a.ts'), 'export const a = 1\n')
   mkdirSync(join(root, 'dist'))
   writeFileSync(join(root, 'dist', 'index.js'), 'export const a = 1\n')
@@ -82,5 +92,42 @@ describe('releaseStampProblem', () => {
   it('refuses an old-format stamp (SHA only) rather than trusting it', () => {
     writeFileSync(join(root, '.release-gate'), `${git('rev-parse', 'HEAD')}\n`)
     expect(releaseStampProblem(root)).toBe('stamp predates dist hashing')
+  })
+})
+
+describe('writeStamp — the WRITER enforces the invariant, so no caller can stamp unsafely', () => {
+  // The 0.14.0 re-review's B-1. The clean-tree refusal ran only under `--prepare`; on the plain
+  // `npm publish` path release-gate built, tested and STAMPED whatever was on disk. Then:
+  //   npm publish (dirty)  -> gate stamps HEAD + that dist/  -> prepublish-check refuses: dirty
+  //   git checkout .       -> the obvious response to that refusal
+  //   npm publish          -> stamp matches HEAD, tree clean, dist/ unchanged -> SKIPS the suite
+  // and packs a dist/ built from code that is in no commit. Putting the check in the writer
+  // rather than in each caller is the class fix: a new caller cannot forget it.
+  it('REFUSES on a dirty tree and writes nothing — neither stamp nor ledger', () => {
+    writeFileSync(join(root, 'a.ts'), 'export const a = 42 // uncommitted\n')
+    const r = writeStamp(root)
+    expect(r.ok).toBe(false)
+    expect(existsSync(join(root, '.release-gate'))).toBe(false)
+    expect(existsSync(join(root, '.release-gate-verified'))).toBe(false)
+  })
+
+  it('the B-1 sequence end to end: after a discard, nothing covers the publish', () => {
+    writeFileSync(join(root, 'a.ts'), 'export const a = 42\n')
+    // dist/ built from the uncommitted edit:
+    writeFileSync(join(root, 'dist', 'index.js'), 'export const a = 42\n')
+    writeStamp(root) // the dirty publish attempt
+    git('checkout', '--', 'a.ts') // the obvious response to "tree is dirty"
+    expect(git('status', '--porcelain')).toBe('')
+    // Before the fix this returned null: stamp matched HEAD, tree clean, dist/ unchanged.
+    expect(releaseStampProblem(root)).toBe('no stamp')
+  })
+
+  it('writes both on a clean tree, and the result covers the publish — apparatus check', () => {
+    const r = writeStamp(root)
+    expect(r.ok).toBe(true)
+    expect(releaseStampProblem(root)).toBeNull()
+    expect(
+      readFileSync(join(root, '.release-gate-verified'), 'utf8')
+    ).toContain(git('rev-parse', 'HEAD'))
   })
 })
