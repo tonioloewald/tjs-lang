@@ -2082,7 +2082,7 @@ export function transpileToJS(
       // hand-rolled comparison, which is how the two drifted apart in the first place.
       // A RuntimeType defers to its own `.check`; a bare predicate function is used as-is.
       inlineParts.push(
-        `function Generic(tp,pred,d){const c=a=>{if(a===null||a===undefined)return()=>true;if(a.__runtimeType&&typeof a.check==='function')return v=>a.check(v)===true;if(typeof a==='function')return v=>a(v)===true;return v=>__match(v,a)};const f=(...args)=>{const ck=args.map(c);const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...ck)};return t};f.__runtimeType=true;f.description=d;return f}`
+        `function Generic(tp,pred,d){const c=a=>{if(a===null||a===undefined)return()=>true;if(a.__runtimeType&&typeof a.check==='function')return v=>a.check(v)===true;if(typeof a==='function')return v=>a(v)===true;return v=>__match(v,a)};const f=(...args)=>{const ck=args.map(c);const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...ck)};return __pred(t,t.description)};f.__runtimeType=true;f.description=d;return f}`
       )
     }
     if (needsFunctionPredicate) {

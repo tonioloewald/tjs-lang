@@ -30,39 +30,126 @@ import {
   Enum,
   Union,
   FunctionPredicate,
+  Generic,
   Predicate,
   isRuntimeType,
 } from '../index'
 import { tjs } from './index'
-import { createRuntime } from './runtime'
+// `Exactly` is public through the `tjs-lang/runtime` subpath, not the main entry.
+import { createRuntime, Exactly } from './runtime'
+
+/**
+ * ONE table drives both the library and the emitted assertions.
+ *
+ * The 0.14.0 pre-release review found the reason this matters: the first version of this
+ * file transpiled only `Type Age 0` in its emitted block, while the library block covered
+ * four forms. The stub wrapped only `Type` in `__pred`, so emitted `Enum`/`Union`/
+ * `FunctionPredicate` were plain objects — `Colour('red')` threw `is not a function` — and
+ * the CHANGELOG asserted parity that did not exist. **The guard was green exactly where
+ * the drift was, and could not go red.**
+ *
+ * A shared table makes that shape impossible: a form added here must pass on both sides.
+ *
+ * It was not actually shared until the 0.14.0 RE-review: the library block had its own
+ * `CASES` (Type/Enum/Union) and this table was emitted-only — two tables, which is how a
+ * `Generic` instance could be callable in the library and a plain object in emitted code with
+ * nothing noticing. Every row now carries BOTH `lib` and `decl`.
+ */
+const FORMS: Array<{
+  /** The library's value for this form — through the PUBLIC entry. */
+  lib: () => any
+  decl: string
+  name: string
+  pass: unknown
+  fail: unknown
+}> = [
+  {
+    lib: () => Type('Age', 0),
+    decl: `Type Age 0`,
+    name: 'Age',
+    pass: 5,
+    fail: 'x',
+  },
+  {
+    lib: () => Enum('a colour', { Red: 'red', Green: 'green' } as any),
+    decl: `Enum Colour 'a colour' { Red = 'red', Green = 'green' }`,
+    name: 'Colour',
+    pass: 'red',
+    fail: 'blue',
+  },
+  // B1 was specifically about THESE three: the stub wrapped only `Type` in `__pred`, so
+  // emitted Union/Exactly/FunctionPredicate were plain objects and threw `is not a function`.
+  // The fix wrapped all five, but this table carried only Type and Enum — so the guard for
+  // B1 did not cover B1. Added 2026-09-24.
+  {
+    lib: () => Union('mixed', [0, '']),
+    decl: `const Mixed = Union('mixed', [0, ''])`,
+    name: 'Mixed',
+    pass: 0,
+    fail: true,
+  },
+  {
+    lib: () => Exactly('a', 'b'),
+    decl: `const AB = Exactly('a', 'b')`,
+    name: 'AB',
+    pass: 'a',
+    fail: 'c',
+  },
+  // The 0.14.0 RE-review's M-2: a Generic INSTANCE. B1's fix wrapped the five constructors
+  // that return a type directly and missed the one that returns it one call later — so an
+  // emitted `Box(0)` was a plain object and `Box(0)(v)` threw, while the library's is a
+  // callable Predicate. The table listed the five, so it could not see the sixth.
+  {
+    lib: () =>
+      Generic(
+        ['T'],
+        (x: any, T: (v: unknown) => boolean) =>
+          typeof x === 'object' && x !== null && T(x.value),
+        'box'
+      )(0),
+    decl: `Generic Box<T> {\n  description: 'box'\n  predicate(x, T) { return typeof x === 'object' && x !== null && T(x.value) }\n}\nconst IntBox = Box(0)`,
+    name: 'IntBox',
+    pass: { value: 1 },
+    fail: { value: 'x' },
+  },
+  {
+    lib: () =>
+      FunctionPredicate('Callback', { params: { x: 0 }, returns: '' } as any),
+    decl: `FunctionPredicate Callback {\n  params: { x: 0 }\n  returns: ''\n}`,
+    name: 'Callback',
+    pass: () => '',
+    fail: 5,
+  },
+]
 
 describe('the real runtime: predicates are callable', () => {
-  const CASES: Array<[string, any, unknown, unknown]> = [
-    ['Type', Type('Age', 0), 5, 'x'],
-    ['Enum', Enum('Colour', ['red', 'green']), 'red', 'blue'],
-    ['Union', Union('Mixed', [0, '']), 0, true],
-  ]
-
-  for (const [label, pred, pass, fail] of CASES) {
-    it(`${label} is callable and decides`, () => {
+  for (const { lib, name, pass, fail } of FORMS) {
+    it(`${name} is callable and decides`, () => {
+      const pred = lib()
       expect(typeof pred).toBe('function')
       expect(pred(pass)).toBe(true)
-      expect(pred(fail)).toBe(false)
+      // `!== true`, not `=== false`: the contract `checkType` relies on is "true, or anything
+      // else", and the real FunctionPredicate returns a REASON string on rejection where the
+      // stub returns false — a documented divergence (CLAUDE.md, "The inline runtime is NOT
+      // the real runtime"). Asserting `false` would fail on the documented behaviour.
+      expect(pred(fail)).not.toBe(true)
     })
 
-    it(`${label}.check IS the function — one implementation`, () => {
+    it(`${name}.check IS the function — one implementation`, () => {
       // Not "behaves the same as" — the same object. Two implementations is the failure mode.
+      const pred = lib()
       expect(pred.check).toBe(pred)
     })
 
-    it(`${label} is instanceof Predicate, via a real prototype chain`, () => {
+    it(`${name} is instanceof Predicate, via a real prototype chain`, () => {
+      const pred = lib()
       expect(pred instanceof Predicate).toBe(true)
       // Still a function to everything that does not know better.
       expect(typeof pred.bind).toBe('function')
     })
 
-    it(`${label} is still recognised as a runtime type`, () => {
-      expect(isRuntimeType(pred)).toBe(true)
+    it(`${name} is still recognised as a runtime type`, () => {
+      expect(isRuntimeType(lib())).toBe(true)
     })
   }
 
@@ -88,50 +175,6 @@ describe('the real runtime: predicates are callable', () => {
 })
 
 describe('EMITTED code agrees — the stub is the shipped semantics', () => {
-  /**
-   * ONE table drives both the library and the emitted assertions.
-   *
-   * The 0.14.0 pre-release review found the reason this matters: the first version of this
-   * file transpiled only `Type Age 0` in its emitted block, while the library block covered
-   * four forms. The stub wrapped only `Type` in `__pred`, so emitted `Enum`/`Union`/
-   * `FunctionPredicate` were plain objects — `Colour('red')` threw `is not a function` — and
-   * the CHANGELOG asserted parity that did not exist. **The guard was green exactly where
-   * the drift was, and could not go red.**
-   *
-   * A shared table makes that shape impossible: a form added here must pass on both sides.
-   */
-  const FORMS: Array<{
-    decl: string
-    name: string
-    pass: unknown
-    fail: unknown
-  }> = [
-    { decl: `Type Age 0`, name: 'Age', pass: 5, fail: 'x' },
-    {
-      decl: `Enum Colour 'a colour' { Red = 'red', Green = 'green' }`,
-      name: 'Colour',
-      pass: 'red',
-      fail: 'blue',
-    },
-    // B1 was specifically about THESE three: the stub wrapped only `Type` in `__pred`, so
-    // emitted Union/Exactly/FunctionPredicate were plain objects and threw `is not a function`.
-    // The fix wrapped all five, but this table carried only Type and Enum — so the guard for
-    // B1 did not cover B1. Added 2026-09-24.
-    {
-      decl: `const Mixed = Union('mixed', [0, ''])`,
-      name: 'Mixed',
-      pass: 0,
-      fail: true,
-    },
-    { decl: `const AB = Exactly('a', 'b')`, name: 'AB', pass: 'a', fail: 'c' },
-    {
-      decl: `FunctionPredicate Callback {\n  params: { x: 0 }\n  returns: ''\n}`,
-      name: 'Callback',
-      pass: () => '',
-      fail: 5,
-    },
-  ]
-
   /** Transpile a declaration and hand back the emitted binding. */
   function emitted(decl: string, name: string): any {
     const saved = (globalThis as any).__tjs
