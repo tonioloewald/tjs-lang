@@ -85,6 +85,67 @@ describe('behaviour: every boundary refuses a format it cannot read', () => {
     expect(reported).toMatch(/format version|version 2/)
   })
 
+  // The 0.14.0 RE-review's M-1. The first fix gated the token route into `agentRun` and
+  // missed the INLINE route — the original review's own repro — because the structural sweep
+  // below enumerated `procedureStore` readers, which is the wrong set. The door is any place
+  // an AST that arrived from outside is EXECUTED, whatever route it took. Hence these, and the
+  // widened sweep further down.
+  for (const [label, version] of [
+    ['a future version', AST_VERSION + 98],
+    ['a codec-stringified version', '2'],
+  ] as const) {
+    it(`agentRun refuses an INLINE AST with ${label}`, async () => {
+      const inline = {
+        [AST_VERSION_KEY]: version,
+        op: 'seq',
+        steps: [{ op: 'return', value: { ran: 'yes' } }],
+      }
+      const result = await new AgentVM().run(
+        {
+          op: 'seq',
+          steps: [
+            { op: 'agentRun', agentId: inline, input: {}, result: 'sub' },
+            { op: 'return', value: { sub: 'sub' } },
+          ],
+        } as any,
+        {}
+      )
+      // It must not have RUN — the repro returned {ran:'yes'}.
+      expect(JSON.stringify(result.result ?? null)).not.toContain('yes')
+      expect(JSON.stringify(result.error ?? '')).toMatch(
+        /format version|unreadable/
+      )
+    })
+  }
+
+  it('runCode refuses a future-version AST from the host transpiler', async () => {
+    // The capability's transpiler may be a DIFFERENT tjs-lang than this VM — a version
+    // mismatch between producer and interpreter is exactly the case the field exists for.
+    const result = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'runCode', code: 'whatever', result: 'r' },
+          { op: 'return', value: { r: 'r' } },
+        ],
+      } as any,
+      {},
+      {
+        capabilities: {
+          code: {
+            transpile: () => ({
+              [AST_VERSION_KEY]: AST_VERSION + 1,
+              op: 'seq',
+              steps: [{ op: 'return', value: { ran: 'yes' } }],
+            }),
+          },
+        } as any,
+      }
+    )
+    expect(JSON.stringify(result.result ?? null)).not.toContain('yes')
+    expect(JSON.stringify(result.error ?? '')).toMatch(/format version/)
+  })
+
   it('and all three still accept a CURRENT AST — apparatus check', async () => {
     // Every assertion above is satisfied by a VM that refuses everything.
     const ok = await new AgentVM().run(
@@ -154,6 +215,47 @@ describe('structure: the boundary set is enumerable, so a new one cannot be miss
     const next = src.indexOf('\nexport const ', i + 10)
     const body = src.slice(i, next > 0 ? next : undefined)
     expect(/checkAstVersion\s*\(/.test(body)).toBe(true)
+  })
+
+  it('EVERY execution of a non-literal AST is immediately preceded by the gate on it', () => {
+    // The generalisation the first M3 fix lacked. It swept `procedureStore` readers — the
+    // wrong set — so `agentRun`'s INLINE route and `runCode` executed future-version ASTs while
+    // every test here stayed green (0.14.0 re-review, M-1). The door is not "where ASTs are
+    // stored", it is "where an AST that arrived from outside is EXECUTED". So: find every
+    // `seq.exec(x)` / `seqAtom.exec(x)` whose argument is not an object literal — a literal
+    // `{ op: 'seq', steps }` is a nested body of a document already gated at its entry — and
+    // require `checkAstVersion(x, …)` on the SAME identifier earlier in the enclosing atom/function.
+    // Deliberately textual and local: it cannot see through calls, which is why the token
+    // route repeats the gate rather than relying on `resolveProcedureToken`.
+    const offenders: string[] = []
+    let sites = 0
+    for (const file of ['runtime.ts', 'vm.ts']) {
+      const lines = readFileSync(join(VM_DIR, file), 'utf8').split('\n')
+      lines.forEach((line, i) => {
+        const m = /\b(?:seq|seqAtom)\.exec\(\s*([A-Za-z_$][\w$]*)/.exec(line)
+        if (!m) return
+        sites++
+        const ident = m[1]
+        // Search back to the start of the ENCLOSING atom or function, not a fixed window:
+        // `runCode` gates version BEFORE shape (as AgentVM.run does), which puts its gate
+        // further up than any small window — a line count is the wrong measure of "before".
+        let start = i
+        while (
+          start > 0 &&
+          !/^(?:export const \w+ = defineAtom\(|export (?:async )?function |\s+async run\()/.test(
+            lines[start]
+          )
+        )
+          start--
+        const before = lines.slice(start, i).join('\n')
+        const gate = new RegExp(`checkAstVersion\\(\\s*${ident}\\b`)
+        if (!gate.test(before))
+          offenders.push(`${file}:${i + 1} exec(${ident})`)
+      })
+    }
+    // Apparatus check: the three known sites must be FOUND, or the sweep proves nothing.
+    expect(sites).toBeGreaterThanOrEqual(3)
+    expect(offenders).toEqual([])
   })
 
   it('no OTHER function reads `procedureStore` without gating', () => {

@@ -3977,6 +3977,10 @@ export const agentRun = defineAtom(
       try {
         const seqAtom = ctx.resolver('seq')
         if (!seqAtom) throw new Error('seq atom not found')
+        // Already gated inside resolveProcedureToken — repeated so the rule stays mechanical:
+        // EVERY execution of a non-literal AST is immediately preceded by the gate on it.
+        // `ast-version-boundaries.test.ts` checks exactly that, and cannot see through calls.
+        checkAstVersion(ast, 'agentRun')
         await seqAtom.exec(ast, childCtx)
 
         if (childCtx.error) {
@@ -4007,6 +4011,10 @@ export const agentRun = defineAtom(
       try {
         const seqAtom = ctx.resolver('seq')
         if (!seqAtom) throw new Error('seq atom not found')
+        // The INLINE route — guest-supplied, no capability required. The first fix for the
+        // 0.14.0 review's M3 gated only the token route and missed this one, which was the
+        // review's own repro (0.14.0 re-review, M-1).
+        checkAstVersion(resolvedId, 'agentRun')
         await seqAtom.exec(resolvedId, childCtx)
 
         if (childCtx.error) {
@@ -4146,6 +4154,10 @@ export const runCode = defineAtom(
       throw new Error(`Code transpilation failed: ${e.message}`, { cause: e })
     }
 
+    // Version BEFORE shape, as in AgentVM.run: a newer format should report its version, not
+    // "must be a seq node". And the host's transpiler may be a different tjs-lang than this
+    // VM — producer/interpreter version skew is exactly what the field exists to refuse.
+    checkAstVersion(ast, 'runCode')
     if (ast.op !== 'seq') {
       throw new Error('Transpiled code must be a seq node')
     }
