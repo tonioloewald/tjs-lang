@@ -411,9 +411,18 @@ Generalised, the four existing forms differ only in what they carry:
 | `Enum` / `Union` — the whole finite domain | generate, **enumerate → autocomplete for free** |
 | `FunctionPredicate` — a signature | describe `params`/`returns`, check arity |
 
-Capabilities are **properties present or absent**, not subclasses. `instanceof Predicate` via
-`Symbol.hasInstance` on the brand (verified: it spans both a plain object like `Type(…)` and an
-ordinary callable like `isColor`, without touching prototypes, so a predicate stays a function).
+Capabilities are **properties present or absent**, not subclasses. `instanceof Predicate`
+comes from a **real prototype chain**: `brandPredicate` (`src/types/predicate-brand.ts`) sets a
+predicate's prototype to `Predicate.prototype`, which itself links to `Function.prototype`, so a
+predicate keeps `call`/`apply`/`bind` and stays a function to everything that does not know
+better.
+
+_Superseded design, kept because the reasoning shows up elsewhere in this note:_ the first
+draft used `Symbol.hasInstance` on the brand, which spanned a plain object like the old
+`Type(…)` and an ordinary callable like `isColor` without touching prototypes. It stopped being
+necessary once runtime types became functions — there was no longer a plain-object population
+to span — and a real chain beats a stand-in for one. The class is claimed through a
+shape-versioned global slot so it is the SAME class across bundles (`docs/runtime-fusion.md`).
 
 ### Autocomplete is NOT in the minimum, and that is load-bearing
 
@@ -521,7 +530,8 @@ and no declaration form uses `.name` today, but a property named `name` would ne
   So the mechanisms already **agree** across the corpus. Unifying them is therefore closer to a
   refactor than to a behaviour change, and the remaining question is design (should `Type` be
   constructed *through* `Predicate`, or merely satisfy it?) rather than "which semantics win".
-  Branding via `Symbol.hasInstance` stays orthogonal either way.
+  Branding stays orthogonal either way. (Written when the brand was a `Symbol.hasInstance`
+  check; it is now a real prototype chain — see "Capabilities are properties" above.)
 
 ## Open questions
 

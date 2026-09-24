@@ -2106,7 +2106,7 @@ export function transpileToJS(
     }
     if (needsUnion) {
       inlineParts.push(
-        `function Union(d,...v){const vals=v.flat();return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}})}`
+        `function Union(d,...v){const vals=v.flat();return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}},d)}`
       )
     }
     // Exactly — a closed set of VALUES, for literals and discriminants. Emitted as a value
@@ -2114,7 +2114,7 @@ export function transpileToJS(
     // is evaluated at runtime.
     if (needsExactly) {
       inlineParts.push(
-        `function Exactly(...v){const vals=v.flat();return __pred({description:'exactly '+vals.map(x=>JSON.stringify(x)).join(' | '),check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}})}`
+        `function Exactly(...v){const vals=v.flat();const d='exactly '+vals.map(x=>JSON.stringify(x)).join(' | ');return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}},d)}`
       )
     }
     // toBool — honest truthiness (unwraps boxed primitives)

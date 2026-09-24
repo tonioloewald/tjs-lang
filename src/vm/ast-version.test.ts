@@ -46,8 +46,49 @@ describe('reading a version', () => {
     expect(astVersionOf({ op: 'seq', steps: [] })).toBe(1)
   })
 
-  it('a non-numeric field is treated as legacy rather than trusted', () => {
-    expect(astVersionOf({ [AST_VERSION_KEY]: 'two', op: 'seq' })).toBe(1)
+  // A PRESENT field that is not a usable version is REFUSED, never read as legacy.
+  //
+  // This used to pin the opposite ("treated as legacy rather than trusted"), and the reasoning
+  // was backwards: reading it as legacy IS trusting it — legacy means "run it as v1". "Absent
+  // means 1" is sound because absence proves the AST predates versioning. A present-but-
+  // malformed field proves the opposite: something that stamps versions wrote it. And the
+  // realistic source is not hostility but a codec — ASTs cross JSON, stores and RPC, which
+  // stringify numbers routinely, so a v2 AST round-tripping as `{"$ajs":"2"}` was read as v1
+  // and EXECUTED: the exact misreading the field exists to prevent (0.14.0 review).
+  const UNREADABLE: Array<[string, unknown]> = [
+    ['a stringified number — the codec case', '2'],
+    ['a word', 'two'],
+    ['null', null],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['a fraction', 1.5],
+    ['zero — no such version', 0],
+    ['a negative', -1],
+    ['an object', { v: 2 }],
+  ]
+
+  for (const [label, raw] of UNREADABLE) {
+    it(`refuses ${label}`, () => {
+      const ast = { [AST_VERSION_KEY]: raw, op: 'seq', steps: [] }
+      expect(astVersionOf(ast)).toBeNull()
+      expect(astVersionProblem(ast)).toMatch(/unreadable|not a format version/i)
+    })
+  }
+
+  it('and the VM refuses to RUN one — end to end, not just the helper', async () => {
+    const result = await new AgentVM()
+      .run({ [AST_VERSION_KEY]: '2', op: 'seq', steps: [] } as any, {})
+      .catch((e: any) => ({ error: e }))
+    expect(
+      String((result as any).error?.message ?? (result as any).error)
+    ).toMatch(/unreadable|not a format version/i)
+  })
+
+  it('apparatus check: a valid version still reads, and absent still means legacy', () => {
+    // Every refusal above is satisfied by a reader that refuses everything.
+    expect(astVersionOf({ [AST_VERSION_KEY]: AST_VERSION })).toBe(AST_VERSION)
+    expect(astVersionOf({})).toBe(1)
+    expect(astVersionProblem({ [AST_VERSION_KEY]: AST_VERSION })).toBeNull()
   })
 })
 

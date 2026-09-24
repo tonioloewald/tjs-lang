@@ -4264,6 +4264,63 @@ block in the report. What is deferred is named here.
       hand-maintained copies of the same `toJSON` rule, and `__pred` in `emitters/js.ts` is a
       third. Three addresses for one rule is the shape M2 was.
 
+Routed from the review's follow-up list (each is also marked in the report). Seven follow-ups
+were fixed on 2026-09-24 rather than routed — see the `[x]` entries there.
+
+- [ ] **Unexplained `test:fast` 4935/1/35 run** (from B3). One run in five, beside a transient
+      LLM 400. The failing test was never captured, so it cannot be declared LM-Studio noise —
+      and `test:fast` sets `SKIP_LLM_TESTS`, which makes an LLM-driven failure there odd in
+      itself. Capture the name if it recurs (`tee` the run); do not close this by assumption.
+- [ ] **`brandPredicate` defaults may be permissive where they used to be loud** (security,
+      minor, UNVERIFIED — sanity-check first). The default `toJSONSchema()` returns
+      `{ $predicate: { name } }` — an object where the `$predicate` contract reportedly expects
+      source — so a naive validator accepts anything and our evaluator may fail closed without
+      running the predicate; the default `strip` is identity where it used to throw. Either
+      honour "presence IS the capability" and omit both defaults, or emit the documented shape.
+- [ ] **`Object.assign(fn, spec)` perf** (efficiency, UNVERIFIED). Reported ~422 ns of a
+      ~530 ns `__pred` call — a JSC slow path for assign-onto-a-function — and the emitter does
+      not hoist declarations out of function bodies, so a per-call `Type` pays it every call.
+      The `~0.1µs` justification cited in `src/types/Type.ts` measured `setPrototypeOf` in
+      isolation. Re-measure; then swap to a key loop, or fix the cited number.
+- [ ] **README has no `tjs-vm-ast` row, and `bundle-size.test.ts` cannot see an ABSENT row.**
+      It iterates rows present in the README, so a new published bundle is invisible by
+      construction. Add the row, re-measure (existing rows reportedly 4–5% stale), update the
+      "Measured at" qualifier, and make a published entry with no row FAIL.
+- [ ] **`setTranspiler` is an undocumented permanent public export of `tjs-lang/vm-ast`**
+      (`src/vm/ast.ts` does `export * from './vm'`). It is the one function that undoes that
+      entry's guarantee, and it is process-global, last-writer-wins. Give `ast.ts` an explicit
+      re-export list that omits it, or document it with the caveat.
+- [ ] **Entry-point docs name one transpiler-arming entry; there are three.** `src/vm/ast.ts`
+      and the CHANGELOG name `tjs-lang/vm`; `tjs-lang` and `tjs-lang/eval` arm it too. Also
+      state in `llms.txt` that `tjs-lang/lang` resolves to `src/lang/transpiler.ts`, not
+      `src/lang/index.ts` — a reviewer built a whole (refuted) major on that wrong mapping.
+- [ ] **`doc-snippets.test.ts` is an allowlist, so `guides/why-tjs.md` escaped it** (and so
+      did `CHANGELOG.md`, where B2's unwritable example lived). Make it a denylist so a new
+      doc is checked by default.
+- [ ] **`brandPredicate` mutates what it is handed**, undocumented, while exported as a general
+      primitive. Adjacent: `asPredicate`'s `Object.assign(fn, spec)` throws in strict mode on
+      a spec key named `name`/`length`/`arguments`/`caller`. Document or copy; test the keys.
+- [ ] **Runtime types vs the capability membrane — untested.** Types are now functions and
+      the membrane rejects functions, so a capability returning a payload containing a `Type`
+      now fails at the boundary where it used to cross. Pin the behaviour either way. Related:
+      `__runtimeType = true` on every verified predicate means `isRuntimeType`, `checkType` and
+      `__match` treat any branded function as a TYPE rather than an example value — pin that
+      disambiguation separately.
+- [ ] **`demo/docs.json` has no size guard** and is statically imported into the playground's
+      first load (1.50 MB → 1.59 MB this release). Add a byte ceiling with a ratchet, or fetch
+      it at runtime. Correct the "1.2 MB corpus" figure in `bin/site.ts` either way.
+- [ ] **`functions/` pins `tjs-lang: ^0.13.11`, which cannot reach 0.14.0** — so after publish
+      the deployed functions stay on 0.13.x, `/health` reports the old version, and the one
+      break 0.14.0 names (`typeof` a runtime type) gets no downstream evidence. After
+      publishing: widen the range, refresh `functions/package-lock.json`, deploy, read
+      `/health` back. Publishing is the maintainer's; this follows it.
+- [ ] **`src/vm/atoms/browser.ts` is dead code** (found 2026-09-24 by the sideEffects scan, not
+      the review). Six `defineAtom` calls at module scope whose results are discarded;
+      `defineAtom` returns the atom and registers nothing, and `domText` and the rest are
+      referenced nowhere. Either export them as a `browserAtoms` map beside
+      `createBrowserCapabilities`, or delete the file. Currently exempted in
+      `side-effects-allowlist.test.ts` with that reason.
+
 ## Open findings — 0.13.10 pre-release review (BLOCK, 2026-09-03)
 
 Full report: [`docs/reviews/0.13.10-pre-release-review.md`](docs/reviews/0.13.10-pre-release-review.md).

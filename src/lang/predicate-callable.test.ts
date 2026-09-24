@@ -21,8 +21,18 @@
  * `Function` and it says nothing useful.
  */
 import { describe, it, expect } from 'bun:test'
-import { Type, Enum, Union, FunctionPredicate, Predicate } from '../types/Type'
-import { isRuntimeType } from '../types/Type'
+// Through the PUBLIC entry, not `../types/Type`. This file used to import the internal module,
+// which is how it could see `Predicate` while no consumer could: the 0.14.0 review's B2 was a
+// brand that existed everywhere except the published surface, and the guard for it bypassed
+// that surface. Cross-BUNDLE identity is `src/predicate-bundles.test.ts`, against dist/.
+import {
+  Type,
+  Enum,
+  Union,
+  FunctionPredicate,
+  Predicate,
+  isRuntimeType,
+} from '../index'
 import { tjs } from './index'
 import { createRuntime } from './runtime'
 
@@ -102,6 +112,23 @@ describe('EMITTED code agrees — the stub is the shipped semantics', () => {
       name: 'Colour',
       pass: 'red',
       fail: 'blue',
+    },
+    // B1 was specifically about THESE three: the stub wrapped only `Type` in `__pred`, so
+    // emitted Union/Exactly/FunctionPredicate were plain objects and threw `is not a function`.
+    // The fix wrapped all five, but this table carried only Type and Enum — so the guard for
+    // B1 did not cover B1. Added 2026-09-24.
+    {
+      decl: `const Mixed = Union('mixed', [0, ''])`,
+      name: 'Mixed',
+      pass: 0,
+      fail: true,
+    },
+    { decl: `const AB = Exactly('a', 'b')`, name: 'AB', pass: 'a', fail: 'c' },
+    {
+      decl: `FunctionPredicate Callback {\n  params: { x: 0 }\n  returns: ''\n}`,
+      name: 'Callback',
+      pass: () => '',
+      fail: 5,
     },
   ]
 

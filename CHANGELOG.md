@@ -194,6 +194,33 @@ Predicate` to "callable and boolean-ish".
 
 ### Fixed
 
+- **A present-but-unreadable `$ajs` field is refused, not read as version 1.** `{"$ajs":"2"}` —
+  a v2 AST whose number a JSON codec stringified in transit — was read as legacy and
+  **executed**, the exact misreading the field exists to prevent. Reading a field as legacy
+  is not distrusting it; legacy means "run it as v1". Absence proves an AST predates
+  versioning, but a present-and-malformed field proves the opposite: something that stamps
+  versions wrote it. Now: absent → legacy, a positive integer → itself, anything else →
+  refused, with a message naming the likely codec cause.
+
+- **`package.json` `sideEffects` named one module; five have module-scope effects.** Everything
+  an allowlist omits is asserted pure, so a bundler honouring it could skip `src/index.ts`,
+  `src/vm/index.ts` or `src/lang/eval.ts` — each wires the transpiler at load — and hand a
+  consumer a VM that refuses source, visible only in a production bundle. Worse,
+  `tjs-lang/bun-plugin`, whose documented usage is a bare `import`, which is the exact import an
+  allowlist lets a bundler drop. The list is now **derived**: `src/side-effects-allowlist.test.ts`
+  scans every module for module-scope calls over a literal-masked view and fails on any that is
+  neither listed nor exempt with a reason. Deriving is what found the plugin; the review that
+  prompted this named only the other three.
+
+- **Emitted `Union` and `Exactly` named themselves `f`.** Their inline stubs called `__pred`
+  without the name argument that `Type` and `Enum` pass, so `.name` was the stub's closure
+  name, in stack traces and autocomplete alike. The real runtime names both from the
+  description; the emitted code now does too.
+
+- **`expect(str).toContain(nonString)` reported a comparison that never happened** —
+  `Expected "12345" to contain 234` for a needle refused on type. It now says so:
+  `toContain on a string needs a string needle, got number (234)`.
+
 - **`expect(…).toContain(…)` now does substring on strings.** It was array-only — the guard
   read `!Array.isArray(actual) || …`, so a string could never pass however plainly it
   contained the argument, and the failure was reported as

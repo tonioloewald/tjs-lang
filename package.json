@@ -201,8 +201,15 @@
     "!**/*.demo.test.ts"
   ],
   "sideEffects": [
+    "./src/index.ts",
+    "./dist/index.js",
+    "./src/vm/index.ts",
+    "./dist/tjs-vm.js",
+    "./src/lang/eval.ts",
+    "./dist/tjs-eval.js",
     "./src/schema/index.ts",
-    "./dist/tjs-schema.js"
+    "./dist/tjs-schema.js",
+    "./src/bun-plugin/tjs-plugin.ts"
   ],
   "repository": {
     "type": "git",

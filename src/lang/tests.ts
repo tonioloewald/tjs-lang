@@ -477,7 +477,15 @@ function expect(actual) {
       // \`expect(err.path).toContain('opts.x')\` in an example is what found it, against a
       // path that plainly did contain it.
       if (typeof actual === 'string') {
-        if (typeof item !== 'string' || actual.indexOf(item) === -1) {
+        // A non-string needle is refused on TYPE, and says so — the mirror of the defect
+        // above. Reporting "Expected X to contain 234" would describe a comparison that
+        // never happened.
+        if (typeof item !== 'string') {
+          throw new Error(
+            \`toContain on a string needs a string needle, got \${typeof item} (\${format(item)})\`
+          )
+        }
+        if (actual.indexOf(item) === -1) {
           throw new Error(\`Expected \${format(actual)} to contain \${format(item)}\`)
         }
         return

@@ -19,12 +19,17 @@ import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 
 /** Transpile with inline tests and report what passed and failed. */
-function runTests(body: string): { passed: string[]; failed: string[] } {
+function runTests(body: string): {
+  passed: string[]
+  failed: string[]
+  errors: string[]
+} {
   const result = tjs(body, { filename: 'a.tjs', runTests: 'report' }) as any
   const all = (result.testResults ?? []).filter((t: any) => !t.isSignatureTest)
   return {
     passed: all.filter((t: any) => t.passed).map((t: any) => t.description),
     failed: all.filter((t: any) => !t.passed).map((t: any) => t.description),
+    errors: all.filter((t: any) => !t.passed).map((t: any) => String(t.error)),
   }
 }
 
@@ -56,6 +61,19 @@ describe('toContain on strings', () => {
       }
     `)
     expect(failed).toEqual(['needle type'])
+  })
+
+  it('and SAYS it is a type refusal, not a content one', () => {
+    // The mirror of the defect this file exists for. The string branch reported
+    // `Expected "12345" to contain 234` — a comparison that never happened — for a needle it
+    // refused on TYPE. The haystack case names the type; the needle case must too.
+    const { errors } = runTests(`
+      test 'needle type' {
+        expect('12345').toContain(234)
+      }
+    `)
+    expect(errors[0]).toMatch(/number/)
+    expect(errors[0]).not.toMatch(/^Expected "12345" to contain 234$/)
   })
 })
 

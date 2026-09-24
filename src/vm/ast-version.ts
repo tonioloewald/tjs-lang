@@ -72,22 +72,52 @@ export const AST_VERSION_LEGACY = 1
 /** The root field carrying the format version. */
 export const AST_VERSION_KEY = '$ajs'
 
-/** Read the format version of an AST root, treating an absent field as legacy. */
-export function astVersionOf(ast: unknown): number {
-  const raw = (ast as Record<string, unknown> | null | undefined)?.[
-    AST_VERSION_KEY
-  ]
-  return typeof raw === 'number' ? raw : AST_VERSION_LEGACY
+/**
+ * Read the format version of an AST root.
+ *
+ * - **absent** → {@link AST_VERSION_LEGACY}. Sound, because absence proves the AST predates
+ *   versioning.
+ * - **a positive integer** → that version.
+ * - **present but anything else** → `null`, meaning *unreadable*, which
+ *   {@link astVersionProblem} refuses.
+ *
+ * The third case used to fall back to legacy, and that failed OPEN. Reading a field as legacy
+ * is not distrusting it — legacy means "run it as v1". A present-but-malformed field proves the
+ * opposite of what absence proves: something that stamps versions wrote it, so it is new, not
+ * old. The realistic cause is a codec rather than an attacker — ASTs cross JSON, stores and
+ * RPC, which stringify numbers routinely — and a v2 AST round-tripping as `{"$ajs":"2"}` was
+ * read as v1 and executed: exactly the misreading this field exists to prevent.
+ */
+export function astVersionOf(ast: unknown): number | null {
+  const root = ast as Record<string, unknown> | null | undefined
+  if (root == null || typeof root !== 'object' || !(AST_VERSION_KEY in root))
+    return AST_VERSION_LEGACY
+  const raw = root[AST_VERSION_KEY]
+  return Number.isSafeInteger(raw) && (raw as number) >= 1
+    ? (raw as number)
+    : null
 }
 
 /**
  * Explain why an AST cannot be run by this build, or `null` if it can.
  *
- * Returns a message rather than throwing so callers choose their own failure mode — the VM
- * wraps it in an `AgentError`, a validator might collect it.
+ * Returns a message rather than throwing so callers choose their own failure mode —
+ * {@link checkAstVersion} throws it at every boundary, a validator might collect it.
  */
 export function astVersionProblem(ast: unknown): string | null {
   const version = astVersionOf(ast)
+  if (version === null)
+    return (
+      `This AST's \`${AST_VERSION_KEY}\` field is present but unreadable ` +
+      `(${
+        JSON.stringify((ast as any)[AST_VERSION_KEY]) ??
+        String((ast as any)[AST_VERSION_KEY])
+      }) — ` +
+      `not a format version. A version must be a positive integer. Refusing to run it ` +
+      `rather than guess: a present field means something that stamps versions wrote this ` +
+      `AST, so reading it as legacy would be a guess, not a fallback. A stringified number ` +
+      `usually means a codec converted it in transit.`
+    )
   if (version === AST_VERSION) return null
   if (version < AST_VERSION) return null // older formats stay readable
   return (
