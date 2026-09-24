@@ -1,6 +1,6 @@
 {
   "name": "tjs-lang",
-  "version": "0.14.0",
+  "version": "0.14.0-rc.0",
   "description": "Type-safe JavaScript dialect with runtime validation, sandboxed VM execution, and AI agent orchestration. Transpiles TypeScript to validated JS with fuel-metered execution for untrusted code.",
   "keywords": [
     "typescript",
@@ -255,7 +255,7 @@
     "format": "bun eslint src --fix && bun prettier --write .",
     "format:check": "bun eslint src && bun prettier --check .",
     "lint": "eslint src --max-warnings 0",
-    "prepublishOnly": "bun run make && bun run scripts/prepublish-check.ts && bun run scripts/release-gate.ts",
+    "prepublishOnly": "bun run scripts/prerelease-tag.ts && bun run make && bun run scripts/prepublish-check.ts && bun run scripts/release-gate.ts",
     "prepare": "git config core.hooksPath .githooks || true; ln -sfn .. node_modules/tjs-lang 2>/dev/null || true",
     "build:grammars": "bun editors/build-grammars.ts && bun editors/build-prism.ts",
     "build:editors": "bun scripts/build-editors.ts && tsc -p tsconfig.editors.json",

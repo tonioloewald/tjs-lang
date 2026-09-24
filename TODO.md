@@ -4314,6 +4314,17 @@ were fixed on 2026-09-24 rather than routed — see the `[x]` entries there.
       break 0.14.0 names (`typeof` a runtime type) gets no downstream evidence. After
       publishing: widen the range, refresh `functions/package-lock.json`, deploy, read
       `/health` back. Publishing is the maintainer's; this follows it.
+- [ ] **`typescript` is imported by `tjs-lang/lang/from-ts` and declared nowhere a consumer
+      sees.** `dist/tjs-from-ts.js` does `import o from "typescript"`, but `typescript` is only a
+      devDependency, so a consumer's install knows nothing of it and the import fails with
+      `ERR_MODULE_NOT_FOUND` (measured on a packed 0.14.0-rc.0, real Node). Documented as
+      "needs typescript", which is a comment, not a control. Declare it as an OPTIONAL peer
+      (`peerDependenciesMeta.typescript.optional`), which is exactly what the five
+      `@codemirror/*` entries already do. Found by `release-doctor` once its pack-parsing bug was
+      fixed (tosijs-coding-practices `c85892e`); `src/package-exports.test.ts` misses it
+      because it scans `editors/**` and not `dist/`. Widen that guard in the same change.
+      Held back from the rc because it is a packaging change, and those get their own
+      executed verification (`releasing.md`).
 - [ ] **`src/vm/atoms/browser.ts` is dead code** (found 2026-09-24 by the sideEffects scan, not
       the review). Six `defineAtom` calls at module scope whose results are discarded;
       `defineAtom` returns the atom and registers nothing, and `domText` and the rest are

@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.14.0] — 2026-09-20
+## [0.14.0] — unreleased
+
+> **Release candidate: `0.14.0-rc.0`**, on the `rc` dist-tag (`npm i tjs-lang@rc`); `latest`
+> stays on 0.13.13 until 0.14.0 is final. Cut so tosijs-ui can verify against it before the
+> final release ([tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182)).
+> Note that `^0.14.0` does NOT admit `0.14.0-rc.0` — semver skips prereleases — so pin the
+> exact version to test it. Everything below is what the candidate contains.
 
 **A language release.** The tosijs-ui-hosted site was what 0.14.0 was originally reserved for;
 that work is real but lands separately, as a non-breaking change to build tooling that does not
