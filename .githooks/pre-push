@@ -30,18 +30,24 @@ fail() {
 # Does this push carry a real (non-delete) tag ref? pre-push feeds one line per ref
 # on stdin: "<local ref> <local sha> <remote ref> <remote sha>". A delete has an
 # all-zero local sha, which we skip.
-pushing_tag=0
+# The COMMITS being tagged — peeled, since an annotated tag's sha is the tag object, not the
+# commit. This hook used to gate HEAD instead: it compared the stamp to `git rev-parse HEAD`
+# and ran the suite on the working tree. For a retroactive tag — a case this hook exists
+# for — that tested the WRONG CODE and then cleared a tag naming different code. Found
+# 2026-09-25 tagging v0.14.0-rc.0 at 9bd4519 with HEAD three commits later.
+tagged=""
 while read -r local_ref local_sha _remote_ref _remote_sha; do
   case "$local_ref" in
   refs/tags/*)
     case "$local_sha" in
-    *[!0]*) pushing_tag=1 ;; # any non-zero char ⇒ a real tag, not a delete
+    *[!0]*) # any non-zero char ⇒ a real tag, not a delete
+      tagged="$tagged $(git rev-parse "$local_sha^{commit}")" ;;
     esac
     ;;
   esac
 done
 
-[ "$pushing_tag" -eq 0 ] && exit 0
+[ -z "$tagged" ] && exit 0
 
 # ORDER CHANGED 2026-09-13: the release is PUBLISH, then tag.
 #
@@ -61,12 +67,25 @@ done
 #
 # Deliberately strict: same SHA or run it. Not "recent", not "same version" — the only thing
 # that makes a re-run redundant is that the identical code was tested.
-STAMP="$(git rev-parse --show-toplevel)/.release-gate"
+ROOT="$(git rev-parse --show-toplevel)"
+STAMP="$ROOT/.release-gate"
 HEAD_SHA="$(git rev-parse HEAD)"
-if [ -f "$STAMP" ] && [ "$(head -n1 "$STAMP")" = "$HEAD_SHA" ]; then
-  echo "pre-push: full suite already green for $(echo "$HEAD_SHA" | cut -c1-7) (release-gate stamp) — not re-running."
-  exit 0
-fi
+stamped="$( [ -f "$STAMP" ] && head -n1 "$STAMP" || true )"
+# Every SHA a full suite has passed for on this machine. `.release-gate` names only the
+# LATEST — a later `release:ready` overwrites it — so the ledger is what remembers that the
+# commit you published from earlier was verified. Written by release-gate.ts and by this
+# hook; gitignored, like the stamp.
+LEDGER="$ROOT/.release-gate-verified"
+
+needs=""
+for sha in $tagged; do
+  if [ "$sha" = "$stamped" ] || { [ -f "$LEDGER" ] && grep -qx "$sha" "$LEDGER"; }; then
+    echo "pre-push: full suite already green for $(echo "$sha" | cut -c1-7) (release-gate record) — not re-running."
+  else
+    needs="$needs $sha"
+  fi
+done
+[ -z "$needs" ] && exit 0
 
 echo "pre-push: tag detected — running the FULL suite before it ships (~3 min)."
 
@@ -94,9 +113,27 @@ fi
 # combination (a vision model loaded, judged blind by a content-based probe) is what turned
 # this gate red at 0.13.0-beta.1 while `test:fast` stayed green. If a vision test FAILS
 # rather than skips, the probe is wrong, not the model — see src/batteries/audit.ts.
-bun test ||
-  fail "full test suite failed — do NOT ship this tag. Fix the failures above,
+for sha in $needs; do
+  if [ "$sha" = "$HEAD_SHA" ] && [ -z "$(git status --porcelain)" ]; then
+    # The tag names exactly the checked-out, clean tree: test it in place.
+    bun test ||
+      fail "full test suite failed — do NOT ship this tag. Fix the failures above,
   re-tag if needed, and push again."
-
+  else
+    # The tag names OTHER code than the working tree. Test THAT commit, in a throwaway
+    # worktree with its own install and build — the only way the suite sees what the tag
+    # names. Slower, and correct; the fast path is a release-gate record for the SHA.
+    wt="$(mktemp -d)/tag-$(echo "$sha" | cut -c1-7)"
+    echo "pre-push: tag names $(echo "$sha" | cut -c1-7), not the working tree — testing it in $wt"
+    git worktree add --detach "$wt" "$sha" >/dev/null 2>&1 ||
+      fail "could not create a worktree for $sha"
+    ok=0
+    (cd "$wt" && bun install --frozen-lockfile && bun run make && bun test) && ok=1
+    git worktree remove --force "$wt" >/dev/null 2>&1 || true
+    [ "$ok" -eq 1 ] ||
+      fail "full test suite failed for $(echo "$sha" | cut -c1-7) — do NOT ship this tag."
+  fi
+  echo "$sha" >>"$LEDGER"
+done
 echo "pre-push: full suite green — tag cleared to ship."
 exit 0

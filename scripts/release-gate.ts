@@ -59,7 +59,7 @@
  * and `SKIP_AUDIT` — precisely the three categories most likely to rot unseen, and the
  * reason the full run is the release gate at all (CLAUDE.md → "Full run before tagging").
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { hashDist, releaseStampProblem } from './release-stamp'
 
@@ -163,6 +163,12 @@ writeFileSync(
     '# prepublishOnly skips when line 1 is HEAD, the tree is clean, and dist/ still hashes the same.\n'
   )
 )
+
+// The LEDGER: every SHA whose full suite passed here. The stamp names only the latest, and a
+// later `release:ready` overwrites it — so without this, the commit you published from is
+// forgotten the moment you prepare the next one, and tagging it later re-tests it for nothing.
+// `.githooks/pre-push` reads both. Gitignored: it describes a local act.
+appendFileSync(join(ROOT, '.release-gate-verified'), `${sha}\n`)
 
 console.log(`release-gate: full suite green — stamped ${sha.slice(0, 7)}.`)
 if (PREPARE) {

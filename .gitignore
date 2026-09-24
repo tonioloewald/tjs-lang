@@ -182,3 +182,5 @@ src/**/*.d.ts.map
 # Local and machine-specific by design — committing it would let one machine's claim clear
 # another machine's pre-push gate, which is the opposite of what the stamp is for.
 .release-gate
+# Every SHA the full suite passed for on this machine (release-gate.ts + .githooks/pre-push).
+.release-gate-verified
