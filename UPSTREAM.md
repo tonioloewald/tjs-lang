@@ -277,6 +277,11 @@ shipped `dist/` — and the issue names all three.
 
 **Not fixed here** — different repo, file don't fix.
 
+**Verification path offered** (comment, 2026-09-24): tosijs-ui may test against a
+`0.14.0-rc.N` if we publish one first, under a non-`latest` tag. Semver catch recorded
+there: `^0.14.0` does NOT admit `0.14.0-rc.0`, so the rc must be pinned exactly (devDependency
+and the `TJS_VERSION` CDN pin) and then moved to `0.14.0` when final. No rc is published yet.
+
 **What we're waiting for:** `^0.13.1 || ^0.14.0` (or wider), all three pins moved. Until
 then the 0.14.0 release notes should carry the `--legacy-peer-deps` remedy for npm users.
 
