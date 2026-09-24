@@ -91,6 +91,13 @@ bun run lint                # ESLint, no --fix (format does the fixing)
                             #   Runs with `--max-warnings 0`, so a warning fails the
                             #   lane. Prefix an intentionally unused binding with `_`
                             #   rather than reaching for a disable comment.
+bun run release:ready       # Build + FULL suite + stamp, ahead of publishing, unattended —
+                            #   so `npm publish` takes seconds instead of ~5 minutes. The
+                            #   stamp names the commit AND hashes dist/; prepublishOnly skips
+                            #   the build and suite only when both still match and the tree
+                            #   is clean. Anything else and the publish runs the full gate
+                            #   itself — so skipping this costs time, never safety. Needs
+                            #   LM Studio up. Ends by printing the exact publish command.
 bun run test:dogfood        # The two dogfood ratchets, in their own lane (~50s).
                             #   NOT in test:fast: both gate on SKIP_BENCHMARKS, which
                             #   test:fast sets — so for months neither ran in CI, and a
@@ -547,6 +554,19 @@ is the only place it can be checked without being the thing it checks, and still
 fix. That file no longer requires a tag at HEAD (under this order it cannot exist yet); it
 requires the tree clean, the history pushed, no _conflicting_ tag, and every path `exports`
 names to resolve.
+
+**The suite must pass BEFORE the publish, not DURING it** (2026-09-24). `bun run release:ready`
+runs the build and the full suite unattended — an agent can do it — and writes the stamp;
+`npm publish` then finds a stamp that covers exactly what it is about to pack and skips
+straight to packing. "Covers" is checked, not assumed (`scripts/release-stamp.ts`, tested
+against a scratch repo in `release-stamp.test.ts`): the stamp's SHA is HEAD, the tree is
+clean, and `dist/` hashes the same as when the suite passed. That last one matters because
+`dist/` is gitignored and is most of what npm packs, so a SHA alone cannot see a rebuild
+after the stamp. Without a covering stamp the publish runs the build and suite itself, as it
+always did.
+
+`prepublishOnly` is now: `prerelease-tag` (refuses a prerelease on `latest` — seconds, first)
+→ `release-gate` (the stamp check, or the full build + suite) → `prepublish-check`.
 
 Escape hatch: `npm publish --ignore-scripts`, or `git push --no-verify` for a tag whose
 suite you have already run green by hand — never to dodge a real failure.
