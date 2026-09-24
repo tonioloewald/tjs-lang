@@ -261,6 +261,30 @@ someone checks compatibility.
 
 ---
 
+## tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182)
+
+**Filed:** [tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182) (2026-09-24).
+The same defect as tosijs-ui#98 above, one minor later — found by the 0.14.0 pre-release
+review, which is the second time this shape has needed a review to surface it.
+
+`tosijs-ui@1.15.0` declares `peerDependencies['tjs-lang']: '^0.13.1'` (checked against the
+registry 2026-09-24). Under 0.x semver that admits patches only, so once `tjs-lang@0.14.0`
+publishes, any npm 7+ consumer with both installed gets a hard `ERESOLVE`: an optional peer is
+only optional when ABSENT. **`bun install` resolves it cleanly**, which is why neither repo's
+own workflow shows it. tjs-lang is pinned in three places there — the peer range, the
+`devDependencies` pin `0.13.13`, and a hardcoded `TJS_VERSION = '0.13.13'` CDN pin in the
+shipped `dist/` — and the issue names all three.
+
+**Not fixed here** — different repo, file don't fix.
+
+**What we're waiting for:** `^0.13.1 || ^0.14.0` (or wider), all three pins moved. Until
+then the 0.14.0 release notes should carry the `--legacy-peer-deps` remedy for npm users.
+
+**The recurring lesson:** a 0.x caret peer range expires at every minor of the dependency.
+Twice now the fix has been a reactive issue after the fact; the structural fix is a check
+on OUR side that, before publishing a minor, reads each first-party downstream's declared
+range and fails if the new version falls outside it.
+
 ## `@codemirror/state` duplicates when adopting `tosijs-ui/site` (tosijs-ui#131)
 
 **Filed:** [tosijs-ui#131](https://github.com/tonioloewald/tosijs-ui/issues/131) — reported by

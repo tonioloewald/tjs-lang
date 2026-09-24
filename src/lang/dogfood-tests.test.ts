@@ -64,6 +64,12 @@ const SKIP: Record<string, string> = {
     'reads package.json and the shipped file tree from the repo root',
   'docs-index.test.ts':
     'shells out to `npm pack` against the real project directory',
+  'repo-hygiene.test.ts':
+    'asserts the REPOSITORY (tracked-vs-ignored files, `npm pack` contents), not the ' +
+    'language. After the `import.meta` rewrite its ROOT still points at the real repo, so ' +
+    'the converted copy measures live repo state — e.g. whether `dist/` exists at that ' +
+    'instant — and made this ratchet order-dependent: red inside a full `bun test`, green ' +
+    'in isolation (0.14.0 review, B3). Converting it tests nothing about conversion.',
   'index-tsfree.test.ts':
     'spawns a subprocess with a doctored module resolution',
   'cli/commands/convert.test.ts': 'spawns the CLI with cwd-relative paths',
