@@ -59,6 +59,32 @@ export interface PredicateFacts {
 /**
  * Brand an ordinary function as a `Predicate`, filling in the defaults.
  *
+ * ## Arity is part of the contract, and this is where it is enforced
+ *
+ * A predicate **decides about one value**. A function taking two is a *relation* — "is `val`
+ * valid **for** `prop`" — and branding one makes `instanceof Predicate` mean "callable and
+ * boolean-ish" rather than "decides about a value", which is the only thing the brand is good
+ * for. So a function declaring more than one parameter is returned **untouched**: not branded,
+ * not half-branded, still perfectly callable as itself.
+ *
+ * This lives here rather than at each call site because it did not, and drifted immediately.
+ * `src/css/index.ts` hand-excluded its one binary export with a comment, while
+ * `compilePredicate` — the public API that *produces* functions of exactly that shape — branded
+ * every cluster export unconditionally. The consequence was not cosmetic: `checkType` dispatches
+ * on the presence of `check`, and branding sets `check` to the function itself, so a branded
+ * binary relation was invoked with one argument and its second parameter silently `undefined`.
+ * Measured before the fix — `checkType(v, differsFrom)` returned `null` for every `v` tried: a
+ * validator that always says yes, with no diagnostic.
+ *
+ * **Arity 0 is branded.** `(...args) => …` and `() => …` both report `0`, so zero means
+ * *unknown*, not *not a predicate*; refusing it would break legitimate predicates to catch a
+ * shape the arity cannot distinguish. The caller that most needed this — `compilePredicate` —
+ * wraps each export in a rest-args fuel closure, so it now copies the underlying arity onto the
+ * wrapper. A rule reading a number the wrapper had erased would decide nothing.
+ *
+ * Declining is silent because the author's intent is unknowable and the absence of the brand is
+ * the observable a consumer has to check anyway. `src/lang/predicate-arity.test.ts` pins it.
+ *
  * The minimum is **one member**: `check`, which is the function itself. Everything else has a
  * sensible default, so a verified predicate needs to supply nothing:
  *
@@ -78,6 +104,9 @@ export function brandPredicate<F extends (...args: any[]) => any>(
   name?: string,
   facts: PredicateFacts = {}
 ): F {
+  // A relation, not a predicate. Hand it back exactly as it arrived — see the arity note above.
+  if (fn.length > 1) return fn
+
   const p = fn as any
   Object.setPrototypeOf(p, Predicate.prototype)
   if (name)

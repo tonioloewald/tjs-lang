@@ -208,9 +208,11 @@ export const isStyleValue = brandPredicate(
  * is `false` while `isStyleValueFor('padding', 'anything')` stays permissive.
  * This is what makes {@link isStyleObject} catch real value errors.
  */
-// NOT a `Predicate`, deliberately: this is a BINARY relation (is `val` valid *for* `prop`),
-// and a predicate's contract is `check(v) -> boolean` over one value. Branding it would make
-// `instanceof Predicate` mean "callable and boolean-ish" rather than "decides about a value".
+// NOT a `Predicate`: a BINARY relation (is `val` valid *for* `prop`), and the brand means
+// "decides about one value". The rule and its rationale live with their enforcement, in
+// `brandPredicate` (src/types/predicate-brand.ts) — this file used to be the only place the
+// carve-out existed, which is precisely how `compilePredicate` came to brand relations anyway.
+// Left unbranded by simply not calling `brandPredicate`; calling it would also decline.
 export const isStyleValueFor = (prop: unknown, val: unknown): boolean =>
   (styleValidators().isStyleValueFor as (p: unknown, v: unknown) => boolean)(
     prop,

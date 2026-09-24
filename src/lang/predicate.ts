@@ -750,11 +750,7 @@ export function compilePredicate(
   const wrapped: Record<string, (...args: any[]) => any> = {}
   for (const name of exportNames) {
     const fn = raw[name]
-    // Branded as a `Predicate`: a verified function IS one, it just needed the facts
-    // attached. That is the whole payoff of predicates being functions — no wrapping into a
-    // different shape, so `isColor` and `Type('age', 0)` are the same kind of thing and
-    // `isColor instanceof Predicate` is true. See src/types/predicate-brand.ts.
-    wrapped[name] = brandPredicate((...args: any[]) => {
+    const guarded = (...args: any[]) => {
       fuel = budget
       try {
         return fn(...args)
@@ -763,7 +759,28 @@ export function compilePredicate(
           throw new PredicateFuelExhausted(budget)
         throw e
       }
-    }, name)
+    }
+    // The wrapper stands in for `fn` everywhere, so it carries `fn`'s introspection. Arity
+    // matters most: a rest-args closure reports 0, which ERASED the only signal distinguishing
+    // a predicate from a relation — for the brand rule below, and for a consumer inspecting
+    // `.length` before calling. Both are configurable own properties on a function, so this is
+    // a restoration rather than a lie. `name` is set here and not left to the brand, because a
+    // declined relation needs a usable name in a stack trace just as much.
+    Object.defineProperty(guarded, 'length', {
+      value: fn.length,
+      configurable: true,
+    })
+    Object.defineProperty(guarded, 'name', { value: name, configurable: true })
+    // Branded as a `Predicate` — a verified function IS one, it just needed the facts
+    // attached. That is the whole payoff of predicates being functions: no wrapping into a
+    // different shape, so `isColor` and `Type('age', 0)` are the same kind of thing and
+    // `isColor instanceof Predicate` is true.
+    //
+    // A cluster may legitimately export relations alongside predicates (the CSS cluster's
+    // `isStyleValueFor(prop, val)` is the motivating case), so this brands what qualifies and
+    // leaves the rest alone. The arity rule itself lives in `brandPredicate` and is NOT
+    // restated here — stating it twice is how the two drifted apart in the first place.
+    wrapped[name] = brandPredicate(guarded, name)
   }
   return wrapped
 }

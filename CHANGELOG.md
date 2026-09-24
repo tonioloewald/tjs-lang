@@ -102,6 +102,27 @@ moves under you.
   predicate's contract is `check(v)` over one value. Branding it would degrade `instanceof
 Predicate` to "callable and boolean-ish".
 
+  **That rule is now enforced in `brandPredicate`, which declines any function declaring more
+  than one parameter and hands it back untouched.** It previously existed only as a hand-written
+  carve-out in `src/css/index.ts`, while `compilePredicate` — the public API that _produces_
+  functions of exactly that shape — branded every cluster export unconditionally. One rule, two
+  addresses, drifted at birth.
+
+  It was not cosmetic. `checkType` dispatches on the presence of `check`, and branding sets
+  `check` to the function itself, so a branded relation took the runtime-type branch and was
+  invoked with **one** argument, its second parameter silently `undefined`. Measured:
+  `compilePredicate('function differsFrom(a, b) { return a !== b }', …)` then
+  `checkType(v, differsFrom)` returned `null` for every `v` — a validator that always says yes,
+  with no diagnostic. Rearranged, the same bug fails closed instead, or throws.
+
+  The brand also **erased the evidence**: `compilePredicate` wraps each export in a rest-args
+  fuel closure, so `fn.length` read `0`, removing the one defence a careful consumer had and
+  leaving the rule nothing to act on. The wrapper now carries the underlying function's arity
+  and name, so a declined relation is still properly introspectable. Arity `0` is branded —
+  `(...args) => …` and `() => …` both report it, so zero means _unknown_, not _not a predicate_.
+  Pinned by `src/lang/predicate-arity.test.ts`, which includes a sweep asserting no binary
+  export anywhere in `tjs-lang/css` carries the brand.
+
 ### Added
 
 - **The AJS AST carries a format version** — `{"$ajs": 1, "op": "seq", …}` — and the VM acts on
