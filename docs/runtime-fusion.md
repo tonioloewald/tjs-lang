@@ -115,3 +115,35 @@ The same way `unwrap-boxed.ts` does it: a **differential test**. The inline clas
 canonical class are constructed with identical arguments and compared field by field, so the
 two cannot drift apart silently. Two copies of anything stay in sync because a test says so,
 never because someone remembered.
+
+## 7. The trust model of a global slot — and the `Predicate` sign-off it is waiting on
+
+A shape-versioned slot is first-writer-wins: `globalThis.__tjs_X_1 ??= X`. So **any script that
+runs earlier can pre-seed it**, and every TJS module loaded afterward adopts the impostor.
+
+For `MonadicError` that was accepted when the slot was introduced: a pre-seeded class can make
+`instanceof MonadicError` lie, but a script with that much reach can already monkey-patch far
+more than one class, so the slot adds no capability an attacker in that position lacks.
+
+`Predicate` (0.14.0) uses the same mechanism, and the 0.14.0 re-review (gap 4) asked the right
+question: **nobody has signed off on it for a brand that type dispatch reads.** The difference
+worth weighing:
+
+- A pre-seeded `Predicate` decides `instanceof Predicate` program-wide, and — because
+  `brandPredicate` does `Object.setPrototypeOf(fn, Predicate.prototype)` — it decides the
+  prototype **every branded predicate inherits**, getters included. An accessor on that prototype
+  runs on property reads of `isColor`, `Type(…)` and the rest.
+- It does **not** decide the verdict. `check` is an own property (the function itself), and
+  `checkType` dispatches on `'check' in expected` and calls it. A poisoned prototype can observe
+  and interfere through inherited members, but the decision path reads own properties.
+- The same-reach argument still mostly holds: code that can run before TJS loads can already
+  replace `Function.prototype.call`, `JSON.stringify`, or `globalThis.__tjs` itself.
+
+**Status: OPEN — awaiting the maintainer's decision.** Options:
+
+1. **Accept** the MonadicError trust model for `Predicate`, recorded here with the reasoning above.
+2. **Harden the slot**: validate what is found there before adopting it (e.g. require a
+   frozen class with an empty prototype chain up to `Function.prototype`, else ignore the slot
+   and use the local class — losing fusion only in the hostile case).
+3. **Drop fusion for the brand** and accept per-bundle `Predicate` classes, which is the B2
+   cross-bundle `instanceof` failure, now pinned by `src/predicate-bundles.test.ts`.

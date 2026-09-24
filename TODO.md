@@ -4244,6 +4244,41 @@ listener (identity is now the command line — `6596ae3`); issue #4's stale publ
 (correction posted); the five declaration transforms rewriting TJS inside string literals
 (`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`).
 
+## Open findings — 0.14.0 RE-review (BLOCK → remediated, 2026-09-25)
+
+Full report: [`docs/reviews/0.14.0-re-review.md`](docs/reviews/0.14.0-re-review.md). The blocker
+(B-1), both majors (M-1, M-2), five of the minors and three of the six completeness gaps were
+fixed on 2026-09-25 — see the report's STATUS block. What is deferred is named here.
+
+- [ ] **The version-bump commit is unreviewed.** HEAD is `0.14.0-rc.0`, already published; the
+      commit that ships 0.14.0 (version, CHANGELOG, regenerated artifacts) did not exist when the
+      re-review ran. Cover it with the scoped re-review the report prescribes: correctness +
+      security over `release-gate.ts`/`release-stamp.ts`, `runtime.ts` agentRun/runCode, the
+      boundary sweep, the emitted Generic stub and FORMS, plus Tier 0 — and the bump itself.
+- [ ] **`Predicate`'s global slot — trust model awaiting a decision.** Recorded as OPEN in
+      `docs/runtime-fusion.md` §7 with three options (accept / harden / drop fusion). The
+      maintainer's call, not an agent's.
+- [ ] **No test that a consumer's tree-shaker keeps the `Predicate` slot claim.** The slot write
+      in `predicate-brand.ts` runs in bundles (`tjs-css`, `tjs-lang`, `tjs-browser`, …) that are
+      not in `sideEffects`, and `side-effects-allowlist.test.ts` exempts that module on the
+      reasoning that dropping it when unused loses nothing. That holds only if every consumer
+      of the brand also imports the module. Prove it with a real bundler (esbuild/rollup with
+      tree-shaking) over a two-bundle consumer, asserting cross-bundle `instanceof` survives.
+- [ ] **`prepublish-check.ts` and `.githooks/pre-push` have no tests.** Both guard the
+      irreversible step. Pin fail-CLOSED behaviour: pre-push's worktree path when
+      `rev-parse`, `bun install --frozen-lockfile`, `make` or the suite fails; prepublish-check's
+      three registry reads when the network is down. The stamp logic is tested
+      (`release-stamp.test.ts`); the scripts around it are not.
+- [ ] **Per-target bundle size delta in `scripts/build.ts`** (nit). This release's growth, for
+      the record: `tjs-vm-ast` +591 raw / +256 gz (~1.4% gz), `index.js` +1679 / +533 gz, the
+      others smaller. Justified, but nothing reports it.
+- [ ] **Suite time +2.7 s**, 1.8 s of it `release-stamp.test.ts` creating a scratch repo per
+      case (nit). Share one repo across cases where the case does not mutate it.
+- [ ] **`__pred` declaration cost** — fold into the existing "`Object.assign(fn, spec)` perf"
+      item below: routing Enum/Union/Exactly/FunctionPredicate/Generic instances through
+      `__pred` makes declarations 2–7× costlier (Enum 102→748 ns in bun). The lever is hoisting
+      declarations out of function bodies, not a key loop (which helps JSC, not V8).
+
 ## Open findings — 0.14.0 pre-release review (BLOCK, 2026-09-23)
 
 Full report: [`docs/reviews/0.14.0-pre-release-review.md`](docs/reviews/0.14.0-pre-release-review.md).

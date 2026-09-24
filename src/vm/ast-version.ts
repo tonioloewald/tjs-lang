@@ -99,6 +99,25 @@ export function astVersionOf(ast: unknown): number | null {
 }
 
 /**
+ * A short, NEVER-THROWING description of an arbitrary value for an error message.
+ *
+ * `JSON.stringify(x) ?? String(x)` looks total and is not: `??` does not catch a throw, and
+ * JSON.stringify throws on a BigInt or a cycle — so the gate threw a TypeError from inside
+ * itself instead of refusing (0.14.0 re-review). And it is truncated: the value is
+ * attacker-shaped, and a multi-megabyte `$ajs` should not be copied whole into a message.
+ */
+function describeRaw(raw: unknown): string {
+  let text: string
+  try {
+    text =
+      typeof raw === 'bigint' ? `${raw}n` : JSON.stringify(raw) ?? String(raw)
+  } catch {
+    text = `<${typeof raw}, not serialisable>`
+  }
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text
+}
+
+/**
  * Explain why an AST cannot be run by this build, or `null` if it can.
  *
  * Returns a message rather than throwing so callers choose their own failure mode —
@@ -109,10 +128,7 @@ export function astVersionProblem(ast: unknown): string | null {
   if (version === null)
     return (
       `This AST's \`${AST_VERSION_KEY}\` field is present but unreadable ` +
-      `(${
-        JSON.stringify((ast as any)[AST_VERSION_KEY]) ??
-        String((ast as any)[AST_VERSION_KEY])
-      }) — ` +
+      `(${describeRaw((ast as any)[AST_VERSION_KEY])}) — ` +
       `not a format version. A version must be a positive integer. Refusing to run it ` +
       `rather than guess: a present field means something that stamps versions wrote this ` +
       `AST, so reading it as legacy would be a guess, not a fallback. A stringified number ` +

@@ -2005,6 +2005,9 @@ export function transpileToJS(
     // likewise, `schema` carries cycles, and functions are behaviour that JSON drops anyway.
     // This restores exactly the pre-0.14.0 emitted shape — the output is byte-identical to
     // what a plain-object type stringified to, so it is a regression fix, not a new format.
+    // NON-ENUMERABLE, so `Object.keys` and spread match 0.13.13 exactly: as an own enumerable
+    // it added a key, and a spread copy carried a toJSON closed over the ORIGINAL, serialising
+    // the original's facts instead of its own (0.14.0 re-review). JSON.stringify still finds it.
     if (
       needsType ||
       needsGeneric ||
@@ -2014,7 +2017,7 @@ export function transpileToJS(
       needsFunctionPredicate
     ) {
       inlineParts.push(
-        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});f.toJSON=()=>{const o={};for(const [k,v] of Object.entries(f)){if(k==='check'||k==='toJSON'||k==='schema')continue;if(typeof v==='function')continue;o[k]=v}return o};return f}`
+        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});Object.defineProperty(f,'toJSON',{value:()=>{const o={};for(const [k,v] of Object.entries(f)){if(k==='check'||k==='schema')continue;if(typeof v==='function')continue;o[k]=v}return o},configurable:true,writable:true});return f}`
       )
     }
 

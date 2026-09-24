@@ -84,6 +84,24 @@ describe('reading a version', () => {
     ).toMatch(/unreadable|not a format version/i)
   })
 
+  it('describes an UNSTRINGIFIABLE value without throwing — BigInt, cycles', () => {
+    // `JSON.stringify(x) ?? String(x)` looks total and is not: `??` does not catch a THROW, and
+    // JSON.stringify throws on BigInt and on cycles. The gate still failed closed, but with a
+    // TypeError from inside the gate instead of the refusal (0.14.0 re-review).
+    const cyclic: any = {}
+    cyclic.self = cyclic
+    for (const raw of [BigInt(2), cyclic]) {
+      const ast = { [AST_VERSION_KEY]: raw, op: 'seq', steps: [] }
+      expect(() => astVersionProblem(ast)).not.toThrow()
+      expect(astVersionProblem(ast)).toMatch(/unreadable/)
+    }
+  })
+
+  it('does not copy a huge $ajs value whole into the message', () => {
+    const ast = { [AST_VERSION_KEY]: 'x'.repeat(100_000), op: 'seq', steps: [] }
+    expect(astVersionProblem(ast)!.length).toBeLessThan(1_000)
+  })
+
   it('apparatus check: a valid version still reads, and absent still means legacy', () => {
     // Every refusal above is satisfied by a reader that refuses everything.
     expect(astVersionOf({ [AST_VERSION_KEY]: AST_VERSION })).toBe(AST_VERSION)

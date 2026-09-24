@@ -200,6 +200,11 @@
     "!**/*.bench.test.ts",
     "!**/*.demo.test.ts"
   ],
+  "releaseDoctor": {
+    "advisoryLanes": {
+      "test:grok": "measures whether a small pinned LIVE model can write AJS — model variance, not our code; advisory by design and never a release blocker (CLAUDE.md, the three lanes)"
+    }
+  },
   "sideEffects": [
     "./src/index.ts",
     "./dist/index.js",

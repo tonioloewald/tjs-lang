@@ -123,13 +123,26 @@ for sha in $needs; do
     # The tag names OTHER code than the working tree. Test THAT commit, in a throwaway
     # worktree with its own install and build — the only way the suite sees what the tag
     # names. Slower, and correct; the fast path is a release-gate record for the SHA.
-    wt="$(mktemp -d)/tag-$(echo "$sha" | cut -c1-7)"
+    parent="$(mktemp -d)"
+    wt="$parent/tag-$(echo "$sha" | cut -c1-7)"
+    # Clean up on EVERY exit, Ctrl-C included — otherwise an interrupted run leaves a full
+    # checkout (node_modules + dist/) in $TMPDIR and a stale .git/worktrees entry. Failures
+    # are reported, not swallowed (0.14.0 re-review).
+    cleanup() {
+      git worktree remove --force "$wt" >/dev/null 2>&1 ||
+        echo "pre-push: could not remove worktree $wt — run \`git worktree prune\`" >&2
+      rm -rf "$parent"
+    }
+    trap cleanup EXIT INT TERM
     echo "pre-push: tag names $(echo "$sha" | cut -c1-7), not the working tree — testing it in $wt"
     git worktree add --detach "$wt" "$sha" >/dev/null 2>&1 ||
       fail "could not create a worktree for $sha"
     ok=0
-    (cd "$wt" && bun install --frozen-lockfile && bun run make && bun test) && ok=1
-    git worktree remove --force "$wt" >/dev/null 2>&1 || true
+    # build:demo too: without .demo/, demo-bundle.test.ts self-skips — and a guard that skips
+    # reports the same green as one that passes.
+    (cd "$wt" && bun install --frozen-lockfile && bun run make && bun run build:demo && bun test) && ok=1
+    cleanup
+    trap - EXIT INT TERM
     [ "$ok" -eq 1 ] ||
       fail "full test suite failed for $(echo "$sha" | cut -c1-7) — do NOT ship this tag."
   fi

@@ -270,6 +270,39 @@ describe('EMITTED code agrees — the stub is the shipped semantics', () => {
     }).toEqual({ stubHasExample: false, realHasEx: false })
   })
 
+  it('Object.keys and spread are EXACTLY what 0.13.13 produced — the CHANGELOG promise', () => {
+    // The CHANGELOG says `Object.keys()` and spread are unchanged. Measured against the
+    // PUBLISHED 0.13.13 (npm i tjs-lang@0.13.13, emitted `Type Age 0`): these five keys, in this
+    // order. An enumerable `toJSON` added a sixth, and made a SPREAD copy carry a `toJSON`
+    // closed over the ORIGINAL — so `{...Age, description: 'X'}` serialised Age's facts, not
+    // its own (0.14.0 re-review, gap 5). Non-enumerable restores both; JSON.stringify still
+    // finds it, since it looks the method up rather than enumerating.
+    const Age = emitted('Type Age 0', 'Age')
+    expect(Object.keys(Age)).toEqual([
+      'description',
+      '__runtimeType',
+      'default',
+      '__ex',
+      'check',
+    ])
+    const copy = { ...Age, description: 'Renamed' }
+    expect('toJSON' in copy).toBe(false)
+    expect(JSON.parse(JSON.stringify(copy)).description).toBe('Renamed')
+    // …and the original still serialises.
+    expect(JSON.parse(JSON.stringify(Age)).description).toBe('Age')
+  })
+
+  it('the library agrees: toJSON is not an enumerable key there either', () => {
+    for (const p of [
+      Type('Age', 0),
+      Enum('C', ['a']),
+      Union('U', [0, '']),
+    ] as any[]) {
+      expect(Object.keys(p)).not.toContain('toJSON')
+      expect(typeof p.toJSON).toBe('function')
+    }
+  })
+
   it('and the stub still agrees with the real runtime on the DECISION', () => {
     // Shape parity is worthless if the two disagree on the answer.
     const Age = emitted('Type Age 0', 'Age')

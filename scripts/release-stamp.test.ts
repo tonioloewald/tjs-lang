@@ -17,8 +17,27 @@ import { join } from 'node:path'
 import { hashDist, releaseStampProblem, writeStamp } from './release-stamp'
 
 let root = ''
+// Isolated from the contributor's own git config — commit signing, a global hooksPath or a
+// template would otherwise make these fail (or hang on a passphrase) for reasons unrelated to
+// the code. Setup commands are also CHECKED: a silently failed `git commit` in setup would make
+// every "refuses" case pass for the wrong reason (0.14.0 re-review).
+const GIT_ENV = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+}
 const git = (...args: string[]) => {
-  const p = Bun.spawnSync(['git', '-C', root, ...args], { stdout: 'pipe' })
+  const p = Bun.spawnSync(['git', '-C', root, ...args], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: GIT_ENV,
+  })
+  if (p.exitCode !== 0 && ['init', 'config', 'add', 'commit'].includes(args[0]))
+    throw new Error(
+      `test setup failed: git ${args.join(' ')}\n${new TextDecoder().decode(
+        p.stderr
+      )}`
+    )
   return new TextDecoder().decode(p.stdout).trim()
 }
 /** Write a stamp exactly as release-gate.ts does, for the current HEAD and dist/. */

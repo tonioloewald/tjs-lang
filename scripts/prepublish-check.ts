@@ -137,11 +137,20 @@ const distTags = npm(
   'dist-tags',
   '--json'
 )
+// Unknown is NOT empty. This used to fall back to `{}` on a failed or unparseable read, which
+// made "every published version is tagged" pass silently — fail-open on the one check that
+// exists to catch a forgotten tag (0.14.0 re-review).
 let tagged: Record<string, string> = {}
 try {
-  tagged = distTags.ok ? JSON.parse(distTags.out) : {}
+  if (!distTags.ok) throw new Error('npm view failed')
+  tagged = JSON.parse(distTags.out)
+  if (!tagged || typeof tagged !== 'object' || !Object.keys(tagged).length)
+    throw new Error('no dist-tags')
 } catch {
   tagged = {}
+  problems.push(
+    'could not read the published dist-tags — cannot confirm every published version is tagged. Check your network, or publish deliberately with --ignore-scripts.'
+  )
 }
 for (const [channel, v] of Object.entries(tagged)) {
   if (v === version) continue
@@ -183,9 +192,12 @@ if (!version.includes('-')) {
     )
     let range: string | undefined
     try {
-      range = JSON.parse(new TextDecoder().decode(r.stdout)).peerDependencies?.[
-        pkg0.name
-      ]
+      const doc = JSON.parse(new TextDecoder().decode(r.stdout))
+      // A registry ERROR is also JSON — `{"error":"Not found"}` has no peerDependencies either,
+      // and used to read as "no range, OK". Only a real package document may say so.
+      if (doc?.name !== dep || typeof doc?.version !== 'string')
+        throw new Error('not a package document')
+      range = doc.peerDependencies?.[pkg0.name]
     } catch {
       problems.push(
         `could not read ${dep}'s published peer range — check your network, or publish deliberately with --ignore-scripts`
@@ -199,6 +211,47 @@ if (!version.includes('-')) {
           `${dep} to widen its range first (publish an rc for it to verify against), or ` +
           `publish deliberately with --ignore-scripts and put the --legacy-peer-deps remedy ` +
           `in the release notes.`
+      )
+  }
+}
+
+// The tarball is EXACTLY the committed tree plus dist/. npm packs the WORKING tree, filtered by
+// `files` — so a gitignored file that happens to sit on the publishing machine ships from that
+// machine and from nowhere else. 0.14.0-rc.0 carried six: stale January build output under
+// examples/modules/dist/ (with a macOS `.metadata_never_index`) and a stray
+// src/lang/keywords.d.ts (0.14.0 re-review). It also makes the release stamp's claim true by
+// construction: the stamp covers HEAD (tracked files) plus a hash of dist/, and with this
+// invariant there is nothing else in the tarball for it to miss.
+{
+  const packed = Bun.spawnSync(['npm', 'pack', '--dry-run', '--json'], {
+    cwd: ROOT,
+    stdout: 'pipe',
+    stderr: 'pipe', // `prepare` writes to stderr; only stdout is the JSON
+  })
+  let files: string[] | null = null
+  try {
+    files = JSON.parse(new TextDecoder().decode(packed.stdout))[0].files.map(
+      (f: { path: string }) => f.path
+    )
+  } catch {
+    files = null
+  }
+  if (!files) {
+    problems.push(
+      'could not read `npm pack --dry-run --json` — cannot confirm the tarball is the committed tree plus dist/'
+    )
+  } else {
+    const tracked = new Set(git('ls-files').out.split('\n'))
+    const stray = files.filter(
+      (f) => !tracked.has(f) && !f.startsWith('dist/') && f !== 'package.json'
+    )
+    if (stray.length)
+      problems.push(
+        `the tarball would ship ${stray.length} file(s) that no commit contains — they exist only ` +
+          `on this machine:\n      ${stray.join(
+            '\n      '
+          )}\n    Delete them, or exclude them ` +
+          `in package.json "files". The tarball must be the committed tree plus dist/.`
       )
   }
 }
@@ -240,7 +293,13 @@ if (!version.includes('-')) {
 // `@{u}` is the upstream of the current branch; unpushed commits mean the reviewed history
 // exists only here.
 const unpushed = git('rev-list', '@{u}..HEAD', '--count')
-if (unpushed.ok && unpushed.out !== '0') {
+if (!unpushed.ok) {
+  // No upstream, or a detached HEAD. This used to skip the check entirely — fail-open: a
+  // publish from an unpushed branch passed as if pushed (0.14.0 re-review).
+  problems.push(
+    'cannot tell whether HEAD is pushed (no upstream branch, or detached HEAD) — push with `git push -u` from a branch first'
+  )
+} else if (unpushed.out !== '0') {
   problems.push(`${unpushed.out} commit(s) not pushed — push before publishing`)
 }
 
