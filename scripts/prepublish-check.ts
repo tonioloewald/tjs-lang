@@ -123,17 +123,67 @@ if (tagCommit.ok && tagCommit.out !== git('rev-parse', 'HEAD').out) {
 //
 // 0.13.0 is the precedent for why this matters: it shipped from an untagged tree, and
 // recovering cost a retroactive tag, two deprecations and three patch releases.
-const published = npm('view', pkg0.name, 'version')
-if (published.ok && published.out && published.out !== version) {
-  const prevTag = `v${published.out}`
-  if (!git('rev-parse', `${prevTag}^{commit}`).ok) {
+// Every DIST-TAG, not just `latest`. `npm view <pkg> version` answers with `latest` only, and
+// a prerelease published to `rc` never becomes `latest` — so this check used to be blind to
+// every prerelease: it passed "previous release tagged" with 0.14.0-rc.0 published and
+// untagged, and called 0.14.0-rc.0 "unclaimed" while it was on the registry (2026-09-24).
+const distTags = npm(
+  'view',
+  '--prefer-online',
+  pkg0.name,
+  'dist-tags',
+  '--json'
+)
+let tagged: Record<string, string> = {}
+try {
+  tagged = distTags.ok ? JSON.parse(distTags.out) : {}
+} catch {
+  tagged = {}
+}
+for (const [channel, v] of Object.entries(tagged)) {
+  if (v === version) continue
+  if (!git('rev-parse', `v${v}^{commit}`).ok) {
     problems.push(
-      `${published.out} is on npm but has NO tag ${prevTag} — the previous release was ` +
-        `published and never tagged. Tag it before shipping another (find the commit with ` +
-        `\`git log --oneline --grep "${published.out}"\`), or the history loses the name ` +
-        `for a version that is permanently public.`
+      `${v} is on npm (dist-tag \`${channel}\`) but has NO tag v${v} — it was published and ` +
+        `never tagged. Tag it before shipping another (find the commit with ` +
+        `\`git log --oneline --grep "${v}"\`), or the history loses the name for a version ` +
+        `that is permanently public.`
     )
   }
+}
+
+// This EXACT version already exists? Asked of the per-version endpoint, not the packument:
+// the packument lags a publish by minutes, the per-version document does not. npm refuses a
+// republish anyway, but only after the whole gate has run — and a stamp for an already-
+// published version would print "Ready" for a publish that cannot happen.
+{
+  const res = Bun.spawnSync(
+    [
+      'curl',
+      '-s',
+      '-o',
+      '/dev/null',
+      '-w',
+      '%{http_code}',
+      '--max-time',
+      '10',
+      `https://registry.npmjs.org/${pkg0.name}/${version}`,
+    ],
+    { stdout: 'pipe' }
+  )
+  const code = new TextDecoder().decode(res.stdout).trim()
+  if (code === '200')
+    problems.push(
+      `${version} is ALREADY published — npm will refuse it. Bump the version (the successor ` +
+        `to -rc.N is -rc.N+1, never a beta: releasing.md), commit, and run release:ready again.`
+    )
+  else if (code !== '404')
+    problems.push(
+      `could not ask the registry whether ${version} exists (HTTP ${
+        code || 'no response'
+      }) — ` +
+        `check your network, or publish deliberately with --ignore-scripts`
+    )
 }
 
 // `@{u}` is the upstream of the current branch; unpushed commits mean the reviewed history
