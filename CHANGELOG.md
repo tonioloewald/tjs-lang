@@ -122,6 +122,19 @@ Predicate` to "callable and boolean-ish".
   working. What it does is **stop the population growing**, turning an unbounded set into a
   finite, shrinking one.
 
+  That claim holds only if **every producer** stamps the field, and one did not: the
+  transpiler stamped it while `TypedBuilder.toJSON()` did not, so `Agent.take(…)…toJSON()`
+  minted an unversioned AST on every call. The builder is not a lesser path — its output goes
+  to `vm.run` and `storeProcedure` on identical terms, so it is persisted on identical terms,
+  and a single unstamped producer falsifies the claim outright rather than partially. Now
+  stamped, at the **root only**: nested branches splice `.steps` rather than re-serialising, so
+  an inner `seq` never carries a field that would describe nothing there. Guarded the same way
+  the boundaries are, by `src/vm/ast-version-producers.test.ts` — both producers asserted
+  behaviourally, plus a scan that fails on **any** file constructing a `seq` root without the
+  stamp, so a third producer lands there by name. The assertion is `'$ajs' in ast`, never
+  `astVersionOf(ast) === 1`: the latter passes for exactly the unversioned ASTs it is meant to
+  catch, since absent reads back as the legacy default, which is 1.
+
   The refusal is the part that makes the field real rather than decorative: running an AST whose
   format we cannot read means guessing at the meaning of untrusted code. The version is checked
   **before** the root shape, so a newer AST reports its version rather than "Root AST must be

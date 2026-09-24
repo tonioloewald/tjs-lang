@@ -34,6 +34,14 @@
  * understand it. An unversioned AST can never be refused as too new, because absent means 1 —
  * which is correct, since it is old by construction.
  *
+ * That "stops growing" claim is only as good as the weakest **producer**, and it is all-or-
+ * nothing: one producer that omits the field and the population grows again. There are two —
+ * the transpiler (`lang/emitters/ast.ts`) and the builder (`TypedBuilder.toJSON()`) — and the
+ * 0.14.0 review found the second one unstamped. `ast-version-producers.test.ts` now scans for
+ * a third. The producer side and the consumer side are the same invariant seen from opposite
+ * ends: stamp on the way out ({@link AST_VERSION_KEY}), refuse on the way in
+ * ({@link checkAstVersion}).
+ *
  * ## The rule, and why rejection matters
  *
  * A version this build does not understand is **rejected, not executed**. That is the entire

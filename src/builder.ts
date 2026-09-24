@@ -1,4 +1,5 @@
 import { coreAtoms, type Atom, type OpCode, type ExprNode } from './runtime'
+import { AST_VERSION, AST_VERSION_KEY } from './vm/ast-version'
 
 type _AtomMap = typeof coreAtoms
 
@@ -525,8 +526,23 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
     return this.add(atom.create({ schema: _schema }))
   }
 
+  /**
+   * The built AST — **the second way one is produced**, alongside the transpiler.
+   *
+   * Carries the format version for the same reason `emitters/ast.ts` does: the claim the
+   * versioning work rests on is that *the population of unversioned ASTs stops growing*
+   * (`src/vm/ast-version.ts`), and a second producer that omits the field falsifies it. The
+   * builder is not a lesser path — `Agent.take(…)…toJSON()` output is handed to `vm.run` and
+   * to `storeProcedure` exactly like transpiler output, so it is persisted on the same terms.
+   *
+   * ROOT only. Nested branches (`if`/`forEach`/`scope`/`try`) splice `.steps` directly rather
+   * than calling this, so an inner `seq` never gets a field that means nothing there — the
+   * version describes the document, not each node.
+   */
   toJSON(): SeqNode {
     return {
+      // Version first, so it survives a truncated dump and reads clearly in a diff.
+      [AST_VERSION_KEY]: AST_VERSION,
       op: 'seq',
       steps: [...this.steps],
     }
