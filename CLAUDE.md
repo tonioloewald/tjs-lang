@@ -568,6 +568,11 @@ always did.
 `prepublishOnly` is now: `prerelease-tag` (refuses a prerelease on `latest` — seconds, first)
 → `release-gate` (the stamp check, or the full build + suite) → `prepublish-check`.
 
+`prepublish-check` also refuses a FINAL release that tosijs-ui's published `peerDependencies`
+range excludes (`DOWNSTREAM_PEERS`) — npm consumers of both would hard-fail with ERESOLVE, while
+`bun install` hides it. It shipped twice (tosijs-ui#98, #182); a 0.x caret range expires at
+every minor, so **before 0.15.0, get tosijs-ui to widen first** (an rc lets it verify).
+
 Escape hatch: `npm publish --ignore-scripts`, or `git push --no-verify` for a tag whose
 suite you have already run green by hand — never to dodge a real failure.
 

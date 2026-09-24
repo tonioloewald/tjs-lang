@@ -152,6 +152,54 @@ for (const [channel, v] of Object.entries(tagged)) {
   }
 }
 
+// First-party DOWNSTREAM peer ranges. A published library whose `peerDependencies` range
+// excludes this version makes every npm 7+ consumer of BOTH hard-fail with ERESOLVE — an
+// optional peer is only optional when absent. `bun install` resolves it cleanly, so neither
+// repo's own workflow shows it. It has shipped twice: tosijs-ui#98 (0.13.0 vs `^0.12.0`) and
+// tosijs-ui#182 (0.14.0 vs `^0.13.1`), each found after the fact. A 0.x caret range expires at
+// EVERY minor, so without this it recurs at 0.15.0.
+//
+// Only libraries with a PEER range belong here. A downstream pinning us in devDependencies,
+// or an app, just stays on the old version until bumped — worth a nudge, never an install
+// failure (measured 2026-09-25 across the sibling repos: tosijs-ui is the only one).
+//
+// Prereleases are exempt: semver skips them in ranges anyway, and an rc is precisely how a
+// downstream verifies before widening.
+const DOWNSTREAM_PEERS = ['tosijs-ui']
+if (!version.includes('-')) {
+  for (const dep of DOWNSTREAM_PEERS) {
+    const r = Bun.spawnSync(
+      [
+        'curl',
+        '-s',
+        '--max-time',
+        '10',
+        `https://registry.npmjs.org/${dep}/latest`,
+      ],
+      { stdout: 'pipe' }
+    )
+    let range: string | undefined
+    try {
+      range = JSON.parse(new TextDecoder().decode(r.stdout)).peerDependencies?.[
+        pkg0.name
+      ]
+    } catch {
+      problems.push(
+        `could not read ${dep}'s published peer range — check your network, or publish deliberately with --ignore-scripts`
+      )
+      continue
+    }
+    if (range && !Bun.semver.satisfies(version, range))
+      problems.push(
+        `${dep}@latest declares peerDependencies["${pkg0.name}"]: "${range}", which EXCLUDES ` +
+          `${version}. Publishing makes every npm consumer of both fail with ERESOLVE. Get ` +
+          `${dep} to widen its range first (publish an rc for it to verify against), or ` +
+          `publish deliberately with --ignore-scripts and put the --legacy-peer-deps remedy ` +
+          `in the release notes.`
+      )
+  }
+}
+
 // This EXACT version already exists? Asked of the per-version endpoint, not the packument:
 // the packument lags a publish by minutes, the per-version document does not. npm refuses a
 // republish anyway, but only after the whole gate has run — and a stamp for an already-

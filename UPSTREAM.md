@@ -261,7 +261,14 @@ someone checks compatibility.
 
 ---
 
-## tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182)
+## tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182) — ✅ FIXED UPSTREAM
+
+**Resolved 2026-09-25: tosijs-ui 1.15.2** (npm `latest`) publishes `^0.13.1 || ^0.14.0`, verified on
+the per-version registry document: admits 0.13.13 and 0.14.x, excludes 0.14.0-rc.0 (semver
+skips prereleases, as expected) and 0.15.0. Their dev pin and `TJS_VERSION` CDN pin move once
+0.14.0 is final. **The structural fix is now on our side too**: `scripts/prepublish-check.ts`
+reads tosijs-ui's published peer range and refuses a final release it excludes, so the
+0.15.0 instance of this fails before publishing instead of being filed after.
 
 **Filed:** [tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182) (2026-09-24).
 The same defect as tosijs-ui#98 above, one minor later — found by the 0.14.0 pre-release
