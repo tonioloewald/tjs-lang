@@ -7,6 +7,14 @@ Try these examples in the playground! Each demonstrates a key TJS feature.
 ## In this section
 
 <!-- toc -->
+
+- [Featured](/tjs-featured/)
+- [Basics](/tjs-basics/)
+- [Patterns](/tjs-patterns/)
+- [Advanced](/tjs-advanced/)
+- [Full Stack](/tjs-fullstack/)
+- [Unbundled](/tjs-unbundled/)
+- [WASM Libraries](/tjs-wasmlib/)
 <!-- /toc -->
 
 ## Types by Example

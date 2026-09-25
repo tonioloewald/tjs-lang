@@ -3,4 +3,8 @@
 # APIs
 
 <!-- toc -->
+
+- [Weather API](/weather-api/)
+- [iTunes Search](/itunes-search/)
+- [GitHub Repos](/github-repos/)
 <!-- /toc -->

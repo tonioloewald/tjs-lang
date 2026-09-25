@@ -3,4 +3,8 @@
 # Featured
 
 <!-- toc -->
+
+- [Starfield](/wasm-starfield/)
+- [TJS Grammar Reference](/tjs-grammar-demo/)
+- [Vector Search Benchmark](/wasm-vector-search/)
 <!-- /toc -->

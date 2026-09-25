@@ -224,8 +224,13 @@ if (frontmatterProblems.length) {
   process.exit(1)
 }
 
-saveDocsJSON(docs as any, config.docsJson ?? 'demo/docs.json')
+// The OLD PLAYGROUND's corpus — always `demo/docs.json`, in the playground's shape. Deliberately
+// NOT `config.docsJson`: that is the tosijs-ui SITE's intermediate corpus (`.site-docs.json`), a
+// different file in a different shape. They shared the field only by default, and pointing the
+// site's at its own file silently redirected this one too, leaving the playground's corpus stale.
+const PLAYGROUND_DOCS = 'demo/docs.json'
+saveDocsJSON(docs as any, PLAYGROUND_DOCS)
 console.log(
-  `docs: ${docs.length} entries -> ${config.docsJson ?? 'demo/docs.json'} ` +
+  `docs: ${docs.length} entries -> ${PLAYGROUND_DOCS} ` +
     `(${docs.filter((d: any) => d.code).length} with code)`
 )

@@ -9,6 +9,15 @@ AJS is a JavaScript subset designed for writing AI agent logic. It compiles to A
 ## In this section
 
 <!-- toc -->
+
+- [AJS: The Agent Language](/DOCS-AJS/)
+- [Safe Eval](/safe-eval/)
+- [AJS LLM System Prompt](/ajs-llm-prompt/)
+- [AJS Examples](/ajs-examples/)
+- [The universal endpoint: isomorphic atoms, one security model](/universal-endpoint/)
+- [AJS Native VM (Rust → wasm) — post-1.0 direction](/ajs-native-vm/)
+- [Running the LLM test suite (LM Studio setup)](/lm-studio-setup/)
+- [MLX as the local-AI harness](/mlx-setup/)
 <!-- /toc -->
 
 ## File Extension

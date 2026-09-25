@@ -24,6 +24,8 @@ This guide is split into two paths:
 ## In this section
 
 <!-- toc -->
+
+- [TypeScript Examples](/ts-examples/)
 <!-- /toc -->
 
 # Part 1: Using TJS from TypeScript

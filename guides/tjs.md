@@ -19,6 +19,17 @@ function greet(name: 'World', times: 3): '' {
 ## In this section
 
 <!-- toc -->
+
+- [TJS Interactive Examples](/tjs-examples/)
+- [TJS: Typed JavaScript](/DOCS-TJS/)
+- [TJS for JavaScript Programmers](/TJS-FOR-JS/)
+- [JS Footguns That TJS Quietly Fixes](/footguns/)
+- [AJS Patterns](/patterns/)
+- [WASM in TJS](/DOCS-WASM/)
+- [WASM Quick Start](/WASM-QUICKSTART/)
+- [Playground Imports](/playground-imports/)
+- [Context: Working with tosijs-schema](/tosijs-schema/)
+- [TJS Performance Guide](/performance/)
 <!-- /toc -->
 
 ## Philosophy

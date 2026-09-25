@@ -3,4 +3,8 @@
 # Introduction
 
 <!-- toc -->
+
+- [Hello TypeScript](/ts-hello-typescript/)
+- [Multiple Functions](/ts-multiple-functions/)
+- [Type Transformation](/ts-type-transformation/)
 <!-- /toc -->
