@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":22}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 22, "parent": "tjs-basics.md"}-->
 
 # Safer Code
 

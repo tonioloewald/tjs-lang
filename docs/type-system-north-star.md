@@ -1,3 +1,5 @@
+<!--{"parent": "the-tjs-language.md", "order": 8}-->
+
 # North star: JSON-Schema + predicates as the single source of truth for types
 
 > **Status: strategic direction (2026-07-06, user-set). Possibly post-1.0. Use as

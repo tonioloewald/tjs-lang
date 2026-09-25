@@ -1,4 +1,4 @@
-<!--{"section": "meta", "order": 1, "navTitle": "For Builders"}-->
+<!--{"section": "meta", "order": 4, "navTitle": "For Builders", "pin": "bottom"}-->
 
 # Applied Laziness: The "Zero-Infrastructure" Stack
 

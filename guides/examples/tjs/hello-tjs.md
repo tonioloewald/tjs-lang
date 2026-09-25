@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":1}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 1, "parent": "tjs-basics.md"}-->
 
 # Hello TJS
 

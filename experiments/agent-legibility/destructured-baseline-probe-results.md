@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # Probe: is JavaScript's own destructured-default behaviour misread?
 
 **Run 2026-08-31.** `experiments/agent-legibility/destructured-baseline-probe.ts`,

@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":16}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 16, "parent": "tjs-basics.md"}-->
 
 # Polymorphic Functions
 

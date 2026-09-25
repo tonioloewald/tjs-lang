@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"basics","order":3}-->
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 3, "parent": "ajs-basics.md"}-->
 
 # Loop & Filter
 

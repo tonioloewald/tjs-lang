@@ -1,4 +1,4 @@
-<!--{"section": "home", "order": 5, "navTitle": "Assumptions"}-->
+<!--{"section": "home", "order": 3, "navTitle": "Assumptions", "pin": "bottom"}-->
 
 # Assumptions ledger
 

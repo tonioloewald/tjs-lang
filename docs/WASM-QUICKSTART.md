@@ -1,3 +1,5 @@
+<!--{"parent": "tjs.md", "order": 7}-->
+
 # WASM Quick Start
 
 **Build WASM-accelerated libraries in TJS with zero toolchain setup.**

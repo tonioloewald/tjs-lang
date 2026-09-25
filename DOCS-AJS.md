@@ -1,4 +1,4 @@
-<!--{"section": "ajs", "group": "docs", "order": 0, "navTitle": "Documentation"}-->
+<!--{"section": "ajs", "group": "docs", "order": 1, "navTitle": "Documentation", "parent": "ajs.md"}-->
 
 # AJS: The Agent Language
 

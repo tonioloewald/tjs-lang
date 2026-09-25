@@ -1,3 +1,5 @@
+<!--{"parent": "ajs.md", "order": 3}-->
+
 # AJS LLM System Prompt
 
 > **Maintenance Note:** This prompt must be updated when [ajs.md](./ajs.md) changes.

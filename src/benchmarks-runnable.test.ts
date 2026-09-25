@@ -100,9 +100,9 @@ describe('the benchmark harness is runnable', () => {
  * "why this page has no table" section is.
  */
 describe('timings live only in the generated benchmark file', () => {
-  it('every millisecond figure in guides/benchmarks.md sits under a date stamp', () => {
+  it('every millisecond figure in guides/performance.md sits under a date stamp', () => {
     const text = readFileSync(
-      join(import.meta.dir, '..', 'guides', 'benchmarks.md'),
+      join(import.meta.dir, '..', 'guides', 'performance.md'),
       'utf8'
     )
     const lines = text.split('\n')

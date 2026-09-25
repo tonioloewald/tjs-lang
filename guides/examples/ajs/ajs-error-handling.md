@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"basics","order":6}-->
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 6, "parent": "ajs-basics.md"}-->
 
 # Error Handling
 

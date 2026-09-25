@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"featured","order":16}-->
+<!--{"section": "ajs", "type": "example", "group": "featured", "order": 16, "parent": "ajs-featured.md"}-->
 
 # Fuel Limits
 

@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # TJS-Lang TODO — Archive
 
 Shipped/completed work moved out of `TODO.md` to keep the live backlog lean. The

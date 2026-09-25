@@ -1,3 +1,5 @@
+<!--{"parent": "ajs.md", "order": 7}-->
+
 # Running the LLM test suite (LM Studio setup)
 
 The LLM-dependent tests (`bun test` without `SKIP_LLM_TESTS`) talk to a local

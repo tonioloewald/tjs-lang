@@ -1,3 +1,5 @@
+<!--{"parent": "tjs.md", "order": 6}-->
+
 # WASM in TJS
 
 Canonical reference for WebAssembly in TJS — what you can write, how it's

@@ -1,4 +1,4 @@
-<!--{"section": "tjs-for-js", "group": "docs", "order": 0, "navTitle": "TJS for JS Devs"}-->
+<!--{"section": "tjs-for-js", "group": "docs", "order": 2, "navTitle": "TJS for JS Devs", "parent": "tjs.md"}-->
 
 # TJS for JavaScript Programmers
 

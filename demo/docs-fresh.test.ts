@@ -3,6 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { tjs } from '../src/lang'
 import { transpile } from '../src/lang'
+import { fromTS } from '../src/lang/emitters/from-ts'
 
 /**
  * `demo/docs.json` is a COMMITTED build artifact, and it has already shipped stale once:
@@ -41,6 +42,13 @@ describe('every shipped playground example is usable', () => {
       // both shipped ones had, in the live playground and in the npm package.
       if (ex.section === 'ajs') {
         expect(() => transpile(ex.code)).not.toThrow()
+      } else if (ex.section === 'ts') {
+        // TypeScript examples (added 2026-09-25, migrated from the playground's
+        // `ts-examples.ts`) are checked the way they RUN — TS -> TJS -> JS. Compiling them
+        // as TJS happened to pass four of the fourteen, which is a coincidence, not a check.
+        expect(() =>
+          tjs(fromTS(ex.code, { emitTJS: true }).code, { runTests: false })
+        ).not.toThrow()
       } else {
         expect(() => tjs(ex.code, { runTests: false })).not.toThrow()
       }

@@ -1,3 +1,5 @@
+<!--{"parent": "typescript-good-bad-ugly.md", "order": 2}-->
+
 # Generic .d.ts Emission: Design Notes
 
 _How TJS Generic declarations should emit TypeScript declarations for TS consumers._

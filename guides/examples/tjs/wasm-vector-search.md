@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"featured","order":2}-->
+<!--{"section": "tjs", "type": "example", "group": "featured", "order": 2, "parent": "tjs-featured.md"}-->
 
 # Vector Search Benchmark
 

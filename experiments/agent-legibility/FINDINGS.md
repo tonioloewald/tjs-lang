@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # Agent-legibility spike — findings
 
 **Run:** 2026-07-31, `mlx-community/Qwen2.5-1.5B-Instruct-4bit` via mlx-omni-server, 4 tasks

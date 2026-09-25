@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"featured","order":1}-->
+<!--{"section": "tjs", "type": "example", "group": "featured", "order": 1, "parent": "tjs-featured.md"}-->
 
 # TJS Grammar Reference
 

@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"advanced","order":19,"requiresApi":true}-->
+<!--{"section": "ajs", "type": "example", "group": "advanced", "order": 19, "requiresApi": true, "parent": "ajs-advanced.md"}-->
 
 # LLM Code Solver
 

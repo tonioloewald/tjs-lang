@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"wasmlib","order":1}-->
+<!--{"section": "tjs", "type": "example", "group": "wasmlib", "order": 1, "parent": "tjs-wasmlib.md"}-->
 
 # Using a WASM Library
 

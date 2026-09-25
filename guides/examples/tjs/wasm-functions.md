@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":28}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 28, "parent": "tjs-patterns.md"}-->
 
 # WASM Functions (reusable kernels)
 

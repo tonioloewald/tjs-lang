@@ -1,4 +1,4 @@
-<!--{"section": "tjs", "group": "docs", "order": 0, "navTitle": "Documentation"}-->
+<!--{"section": "tjs", "group": "docs", "order": 1, "navTitle": "Documentation", "parent": "tjs.md"}-->
 
 # TJS: Typed JavaScript
 

@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"api","order":7}-->
+<!--{"section": "ajs", "type": "example", "group": "api", "order": 7, "parent": "ajs-api.md"}-->
 
 # Weather API
 

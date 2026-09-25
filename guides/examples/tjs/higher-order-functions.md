@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":5}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 5, "parent": "tjs-patterns.md"}-->
 
 # Higher-Order Functions
 

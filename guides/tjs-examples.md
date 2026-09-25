@@ -1,8 +1,13 @@
-<!--{"section": "tjs", "type": "examples", "pin": "top"}-->
+<!--{"section": "tjs", "type": "examples", "pin": "top", "parent": "tjs.md", "order": 3}-->
 
 # TJS Interactive Examples
 
 Try these examples in the playground! Each demonstrates a key TJS feature.
+
+## In this section
+
+<!-- toc -->
+<!-- /toc -->
 
 ## Types by Example
 
@@ -120,27 +125,7 @@ console.log(fastAdd(1, 2))   // 3 (faster, no validation)
 
 ## SafeFunction and Eval
 
-Safe replacements for `new Function()` and `eval()`:
-
-```javascript
-// Create a typed async function from code
-const multiply = await SafeFunction({
-  inputs: { a: 0, b: 0 },
-  output: 0,
-  body: 'return a * b',
-})
-
-console.log(await multiply(3, 4)) // 12
-
-// Evaluate code with typed result
-const result = await Eval({
-  code: 'x + y',
-  context: { x: 10, y: 5 },
-  output: 0,
-})
-
-console.log(result) // 15
-```
+Safe replacements for `new Function()` and `eval()`. See **[Safe Eval](./safe-eval.md)**.
 
 ## Monadic Error Handling
 

@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":7}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 7, "parent": "tjs-basics.md"}-->
 
 # `const!` and Bang Access
 

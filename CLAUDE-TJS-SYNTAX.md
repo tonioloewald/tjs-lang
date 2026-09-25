@@ -1,3 +1,5 @@
+<!--{"parent": "the-tjs-language.md", "order": 4}-->
+
 # TJS Syntax Reference
 
 This file is the detailed TJS syntax reference, extracted from CLAUDE.md for readability.

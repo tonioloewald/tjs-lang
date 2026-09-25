@@ -1,4 +1,4 @@
-<!--{"section":"tjs","group":"docs","order":-10,"navTitle":"Why TJS"}-->
+<!--{"section": "tjs", "group": "docs", "order": 1, "navTitle": "Why TJS", "parent": "the-tjs-language.md"}-->
 
 # Why TJS
 

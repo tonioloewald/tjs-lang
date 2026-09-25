@@ -1,3 +1,5 @@
+<!--{"parent": "tjs.md", "order": 10}-->
+
 # TJS Performance Guide
 
 **Numbers live in [`benchmarks.md`](../benchmarks.md), which is generated. This page carries

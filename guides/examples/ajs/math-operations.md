@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"basics","order":1}-->
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 1, "parent": "ajs-basics.md"}-->
 
 # Math Operations
 

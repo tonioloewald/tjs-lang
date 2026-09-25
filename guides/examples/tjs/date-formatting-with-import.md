@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":10}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 10, "parent": "tjs-patterns.md"}-->
 
 # Date Formatting (with import)
 

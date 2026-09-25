@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":9}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 9, "parent": "tjs-patterns.md"}-->
 
 # Schema Validation
 

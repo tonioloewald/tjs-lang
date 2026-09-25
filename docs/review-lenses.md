@@ -1,4 +1,4 @@
-<!--{"section": "home", "order": 6, "navTitle": "Review lenses"}-->
+<!--{"section": "home", "order": 6, "navTitle": "Review lenses", "hidden": true}-->
 
 # Project-specific review lenses
 

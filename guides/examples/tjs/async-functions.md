@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":6}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 6, "parent": "tjs-patterns.md"}-->
 
 # Async Functions
 

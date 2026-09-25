@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # CLAUDE.md
 
 > **Shared engineering practices** live at
@@ -656,7 +658,7 @@ expectation is almost always the wrong move.
 - `src/cli/help-accuracy.test.ts` — `--help` describes what the CLI does. `--force` once promised it stopped "an earlier playground" while the code accepted any JS runtime.
 - `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`.
 - `src/repo-hygiene.test.ts` — nothing tracked is also ignored, and `.gitignore` has no inline comments. Git has no inline `#` in `.gitignore`: a trailing comment makes the pattern match NOTHING, which is how `.models.cache.json` got committed.
-- `src/benchmarks-runnable.test.ts` — the benchmark fixtures still parse, and every millisecond figure in `guides/benchmarks.md` sits under a date stamp. A hand-copied table drifted an order of magnitude for seven months.
+- `src/benchmarks-runnable.test.ts` — the benchmark fixtures still parse, and every millisecond figure in `guides/performance.md` (the performance guide; `guides/benchmarks.md` until 2026-09-25) sits under a date stamp. A hand-copied table drifted an order of magnitude for seven months.
 - `src/lang/emitted-module-scope.test.ts` — emitted output parses as an ES MODULE (where a duplicate top-level declaration is an error — Bun tolerates one, Node refuses, so `==` plus `Is` in one file shipped broken for Node consumers with a green suite), RUNS via `new Function` and is called into (a reference inside a body resolves at call time, not at parse — `IsNot` shipped emitting `ReferenceError: Is is not defined`), and for the two shapes that actually shipped broken, loads in a real `node` subprocess.
 - `src/side-effects-allowlist.test.ts` — `package.json` `sideEffects` is DERIVED from the source. Every module with a module-scope call (scanned over a literal-masked view) is listed, with its `dist` bundle when it is an entry, or exempt with a written reason; stale entries and stale exemptions both fail. The allowlist named one module while five had effects — deriving it found `tjs-lang/bun-plugin`, which a review had missed.
 - `src/predicate-bundles.test.ts` — `Predicate` is ONE class across the PUBLISHED bundles, asserted in real `node` against `dist/` in both load orders. Source cannot answer this: the global slot that fuses the per-bundle copies is a property of the built artifacts, and Bun resolves the `bun` export condition to source.
@@ -990,7 +992,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `DOCS-WASM.md` — Canonical WASM reference: inline blocks, `wasm function` declarations, memory model, cross-file composition, `tjs-lang/linalg`, current limitations
 - `wasm-library-plan.md` — Cross-file WASM library design (composable `wasm function` declarations, transpile-time module composition, linalg stdlib). **Shipped in v0.8.0** — all phases (0.5, 0.75, 1, 1.5, 2, 3, 4, 5 MVP, 6) complete. See the plan for what's deferred (linalg expansion, i32/f32/v128 return types, etc.).
 - `MANIFESTO-BUILDER.md` / `MANIFESTO-ENTERPRISE.md` — Positioning docs (audience-targeted pitches)
-- `benchmarks.md` — Top-level benchmark results, **generated** by `bun run bench`. The only place timings belong: `guides/benchmarks.md` used to hand-copy a table and drifted an order of magnitude (17–28× vs a real 1.6–2.0×) for seven months. It is now the performance _guide_ — guidance, no undated numbers, enforced by `src/benchmarks-runnable.test.ts`.
+- `benchmarks.md` — Top-level benchmark results, **generated** by `bun run bench`. The only place timings belong: `guides/performance.md` (renamed from `guides/benchmarks.md` 2026-09-25: the doc site identifies pages by bare filename, and two `benchmarks.md` collided) used to hand-copy a table and drifted an order of magnitude (17–28× vs a real 1.6–2.0×) for seven months. It is now the performance _guide_ — guidance, no undated numbers, enforced by `src/benchmarks-runnable.test.ts`.
 - `UPSTREAM.md` — dependency bugs filed upstream + worked around locally (the paper trail for removing each workaround once upstream lands)
 
 ### Keeping This File and `llms.txt` Current

@@ -1,3 +1,5 @@
+<!--{"parent": "tjs.md", "order": 5}-->
+
 # AJS Patterns
 
 This document covers common patterns and workarounds for features not directly supported in AJS.

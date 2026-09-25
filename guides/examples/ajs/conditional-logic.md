@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"basics","order":2}-->
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 2, "parent": "ajs-basics.md"}-->
 
 # Conditional Logic
 

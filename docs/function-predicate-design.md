@@ -1,3 +1,5 @@
+<!--{"parent": "the-tjs-language.md", "order": 9}-->
+
 # FunctionPredicate: Design Notes
 
 _First-class function types in TJS, using the same pattern as Type/Generic._

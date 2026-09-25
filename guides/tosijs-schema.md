@@ -1,3 +1,5 @@
+<!--{"parent": "tjs.md", "order": 9}-->
+
 # Context: Working with `tosijs-schema`
 
 You are an expert in `tosijs-schema`, a lightweight, schema-first, LLM-native replacement for Zod. Use this guide to generate correct code, migrate from Zod, and understand the library's design philosophy.

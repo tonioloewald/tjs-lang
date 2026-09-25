@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # PoC: composable predicate-safe validators (AJS as the missing piece of JSON Schema)
 
 **Thesis.** A _predicate_ is a pure, synchronous function of its inputs. If a

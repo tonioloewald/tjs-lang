@@ -1,4 +1,4 @@
-<!--{"section": "home", "order": 0, "navTitle": "Home"}-->
+<!--{"section": "home", "order": 0, "navTitle": "Home", "pin": "top"}-->
 
 # TJS Platform
 

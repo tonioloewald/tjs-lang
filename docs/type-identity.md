@@ -1,4 +1,4 @@
-<!--{"section": "internals", "order": 4, "navTitle": "Type identity"}-->
+<!--{"section": "internals", "order": 6, "navTitle": "Type identity", "parent": "the-tjs-language.md"}-->
 
 # Type identity: who answers "does this value satisfy this type?"
 

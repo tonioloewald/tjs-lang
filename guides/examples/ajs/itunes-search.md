@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"api","order":8}-->
+<!--{"section": "ajs", "type": "example", "group": "api", "order": 8, "parent": "ajs-api.md"}-->
 
 # iTunes Search
 

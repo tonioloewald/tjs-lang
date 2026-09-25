@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"advanced","order":15,"requiresApi":true}-->
+<!--{"section": "ajs", "type": "example", "group": "advanced", "order": 15, "requiresApi": true, "parent": "ajs-advanced.md"}-->
 
 # Multi-Agent Pipeline
 

@@ -1,3 +1,5 @@
+<!--{"parent": "the-tjs-language.md", "order": 12}-->
+
 # Ambient Contracts — probe reality, derive verified predicate contracts
 
 > **Status: design note / idea (2026-07-03).** Not built. Captures the direction

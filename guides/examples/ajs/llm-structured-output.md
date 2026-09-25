@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"llm","order":12,"requiresApi":true}-->
+<!--{"section": "ajs", "type": "example", "group": "llm", "order": 12, "requiresApi": true, "parent": "ajs-llm.md"}-->
 
 # LLM Structured Output
 

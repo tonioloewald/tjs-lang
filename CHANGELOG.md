@@ -1,3 +1,5 @@
+<!--{"pin": "bottom", "order": 1}-->
+
 # Changelog
 
 All notable changes to **tjs-lang** are documented here.

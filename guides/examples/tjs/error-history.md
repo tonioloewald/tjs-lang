@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":8}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 8, "parent": "tjs-patterns.md"}-->
 
 # Flight Recorder
 

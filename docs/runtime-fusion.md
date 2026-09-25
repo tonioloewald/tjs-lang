@@ -1,3 +1,5 @@
+<!--{"parent": "the-tjs-language.md", "order": 7}-->
+
 # Runtime fusion: what may be shared between TJS modules, and what may not
 
 Every emitted `.js` file carries its own inline runtime — a self-contained prelude so the

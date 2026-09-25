@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"unbundled","order":5}-->
+<!--{"section": "tjs", "type": "example", "group": "unbundled", "order": 5, "parent": "tjs-unbundled.md"}-->
 
 # CDN Hints (overriding the default)
 

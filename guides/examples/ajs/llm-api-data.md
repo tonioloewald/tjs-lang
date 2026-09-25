@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"featured","order":13,"requiresApi":true}-->
+<!--{"section": "ajs", "type": "example", "group": "featured", "order": 13, "requiresApi": true, "parent": "ajs-featured.md"}-->
 
 # LLM + API Data
 

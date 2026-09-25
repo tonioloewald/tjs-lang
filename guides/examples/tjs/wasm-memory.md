@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":27}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 27, "parent": "tjs-patterns.md"}-->
 
 # WASM Memory
 

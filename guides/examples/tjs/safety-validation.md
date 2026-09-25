@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":19}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 19, "parent": "tjs-basics.md"}-->
 
 # Safety & Validation
 

@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":12}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 12, "parent": "tjs-patterns.md"}-->
 
 # Lodash Utilities (with import)
 

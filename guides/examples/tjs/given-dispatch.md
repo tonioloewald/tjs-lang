@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":5}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 5, "parent": "tjs-basics.md"}-->
 
 # Control Flow: `given`
 

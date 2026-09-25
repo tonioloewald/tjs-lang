@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # TJS-Lang TODO
 
 # RELEASE STATE (2026-09-07)
@@ -248,6 +250,10 @@ dashboard number into this list.
       minutes, so something else is superlinear. Unidentified; measure before guessing again.
 
 ## loewald-dot-com is the service layer — leverage it, do not merge it
+
+> **Names (2026-09-25):** this is **service-compris**, the settled name. `loewald-dot-com`,
+> `tosijs-platform` (still the GitHub repo name) and `tosijs-services` below all mean the same
+> project. Use service-compris in anything new.
 
 Direction confirmed 2026-09-07: **loewald-dot-com becomes the universal back end.** Any app
 deploys its own instance and gets zero-deploy endpoints — features added as _data_ (stored

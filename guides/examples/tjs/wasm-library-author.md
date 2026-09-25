@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"wasmlib","order":0}-->
+<!--{"section": "tjs", "type": "example", "group": "wasmlib", "order": 0, "parent": "tjs-wasmlib.md"}-->
 
 # WASM Library: SIMD Linalg
 

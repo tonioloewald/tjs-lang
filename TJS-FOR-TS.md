@@ -1,4 +1,4 @@
-<!--{"section": "tjs-for-ts", "group": "docs", "order": 0, "navTitle": "TJS for TS Devs"}-->
+<!--{"section": "tjs-for-ts", "group": "docs", "order": 30, "navTitle": "TJS for TS Devs", "pin": "top", "book": ["default", "ts"]}-->
 
 # TJS for TypeScript Programmers
 
@@ -20,6 +20,11 @@ This guide is split into two paths:
 2. **[Migrating to TJS](#part-2-migrating-to-tjs)** -- Convert your codebase from TypeScript to TJS
 
 ---
+
+## In this section
+
+<!-- toc -->
+<!-- /toc -->
 
 # Part 1: Using TJS from TypeScript
 

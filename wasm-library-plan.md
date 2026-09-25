@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # WASM Libraries in tjs — Design & Plan
 
 > **Status: shipped in v0.8.0 (tag `v0.8.0`, 2026-05-14).**

@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # TJS Memory Profile
 
 Measured: 2026-07-14

@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":2}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 2, "parent": "tjs-basics.md"}-->
 
 # Required vs Optional
 

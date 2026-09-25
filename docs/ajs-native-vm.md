@@ -1,3 +1,5 @@
+<!--{"parent": "ajs.md", "order": 6}-->
+
 # AJS Native VM (Rust → wasm) — post-1.0 direction
 
 **Status:** design note, not critical path. Nothing here blocks the 1.0 language release.

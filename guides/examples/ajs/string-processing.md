@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"basics","order":4}-->
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 4, "parent": "ajs-basics.md"}-->
 
 # String Processing
 

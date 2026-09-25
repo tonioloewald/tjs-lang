@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":15}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 15, "parent": "tjs-basics.md"}-->
 
 # Honest Equality
 

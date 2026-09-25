@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"advanced","order":30}-->
+<!--{"section": "tjs", "type": "example", "group": "advanced", "order": 30, "parent": "tjs-advanced.md"}-->
 
 # Predicate Types
 

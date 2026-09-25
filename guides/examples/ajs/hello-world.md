@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"basics","order":0}-->
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 0, "parent": "ajs-basics.md"}-->
 
 # Hello World
 

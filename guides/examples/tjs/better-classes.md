@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":20}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 20, "parent": "tjs-basics.md"}-->
 
 # Better Classes
 

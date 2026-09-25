@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":4}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 4, "parent": "tjs-basics.md"}-->
 
 # Array Types
 

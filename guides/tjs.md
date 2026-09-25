@@ -1,3 +1,5 @@
+<!--{"pin": "top", "order": 10}-->
+
 # TJS: Typed JavaScript
 
 TJS is a typed superset of JavaScript where **types are examples**.
@@ -13,6 +15,11 @@ function greet(name: 'World', times: 3): '' {
   return result.trim()
 }
 ```
+
+## In this section
+
+<!-- toc -->
+<!-- /toc -->
 
 ## Philosophy
 
@@ -400,52 +407,9 @@ Use `(!)` for internal functions that are called frequently with known-good data
 
 ### SafeFunction and Eval
 
-Safe replacements for `new Function()` and `eval()` with typed inputs/outputs:
-
-```javascript
-// SafeFunction - create a typed async function from code
-const add = await SafeFunction({
-  inputs: { a: 0, b: 0 }, // typed parameters
-  output: 0, // typed return
-  body: 'return a + b',
-})
-await add(1, 2) // 3
-await add('x', 2) // Error: invalid input 'a'
-
-// Eval - evaluate code once with typed result
-const result = await Eval({
-  code: 'a + b',
-  context: { a: 1, b: 2 },
-  output: 0,
-}) // 3
-```
-
-**Key safety features:**
-
-- **Typed inputs/outputs** - validated at runtime
-- **Async execution** - can timeout, won't block
-- **Explicit context** - no implicit scope access
-- **Injectable capabilities** - fetch, console, etc. must be provided
-
-```javascript
-// With capabilities and timeout
-const fetcher = await SafeFunction({
-  inputs: { url: '' },
-  output: { data: [] },
-  body: 'return await fetch(url).then(r => r.json())',
-  capabilities: { fetch: globalThis.fetch },
-  timeoutMs: 10000,
-})
-
-const data = await Eval({
-  code: 'await fetch(url).then(r => r.json())',
-  context: { url: 'https://api.example.com' },
-  output: { items: [] },
-  capabilities: { fetch: globalThis.fetch },
-})
-```
-
-Both functions return errors as values (monadic) rather than throwing.
+Safe replacements for `eval()` and `new Function()` — typed inputs and outputs, fuel-metered,
+no ambient authority. See **[Safe Eval](./safe-eval.md)**, which covers the API, what the
+sandbox guarantees, and what it does not.
 
 ## Testing
 
@@ -783,6 +747,6 @@ The output is valid ES modules that work with any bundler (Vite, esbuild, webpac
 
 ## Further Reading
 
-- [Benchmarks](./benchmarks.md) - Performance characteristics
+- [Performance guide](./performance.md) - Performance characteristics
 - [ajs.md](./ajs.md) - The sandboxed agent language
 - [API Documentation](./docs/) - Generated from source

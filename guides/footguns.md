@@ -1,3 +1,5 @@
+<!--{"parent": "tjs.md", "order": 4}-->
+
 # JS Footguns That TJS Quietly Fixes
 
 JavaScript has a small set of legendary, well-documented gotchas that no one

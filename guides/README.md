@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # tjs-lang Guides
 
 Detailed documentation for tjs-lang.
@@ -15,7 +17,7 @@ Detailed documentation for tjs-lang.
 ## Reference
 
 - **[tosijs-schema.md](./tosijs-schema.md)** - Guide to the tosijs-schema validation library
-- **[benchmarks.md](./benchmarks.md)** - Performance benchmarks
+- **[performance.md](./performance.md)** - Performance guide (the numbers are in the generated [`benchmarks.md`](../benchmarks.md))
 
 ## See Also
 

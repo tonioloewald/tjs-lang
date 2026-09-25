@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # Probe: is "all members defaulted ⇒ object optional" safe to infer?
 
 **Run 2026-08-31.** `experiments/agent-legibility/destructured-optional-probe.ts`.

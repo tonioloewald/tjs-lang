@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":25}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 25, "parent": "tjs-patterns.md"}-->
 
 # Inline WASM
 

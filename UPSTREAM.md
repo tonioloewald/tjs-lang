@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # Upstream issues
 
 Bugs and gaps in tjs-lang's dependencies (Bun, tosijs, tosijs-ui, …) that we've
@@ -260,6 +262,30 @@ would move the problem rather than solve it.
 someone checks compatibility.
 
 ---
+
+## tosijs-ui — what retiring the playground needs from it (tosijs-ui#184, #185, #186)
+
+**Filed 2026-09-25**, as tjs-lang moves its docs onto a tosijs-ui hosted site and retires the
+bespoke playground (`demo/`). The agreed bar for 0.14 is that live-example RUNS every example
+and SHOWS ITS OUTPUT; the rest waits for an IDE.
+
+- [tosijs-ui#184](https://github.com/tonioloewald/tosijs-ui/issues/184) — live-example gaps:
+  **AJS** (`Dialect` is closed at `js|tjs|ts`; asked for a pluggable dialect registry), a
+  **build-options channel** (the transform takes only a fixed `transforms` list and loads
+  tjs-lang itself from a pinned CDN, so no compiler option can be set per example), and a
+  **Docs tab**. Until AJS lands, tjs-lang hosts each AJS example inside a JS example
+  (`import { AgentVM, ajs } from 'tjs-lang'`), which works today.
+- [tosijs-ui#185](https://github.com/tonioloewald/tosijs-ui/issues/185) — a documentation
+  SURFACE for tjs-lang's generated doc output: per example (#184's tab) and per module
+  (generated reference pages from `tjs(…).types` / `fromTS(…).classes`).
+- [tosijs-ui#186](https://github.com/tonioloewald/tosijs-ui/issues/186) — `<tosi-ide>`: a true
+  client-side unbundled IDE on tjs-lang's import-resolver (external libraries such as Mapbox in
+  demos without baking them into the bundle), a virtual file system for multi-file projects,
+  and persistence on a service-compris endpoint. **Where it lives is tosijs-ui's decision** — a
+  component there, or a project of its own.
+
+**Not fixed here** — file don't fix. **What we're waiting for:** #184's AJS item decides whether
+the AJS examples keep the JS-host wrapper; the rest is post-0.14.
 
 ## tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182) — ✅ FIXED UPSTREAM
 

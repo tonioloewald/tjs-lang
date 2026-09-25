@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":6}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 6, "parent": "tjs-basics.md"}-->
 
 # Dictionary Defaults
 

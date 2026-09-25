@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # tjs-lang Documentation
 
 **tjs-lang** is a type-safe virtual machine (~33KB) for safe execution of untrusted code
@@ -51,7 +53,7 @@ Key examples:
 |----------|-------------|
 | [Roadmap](https://github.com/tonioloewald/tjs-lang/blob/main/PLAN.md) | Project roadmap and planned features |
 | [TODO](https://github.com/tonioloewald/tjs-lang/blob/main/TODO.md) | Current task list |
-| [Performance guide](https://github.com/tonioloewald/tjs-lang/blob/main/guides/benchmarks.md) | When validation costs anything, and where to put `!` (numbers live in the generated `benchmarks.md`) |
+| [Performance guide](https://github.com/tonioloewald/tjs-lang/blob/main/guides/performance.md) | When validation costs anything, and where to put `!` (numbers live in the generated `benchmarks.md`) |
 | [CLAUDE.md](https://github.com/tonioloewald/tjs-lang/blob/main/CLAUDE.md) | AI assistant instructions for this codebase |
 
 ## npm Package

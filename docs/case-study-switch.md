@@ -1,4 +1,4 @@
-<!--{"section": "home", "order": 7, "navTitle": "Case study: switch"}-->
+<!--{"section": "home", "order": 10, "navTitle": "Case study: switch", "parent": "the-tjs-language.md"}-->
 
 # Case study: fixing `switch`
 

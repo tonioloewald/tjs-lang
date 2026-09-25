@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"fullstack","order":13}-->
+<!--{"section": "tjs", "type": "example", "group": "fullstack", "order": 13, "parent": "tjs-fullstack.md"}-->
 
 # Full-Stack Demo: Client App
 

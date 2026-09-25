@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"fullstack","order":14}-->
+<!--{"section": "tjs", "type": "example", "group": "fullstack", "order": 14, "parent": "tjs-fullstack.md"}-->
 
 # Full-Stack Demo: Todo API
 

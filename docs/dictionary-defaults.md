@@ -1,3 +1,5 @@
+<!--{"parent": "the-tjs-language.md", "order": 5}-->
+
 # Dictionary Defaults (Merge-on-Partial Object Arguments)
 
 **Status:** Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the `=` merge behaviour; its mode directive was abolished 2026-08-02 and it is now unconditional in `.tjs`), and Stage 3 (deep-partial `.d.ts`) all shipped, plus the `dict-default-excess-key` lint. Stage 4 (dogfood in tosijs-3d) is the remaining follow-up.

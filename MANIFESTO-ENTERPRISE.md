@@ -1,4 +1,4 @@
-<!--{"section": "meta", "order": 2, "navTitle": "For Enterprise"}-->
+<!--{"section": "meta", "order": 5, "navTitle": "For Enterprise", "pin": "bottom"}-->
 
 # Governance: Safe Execution of Untrusted Logic
 

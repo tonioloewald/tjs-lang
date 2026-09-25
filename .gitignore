@@ -146,6 +146,8 @@ functions/bun.lock
 
 # Demo build output (served via Firebase, not committed)
 .demo/
+# The tosijs-ui doc site's build output (tjs-site.config.ts `outputDir`) — generated, never committed.
+.site/
 
 # Compatibility test working directories (cloned repos, transpiled output)
 .compat-tests/

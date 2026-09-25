@@ -1,3 +1,5 @@
+<!--{"parent": "ajs.md", "order": 8}-->
+
 # MLX as the local-AI harness
 
 tjs-lang's batteries talk to any **OpenAI-compatible** local server over HTTP, so the

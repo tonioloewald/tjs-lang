@@ -1,3 +1,5 @@
+<!--{"parent": "the-tjs-language.md", "order": 2}-->
+
 # Design Principles & Invariants
 
 Foundational, non-negotiable invariants for the tjs-lang language stack. Every

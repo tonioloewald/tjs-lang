@@ -1,3 +1,5 @@
+<!--{"pin": "bottom", "order": 2}-->
+
 # TJS Roadmap
 
 ## Parser architecture — reassessment triggered (2026-09-02)

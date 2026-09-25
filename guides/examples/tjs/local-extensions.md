@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":21}-->
+<!--{"section": "tjs", "type": "example", "group": "basics", "order": 21, "parent": "tjs-basics.md"}-->
 
 # Local Class Extensions
 

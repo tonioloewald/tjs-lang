@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"advanced","order":16}-->
+<!--{"section": "tjs", "type": "example", "group": "advanced", "order": 16, "parent": "tjs-advanced.md"}-->
 
 # Inline Tests: Test Private Functions
 

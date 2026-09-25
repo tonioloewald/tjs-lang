@@ -62,7 +62,7 @@ const DOCS = [
   // A performance guide citing a benchmark of a nonexistent feature is the strongest
   // possible argument for compiling the prose.
   'guides/tjs.md',
-  'guides/benchmarks.md',
+  'guides/performance.md',
 ]
 
 interface Snippet {

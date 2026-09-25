@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":26}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 26, "parent": "tjs-patterns.md"}-->
 
 # WASM SIMD
 

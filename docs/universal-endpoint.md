@@ -1,3 +1,5 @@
+<!--{"parent": "ajs.md", "order": 5}-->
+
 # The universal endpoint: isomorphic atoms, one security model
 
 > An emergent win. The VM was built to run *untrusted* agent code safely —

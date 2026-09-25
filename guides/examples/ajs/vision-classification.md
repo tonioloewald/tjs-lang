@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"advanced","order":18,"requiresApi":true}-->
+<!--{"section": "ajs", "type": "example", "group": "advanced", "order": 18, "requiresApi": true, "parent": "ajs-advanced.md"}-->
 
 # Vision: Classification
 

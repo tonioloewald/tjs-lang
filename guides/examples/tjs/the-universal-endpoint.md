@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"advanced","order":15}-->
+<!--{"section": "tjs", "type": "example", "group": "advanced", "order": 15, "parent": "tjs-advanced.md"}-->
 
 # The Universal Endpoint
 

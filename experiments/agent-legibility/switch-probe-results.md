@@ -1,3 +1,5 @@
+<!--{"hidden": true}-->
+
 # `switch` comprehension probe — results log
 
 Appended by `switch-probe.ts`. **The value of this file is the SERIES**, not any one run:

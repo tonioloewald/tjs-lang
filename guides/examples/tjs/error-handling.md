@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":7}-->
+<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 7, "parent": "tjs-patterns.md"}-->
 
 # Error Handling
 

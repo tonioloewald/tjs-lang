@@ -1,4 +1,4 @@
-<!--{"section":"ajs","type":"example","group":"api","order":9}-->
+<!--{"section": "ajs", "type": "example", "group": "api", "order": 9, "parent": "ajs-api.md"}-->
 
 # GitHub Repos
 
