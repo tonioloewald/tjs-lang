@@ -146,8 +146,12 @@ describe('Transpiler', () => {
     })
 
     it('should transform Type with = default (positive number)', () => {
+      // `+18` is a non-negative-integer example, and `+18 === 18`, so it is marked: this
+      // used to pass the bare value through, and `Type Age = +18` accepted -1.
       const result = preprocess(`Type Age = +18`)
-      expect(result.source).toBe(`const Age = __tjs_rt.Type('Age', +18)`)
+      expect(result.source).toBe(
+        `const Age = __tjs_rt.Type('Age', __tjs_rt.__k('nonneg', +18))`
+      )
     })
 
     it('should transform Type with description and = default', () => {

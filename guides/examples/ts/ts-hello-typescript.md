@@ -15,6 +15,10 @@ Markdown doc comments in ts are supported, and
 inline tests can be embedded in comment blocks.
 */
 
+// Converted TypeScript keeps JavaScript's behaviour until you opt in. This one
+// line opts in to full TJS, which turns the types into runtime checks:
+/* @tjs TjsStrict */
+
 /*test 'this is a tjs test block' {
   expect(greet('ts')).toBe('Hello, ts!')
 }*/

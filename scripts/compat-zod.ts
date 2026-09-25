@@ -210,24 +210,36 @@ async function main() {
     // that ran ZERO tests reported greenest of all. superstruct printed
     // `Passed: 0, Failed: 0` in exactly that state. "Nothing ran" and "everything passed"
     // must not look the same.
-    if (failed > 0 || total === 0) process.exitCode = 1
+    // A suite that FAILED TO LOAD contributes zero tests, so it is invisible to every count
+    // above: zod reported "551/552 passed" while most of its suites threw on import
+    // (`Cannot mix BigInt and other types`). Suites are counted separately and fail the lane.
+    const suitesFailed = json.numFailedTestSuites ?? 0
+    if (failed > 0 || suitesFailed > 0 || total === 0) process.exitCode = 1
 
     console.log('━'.repeat(50))
     console.log(`  Total:  ${total}`)
     console.log(`  Passed: ${passed}`)
     console.log(`  Failed: ${failed}`)
+    if (suitesFailed > 0)
+      console.log(
+        `  Suites failed (incl. ones that never loaded): ${suitesFailed}`
+      )
     console.log('━'.repeat(50))
 
-    if (failed > 0 && json.testResults) {
+    if ((failed > 0 || suitesFailed > 0) && json.testResults) {
       console.log('\nFailed tests (first 30):\n')
       let shown = 0
       for (const suite of json.testResults) {
         if (suite.status === 'failed' && shown < 30) {
           const suiteName = suite.name.replace(REPO_DIR + '/', '')
           const assertions = suite.assertionResults || []
-          if (assertions.length === 0 && suite.message) {
+          // A suite that failed to load has no assertions; name it even when vitest gave
+          // no message, or "Suites failed to load: 4" names nothing to go and look at.
+          if (assertions.length === 0) {
             console.log(`  ✗ ${suiteName} (failed to run)`)
-            const firstLine = suite.message
+            const firstLine = String(
+              suite.message ?? suite.failureMessage ?? ''
+            )
               .split('\n')
               .find((l: string) => l.trim() && !l.includes('at '))
             if (firstLine) console.log(`    ${firstLine.trim().slice(0, 120)}`)
@@ -253,7 +265,7 @@ async function main() {
       if (shown >= 30) console.log(`  ... and more`)
     }
 
-    if (passed === total && total > 0) {
+    if (passed === total && total > 0 && suitesFailed === 0) {
       console.log(`\n  All ${total} tests passed!\n`)
     } else if (total > 0) {
       const pct = ((passed / total) * 100).toFixed(1)

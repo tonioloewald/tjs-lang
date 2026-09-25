@@ -170,7 +170,7 @@ export function isTypeNameAnnotation(text: string): boolean {
  * on boxed primitives and on `undefined`-against-`null`; normalising here and at the probe
  * keeps the fast path and the semantics identical (`equality-invariants.test.ts`).
  */
-function literalUnionValues(node: any): unknown[] | null {
+export function literalUnionValues(node: any): unknown[] | null {
   const out: unknown[] = []
   const walk = (n: any): boolean => {
     if (!n) return false

@@ -493,20 +493,18 @@ deployed after the publish.
       **premise was false** (checked 2026-09-25). The nine abolished directives are the `Tjs*`
       MODES; `safety none|inputs|all` is a live, documented directive (DOCS-TJS.md,
       CLAUDE-TJS-SYNTAX.md), so the toggle works as designed. (Its WASM toggle is still dead.)
-- [ ] **Converted TypeScript, once validated, rejects valid data** (found 2026-09-25 running the
-      TS examples; blocks the three examples that promise validation). Three defects, all
-      latent because converted code never validates by default:
-  1. **`TjsStrict` does not turn on input validation.** It sets every mode but leaves the
-     compat `safety none`, though documented as "full TJS; .tjs has this already". Fix and
-     repro test are written and HELD (`if (!safetyExplicit) moduleSafety = undefined` in the
-     TjsStrict branch of `parser.ts`) — shipping it alone turns "opt-in does nothing" into
-     "opt-in rejects valid data", because of 2 and 3.
-  2. **A `Type` example's integer-valued float literal narrows to INTEGER.** `Type P = 0.0`
-     rejects 1.5: at runtime `0.0` is just `0`, and `__match` (js.ts inline stub) narrows
-     `Number.isInteger(ex)`. Inline param types are fine — they infer from the AST's raw
-     text. Native TJS is affected too, and `fromTS` maps every TS `number` to `0.0`.
-  3. **`fromTS` emits `Product[]` (interface element) as `[null]`**, and `__match(x, null)`
-     means "must be null" — any non-empty array fails.
+- [x] **Converted TypeScript, once validated, rejected valid data** — FIXED 2026-09-25 (see
+      CHANGELOG 0.14.0 Fixed): `TjsStrict` now validates; `Type` examples keep what the source
+      says (`markExampleKinds`); `fromTS` emits `any`/names/optional members in `Type` examples.
+      Pinned by `src/lang/example-kinds.test.ts`, `src/lang/tjsstrict-safety.test.ts`, and the
+      TS examples run gate in `demo/src/examples.test.ts`.
+- [x] **A Generic INSTANTIATION lost a float argument** (`Box(0.0)`) — FIXED 2026-09-25:
+      arguments to a Generic DECLARED in the module, and every Generic parameter default, go
+      through `markExampleKinds` (`markGenericInstantiations`, `parser-transforms.ts`).
+- [ ] **kysely's compat lane only TRANSPILES.** Unlike the other five it never loads the
+      converted modules or runs kysely's tests (they need databases), so "kysely 395/395"
+      means "converts", not "works". CLAUDE.md's "runs that project's own test suite" is not
+      true of it. Either run its SQLite dialect tests, or label the lane honestly.
 - [ ] **Content still to write** (Tonio to write or outline): the TypeScript volume beyond its
       seed material; the Safe Eval chapter beyond the assembled one; and the framing both
       theses give (Safe Eval; the Lisp lineage — TJS restores introspection, AJS restores

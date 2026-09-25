@@ -212,6 +212,8 @@ describe('no construct reaches the language without reaching the editors', () =>
     new: 'JavaScript keyword',
     constructor:
       'a forbidden PROPERTY name, not a construct (forbidden-keys.ts)',
+    default:
+      'matched only to REJECT a `default:` member inside a Type block, which was never read (parser-transforms.ts)',
     type: 'an ordinary identifier in TJS — measured, and painting it red gave a shipped example three false squiggles',
   }
 

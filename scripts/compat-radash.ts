@@ -282,36 +282,49 @@ async function main() {
       }
     }
 
+    // Upstream breakage is NOT a converter failure — radash's own suite has broken fake
+    // timers under the vitest shim — so the lane is judged on what is left after
+    // subtracting it. The verdict is computed ONCE, the same way on every path: it used to
+    // live only inside the "some suite is upstream" branch, so with nothing classified
+    // upstream a failing test or an unloadable suite set no exit code at all.
+    const upstreamCount =
+      json.testResults
+        ?.filter((s: any) =>
+          upstreamFailures.includes(s.name.replace(RADASH_DIR + '/', ''))
+        )
+        ?.reduce(
+          (n: number, s: any) =>
+            n +
+            (s.assertionResults?.filter((t: any) => t.status === 'failed')
+              ?.length || 0),
+          0
+        ) || 0
     if (upstreamFailures.length > 0) {
-      const upstreamCount =
-        json.testResults
-          ?.filter((s: any) =>
-            upstreamFailures.includes(s.name.replace(RADASH_DIR + '/', ''))
-          )
-          ?.reduce(
-            (n: number, s: any) =>
-              n +
-              (s.assertionResults?.filter((t: any) => t.status === 'failed')
-                ?.length || 0),
-            0
-          ) || 0
       console.log(
         `\n  Note: ${upstreamCount} failures are pre-existing upstream issues`
       )
       console.log(`  (broken fake timers in: ${upstreamFailures.join(', ')})`)
-      const actualFailed = numFailedTests - upstreamCount
-      // Upstream breakage is NOT a converter failure — radash's own suite has broken fake
-      // timers — so the lane is judged on what is left after subtracting it. A suite that
-      // ran nothing fails too: "nothing ran" and "everything passed" must not look alike.
-      if (actualFailed > 0 || numTotalTests === 0) process.exitCode = 1
-      if (actualFailed === 0) {
-        console.log(
-          `\n  TJS transpilation: ${numPassedTests}/${numPassedTests} tests passed!\n`
-        )
-      }
-    } else if (numPassedTests === numTotalTests) {
-      console.log('\n  All tests passed!\n')
     }
+    const actualFailed = numFailedTests - upstreamCount
+    // A suite that FAILED TO LOAD contributes zero tests, so it is invisible to every count
+    // above: zod reported "551/552 passed" while most of its suites threw on import.
+    // Suites are counted separately — minus the ones classified as upstream, which fail as
+    // whole suites by definition.
+    const suitesFailed =
+      (json.numFailedTestSuites ?? 0) - upstreamFailures.length
+    if (suitesFailed > 0)
+      console.log(
+        `  Suites failed (incl. ones that never loaded): ${suitesFailed}`
+      )
+    // "Nothing ran" and "everything passed" must not look alike.
+    if (actualFailed > 0 || suitesFailed > 0 || numTotalTests === 0)
+      process.exitCode = 1
+    else
+      console.log(
+        `\n  TJS transpilation: ${numPassedTests}/${
+          numPassedTests + upstreamCount
+        } tests passed (excluding ${upstreamCount} upstream)\n`
+      )
   } catch {
     // JSON parse failed — show raw output
     console.log('Could not parse Jest JSON output.\n')

@@ -14,6 +14,10 @@ TJS delivers it at RUNTIME.
 This is what "TS keeps its promise" means.
 */
 
+// Converted TypeScript keeps JavaScript's behaviour until you opt in. This one
+// line opts in to full TJS, which turns the types into runtime checks:
+/* @tjs TjsStrict */
+
 // Define your types with standard TypeScript syntax
 interface Product {
   id: number

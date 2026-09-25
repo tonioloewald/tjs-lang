@@ -395,6 +395,15 @@ function leadingSuperCallLength(body: string): number {
   return i + (tail ? tail[0].length : 0)
 }
 
+/**
+ * An optional member's example in a `Type` example: `T | undefined`, which
+ * `markExampleKinds` turns into a member that may be absent. `any` already admits absence.
+ */
+function optionalExample(example: string): string {
+  if (example === 'any' || /\bundefined\b/.test(example)) return example
+  return `${example} | undefined`
+}
+
 function typeToExample(
   type: ts.TypeNode | undefined,
   checker?: ts.TypeChecker,
@@ -418,9 +427,18 @@ function typeToExample(
    * it should be wrong in the direction that still runs. Found by two tosijs regression
    * tests, which is exactly what they are for.
    */
-  position: 'annotation' | 'value' = 'value'
+  position: 'annotation' | 'value' | 'type-example' = 'value'
 ): string {
   if (!type) return 'undefined'
+  // `'type-example'` — inside a `Type` declaration's example. It is still EVALUATED, but
+  // the transpiler now reads it first (`markExampleKinds`), so it can say what a plain value
+  // cannot: `any` (not `null`, which means "must be null"), a declared type by NAME (read
+  // lazily, so forward and recursive references work), and `T | undefined` for an optional
+  // member. Everywhere else it behaves exactly like `'value'` — a dictionary default still
+  // needs pure literals — and it propagates only where the position was already implied.
+  const inTypeExample = position === 'type-example'
+  const nested = inTypeExample ? position : undefined
+  const anyAsNull = (e: string) => (e === 'any' && !inTypeExample ? 'null' : e)
 
   switch (type.kind) {
     // A sound TS primitive keeps its own SPELLING.
@@ -482,7 +500,7 @@ function typeToExample(
         position
       )
       // 'any' is not a valid literal value - use null for array items
-      if (itemExample === 'any') itemExample = 'null'
+      itemExample = anyAsNull(itemExample)
       return `[${itemExample}]`
     }
 
@@ -496,7 +514,8 @@ function typeToExample(
           typeRef.typeArguments[0],
           checker,
           warnings,
-          ctx
+          ctx,
+          nested
         )
         // `any` is a TYPE, not a value — `[any]` is a bare identifier at runtime.
         //
@@ -506,7 +525,7 @@ function typeToExample(
         // `ReferenceError: any is not defined` on import — superstruct's whole suite failed
         // to collect on it (7 files, "no tests"), so the target reported zero tests rather
         // than a failure.
-        if (itemExample === 'any') itemExample = 'null'
+        itemExample = anyAsNull(itemExample)
         return `[${itemExample}]`
       }
       if (typeName === 'Promise') {
@@ -530,7 +549,13 @@ function typeToExample(
       ) {
         // Unwrap to yield type (first type argument)
         if (typeRef.typeArguments?.length) {
-          return typeToExample(typeRef.typeArguments[0], checker, warnings, ctx)
+          return typeToExample(
+            typeRef.typeArguments[0],
+            checker,
+            warnings,
+            ctx,
+            nested
+          )
         }
         return 'undefined'
       }
@@ -613,7 +638,7 @@ function typeToExample(
       // there is an identifier, not an example. Only for names we really declare — an erased
       // type must still be expanded or the annotation would reference nothing.
       if (
-        position === 'annotation' &&
+        (position === 'annotation' || inTypeExample) &&
         ctx?.declaredTypeNames?.has(typeName) &&
         (ctx.typeAliases?.has(typeName) || ctx.interfaces?.has(typeName))
       ) {
@@ -630,10 +655,13 @@ function typeToExample(
         }
         visited.add(typeName)
         const resolvedType = ctx.typeAliases.get(typeName)!
-        return typeToExample(resolvedType, checker, warnings, {
-          ...ctx,
-          visited,
-        })
+        return typeToExample(
+          resolvedType,
+          checker,
+          warnings,
+          { ...ctx, visited },
+          nested
+        )
       }
 
       // Resolve interfaces
@@ -651,10 +679,13 @@ function typeToExample(
         for (const member of iface.members) {
           if (ts.isPropertySignature(member) && member.name) {
             const propName = member.name.getText(ctx.sourceFile)
-            let propExample = typeToExample(member.type, checker, warnings, {
-              ...ctx,
-              visited,
-            })
+            let propExample = typeToExample(
+              member.type,
+              checker,
+              warnings,
+              { ...ctx, visited },
+              nested
+            )
             // `any` is not a valid literal value — use null for object properties.
             //
             // The INLINE object path has done this for a long time; the interface path did
@@ -668,7 +699,9 @@ function typeToExample(
             // `null` is also the RIGHT default here rather than a placeholder: §5.2 says a
             // member admits null iff its default example is null, which is what an optional
             // member of unknown type should accept.
-            if (propExample === 'any') propExample = 'null'
+            propExample = anyAsNull(propExample)
+            if (inTypeExample && member.questionToken)
+              propExample = optionalExample(propExample)
             // Always use : for object shape properties — = is only valid
             // in destructuring patterns, not in object literal examples
             props.push(`${propName}: ${propExample}`)
@@ -682,10 +715,10 @@ function typeToExample(
       if (ctx?.typeParams?.has(typeName)) {
         const tp = ctx.typeParams.get(typeName)!
         if (tp.constraint) {
-          return typeToExample(tp.constraint, checker, warnings, ctx)
+          return typeToExample(tp.constraint, checker, warnings, ctx, nested)
         }
         if (tp.default) {
-          return typeToExample(tp.default, checker, warnings, ctx)
+          return typeToExample(tp.default, checker, warnings, ctx, nested)
         }
         // No constraint or default — fall through to 'any'
       }
@@ -730,7 +763,9 @@ function typeToExample(
             position
           )
           // 'any' is not a valid literal value - use null for object properties
-          if (propType === 'any') propType = 'null'
+          propType = anyAsNull(propType)
+          if (inTypeExample && member.questionToken)
+            propType = optionalExample(propType)
           // In object literals, always use : syntax (= is for function params only)
           props.push(`${propName}: ${propType}`)
         }
@@ -829,7 +864,7 @@ function typeToExample(
 
     case ts.SyntaxKind.ParenthesizedType: {
       const parenType = type as ts.ParenthesizedTypeNode
-      return typeToExample(parenType.type, checker)
+      return typeToExample(parenType.type, checker, warnings, ctx, nested)
     }
 
     case ts.SyntaxKind.FunctionType: {
@@ -855,10 +890,10 @@ function typeToExample(
       const tupleType = type as ts.TupleTypeNode
       const elements = tupleType.elements.map((e) => {
         const example = ts.isNamedTupleMember(e)
-          ? typeToExample(e.type, checker)
-          : typeToExample(e as ts.TypeNode, checker)
+          ? typeToExample(e.type, checker, warnings, ctx, nested)
+          : typeToExample(e as ts.TypeNode, checker, warnings, ctx, nested)
         // 'any' is not a valid literal value
-        return example === 'any' ? 'null' : example
+        return anyAsNull(example)
       })
       return `[${elements.join(', ')}]`
     }
@@ -1192,7 +1227,8 @@ function transformInterfaceToType(
   node: ts.InterfaceDeclaration,
   sourceFile: ts.SourceFile,
   warnings?: string[],
-  annotations?: TjsAnnotation[]
+  annotations?: TjsAnnotation[],
+  ctx?: TypeResolutionContext
 ): string | null {
   const typeName = node.name.getText(sourceFile)
 
@@ -1218,8 +1254,17 @@ function transformInterfaceToType(
     for (const member of node.members) {
       if (ts.isPropertySignature(member) && member.name) {
         const propName = member.name.getText(sourceFile)
-        let propExample = typeToExample(member.type, undefined, warnings)
-        if (propExample === 'any') propExample = 'null'
+        // `'type-example'`: `any` stays `any` (it used to become `null`, which a Type
+        // example reads as "must be null"), declared types are referenced by name, and an
+        // optional member may be absent. See `markExampleKinds`.
+        let propExample = typeToExample(
+          member.type,
+          undefined,
+          warnings,
+          ctx,
+          'type-example'
+        )
+        if (member.questionToken) propExample = optionalExample(propExample)
         props.push(`${propName}: ${propExample}`)
       }
     }
@@ -1481,7 +1526,8 @@ function transformTypeAliasToType(
   node: ts.TypeAliasDeclaration,
   sourceFile: ts.SourceFile,
   warnings?: string[],
-  annotations?: TjsAnnotation[]
+  annotations?: TjsAnnotation[],
+  ctx?: TypeResolutionContext
 ): string | null {
   const typeName = node.name.getText(sourceFile)
 
@@ -1524,7 +1570,13 @@ function transformTypeAliasToType(
     return `FunctionPredicate ${typeName} {\n  ${spec.join('\n  ')}\n}`
   }
 
-  const example = typeToExample(node.type, undefined, warnings)
+  const example = typeToExample(
+    node.type,
+    undefined,
+    warnings,
+    ctx,
+    'type-example'
+  )
 
   // 'any' and 'undefined' — un-representable in TJS (intersections with
   // `typeof`/index signatures, etc.). Degrade to an empty Type (validates as
@@ -3698,9 +3750,77 @@ export function fromTS(
   // may reference a type declared later in the file (verified: forward references resolve).
   // The conditions mirror the emission guards exactly: capitalised, and not colliding with a
   // value of the same name.
+  // Names the file USES as a value without declaring them — a global, most often.
+  //
+  // `valueNames` holds the values this file DECLARES, so the guards below saw a collision
+  // only with those. But TypeScript resolves a name in value position to a VALUE whatever
+  // interfaces share it, and zod declares `interface File { type: string; size: number }`
+  // beside `input instanceof File` — the GLOBAL File constructor. Promoting the interface
+  // to `const File = Type(…)` shadowed the global, and `instanceof` threw "Function has
+  // non-object prototype 'undefined'". Under TS's rules any value-position use of an
+  // interface's name refers to some OTHER binding, so every such use is a collision.
+  const typeNames = new Set([...interfaces.keys(), ...typeAliases.keys()])
+  const valueRefs = new Set<string>()
+  const findValueRefs = (node: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node))
+      return
+    // A class's `extends X` is modelled as a type node, but X is a VALUE — a constructor.
+    if (
+      ts.isExpressionWithTypeArguments(node) &&
+      ts.isHeritageClause(node.parent) &&
+      node.parent.token === ts.SyntaxKind.ExtendsKeyword &&
+      ts.isClassLike(node.parent.parent)
+    ) {
+      findValueRefs(node.expression)
+      return
+    }
+    // Type positions — except `typeof X`, which queries a VALUE.
+    if (ts.isTypeNode(node) && !ts.isTypeQueryNode(node)) return
+    if (
+      ts.isHeritageClause(node) &&
+      node.token === ts.SyntaxKind.ImplementsKeyword
+    )
+      return
+    if (ts.isIdentifier(node) && typeNames.has(node.text)) {
+      const p = node.parent as any
+      const isName =
+        !p ||
+        ((ts.isPropertyAccessExpression(p) ||
+          ts.isPropertyAssignment(p) ||
+          ts.isMethodDeclaration(p) ||
+          ts.isPropertyDeclaration(p) ||
+          ts.isGetAccessor(p) ||
+          ts.isSetAccessor(p) ||
+          ts.isVariableDeclaration(p) ||
+          ts.isFunctionDeclaration(p) ||
+          ts.isClassDeclaration(p) ||
+          ts.isParameter(p) ||
+          ts.isBindingElement(p) ||
+          ts.isEnumDeclaration(p) ||
+          ts.isEnumMember(p)) &&
+          p.name === node) ||
+        (ts.isLabeledStatement(p) && p.label === node) ||
+        ts.isImportSpecifier(p) ||
+        ts.isExportSpecifier(p) ||
+        ts.isImportClause(p) ||
+        ts.isNamespaceImport(p) ||
+        ts.isQualifiedName(p)
+      if (!isName) valueRefs.add(node.text)
+    }
+    ts.forEachChild(node, findValueRefs)
+  }
+  findValueRefs(sourceFile)
+  /** Why a type name cannot become a runtime binding, or `null` when it can. */
+  const valueCollision = (n: string): string | null =>
+    valueNames.has(n)
+      ? 'a value of the same name is declared in this file'
+      : valueRefs.has(n)
+      ? 'the file uses a value of the same name (a global such as `File`, or an import)'
+      : null
+
   const declaredTypeNames = new Set<string>()
   for (const n of [...interfaces.keys(), ...typeAliases.keys()]) {
-    if (TJS_TYPE_NAME.test(n) && !valueNames.has(n)) declaredTypeNames.add(n)
+    if (TJS_TYPE_NAME.test(n) && !valueCollision(n)) declaredTypeNames.add(n)
   }
 
   const resolutionCtx: TypeResolutionContext = {
@@ -3953,7 +4073,7 @@ export function fromTS(
           // @tjs-skip — omit this declaration entirely
           if (annotations?.some((a) => a.kind === 'skip')) {
             // Skip — do not emit
-          } else if (valueNames.has(typeName)) {
+          } else if (valueCollision(typeName)) {
             // A TYPE and a VALUE may share a name in TypeScript, and for an INTERFACE this
             // is not a corner case — it is the standard companion-object idiom:
             //
@@ -3969,8 +4089,8 @@ export function fromTS(
             //
             // Erase it, exactly as TypeScript does, and say what we could not do.
             tjsFunctions.push(
-              `/* TJS: interface \`${typeName}\` not promoted to a runtime Type — a value ` +
-                `of the same name is declared in this file. TypeScript erases the ` +
+              `/* TJS: interface \`${typeName}\` not promoted to a runtime Type — ` +
+                `${valueCollision(typeName)}. TypeScript erases the ` +
                 `interface, so behavior is unchanged. */`
             )
           } else {
@@ -3980,7 +4100,8 @@ export function fromTS(
               merged,
               sourceFile,
               warnings,
-              annotations
+              annotations,
+              resolutionCtx
             )
             if (typeDecl) {
               const isExported = statement.modifiers?.some(
@@ -4008,7 +4129,7 @@ export function fromTS(
           // @tjs-skip — omit this declaration entirely
           if (annotations?.some((a) => a.kind === 'skip')) {
             // Skip — do not emit
-          } else if (valueNames.has(typeName)) {
+          } else if (valueCollision(typeName)) {
             // A TYPE and a VALUE may share a name in TypeScript — `type Foo = …` plus
             // `const Foo = { … }` is an everyday pattern (Date itself is declared that
             // way), because the alias is erased at runtime.
@@ -4018,8 +4139,10 @@ export function fromTS(
             // violated. Fall back to erasing the alias, exactly as TypeScript does, and
             // say what we could not do.
             tjsFunctions.push(
-              `/* TJS: type alias \`${typeName}\` not promoted to a runtime Type — a value ` +
-                `of the same name is declared in this file. TypeScript erases the alias, so ` +
+              `/* TJS: type alias \`${typeName}\` not promoted to a runtime Type — ` +
+                `${valueCollision(
+                  typeName
+                )}. TypeScript erases the alias, so ` +
                 `behavior is unchanged. */`
             )
           } else {
@@ -4027,7 +4150,8 @@ export function fromTS(
               statement,
               sourceFile,
               warnings,
-              annotations
+              annotations,
+              resolutionCtx
             )
             if (typeDecl) {
               const isExported = statement.modifiers?.some(
@@ -4057,7 +4181,18 @@ export function fromTS(
           } else {
             const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
             if (enumDecl) {
-              tjsFunctions.push(enumDecl)
+              // An enum is a VALUE, so dropping `export` removes a binding importers use:
+              // zod's `export enum ZodFirstPartyTypeKind` came out unexported, and
+              // `z.ZodFirstPartyTypeKind.ZodString` read undefined. Same treatment the
+              // interface and type-alias branches already give their declarations.
+              const isExported = statement.modifiers?.some(
+                (m) => m.kind === ts.SyntaxKind.ExportKeyword
+              )
+              tjsFunctions.push(
+                isExported
+                  ? prefixExportAfterLeadingComment(enumDecl)
+                  : enumDecl
+              )
             }
           }
         }
@@ -4098,9 +4233,13 @@ export function fromTS(
       handled = true
       if (emitTJS) {
         // Check if it's a type-only import
+        // A DEFAULT binding is a value, so an import that has one is never type-only —
+        // `import def, { type A }` counted as type-only because every NAMED specifier was,
+        // and the whole statement, default included, was dropped.
         const isTypeOnly =
           statement.importClause?.isTypeOnly ||
-          (statement.importClause?.namedBindings &&
+          (!statement.importClause?.name &&
+            statement.importClause?.namedBindings &&
             ts.isNamedImports(statement.importClause.namedBindings) &&
             statement.importClause.namedBindings.elements.every(
               (e) => e.isTypeOnly
@@ -4121,11 +4260,21 @@ export function fromTS(
                 const propName = e.propertyName?.getText(sourceFile)
                 return propName ? `${propName} as ${name}` : name
               })
-            if (valueSpecs.length > 0) {
+            // The statement is REBUILT from its parts here, so every part has to be carried:
+            // this used to read only the named specifiers, and `import config, { A }` came
+            // out as `import { A }` — a ReferenceError on first use of `config`.
+            const defaultName = statement.importClause.name?.getText(sourceFile)
+            const bindings = [
+              ...(defaultName ? [defaultName] : []),
+              ...(valueSpecs.length > 0
+                ? [`{ ${valueSpecs.join(', ')} }`]
+                : []),
+            ]
+            if (bindings.length > 0) {
               const modSpec = (statement.moduleSpecifier as ts.StringLiteral)
                 .text
               tjsFunctions.push(
-                `import { ${valueSpecs.join(', ')} } from '${modSpec}'`
+                `import ${bindings.join(', ')} from '${modSpec}'`
               )
             }
           } else {

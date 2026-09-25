@@ -298,6 +298,31 @@ Type EvenNumber {
 }
 ```
 
+**What an example can say.** A `Type` example is read by the transpiler before it is
+evaluated, with the same rules as a parameter type, so everything a parameter can say, an
+example can say too:
+
+```typescript
+Type Order {
+  example: {
+    price: 0.0,              // a float — NOT an integer, though 0.0 === 0
+    qty: +0,                 // a non-negative integer
+    note: '' | undefined,    // optional: may be absent (not bitwise OR)
+    mode: 'fast' | 'slow',   // an all-literal union is a closed SET
+    id: string,              // sound type names, as in a parameter
+    meta: any,
+    items: [Item],           // another Type — read when CHECKED, so it may be
+    next: Order | null,      //   declared later, or be this type itself
+  }
+}
+```
+
+Only type positions are read this way — object values, array elements, union members. A call
+inside an example (`f(1.0)`) is a value. Arguments to a `Generic` declared in the same module
+are types (`Box(0.0)`, `Box(string)`); other calls are not. Before 0.14.0 an example was
+matched as a plain value, so `Type Price = 0.0` rejected 9.99 and `'' | undefined` evaluated to
+`0` — see `src/lang/example-kinds.test.ts`.
+
 **Verified predicates (transpile-time).** A `Type` predicate body is run through
 the predicate-safety verifier when it is transpiled. If it is **predicate-safe**
 (pure and synchronous — no loops, `await`, `new`, or effectful/IO calls; iterate

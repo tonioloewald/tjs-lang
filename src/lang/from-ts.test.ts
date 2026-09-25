@@ -677,15 +677,32 @@ describe('parameter properties and a late super()', () => {
  * a pass. With this fixed the suite is 225/225.
  */
 describe('`any` never reaches a value position', () => {
-  it('Array<any> becomes [null], like any[] already did', () => {
+  it('Array<any> and any[] are spelled the same way, and never evaluated bare', () => {
+    // This used to assert `[null]`, which kept the module loading — and meant "an array
+    // whose every element is null", so `branch: ['x']` was rejected the moment validation
+    // was on. A Type example is now read by `markExampleKinds` BEFORE it is evaluated, so
+    // it can say `any` and have it mean any; the property this block protects — a bare
+    // `any` never reaches evaluation — is asserted on the EMITTED JS below.
     const { code } = fromTS(
       'export type F = { branch: Array<any>, path: any[], n: Array<number> }',
       { emitTJS: true }
     )
-    expect(code).toContain('branch: [null]')
-    expect(code).toContain('path: [null]')
+    expect(code).toContain('branch: [any]')
+    expect(code).toContain('path: [any]')
     // The control: a real element type is untouched, so this is not "replace everything".
     expect(code).toContain('n: [0.0]')
+    const js = tjs(code, { runTests: false }).code
+    expect(js).not.toMatch(/\[any\]/)
+  })
+
+  it('and an array of ANYTHING is accepted, not an array of nulls', () => {
+    const js = tjs(
+      fromTS('export type F = { branch: Array<any> }', { emitTJS: true }).code,
+      { runTests: false }
+    ).code
+    const F = new Function(js.replace(/^export /gm, '') + '\nreturn F')()
+    expect(F.check({ branch: ['x', 1, null] })).toBe(true)
+    expect(F.check({ branch: 'not an array' })).toBe(false)
   })
 
   it('and the emitted module actually imports', () => {
@@ -960,5 +977,116 @@ describe('a class field DECLARATION with no initializer is erased', () => {
     )
     expect(out).not.toMatch(/^\s*get;?\s*$/m)
     expect(out).toContain('this.get = 1')
+  })
+})
+
+/**
+ * A DEFAULT import alongside named ones survives conversion.
+ *
+ * The named-imports branch rebuilt the statement from its specifiers and never read the
+ * default binding, so `import config, { A } from './x'` came out as `import { A } from './x'`
+ * — and the module threw `ReferenceError: config is not defined` on first use. The sibling
+ * shape was dropped whole: `import def, { type A }` counted as type-only because every NAMED
+ * specifier was. Found by the dogfood ratchet converting `doc-site-structure.test.ts`.
+ */
+describe('default + named imports', () => {
+  const imports = (src: string) =>
+    fromTS(src + '\nconsole.log(1)', { emitTJS: true })
+      .code.split('\n')
+      .filter((l) => l.startsWith('import'))
+
+  it('keeps the default beside named value imports', () => {
+    expect(imports("import config, { A, B as C } from './x'")).toEqual([
+      "import config, { A, B as C } from './x'",
+    ])
+  })
+
+  it('keeps the default when every named specifier is type-only', () => {
+    expect(imports("import def, { type T } from './x'")).toEqual([
+      "import def from './x'",
+    ])
+  })
+
+  it('still drops an import that is entirely type-only (control)', () => {
+    expect(imports("import { type T } from './x'")).toEqual([])
+    expect(imports("import type D from './x'")).toEqual([])
+  })
+
+  it('unchanged: default-only, namespace, and named-only', () => {
+    expect(imports("import d from './x'")).toEqual(["import d from './x'"])
+    expect(imports("import d, * as ns from './x'")).toEqual([
+      "import d, * as ns from './x'",
+    ])
+    expect(imports("import { a } from './x'")).toEqual([
+      "import { a } from './x'",
+    ])
+  })
+})
+
+/**
+ * An interface whose name the file USES as a value is not promoted.
+ *
+ * zod declares `interface File { type: string; size: number }` beside
+ * `input instanceof File` — TypeScript resolves the value-position `File` to the GLOBAL
+ * constructor, whatever interfaces share the name. Promoting the interface to
+ * `const File = Type(…)` shadowed the global and `instanceof` threw. The guard only knew
+ * about values the file DECLARES.
+ */
+describe('an interface does not shadow a value the file uses', () => {
+  const conv = (src: string) => fromTS(src, { emitTJS: true }).code
+
+  it('a global used with instanceof keeps the interface erased', () => {
+    const out = conv(
+      'interface File { size: number }\nexport function isFile(x: unknown): boolean { return x instanceof File }'
+    )
+    expect(out).not.toMatch(/Type File\b/)
+    expect(out).toContain('not promoted')
+    const js = tjs(out, { runTests: false }).code
+    const isFile = new Function(
+      js.replace(/^export /gm, '') + '\nreturn isFile'
+    )()
+    expect(isFile(new File([], 'a'))).toBe(true)
+    expect(isFile({})).toBe(false)
+  })
+
+  it('`new X`, `X.prop`, `typeof X` and `class extends X` are value uses too', () => {
+    for (const use of ['new Blob()', 'Blob.prototype', 'typeof Blob']) {
+      expect(
+        conv(`interface Blob { a: number }\nconst b = ${use}`)
+      ).not.toMatch(/Type Blob\b/)
+    }
+    expect(
+      conv('interface Base { a: number }\nclass X extends Base {}')
+    ).not.toMatch(/Type Base\b/)
+  })
+
+  it('type-only uses still promote (control)', () => {
+    for (const use of [
+      'function f(x: Point): number { return x.x }',
+      'let p: Point[] = []',
+      'class C implements Point { x = 1 }',
+      'const o = { Point: 1 }',
+      'const q = o.Point',
+    ]) {
+      expect(conv(`interface Point { x: number }\n${use}`)).toMatch(
+        /Type Point\b/
+      )
+    }
+  })
+})
+
+/** `export enum` stays exported — an enum is a value (zod's `ZodFirstPartyTypeKind`). */
+describe('exported enums', () => {
+  it('keeps the export, and the exported binding works', () => {
+    const t = fromTS(
+      "export enum Kind { A = 'A', B = 'B' }\nenum Local { X }",
+      {
+        emitTJS: true,
+      }
+    ).code
+    expect(t).toMatch(/export Enum Kind/)
+    expect(t).not.toMatch(/export Enum Local/)
+    const js = tjs(t, { runTests: false }).code
+    expect(js).toMatch(/export const Kind = /)
   })
 })

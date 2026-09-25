@@ -79,6 +79,7 @@ Four cases used to live here:
 | Type | Value | was | cause |
 | --- | --- | --- | --- |
 | `Type Int { example: 1 }` | `1.5` | stub accepted | narrowing lost at the source→value boundary |
+| `Type Price = 0.0` (and nested) | `9.99` | BOTH rejected | float lost at the source→value boundary (fixed 2026-09-25) |
 | `Type Pt { example: { x: 1, y: 1 } }` | `{ x: 1.5, y: 1 }` | stub accepted | narrowing lost through a shape |
 | `Type Nums { example: [1] }` | `[1.5]` | stub accepted | narrowing lost through an array |
 | `Type Pt { example: { x: 1, y: 1 } }` | `{ x: 1, y: 1, z: 9 }` | stub accepted | shape left open |
@@ -122,12 +123,27 @@ discovered later by someone probing one case at a time. Both directions are stil
 enforced: an unlisted disagreement fails, and a listed one that stops happening also fails,
 asking to be deleted — so a fix cannot rot into slack a regression could occupy.
 
-### A gap the corpus does not yet cover
+### The gap, closed — and the half of it nobody had measured (2026-09-25)
 
-`+0` NESTED in a shape (`Type P { example: { count: +0 } }`) is still lost — the emitted
-predicate covers a top-level scalar only. It is the one case that would need the
-structural walk, and it is not currently measured. Adding it to the corpus is the honest
-next step; building the walk before something measures it is not.
+This section used to record that `+0` NESTED in a shape (`{ count: +0 }`) was still lost,
+and that the structural walk had been deleted because "an integer example is still an
+integer when it arrives as a value". That sentence is true, and it is the whole reason the
+other half went unseen: **a FLOAT example does not arrive as a float.** `0.0 === 0`, so
+`Type Price = 0.0` narrowed to integer and rejected 9.99 — in both runtimes, at every
+emission site, nested or not. The corpus had `Frac` (`1.5`), whose value is non-integral
+and therefore survives; it had no integer-valued float, which is the only kind that
+doesn't.
+
+It mattered because `fromTS` maps every TypeScript `number` to `0.0`. Every converted
+interface with a number field rejected every non-integer the moment validation was on —
+found when `TjsStrict` was fixed to turn validation on, and a converted example rejected
+its own valid order.
+
+The walk now exists (`markNumericKinds`, `parser-transforms.ts`): it reads the example's
+AST with the same rules as `inferTypeFromValue` and wraps only the lossy literals as
+`__tjs_rt.__num(…)` markers, so an example with nothing lossy emits byte-identical code.
+`Price`, `Cart` and `Tally` are in the corpus; the spec is pinned site by site in
+`src/lang/example-kinds.test.ts`.
 
 ## Surface, not decisions
 

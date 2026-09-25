@@ -58,6 +58,7 @@ import {
   transformEqualityToStructural,
   transformTypeDeclarations,
   transformGenericDeclarations,
+  markGenericInstantiations,
   transformFunctionPredicateDeclarations,
   transformUnionDeclarations,
   transformEnumDeclarations,
@@ -268,6 +269,7 @@ export function preprocess(
   const safetyMatch = maskLiterals(source).match(
     /^(\s*)safety\s+(none|inputs|all)\b/
   )
+  const safetyExplicit = !!safetyMatch
   if (safetyMatch) {
     moduleSafety = safetyMatch[2] as 'none' | 'inputs' | 'all'
     spliceDirective(
@@ -353,6 +355,11 @@ export function preprocess(
       tjsModes.tjsSafeAssign = true
       tjsModes.tjsDictDefaults = true
       tjsModes.tjsStrict = true
+      // "Full TJS" includes input validation. Converted code defaults to `safety none` (above),
+      // and this branch used to set every MODE while leaving that in place — so the only
+      // opt-in a TypeScript author can write validated nothing. An explicit `safety`
+      // directive is the author's word and still wins.
+      if (!safetyExplicit) moduleSafety = undefined
     } else if (directive === 'TjsCompat') {
       // Disable all TJS modes (JS-compatible)
       tjsModes.tjsEquals = false
@@ -449,11 +456,19 @@ export function preprocess(
   const predicates: PredicateVerification[] = []
   // PARAMETERIZED first: it claims `Type X<T> { … }` before the scalar transform sees
   // `Type X` and mis-reads the `<T>` that follows.
-  source = transformGenericDeclarations(source, predicates, declaredTypes)
+  const declaredGenerics = new Set<string>()
+  source = transformGenericDeclarations(
+    source,
+    predicates,
+    declaredTypes,
+    declaredGenerics
+  )
   source = transformTypeDeclarations(source, predicates, declaredTypes)
   source = transformFunctionPredicateDeclarations(source)
   source = transformUnionDeclarations(source, declaredTypes)
   source = transformEnumDeclarations(source, declaredTypes)
+  // A declared Generic's call arguments are types — `Box(0.0)`, `Box(string)`.
+  source = markGenericInstantiations(source, declaredGenerics)
 
   // `given` lowers to a C `switch` with explicit breaks, BEFORE acorn sees the source —
   // its syntax is not valid JavaScript, unlike #43's additions which happened to be.

@@ -14,6 +14,7 @@ import {
   scanLiterals,
   matchingBrace,
   splitTopLevelTrimmed,
+  splitTopLevel,
   isRegexStart,
   findRegexEnd,
 } from '../strip-comments'
@@ -24,6 +25,11 @@ import {
 } from './declared-classes'
 import { stripParamMarkers } from './parser-params'
 import { rt, RT_NS } from './rt-namespace'
+import {
+  literalUnionValues,
+  typeArgumentSource,
+  typeNameExample,
+} from './inference'
 
 /**
  * Extract a brace-balanced value from source after a regex match.
@@ -2186,29 +2192,116 @@ export function normalizePredicateForms(
 }
 
 /**
- * The check a numeric example implies, as source — or `null` when the example is not a
- * bare numeric literal.
+ * Mark what a `Type` example MEANS where its runtime value cannot say it.
  *
- * TJS narrows numbers by how they are WRITTEN (`CLAUDE-TJS-SYNTAX.md`): `3.14` is a float,
- * `42` an integer, `+0` a non-negative integer. Only two of those survive as values —
- * `+0 === 0` — so the distinction has to be captured here, from the token, or it is gone.
+ * A `Type` example is evaluated at runtime and matched by value. Inline parameter types read
+ * the example's AST instead (`inferTypeFromValue`), so everything the source says survives
+ * there — and was lost here:
  *
- * Scoped to a top-level numeric literal on purpose. A number nested in an object or array
- * example (`{ count: +0 }`) needs a structural walk to reach, and is still lost; that gap
- * is recorded as a known disagreement in `type-identity.test.ts` rather than half-fixed
- * here, where a partial version would look complete.
+ *   - `0.0 === 0`, so a float example narrowed to INTEGER: `Type Price = 0.0` rejected 9.99.
+ *     `fromTS` maps every TypeScript `number` to `0.0`, so every converted interface with a
+ *     number field rejected every non-integer.
+ *   - `+0 === 0`, so `{ count: +0 }` accepted -1.
+ *   - `'' | undefined` is a union to the parameter path and BITWISE OR to a value — it
+ *     evaluated to `0`, so the member became a required integer.
+ *   - `string`, `any` — honoured as types in a parameter, a `ReferenceError` in a value.
+ *   - a reference to another type is TDZ when declared later, and a recursive type cannot
+ *     name itself at all — which is why `fromTS` used to write `null` (= "must be null").
+ *
+ * All were latent because converted TypeScript did not validate until `TjsStrict` was made
+ * to mean "full TJS". This reads the same AST with the same rules and wraps exactly those
+ * nodes as `__tjs_rt.__k(kind, value, arg)` — a runtime type whose `.check` states the
+ * meaning, which `Type` unwraps again for `.default`:
+ *
+ *   `float` `0.0`, `nonneg` `+N`, `undef` `undefined`, `pred` a TS type name
+ *   (`typeArgumentSource`), `union` `a | b` (members checked by `__match`; an all-literal
+ *   union stays a closed SET, as `literalUnionValues` rules), and `ref` — any other
+ *   identifier, as a thunk: read when CHECKED, not when declared, so a forward or recursive
+ *   reference works, and one that still cannot be read (TDZ, undeclared) degrades to
+ *   unchecked instead of crashing the module (TJS ⊇ JS). An initialised binding means
+ *   exactly what it meant before.
+ *
+ * Only TYPE positions are walked — the top level, object property values, array elements,
+ * union members. A literal inside a call or a computed key is a value, not a type. An
+ * example with nothing to mark comes back byte-identical, so no other emitted code changes.
  */
-export function numericNarrowingPredicate(example: string): string | null {
-  const src = example.trim()
-  const m = src.match(/^([+-]?)(\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)$/)
-  if (!m) return null
-  const [, sign, digits] = m
-  // A float example says nothing an ordinary number check does not.
-  if (/[.eE]/.test(digits)) return null
-  const base = `typeof v === 'number' && Number.isInteger(v)`
-  // `-0` is written with an explicit minus and is still just an integer example; only a
-  // leading `+` asserts non-negativity.
-  return sign === '+' ? `(v) => ${base} && v >= 0` : `(v) => ${base}`
+export function markExampleKinds(example: string): string {
+  let ast: any
+  try {
+    ast = parse(`(${example})`, { ecmaVersion: 'latest' })
+  } catch {
+    return example // not a plain expression — leave it exactly as it was
+  }
+  // Offsets are into `(${example})`, hence the -1.
+  const text = (n: any) => example.slice(n.start - 1, n.end - 1)
+  const k = (kind: string, value = 'undefined', arg = '') =>
+    `${rt('__k')}('${kind}', ${value}${arg ? `, ${arg}` : ''})`
+  const isNum = (n: any) => n?.type === 'Literal' && typeof n.value === 'number'
+  const lossyFloat = (n: any) =>
+    isNum(n) && String(n.raw).includes('.') && Number.isInteger(n.value)
+  const unionMembers = (n: any): any[] =>
+    n.type === 'BinaryExpression' && n.operator === '|'
+      ? [...unionMembers(n.left), ...unionMembers(n.right)]
+      : [n]
+
+  /** The node's source with its lossy parts marked; `null` when nothing needed marking. */
+  const mark = (n: any): string | null => {
+    if (!n) return null
+    if (n.type === 'UnaryExpression' && isNum(n.argument)) {
+      if (n.operator === '+') return k('nonneg', text(n))
+      if (n.operator === '-' && lossyFloat(n.argument))
+        return k('float', text(n))
+      return null
+    }
+    if (lossyFloat(n)) return k('float', text(n))
+    if (n.type === 'Identifier') {
+      const name = n.name
+      if (name === 'undefined') return k('undef')
+      if (name === 'NaN' || name === 'Infinity') return null
+      const example = typeNameExample(name)
+      if (example !== null) return markExampleKinds(example)
+      const pred = typeArgumentSource(name)
+      if (pred !== null)
+        return pred === '(() => true)' ? k('any') : k('pred', 'undefined', pred)
+      return k('ref', 'undefined', `() => ${name}`)
+    }
+    if (n.type === 'BinaryExpression' && n.operator === '|') {
+      const values = literalUnionValues(n)
+      if (values)
+        return k(
+          'pred',
+          text(unionMembers(n)[0]),
+          `(v) => ${rt('__oneOf')}(v, ${JSON.stringify(values)})`
+        )
+      const members = unionMembers(n).map((m) => mark(m) ?? text(m))
+      return k('union', 'undefined', `[${members.join(', ')}]`)
+    }
+    if (n.type === 'ArrayExpression' || n.type === 'ObjectExpression') {
+      const parts: { start: number; end: number; out: string }[] = []
+      const children =
+        n.type === 'ArrayExpression'
+          ? n.elements
+          : n.properties
+              .filter(
+                (p: any) =>
+                  p.type === 'Property' && !p.computed && p.kind === 'init'
+              )
+              .map((p: any) => p.value)
+      for (const c of children) {
+        const out = c && mark(c)
+        if (out !== null && out !== undefined)
+          parts.push({ start: c.start, end: c.end, out })
+      }
+      if (!parts.length) return null
+      let src = text(n)
+      for (const p of parts.sort((x, y) => y.start - x.start))
+        src =
+          src.slice(0, p.start - n.start) + p.out + src.slice(p.end - n.start)
+      return src
+    }
+    return null
+  }
+  return mark(ast.body[0]?.expression) ?? example
 }
 
 /**
@@ -2227,6 +2320,11 @@ export function numericNarrowingPredicate(example: string): string | null {
  * Caught by the full gate's converter stage, which is exactly the lane `test:fast` skips.
  */
 function topLevelPredicateOffsets(body: string): number[] {
+  return topLevelMemberOffsets(body, 'predicate')
+}
+
+/** Offsets of `word` as a depth-0 member of a block body (see `topLevelPredicateOffsets`). */
+function topLevelMemberOffsets(body: string, word: string): number[] {
   const masked = maskLiterals(body)
   const out: number[] = []
   let depth = 0
@@ -2234,9 +2332,9 @@ function topLevelPredicateOffsets(body: string): number[] {
     const c = masked[i]
     if (c === '{' || c === '(' || c === '[') depth++
     else if (c === '}' || c === ')' || c === ']') depth--
-    else if (depth === 0 && masked.startsWith('predicate', i)) {
+    else if (depth === 0 && masked.startsWith(word, i)) {
       const before = masked[i - 1] ?? ' '
-      const after = masked[i + 9] ?? ' '
+      const after = masked[i + word.length] ?? ' '
       if (!/[A-Za-z0-9_$]/.test(before) && !/[A-Za-z0-9_$]/.test(after))
         out.push(i)
     }
@@ -2485,6 +2583,23 @@ export function transformTypeDeclarations(
           }
         }
 
+        // A `default:` MEMBER is not a form — a block's default is written before the
+        // block, `Type T = 0 { … }`. It was never read, so it was silently dropped, and a
+        // block holding nothing else compiled to `Type('T')`, which accepts every value.
+        if (
+          topLevelMemberOffsets(blockBody, 'default').some((o) =>
+            /^default\s*:/.test(blockBody.slice(o))
+          )
+        )
+          throw new SyntaxError(
+            `\`${typeName}\` declares \`default:\` inside its block, which TJS does not ` +
+              `read — the type would silently ignore it.\n\n` +
+              `  A default is written before the block, or on its own:\n\n` +
+              `    Type ${typeName} = <value> { example: … }\n` +
+              `    Type ${typeName} = <value>\n`,
+            locAt(source, i)
+          )
+
         // `predicate => …` / `predicate { … }` become the function form before anything
         // else looks at the body, so every downstream stage sees one shape.
         blockBody = normalizePredicateForms(blockBody, typeName)
@@ -2560,9 +2675,21 @@ export function transformTypeDeclarations(
             ? 'true'
             : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, __schema()) : true)`
           /** Lazily derive the schema once, then cache. See the note above the gate. */
+          // `infer` sees values, so it narrows a `0.0` to integer exactly as the matcher
+          // did; where the example carries kind markers, the inferred schema is corrected
+          // at those paths (see `markExampleKinds`).
+          const marked = markExampleKinds(example)
+          const inferred =
+            marked === example
+              ? `(globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example})`
+              : `${rt(
+                  '__kSchema'
+                )}((globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${rt(
+                  '__unk'
+                )}(${marked})), ${marked})`
           const schemaMemo = emptyExample
             ? ''
-            : `let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example}) } return __sc };`
+            : `let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = ${inferred} } return __sc };`
           const guard = verifiedGuardExpr(
             typeName,
             'Type',
@@ -2577,7 +2704,7 @@ export function transformTypeDeclarations(
           declaredTypes?.add(typeName)
           result += `const ${typeName} = ${rt(
             'Type'
-          )}('${description}', ${fn}, ${example}${defaultArg})`
+          )}('${description}', ${fn}, ${marked}${defaultArg})`
         } else if (predicateMatch) {
           // Predicate only: verify → fuel-bounded native guard, else raw arrow.
           const params = predicateMatch[1].trim()
@@ -2600,30 +2727,21 @@ export function transformTypeDeclarations(
           // Example only (becomes validation schema)
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
           declaredTypes?.add(typeName)
-          // A numeric example's KIND is a fact about the source, not about the value:
-          // `+0` is a UnaryExpression, and `+0 === 0`, so passing the example through as
-          // a value destroys the non-negativity before any runtime sees it. Both the real
-          // runtime and the inline stub then infer from a bare `0` — which is why
-          // `Type N { example: +0 }` accepted `-1` everywhere, while `n: +0` (a path that
-          // reads the source token) correctly rejected it.
-          //
-          // So emit the narrowing as a predicate instead of hoping two separate inference
-          // engines agree about it. This is the only place that knows, and putting it in
-          // the emitted code makes the answer identical in both runtimes by construction.
-          const narrowing = numericNarrowingPredicate(example)
-          result += narrowing
-            ? `const ${typeName} = ${rt(
-                'Type'
-              )}('${description}', ${narrowing}, ${example}${defaultArg})`
-            : `const ${typeName} = ${rt(
-                'Type'
-              )}('${description}', undefined, ${example}${defaultArg})`
+          // A numeric example's KIND is a fact about the source, not about the value
+          // (`+0 === 0`, `0.0 === 0`), so it is marked here, the only place that can see
+          // it. This used to be `numericNarrowingPredicate`, which handled a top-level `+0`
+          // but returned nothing for `0.0` and never looked inside an object or array.
+          result += `const ${typeName} = ${rt(
+            'Type'
+          )}('${description}', undefined, ${markExampleKinds(
+            example
+          )}${defaultArg})`
         } else if (defaultValue) {
           // Default only (infer schema from default)
           declaredTypes?.add(typeName)
           result += `const ${typeName} = ${rt(
             'Type'
-          )}('${description}', ${defaultValue})`
+          )}('${description}', ${markExampleKinds(defaultValue)})`
         } else {
           // A block that declares NOTHING checkable — no example, no predicate, no
           // default — cannot be a type. It was emitted as `Type('Name')`, where the
@@ -2693,7 +2811,7 @@ export function transformTypeDeclarations(
         declaredTypes?.add(typeName)
         result += `const ${typeName} = ${rt(
           'Type'
-        )}('${description}', ${defaultValue})`
+        )}('${description}', ${markExampleKinds(defaultValue)})`
         i = posAfterDefault // Use position before whitespace was consumed
         continue
       } else if (!descStringMatch) {
@@ -2704,7 +2822,7 @@ export function transformTypeDeclarations(
             /^(['"`][^]*?['"`]|\+?\d+(?:\.\d+)?|true|false|null|\{[^]*?\}|\[[^]*?\])/
           )
         if (valueMatch) {
-          const example = valueMatch[0]
+          const example = markExampleKinds(valueMatch[0])
           declaredTypes?.add(typeName)
           result += `const ${typeName} = ${rt(
             'Type'
@@ -2921,7 +3039,8 @@ export function transformFunctionPredicateDeclarations(source: string): string {
 export function transformGenericDeclarations(
   source: string,
   report?: PredicateVerification[],
-  declaredTypes?: Set<string>
+  declaredTypes?: Set<string>,
+  declaredGenerics?: Set<string>
 ): string {
   let result = ''
   let i = 0
@@ -2946,6 +3065,7 @@ export function transformGenericDeclarations(
       const genericName = genericMatch[2]
       const typeParamsStr = genericMatch[3]
       declaredTypes?.add(genericName)
+      declaredGenerics?.add(genericName)
       const blockStart = i + genericMatch[0].length - 1
       const bodyStart = blockStart + 1
       let depth = 1
@@ -3953,15 +4073,62 @@ function parseGenericTypeParams(typeParamsStr: string): {
     const def = at === -1 ? '' : part.slice(at + 1).trim()
     names.push(name)
     if (def) {
-      // `any`/`undefined` are not values a default can hold.
+      // `any`/`undefined` are not values a default can hold. Anything else is a TYPE in a
+      // value position, so it is read by `markExampleKinds` first: zod's
+      // `<T = number | bigint>` became `[['T', 0.0 | 0n]]`, which is bitwise OR, and
+      // `Cannot mix BigInt and other types` took down every suite that imported it.
       entries.push(
-        `['${name}', ${def === 'any' || def === 'undefined' ? 'null' : def}]`
+        `['${name}', ${
+          def === 'any' || def === 'undefined' ? 'null' : markExampleKinds(def)
+        }]`
       )
     } else {
       entries.push(`'${name}'`)
     }
   }
   return { entries, names }
+}
+
+/**
+ * The ARGUMENTS of a call to a Generic declared in this module are types, not values.
+ *
+ * `Box(0.0)` is ordinary call code, so it was evaluated like any value and the float was
+ * gone before the Generic saw it — `Box(0.0)` accepted no non-integer — and `Box(string)` was
+ * a `ReferenceError`. A declared Generic's arguments are type positions by construction, so
+ * each is read by `markExampleKinds`. Only for names this module DECLARES as Generics: for
+ * any other call, deciding an argument is a type would be guessing.
+ *
+ * Innermost call first, so `Box(Box(0.0))` marks the inner argument and then sees the outer
+ * one — a call is left as a value by `markExampleKinds`, so the outer pass cannot reach in.
+ */
+export function markGenericInstantiations(
+  source: string,
+  generics: Set<string>
+): string {
+  if (!generics.size) return source
+  const alt = [...generics].map((g) => g.replace(/[$]/g, '\\$')).join('|')
+  const call = new RegExp(`(?<![\\w$.])(?:${alt})\\s*\\(`, 'g')
+  let masked = maskLiterals(source)
+  const opens = [...masked.matchAll(call)].map(
+    (m) => m.index! + m[0].length - 1
+  )
+  for (const open of opens.sort((a, b) => b - a)) {
+    const close = matchingBrace(masked, open)
+    if (close < 0) continue
+    const inner = source.slice(open + 1, close)
+    const out = splitTopLevel(inner, ',')
+      .map((part) => {
+        const arg = part.trim()
+        if (!arg) return part
+        const marked = markExampleKinds(arg)
+        return marked === arg ? part : part.replace(arg, marked)
+      })
+      .join(',')
+    if (out === inner) continue
+    source = source.slice(0, open + 1) + out + source.slice(close)
+    masked = maskLiterals(source)
+  }
+  return source
 }
 
 /** Index of the first top-level `=` that introduces a DEFAULT, or -1. */

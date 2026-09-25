@@ -237,6 +237,67 @@ Predicate` to "callable and boolean-ish".
 
 ### Fixed
 
+- **Converted TypeScript that opts into validation now accepts valid data.** Found by running
+  the TypeScript examples, which had only ever been compiled: three promised "invalid calls
+  return error objects" and printed `Hello, 42!`, and "The Full Picture" threw on its own
+  bad-input demo. Three defects stacked, each hiding the next:
+
+  - **`TjsStrict` did not turn on input validation.** Documented as "opts TS-originated code
+    into full TJS; .tjs has this already", it set every mode and left converted code's
+    `safety none` in place — so the one opt-in a TypeScript author can write validated
+    nothing. It now restores the native default; an explicit `safety` directive still wins.
+  - **A `Type` example lost everything the source said that its value cannot.** Examples
+    are evaluated and matched by value, so `0.0 === 0` made `Type Price = 0.0` reject 9.99
+    (narrowed to integer), `{ count: +0 }` accepted -1, `'' | undefined` evaluated as
+    bitwise OR (to `0`), and `string` or a later-declared type was a `ReferenceError`.
+    Parameter types never had the problem — they read the AST. `Type` examples now do too,
+    with the same rules: floats, `+N`, unions (an all-literal union is still a closed set),
+    sound type names, optional members (`T | undefined` may be absent), and references to
+    other types, read lazily so forward and recursive references work. **Native TJS is
+    affected as well** — `Type Price = 0.0` was wrong in every file. An example with none of
+    these emits exactly the code it did before.
+  - **`fromTS` wrote interface examples that rejected valid data.** `any`, and every
+    reference to another interface, became `null` ("must be null"), so `Product[]` accepted
+    only arrays of nulls; optional members were required. Interface and type-alias examples
+    now say `any`, name the referenced type, and mark optional members — which also makes
+    converted code read like the TypeScript it came from.
+
+  The TypeScript examples now run in CI, and the four that demonstrate a rejection must show
+  it while accepting their valid input. A `default:` member inside a `Type` block — never
+  read, so `Type T { default: 0 }` accepted every value — is now an error naming the real
+  spelling, `Type T = 0`.
+
+- **A Generic's arguments and parameter defaults are types, too.** `Box(0.0)` accepted no
+  non-integer and `Box(string)` was a `ReferenceError`, because an instantiation is ordinary
+  call code; a default like `<T = number | bigint>` became `0.0 | 0n` — bitwise OR, which
+  throws `Cannot mix BigInt and other types` at load. Both now go through the same reading
+  as `Type` examples (arguments only for Generics the module declares).
+
+- **An anonymous `export default function (…)` could not be imported.** Its metadata was
+  attached to a binding named `anonymous` that does not exist. It now gets a local binding,
+  exports the same hoisted function, and keeps the `.name` JavaScript gives it, `'default'`.
+
+- **Four `fromTS` defects that kept zod from loading at all**, found by running zod's own
+  suite for the first time (it had been skipped on every run for want of `pnpm`):
+
+  - `export enum` lost its `export`;
+  - an interface whose name the file uses as a value — zod's `interface File` beside
+    `instanceof File`, the global — was promoted to a runtime `Type` that shadowed it;
+  - a default import beside named ones was dropped (`import config, { A }` → `import { A }`),
+    and `import def, { type T }` vanished whole;
+  - plus the Generic default and anonymous default export above.
+
+  Zod now runs **1959 of its tests, all passing**; before, 105 of its suites failed to load.
+  That was invisible because **the compat harnesses counted only failed TESTS**: a suite that
+  cannot load contributes none, so zod reported "551/552 passed". All five vitest harnesses
+  now fail on a failed suite.
+
+- **`Eval` context values were invisible to atoms.** `Eval` wrapped code in a function with
+  no parameters, so `context` reached plain expressions but not atoms: `items.filter(…)`
+  failed with "items is not an array". Context keys are now declared parameters. Found by
+  running the README's own example, which the rewritten Safe Eval chapter now executes along
+  with every example in it.
+
 - **`fromTS` class metadata keeps what the code erases**: OVERLOAD signatures — of methods,
   static methods AND constructors — and `abstract`. Both are rightly erased from the emitted
   code — neither exists at runtime — but metadata is where TJS keeps types, and both were being

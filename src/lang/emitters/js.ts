@@ -1149,6 +1149,23 @@ export function transpileToJS(
 
   // Process each function
   for (const func of functions) {
+    // An anonymous `export default function (…)` has no `id`, and every name-based site
+    // below fell back to the literal `anonymous` — so the metadata came out as
+    // `anonymous.__tjs = {…}`, a ReferenceError the moment the module evaluated. 105 of
+    // zod's suites failed to load on it (every zod locale ends this way).
+    //
+    // Give it a local binding: `export default function __tjs_default(…)` exports the same
+    // hoisted, LIVE function the anonymous form does, and lets the metadata and the `:?`
+    // wrapper attach. Its `.name` is set back to `'default'`, which is what JavaScript gives
+    // an anonymous default export.
+    const anonymousDefault = !func.id && func.type === 'FunctionDeclaration'
+    if (anonymousDefault) {
+      insertions.push({
+        position: preprocessed.source.indexOf('(', func.start),
+        text: ' __tjs_default',
+      })
+      ;(func as any).id = { type: 'Identifier', name: '__tjs_default' }
+    }
     const funcName = func.id?.name || 'anonymous'
 
     // Extract return type for this specific function from original source
@@ -1470,6 +1487,8 @@ export function transpileToJS(
     // binding that can be captured before its own text; every declarator form must keep
     // the wrapper after it.
     const wrapperHoists = !!returnWrapper && func.type === 'FunctionDeclaration'
+    if (anonymousDefault)
+      typeMetadata += `\nObject.defineProperty(${funcName}, 'name', { value: 'default' })`
     insertions.push({
       position: (func as any).__metaEnd ?? func.end,
       text:
@@ -1739,6 +1758,11 @@ export function transpileToJS(
   const needsFunctionPredicate = /\bFunctionPredicate\(/.test(code)
   const needsEnum = /\bEnum\(/.test(code)
   const needsUnion = /\bUnion\(/.test(code)
+  // Example-kind markers (`markExampleKinds`): what a Type example means where its runtime
+  // value cannot say it — `0.0`, `+0`, `a | b`, `string`, a forward reference. Only files
+  // that contain one pay for the helpers, and only they get the unwrapping `Type` and the
+  // optional-key `__match` — every other file's output is unchanged.
+  const needsKind = code.includes(`${RT_NS}.__k(`)
   // `.toJSONSchema()` / `.strip()` on a runtime type — only inline the
   // example→schema helper for files that actually call them.
   const needsExampleSchema = /\.(toJSONSchema|strip)\(/.test(code)
@@ -1956,7 +1980,11 @@ export function transpileToJS(
     // files that don't ask for a schema pay nothing.
     if (needsExampleSchema) {
       inlineParts.push(
-        `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);r.push(k)}return{type:'object',properties:p,required:r,additionalProperties:false}}return{}}`
+        `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){${
+          needsKind ? 'if(v.__k)return __kjs(v,__ex2js);' : ''
+        }const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);${
+          needsKind ? 'if(!(v[k]&&v[k].__k&&v[k].check(undefined)===true))' : ''
+        }r.push(k)}return{type:'object',properties:p,required:r,additionalProperties:false}}return{}}`
       )
     }
     if (needsOneOf) {
@@ -2054,13 +2082,37 @@ export function transpileToJS(
         // so adding a `predicate` that returns `true` — adding no constraint at all —
         // made a type MORE permissive. A predicate must only ever narrow. Both checkers
         // are open now, so they agree.
-        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
+        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>${
+          needsKind
+            ? 'k in v?__match(v[k],ex[k]):!!(ex[k]&&ex[k].__k&&ex[k].check(undefined)===true)'
+            : 'k in v&&__match(v[k],ex[k])'
+        })}return v===ex}`
       )
       const typeExtras = needsExampleSchema
         ? `t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
         : ''
+      if (needsKind) {
+        // A marker is a runtime type, so `__match` already defers to its `.check`. `Type`
+        // unwraps markers for `.default` (the author wrote `0.0`; the default is 0).
+        // `__kSchema` corrects a schema INFERRED from the unwrapped value, which lost the
+        // meaning exactly as the matcher used to; `infer` returns a tosijs-schema BUILDER,
+        // and `validate` takes plain JSON Schema too, so the corrected one is its `.schema`.
+        // A `ref` is read when CHECKED (TDZ-safe, and a type may name itself); one that
+        // cannot be read, or that recurses through cyclic data, degrades to unchecked.
+        inlineParts.push(
+          `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.check=x=>{try{return __match(x,a())}catch(e){return true}};Object.defineProperty(m,'value',{get(){try{return __unk(a())}catch(e){return undefined}}})}else{m.value=t==='union'?__unk(a[0]):v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='union'?x=>a.some(e=>__match(x,e)):()=>true}return m}`,
+          `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='union')return{anyOf:m.arg.map(sub)};if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.arg();return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}catch(e){return{}}finally{m.__busy=false}}return{}}`,
+          `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k)return v.value;if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`,
+          `function __kSchema(s,ex){if(s&&typeof s.validate==='function'&&s.schema&&typeof s.schema==='object')s=s.schema;if(!ex||typeof ex!=='object')return s;if(ex.__k)return __kjs(ex,()=>({}));if(!s||typeof s!=='object')return s;if(Array.isArray(ex))return ex.length&&s.items?{...s,items:__kSchema(s.items,ex[0])}:s;if(!s.properties)return s;const p={...s.properties};let r=s.required;for(const k of Object.keys(ex)){if(k in p)p[k]=__kSchema(p[k],ex[k]);const e=ex[k];if(r&&e&&e.__k&&e.check(undefined)===true)r=r.filter(x=>x!==k)}return r?{...s,properties:p,required:r}:{...s,properties:p}}`
+        )
+      }
+      const dflt = (x: string) => (needsKind ? `__unk(${x})` : x)
       inlineParts.push(
-        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=e??null}else{const ex=e??p;t.default=ex;t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}return __pred(t,d)}`
+        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=${dflt(
+          'e??null'
+        )}}else{const ex=e??p;t.default=${dflt(
+          'ex'
+        )};t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}return __pred(t,d)}`
       )
     }
     if (needsGeneric) {
@@ -2217,6 +2269,7 @@ export function transpileToJS(
     if (needsOneOf) rtExports.push('__oneOf')
     if (needsType || needsGeneric) rtExports.push('__match')
     if (needsType) rtExports.push('Type')
+    if (needsKind) rtExports.push('__k', '__kjs', '__unk', '__kSchema')
     if (needsGeneric) rtExports.push('Generic')
     if (needsFunctionPredicate) rtExports.push('FunctionPredicate')
     if (needsEnum) rtExports.push('Enum')

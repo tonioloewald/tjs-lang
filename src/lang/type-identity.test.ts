@@ -33,14 +33,16 @@
  *      stub is wrong against the spec, not merely different from the real runtime.
  *
  *      FIXED for a top-level numeric example, by emitting the narrowing as a predicate
- *      instead of leaving two inference engines to agree about it. Still lost when the
- *      number is nested (`{ x: 1 }`, `[1]`), which needs a structural walk.
+ *      instead of leaving two inference engines to agree about it. (The nested cases,
+ *      `{ x: 1 }` and `[1]`, turned out to be derivable from the value — see below.)
  *   2. **Shapes are open.** `__match` checks that the example's keys are present; the real
  *      runtime also rejects excess ones.
  *
  * A third kind surfaced later and is NOT a stub-vs-runtime disagreement at all: `+0` says
  * non-negative integer, but `+0 === 0`, so the narrowing is destroyed at the source→value
- * boundary and BOTH runtimes accepted `-1`. Fixed by the same mechanism. Those cases are
+ * boundary and BOTH runtimes accepted `-1`. An integer-valued FLOAT (`0.0`) is the same
+ * shape in the other direction: both runtimes narrowed it to integer and rejected 9.99.
+ * Both are fixed by `markNumericKinds`, nested or not. Those cases are
  * marked `sourceNarrowing`, because comparing against a `Type()` built from the value asks
  * the two arms different questions — there the value-constructed arm is the lossy one.
  *
@@ -101,6 +103,33 @@ const CASES: Array<{
     sourceNarrowing: true,
   },
   { name: 'Frac', example: '1.5', values: [2, 1.5, '1.5'] },
+  // `1.5` survives as a value; `0.0` does not — `0.0 === 0`. The corpus had only the
+  // first, so a float example narrowing to INTEGER in both runtimes was never measured.
+  // `fromTS` writes `0.0` for every TypeScript `number`.
+  {
+    name: 'Price',
+    example: '0.0',
+    values: [9.99, 1, -2.5, '1', null],
+    sourceNarrowing: true,
+  },
+  {
+    name: 'Cart',
+    example: '{ price: 0.0, items: [0.0] }',
+    values: [
+      { price: 9.99, items: [1.5] },
+      { price: 1, items: [] },
+      { price: '1', items: [] },
+      { price: 1, items: ['a'] },
+    ],
+    sourceNarrowing: true,
+  },
+  // Nested `+0` — the gap `docs/type-identity.md` recorded as unmeasured.
+  {
+    name: 'Tally',
+    example: '{ count: +0 }',
+    values: [{ count: 2 }, { count: -1 }, { count: 1.5 }],
+    sourceNarrowing: true,
+  },
   { name: 'Name', example: "''", values: ['a', 1, null] },
   {
     name: 'Pt',

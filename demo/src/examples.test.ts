@@ -9,6 +9,8 @@ import { describe, test, expect } from 'bun:test'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { tjs } from '../../src/lang'
+import { fromTS } from '../../src/lang/emitters/from-ts'
+import { createRuntime, isMonadicError } from '../../src/lang/runtime'
 
 // Load examples from docs.json
 const docsPath = join(import.meta.dir, '../docs.json')
@@ -138,6 +140,75 @@ describe('TJS Playground Examples actually run', () => {
       // A computation that silently produced nothing — what `dot()` printed.
       const empty = lines.filter((l) => /\b(undefined|NaN)\b/.test(l))
       expect(empty).toEqual([])
+    })
+  }
+})
+
+/**
+ * The TypeScript examples RUN, and the ones that promise validation deliver it.
+ *
+ * They were only ever COMPILED (`demo/docs-fresh.test.ts`) — never executed — so three of them
+ * could promise "invalid calls return error objects" and print `Hello, 42!`, and "The Full
+ * Picture" could throw on its own bad-input demo. Behind that sat three defects in the
+ * converter's pipeline: `TjsStrict` did not turn on validation, a `0.0` example narrowed to
+ * integer, and interface examples spelled `any`, optional members and references to other
+ * types in ways that rejected valid data (`src/lang/example-kinds.test.ts`).
+ */
+describe('TypeScript Playground Examples actually run', () => {
+  const tsExamples = docsJson.filter(
+    (d: any) => d.type === 'example' && d.section === 'ts' && d.code
+  )
+
+  /** Examples that demonstrate a REJECTION, and the line that must show it. */
+  const MUST_REJECT: Record<string, RegExp> = {
+    'Hello TypeScript': /^Bad call result:/,
+    'Runtime Validation': /^divide\("ten", 2\) =/,
+    'Object Validation': /^(String input|Wrong member type):/,
+    'The Full Picture': /^Bad order:/,
+  }
+
+  test('apparatus: the TS examples are there, and the rejection list names real ones', () => {
+    expect(tsExamples.length).toBeGreaterThan(10)
+    const titles = new Set(tsExamples.map((e: any) => e.title))
+    expect(Object.keys(MUST_REJECT).filter((t) => !titles.has(t))).toEqual([])
+  })
+
+  for (const example of tsExamples) {
+    test(`"${example.title}" runs${
+      MUST_REJECT[example.title] ? ', rejects its bad input' : ''
+    }, and accepts its good input`, async () => {
+      const js = tjs(fromTS(example.code, { emitTJS: true }).code, {
+        runTests: false,
+      }).code.replace(
+        /^export\s+(?=(async\s+)?(function|const|let|var|class)\b)/gm,
+        ''
+      )
+      const lines: { text: string; rejected: boolean }[] = []
+      const realLog = console.log
+      const saved = (globalThis as any).__tjs
+      ;(globalThis as any).__tjs = createRuntime()
+      console.log = (...args: unknown[]) => {
+        lines.push({
+          text: args.map((a) => String(a)).join(' '),
+          rejected: args.some((a) => isMonadicError(a)),
+        })
+      }
+      try {
+        await new Function(`return (async () => { ${js} })()`)()
+      } finally {
+        console.log = realLog
+        ;(globalThis as any).__tjs = saved
+      }
+      const pattern = MUST_REJECT[example.title]
+      // A line that demonstrates a rejection must carry a MonadicError…
+      const demo = lines.filter((l) => pattern?.test(l.text))
+      if (pattern) {
+        expect(demo.length).toBeGreaterThan(0)
+        expect(demo.filter((l) => !l.rejected).map((l) => l.text)).toEqual([])
+      }
+      // …and no OTHER line may: valid input rejected is the defect this gate exists for.
+      const wrongly = lines.filter((l) => l.rejected && !pattern?.test(l.text))
+      expect(wrongly.map((l) => l.text)).toEqual([])
     })
   }
 })

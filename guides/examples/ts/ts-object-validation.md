@@ -5,6 +5,10 @@
 Object types are validated at runtime
 
 ```ts
+// Converted TypeScript keeps JavaScript's behaviour until you opt in. This one
+// line opts in to full TJS, which turns the types into runtime checks:
+/* @tjs TjsStrict */
+
 // Object types become runtime checks
 
 interface User {
@@ -24,6 +28,7 @@ console.log(greetUser(alice))
 const badInput = greetUser('not an object' as any)
 console.log('String input:', badInput)
 
-// Note: Current validation checks type (object vs primitive)
-// Deep property validation is a future enhancement
+// Members are checked too, not just "is it an object"
+const wrongAge = greetUser({ name: 'Bob', age: 'thirty' } as any)
+console.log('Wrong member type:', wrongAge)
 ```

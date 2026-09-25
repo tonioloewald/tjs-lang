@@ -189,12 +189,20 @@ async function main() {
     // that ran ZERO tests reported greenest of all. superstruct printed
     // `Passed: 0, Failed: 0` in exactly that state. "Nothing ran" and "everything passed"
     // must not look the same.
-    if (failed > 0 || total === 0) process.exitCode = 1
+    // A suite that FAILED TO LOAD contributes zero tests, so it is invisible to every count
+    // above: zod reported "551/552 passed" while most of its suites threw on import
+    // (`Cannot mix BigInt and other types`). Suites are counted separately and fail the lane.
+    const suitesFailed = json.numFailedTestSuites ?? 0
+    if (failed > 0 || suitesFailed > 0 || total === 0) process.exitCode = 1
 
     console.log('━'.repeat(50))
     console.log(`  Total:  ${total}`)
     console.log(`  Passed: ${passed}`)
     console.log(`  Failed: ${failed}`)
+    if (suitesFailed > 0)
+      console.log(
+        `  Suites failed (incl. ones that never loaded): ${suitesFailed}`
+      )
     console.log('━'.repeat(50))
 
     if (failed > 0 && json.testResults) {
@@ -220,7 +228,7 @@ async function main() {
       }
     }
 
-    if (passed === total && total > 0) {
+    if (passed === total && total > 0 && suitesFailed === 0) {
       console.log(`\n  All ${total} tests passed!\n`)
     }
   } catch {
