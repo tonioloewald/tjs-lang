@@ -63,7 +63,12 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { releaseStampProblem, writeStamp } from './release-stamp'
+import {
+  releaseStampProblem,
+  suiteEnvProblem,
+  treeDirtyReason,
+  writeStamp,
+} from './release-stamp'
 
 const ROOT = join(import.meta.dir, '..')
 
@@ -87,7 +92,8 @@ const fail = (msg: string): never => {
 const PREPARE = process.argv.includes('--prepare')
 
 const head = () => sh(['git', 'rev-parse', 'HEAD']).out
-const treeClean = () => sh(['git', 'status', '--porcelain']).out === ''
+// The ONE clean-tree check (release-stamp.ts) — exit code honoured, untracked files included.
+const treeClean = () => treeDirtyReason(ROOT) === null
 const stampProblem = () => releaseStampProblem(ROOT)
 
 // The fast path — the whole point of `release:ready`.
@@ -143,6 +149,12 @@ if (!treeClean())
     '`make` changed tracked files (regenerated docs/editors output?). Commit them and run release:ready again — otherwise the stamp would name a SHA that is not the code it tested.'
   )
 
+// A partial run must not stamp. Checked here, before the suite, not just before the stamp: four
+// minutes of tests that cannot certify anything is its own waste.
+{
+  const envProblem = suiteEnvProblem(process.env)
+  if (envProblem) fail(envProblem)
+}
 console.log('release-gate: running the FULL suite (~3-4 min; no SKIP_* flags).')
 
 // Vision tests self-skip when no vision model is reachable — expected, not a failure. They

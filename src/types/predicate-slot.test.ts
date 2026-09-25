@@ -70,6 +70,25 @@ globalThis.__seed = Other; globalThis.__tjs_Predicate_1 = Other`
     expect(r.records).toEqual([])
   })
 
+  it('a NULL slot is CLAIMED, like an empty one — refusing it would split the brand', () => {
+    // `??=` treats null as empty; the first guard refused null but left it in place, so every
+    // bundle fell back to its own class — recreating B2's cross-bundle split, the one outcome
+    // the decision was meant to avoid (0.14.0 second re-review).
+    const r = inFresh(
+      `${RECORDER}\nglobalThis.__tjs_Predicate_1 = null`,
+      `${PROBE.replace(
+        'console.log(JSON.stringify({',
+        'console.log(JSON.stringify({ claimed: globalThis.__tjs_Predicate_1 === m.Predicate,'
+      )}`
+    )
+    expect(r).toMatchObject({
+      claimed: true,
+      branded: true,
+      decides: [true, false],
+    })
+    expect(r.records).toEqual([])
+  })
+
   for (const [label, value] of [
     ['a number', '42'],
     ['a plain object', '{}'],

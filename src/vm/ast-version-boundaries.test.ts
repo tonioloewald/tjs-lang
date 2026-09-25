@@ -36,6 +36,7 @@ import {
   PROCEDURE_TOKEN_PREFIX,
 } from './runtime'
 import { AST_VERSION, AST_VERSION_KEY } from './ast-version'
+import ts from 'typescript'
 
 const VM_DIR = import.meta.dir
 const FUTURE = { [AST_VERSION_KEY]: AST_VERSION + 1, op: 'seq', steps: [] }
@@ -217,45 +218,108 @@ describe('structure: the boundary set is enumerable, so a new one cannot be miss
     expect(/checkAstVersion\s*\(/.test(body)).toBe(true)
   })
 
-  it('EVERY execution of a non-literal AST is immediately preceded by the gate on it', () => {
-    // The generalisation the first M3 fix lacked. It swept `procedureStore` readers — the
-    // wrong set — so `agentRun`'s INLINE route and `runCode` executed future-version ASTs while
-    // every test here stayed green (0.14.0 re-review, M-1). The door is not "where ASTs are
-    // stored", it is "where an AST that arrived from outside is EXECUTED". So: find every
-    // `seq.exec(x)` / `seqAtom.exec(x)` whose argument is not an object literal — a literal
-    // `{ op: 'seq', steps }` is a nested body of a document already gated at its entry — and
-    // require `checkAstVersion(x, …)` on the SAME identifier earlier in the enclosing atom/function.
-    // Deliberately textual and local: it cannot see through calls, which is why the token
-    // route repeats the gate rather than relying on `resolveProcedureToken`.
-    const offenders: string[] = []
-    let sites = 0
-    for (const file of ['runtime.ts', 'vm.ts']) {
-      const lines = readFileSync(join(VM_DIR, file), 'utf8').split('\n')
-      lines.forEach((line, i) => {
-        const m = /\b(?:seq|seqAtom)\.exec\(\s*([A-Za-z_$][\w$]*)/.exec(line)
-        if (!m) return
-        sites++
-        const ident = m[1]
-        // Search back to the start of the ENCLOSING atom or function, not a fixed window:
-        // `runCode` gates version BEFORE shape (as AgentVM.run does), which puts its gate
-        // further up than any small window — a line count is the wrong measure of "before".
-        let start = i
-        while (
-          start > 0 &&
-          !/^(?:export const \w+ = defineAtom\(|export (?:async )?function |\s+async run\()/.test(
-            lines[start]
-          )
-        )
-          start--
-        const before = lines.slice(start, i).join('\n')
-        const gate = new RegExp(`checkAstVersion\\(\\s*${ident}\\b`)
-        if (!gate.test(before))
-          offenders.push(`${file}:${i + 1} exec(${ident})`)
-      })
+  /**
+   * Every call `<seq>.exec(x)` whose argument is NOT an object literal, and whether it is gated.
+   *
+   * PARSED with the TypeScript compiler, not scanned. The first version of this sweep was a
+   * regex plus a line-walk back to the enclosing atom, and the 0.14.0 second re-review found
+   * it blind in three ways: its receiver pattern missed `this.resolve('seq')?.exec(ast, …)`, so
+   * vm.ts contributed ZERO sites and removing `AgentVM.run`'s own gate went unnoticed; it could
+   * not see `?.`/`!` receivers or aliases; and its walk-back stopped only at exported atoms, so
+   * an exec in a non-exported helper could borrow the PREVIOUS function's gate. A parser answers
+   * "which function is this in" and "what is the receiver" exactly.
+   *
+   * A receiver counts as the seq atom when its text names `seq` — `seq`, `seqAtom`,
+   * `ctx.resolver('seq')`, `this.resolve('seq')?` — and a call is gated when the SAME
+   * enclosing function calls `checkAstVersion(<same identifier>, …)` earlier in its body.
+   */
+  function execSites(file: string, src: string) {
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true)
+    const sites: Array<{ where: string; ident: string; gated: boolean }> = []
+    // `{ op: 'seq', … } as any` and `ast as any` WRAP the literal / identifier in a type
+    // assertion; without unwrapping, every nested body read as a site and `ast as any` hid
+    // its identifier from the gate match.
+    const bare = (e: ts.Expression): ts.Expression => {
+      while (
+        ts.isAsExpression(e) ||
+        ts.isParenthesizedExpression(e) ||
+        ts.isTypeAssertionExpression(e) ||
+        ts.isNonNullExpression(e) ||
+        ts.isSatisfiesExpression(e)
+      )
+        e = e.expression
+      return e
     }
-    // Apparatus check: the three known sites must be FOUND, or the sweep proves nothing.
-    expect(sites).toBeGreaterThanOrEqual(3)
-    expect(offenders).toEqual([])
+    const enclosing = (n: ts.Node): ts.Node | undefined => {
+      for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p)) return p
+      return undefined
+    }
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isCallExpression(n) &&
+        (ts.isPropertyAccessExpression(n.expression) ||
+          ts.isPropertyAccessChain?.(n.expression)) &&
+        (n.expression as ts.PropertyAccessExpression).name.text === 'exec' &&
+        /\bseq|'seq'/.test(
+          (n.expression as ts.PropertyAccessExpression).expression.getText(sf)
+        ) &&
+        n.arguments.length > 0 &&
+        !ts.isObjectLiteralExpression(bare(n.arguments[0]))
+      ) {
+        const arg = bare(n.arguments[0])
+        const ident = ts.isIdentifier(arg) ? arg.text : arg.getText(sf)
+        const fn = enclosing(n)
+        let gated = false
+        const scan = (m: ts.Node) => {
+          if (
+            m.getStart(sf) < n.getStart(sf) &&
+            ts.isCallExpression(m) &&
+            ts.isIdentifier(m.expression) &&
+            m.expression.text === 'checkAstVersion' &&
+            m.arguments[0] !== undefined &&
+            bare(m.arguments[0]).getText(sf) === ident &&
+            enclosing(m) === fn
+          )
+            gated = true
+          ts.forEachChild(m, scan)
+        }
+        if (fn) scan(fn)
+        const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1
+        sites.push({ where: `${file}:${line} exec(${ident})`, ident, gated })
+      }
+      ts.forEachChild(n, visit)
+    }
+    visit(sf)
+    return sites
+  }
+
+  it('EVERY execution of a non-literal AST is gated in its own function — parsed, exact', () => {
+    const all = ['runtime.ts', 'vm.ts'].flatMap((f) =>
+      execSites(f, readFileSync(join(VM_DIR, f), 'utf8'))
+    )
+    // EXACT, not ">= 3": runtime.ts's agentRun ×2 and runCode, plus vm.ts's AgentVM.run. A new
+    // execution site changes this number and must be looked at, gated or not.
+    expect(all.map((s) => s.where.replace(/:\d+ /, ' '))).toEqual([
+      'runtime.ts exec(ast)',
+      'runtime.ts exec(resolvedId)',
+      'runtime.ts exec(ast)',
+      'vm.ts exec(ast)',
+    ])
+    expect(all.filter((s) => !s.gated).map((s) => s.where)).toEqual([])
+  })
+
+  it('the sweep FLAGS an ungated site — negative fixture, so it is shown able to go red', () => {
+    const fixture = `
+      function gated(ast) { checkAstVersion(ast, 'x'); return seq.exec(ast, ctx) }
+      function borrower(ast) { return this.resolve('seq')?.exec(ast, ctx) }  // ungated
+      async function literal() { await seq.exec({ op: 'seq', steps: [] }, ctx) } // not a site
+    `
+    const sites = execSites('fixture.ts', fixture)
+    expect(sites.map((s) => [s.ident, s.gated])).toEqual([
+      ['ast', true],
+      // Would have been "gated" under the old walk-back, borrowing `gated`'s check.
+      ['ast', false],
+    ])
   })
 
   it('no OTHER function reads `procedureStore` without gating', () => {

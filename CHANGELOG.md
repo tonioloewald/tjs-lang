@@ -50,6 +50,13 @@ moves under you.
   Age.example               // 0         — a Type is a Predicate carrying a witness
   ```
 
+  That block is **library** code (`import { Type, Predicate } from 'tjs-lang'`). Types declared
+  in a `.tjs` file are callable, `check`-is-the-function and named the same way — but they come
+  from the file's inline runtime, which does not share the library's class, so an emitted type
+  is **not** `instanceof Predicate`, and has no `.example` (the stub calls it `__ex`). Both are
+  recorded in `docs/type-identity.md` under "Surface, not decisions" and pinned by tests;
+  joining emitted types to the brand is tracked in `TODO.md`.
+
   **Additive in practice.** `.check()` still works, `isRuntimeType()` still recognises them,
   and object-shaped types from older emitted output still match — the two `typeof === 'object'`
   guards were widened rather than replaced. Emitted types are file-local `const`s that never

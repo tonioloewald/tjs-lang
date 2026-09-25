@@ -14,7 +14,13 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hashDist, releaseStampProblem, writeStamp } from './release-stamp'
+import {
+  hashDist,
+  releaseStampProblem,
+  suiteEnvProblem,
+  treeDirtyReason,
+  writeStamp,
+} from './release-stamp'
 
 let root = ''
 // Isolated from the contributor's own git config — commit signing, a global hooksPath or a
@@ -148,5 +154,45 @@ describe('writeStamp — the WRITER enforces the invariant, so no caller can sta
     expect(
       readFileSync(join(root, '.release-gate-verified'), 'utf8')
     ).toContain(git('rev-parse', 'HEAD'))
+  })
+})
+
+describe('treeDirtyReason — unknown is NOT clean', () => {
+  // The 0.14.0 second re-review: every clean-tree check compared `git status` STDOUT to '' and
+  // ignored the exit code, so a failing `git status` — a corrupt index, say — read as a clean
+  // tree, and the stamp writer would have stamped it.
+  it('a failing git status is a refusal, not a clean tree', () => {
+    writeFileSync(join(root, '.git', 'index'), 'this is not an index')
+    expect(treeDirtyReason(root)).toMatch(/could not read/)
+    expect(writeStamp(root).ok).toBe(false)
+  })
+
+  it('an untracked file counts, whatever status.showUntrackedFiles says', () => {
+    git('config', 'status.showUntrackedFiles', 'no')
+    writeFileSync(join(root, 'new.ts'), 'export {}\n')
+    expect(treeDirtyReason(root)).toMatch(/dirty/)
+  })
+
+  it('a clean tree is clean — apparatus check', () => {
+    expect(treeDirtyReason(root)).toBeNull()
+  })
+})
+
+describe('suiteEnvProblem — a "full suite" that skips lanes must not stamp', () => {
+  // The last way a stamp could certify a lane that never ran: `bun test` inherits the caller's
+  // environment, so an exported SKIP_LLM_TESTS/SKIP_BENCHMARKS/SKIP_AUDIT made the release gate
+  // skip those lanes and stamp HEAD as fully tested anyway (0.14.0 second re-review).
+  for (const k of ['SKIP_LLM_TESTS', 'SKIP_BENCHMARKS', 'SKIP_AUDIT']) {
+    it(`refuses with ${k} set`, () => {
+      expect(suiteEnvProblem({ [k]: '1' })).toMatch(k)
+    })
+  }
+  it('also refuses an ad-hoc SKIP_* the list does not name yet', () => {
+    expect(suiteEnvProblem({ SKIP_SOMETHING_NEW: '1' })).toMatch(
+      /SKIP_SOMETHING_NEW/
+    )
+  })
+  it('an ordinary environment is fine — apparatus check', () => {
+    expect(suiteEnvProblem({ PATH: '/usr/bin', HOME: '/x' })).toBeNull()
   })
 })

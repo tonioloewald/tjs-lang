@@ -4244,21 +4244,54 @@ listener (identity is now the command line — `6596ae3`); issue #4's stale publ
 (correction posted); the five declaration transforms rewriting TJS inside string literals
 (`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`).
 
+## Open findings — 0.14.0 SECOND re-review (GO_WITH_FOLLOWUPS, 2026-09-25)
+
+Full report: [`docs/reviews/0.14.0-re-review-2.md`](docs/reviews/0.14.0-re-review-2.md). Fixed before
+publishing, 2026-09-25: the `SKIP_*` inheritance (a stamp could certify a partial suite), all
+four clean-tree checks unified on one exit-code-honouring helper, the M-1 exec sweep rebuilt on
+the TypeScript parser with an exact site count and a negative fixture (it had missed
+`AgentVM.run`'s own gate), `brandPredicate`'s toJSON pinned, a `null` Predicate slot claimed
+rather than split, the `instanceof Predicate` example scoped to library code, and — in
+tosijs-coding-practices `efd011d` — the doctor's general stray-file rule and failing-test names.
+
+- [ ] **UNREPRODUCED: `test:dogfood` reported 1 fail during a Tier 0 run on 2026-09-25**, in
+      `src/lang/dogfood-convert.test.ts`. Not reproduced by stale `dist/`, by a planted stray
+      under `examples/modules/dist/`, or on a plain re-run (4/4, 0 lost). Suspected: load — a
+      tosijs-ui suite ran concurrently, and dogfood-convert is an ~85 s test with timed stages.
+      The failing test's NAME was lost to the doctor's 8-line tail, which is now fixed
+      (`laneFailureDetail`); if it recurs, the name will be in the report. Not dismissed:
+      recorded until it is explained.
+- [ ] **Join emitted types to the `Predicate` brand?** Emitted types are callable and named, but
+      not `instanceof Predicate` — the inline stub never reads the `__tjs_Predicate_1` slot.
+      Pinned in both directions and documented (`docs/type-identity.md`). Joining would mean
+      the stub setting its callables' prototype from the slot when present — a change to the
+      inline runtime, so it goes through `docs/runtime-fusion.md`'s rules, not in passing.
+- [ ] **Widen the "Object.keys/spread as 0.13.13" pin** beyond emitted `Type`: library
+      Type/Enum/Union/Generic and emitted Enum/Union/Exactly/FunctionPredicate/Generic. Also
+      document that `!('toJSON' in p)` consults the prototype chain, so an adopted foreign slot
+      class carrying `toJSON` replaces serialisation — acceptable under the slot decision, but
+      unwritten.
+- [ ] **Predicate-slot edges**: generator functions pass as "constructors" (harmless under the
+      decision; note it); bound functions are refused (no `prototype`); the refusal is recorded
+      at module load, usually BEFORE `__tjs` is installed, so the warning is usually lost.
+- [ ] **Pre-push worktree cleanup is not idempotent** — a failed `worktree add`, or Ctrl-C (the
+      trap runs, then the explicit call), prints a false "run `git worktree prune`". Track
+      `made=1`; and the in-loop `trap … EXIT` replaces any other EXIT trap.
+- [ ] **Tests for `release-gate.ts` as a script** — only `release-stamp.ts` is tested. Merge with
+      the existing "prepublish-check / pre-push have no tests" item.
+- [ ] **Bundle-size delta for 0.14.0** — add to the existing size-delta item: runtime +291 B gz
+      (claimSlot's message, defineProperty toJSON), vm +85 B, vm-ast +93 B, transpiler +353 B;
+      each emitted file ~30 B larger in `__pred`, ~12 B in the Generic stub.
+
 ## Open findings — 0.14.0 RE-review (BLOCK → remediated, 2026-09-25)
 
 Full report: [`docs/reviews/0.14.0-re-review.md`](docs/reviews/0.14.0-re-review.md). The blocker
 (B-1), both majors (M-1, M-2), five of the minors and three of the six completeness gaps were
 fixed on 2026-09-25 — see the report's STATUS block. What is deferred is named here.
 
-- [ ] **The version-bump commit is unreviewed.** HEAD is `0.14.0-rc.0`, already published; the
-      commit that ships 0.14.0 (version, CHANGELOG, regenerated artifacts) did not exist when the
-      re-review ran. Cover it with the scoped re-review the report prescribes: correctness +
-      security over `release-gate.ts`/`release-stamp.ts`, `runtime.ts` agentRun/runCode, the
-      boundary sweep, the emitted Generic stub and FORMS, plus Tier 0 — and the bump itself.
-- [x] **`Predicate`'s global slot — trust model.** DECIDED 2026-09-25 by the maintainer:
-      the MonadicError model (adopt any constructor, unvalidated); the single guard refuses a
-      value that cannot be a constructor at all and records it. `docs/runtime-fusion.md` §7,
-      pinned by `src/types/predicate-slot.test.ts`.
+- [x] **The version-bump commit is unreviewed.** Closed 2026-09-25: the second re-review
+      (`docs/reviews/0.14.0-re-review-2.md`, GO_WITH_FOLLOWUPS) covered `b28177e..63e2bdf`,
+      including the bump commit `63e2bdf`.
 - [ ] **No test that a consumer's tree-shaker keeps the `Predicate` slot claim.** The slot write
       in `predicate-brand.ts` runs in bundles (`tjs-css`, `tjs-lang`, `tjs-browser`, …) that are
       not in `sideEffects`, and `side-effects-allowlist.test.ts` exempts that module on the

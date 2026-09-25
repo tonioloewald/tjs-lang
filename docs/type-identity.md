@@ -138,6 +138,7 @@ the verdict list, not empty:
 | fact | real runtime | inline stub | consequence |
 | --- | --- | --- | --- |
 | a `Type`'s witness | `example` | `__ex` | `Age.example` is `undefined` in emitted code — and emitted code is the shipped semantics |
+| the `Predicate` brand | `instanceof Predicate` is `true` | `false` — the stub builds its own callables and never reads the `__tjs_Predicate_1` slot | a check like `x instanceof Predicate` sees library types and misses every type declared in a `.tjs` file |
 
 Same information under two names, so nothing is *lost*; it is simply not where the documented
 surface says it is. Unifying them changes the serialised shape of every emitted type, so it is

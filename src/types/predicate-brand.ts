@@ -61,7 +61,10 @@ const g = globalThis as any
  */
 function claimSlot(): typeof PredicateBrand {
   const found = g[PREDICATE_SLOT]
-  if (found === undefined) return (g[PREDICATE_SLOT] = PredicateBrand)
+  // null is EMPTY, as it is to `??=`: refusing it without claiming would leave every bundle on
+  // its own class — the cross-bundle split (B2) this whole decision exists to avoid.
+  if (found === undefined || found === null)
+    return (g[PREDICATE_SLOT] = PredicateBrand)
   if (
     typeof found === 'function' &&
     typeof found.prototype === 'object' &&

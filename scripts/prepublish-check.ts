@@ -61,6 +61,7 @@
  */
 import { readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { treeDirtyReason } from './release-stamp'
 
 const ROOT = join(import.meta.dir, '..')
 
@@ -89,10 +90,11 @@ const pkg0 = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const version = pkg0.version as string
 const tag = `v${version}`
 
-if (git('status', '--porcelain').out) {
-  problems.push(
-    'the working tree has uncommitted changes — publish what you committed'
-  )
+// The ONE clean-tree check (release-stamp.ts): honours git's exit code, so an unreadable tree
+// is a refusal rather than "clean", and counts untracked files whatever the user's git config.
+{
+  const dirty = treeDirtyReason(ROOT)
+  if (dirty) problems.push(`${dirty} — publish what you committed`)
 }
 
 // The tag for THIS version is not required to exist — under publish-then-tag it cannot.

@@ -34,6 +34,7 @@ import {
   Predicate,
   isRuntimeType,
 } from '../index'
+import { brandPredicate } from '../types/predicate-brand'
 import { tjs } from './index'
 // `Exactly` is public through the `tjs-lang/runtime` subpath, not the main entry.
 import { createRuntime, Exactly } from './runtime'
@@ -292,6 +293,20 @@ describe('EMITTED code agrees — the stub is the shipped semantics', () => {
     expect(JSON.parse(JSON.stringify(Age)).description).toBe('Age')
   })
 
+  it('brandPredicate too — the third site, which the first version of this pin never reached', () => {
+    // Type/Enum/Union get toJSON from `asPredicate` BEFORE brandPredicate runs, so the case
+    // above never exercised brandPredicate's own toJSON — putting `enumerable: true` back there
+    // left the suite green (0.14.0 second re-review). A bare brandPredicate value, and a
+    // compiled css predicate, reach it.
+    const one: any = brandPredicate((v: unknown) => v === 1, 'one')
+    const css: any = require('../css/index')
+    for (const p of [one, css.isColor]) {
+      expect(Object.keys(p)).not.toContain('toJSON')
+      expect('toJSON' in { ...p }).toBe(false)
+      expect(typeof JSON.parse(JSON.stringify(p))).toBe('object')
+    }
+  })
+
   it('the library agrees: toJSON is not an enumerable key there either', () => {
     for (const p of [
       Type('Age', 0),
@@ -301,6 +316,16 @@ describe('EMITTED code agrees — the stub is the shipped semantics', () => {
       expect(Object.keys(p)).not.toContain('toJSON')
       expect(typeof p.toJSON).toBe('function')
     }
+  })
+
+  it('but an emitted type is NOT instanceof Predicate — a measured, documented divergence', () => {
+    // The stub builds its own callables and never reads the `__tjs_Predicate_1` slot, so the
+    // library's brand does not reach emitted types. The CHANGELOG's `Age instanceof Predicate`
+    // example is scoped to library code, and docs/type-identity.md records the row (0.14.0
+    // second re-review). Pinned in BOTH directions so joining emitted types to the brand is a
+    // deliberate change that fails here, not a drift.
+    expect(emitted('Type Age 0', 'Age') instanceof Predicate).toBe(false)
+    expect(Type('Age', 0) instanceof Predicate).toBe(true)
   })
 
   it('and the stub still agrees with the real runtime on the DECISION', () => {
