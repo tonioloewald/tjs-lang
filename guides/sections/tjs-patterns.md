@@ -2,8 +2,9 @@
 
 # Patterns
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [Higher-Order Functions](/higher-order-functions/)
 - [Async Functions](/async-functions/)
 - [Error Handling](/error-handling/)
@@ -17,3 +18,5 @@
 - [WASM Memory](/wasm-memory/)
 - [WASM Functions (reusable kernels)](/wasm-functions/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

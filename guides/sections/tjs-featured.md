@@ -2,9 +2,12 @@
 
 # Featured
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [Starfield](/wasm-starfield/)
 - [TJS Grammar Reference](/tjs-grammar-demo/)
 - [Vector Search Benchmark](/wasm-vector-search/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

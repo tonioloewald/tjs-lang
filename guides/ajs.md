@@ -8,8 +8,9 @@ AJS is a JavaScript subset designed for writing AI agent logic. It compiles to A
 
 ## In this section
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [AJS: The Agent Language](/DOCS-AJS/)
 - [Safe Eval](/safe-eval/)
 - [AJS LLM System Prompt](/ajs-llm-prompt/)
@@ -19,6 +20,8 @@ AJS is a JavaScript subset designed for writing AI agent logic. It compiles to A
 - [Running the LLM test suite (LM Studio setup)](/lm-studio-setup/)
 - [MLX as the local-AI harness](/mlx-setup/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->
 
 ## File Extension
 

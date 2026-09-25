@@ -2,9 +2,12 @@
 
 # Advanced
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [The Universal Endpoint](/the-universal-endpoint/)
 - [Inline Tests: Test Private Functions](/inline-tests-test-private-functions/)
 - [Predicate Types](/predicate-types/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

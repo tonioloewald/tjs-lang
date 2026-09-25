@@ -6,8 +6,9 @@ Try these examples in the playground! Each demonstrates a key TJS feature.
 
 ## In this section
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [Featured](/tjs-featured/)
 - [Basics](/tjs-basics/)
 - [Patterns](/tjs-patterns/)
@@ -16,6 +17,8 @@ Try these examples in the playground! Each demonstrates a key TJS feature.
 - [Unbundled](/tjs-unbundled/)
 - [WASM Libraries](/tjs-wasmlib/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->
 
 ## Types by Example
 

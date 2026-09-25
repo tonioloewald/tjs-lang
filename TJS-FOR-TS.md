@@ -23,10 +23,13 @@ This guide is split into two paths:
 
 ## In this section
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [TypeScript Examples](/ts-examples/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->
 
 # Part 1: Using TJS from TypeScript
 

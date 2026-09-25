@@ -18,8 +18,9 @@ function greet(name: 'World', times: 3): '' {
 
 ## In this section
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [TJS Interactive Examples](/tjs-examples/)
 - [TJS: Typed JavaScript](/DOCS-TJS/)
 - [TJS for JavaScript Programmers](/TJS-FOR-JS/)
@@ -31,6 +32,8 @@ function greet(name: 'World', times: 3): '' {
 - [Context: Working with tosijs-schema](/tosijs-schema/)
 - [TJS Performance Guide](/performance/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->
 
 ## Philosophy
 

@@ -4,8 +4,9 @@
 
 Why TJS exists, the principles it will not bend, its declarations and syntax, and the design notes behind the harder decisions — the reference half of the language, where the TJS section is the practical half.
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [Why TJS](/why-tjs/)
 - [Design Principles & Invariants](/PRINCIPLES/)
 - [Declarations](/declarations/)
@@ -21,3 +22,5 @@ Why TJS exists, the principles it will not bend, its declarations and syntax, an
 - [Native Engine Integration: TJS in V8 or JavaScriptCore](/native-engine-integration/)
 - [tjs-lang Technical Context](/CONTEXT/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

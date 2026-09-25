@@ -2,8 +2,9 @@
 
 # Advanced
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [LLM with Tool](/llm-with-tool/)
 - [Multi-Agent Pipeline](/multi-agent-pipeline/)
 - [Vision: OCR](/vision-ocr/)
@@ -11,3 +12,5 @@
 - [LLM Code Solver](/llm-code-solver/)
 - [LLM Code Generator](/llm-code-generator/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

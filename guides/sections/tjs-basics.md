@@ -2,8 +2,9 @@
 
 # Basics
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [Hello TJS](/hello-tjs/)
 - [Required vs Optional](/required-vs-optional/)
 - [Object Types](/object-types/)
@@ -20,3 +21,5 @@
 - [Local Class Extensions](/local-extensions/)
 - [Safer Code](/safer-code/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

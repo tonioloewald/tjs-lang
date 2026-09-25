@@ -2,9 +2,12 @@
 
 # LLMs
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [LLM Chat](/llm-chat/)
 - [LLM Summarizer](/llm-summarizer/)
 - [LLM Structured Output](/llm-structured-output/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

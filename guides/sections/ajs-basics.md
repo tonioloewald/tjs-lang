@@ -2,8 +2,9 @@
 
 # Basics
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [Hello World](/hello-world/)
 - [Math Operations](/math-operations/)
 - [Conditional Logic](/conditional-logic/)
@@ -12,3 +13,5 @@
 - [JSON Processing](/json-processing/)
 - [Error Handling](/ajs-error-handling/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

@@ -2,8 +2,11 @@
 
 # WASM Libraries
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [WASM Library: SIMD Linalg](/wasm-library-author/)
 - [Using a WASM Library](/wasm-library-consumer/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->

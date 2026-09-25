@@ -4,11 +4,14 @@
 
 Runnable AJS agents, from first steps to multi-agent pipelines.
 
-<!-- toc -->
+<!-- prettier-ignore-start -->
 
+<!-- toc -->
 - [Featured](/ajs-featured/)
 - [Basics](/ajs-basics/)
 - [APIs](/ajs-api/)
 - [LLMs](/ajs-llm/)
 - [Advanced](/ajs-advanced/)
 <!-- /toc -->
+
+<!-- prettier-ignore-end -->
