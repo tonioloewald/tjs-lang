@@ -219,6 +219,28 @@ describe('ambient STATEMENTS emit no code — the declare-class rule, at the top
     expect(kind).toBe('declared')
   })
 
+  // The remaining ambient forms, pinned — the re-review's follow-up. Each emits nothing, which
+  // is also exactly what TypeScript emits (checked, not assumed): these pin CORRECT behaviour,
+  // not merely current output. They make the allowlist's claim testable in both directions —
+  // listed VALUE kinds are erased, and the unlisted `declare abstract class` goes through the
+  // class path, which erases ambient classes itself.
+  for (const [label, src] of [
+    ['declare global', 'declare global { interface Window { tjs: any } }'],
+    ["declare module 'x'", "declare module 'x' { export const y: number }"],
+    [
+      'export declare namespace',
+      'export declare namespace NS { function g(): void }',
+    ],
+    [
+      'declare abstract class',
+      'declare abstract class AC { abstract m(): void }',
+    ],
+  ] as const) {
+    it(`${label} emits nothing, as TypeScript emits nothing`, () => {
+      expect(code(src)).toBe('')
+    })
+  }
+
   it('an ordinary function and enum are unaffected — apparatus check', () => {
     expect(
       convert('export function g(a: number): number { return a }')
