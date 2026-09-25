@@ -148,6 +148,7 @@ functions/bun.lock
 .demo/
 # The tosijs-ui doc site's build output (tjs-site.config.ts `outputDir`) — generated, never committed.
 .site/
+.site-docs.json
 
 # Compatibility test working directories (cloned repos, transpiled output)
 .compat-tests/

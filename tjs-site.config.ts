@@ -92,6 +92,12 @@ export default defineSiteConfig({
   // the build regenerates. Their default, `src/docs`, is a strange home for doc pages.
   sectionsDir: 'guides/sections',
 
+  // The site's OWN intermediate corpus. The default is `demo/docs.json` — the OLD playground's
+  // data file, which `bin/site.ts` writes in the playground's shape — and a site build
+  // overwrote it in tosijs-ui's shape (their build warns: "writes outside outputDir and will
+  // OVERWRITE demo/docs.json"). Run in the main tree, that is the live playground's source.
+  docsJson: '.site-docs.json',
+
   // OFF: this repo's `llms.txt` is hand-curated and guarded by `src/docs-index.test.ts` (it
   // must index every top-level doc and entry point). The generated one overwrote it the first
   // time the site was built.
