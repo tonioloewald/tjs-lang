@@ -139,7 +139,23 @@ worth weighing:
 - The same-reach argument still mostly holds: code that can run before TJS loads can already
   replace `Function.prototype.call`, `JSON.stringify`, or `globalThis.__tjs` itself.
 
-**Status: OPEN — awaiting the maintainer's decision.** Options:
+**Status: DECIDED 2026-09-25 (maintainer) — option 1, the MonadicError trust model.**
+
+The deciding observation was the maintainer's: option 2 is option 1 plus robustness against
+*honest* conflicts, not against an attacker. Code that runs before tjs-lang can build a class
+that passes any structural check — so validating the slot's contents defends against nobody
+hostile ("anything beyond that is just security theater"). And its failure mode is worse than
+the thing it guards: a rejected slot splits the brand per bundle, which silently reinstates the
+cross-bundle `instanceof` failure (B2). The shape-versioned key already absorbs most honest
+conflicts — a different shape claims `_2`, not `_1`.
+
+What remains is one guard, for the only honest accident left: a value under our exact key that
+**cannot be a constructor at all** (a number, a plain object, an arrow). That is not adopted —
+adopting it would break every predicate at the first `brandPredicate` — and is recorded in the
+flight recorder (`source: 'type'`, `severity: 'warning'`). **Any** constructor is adopted, with
+no check of what it is. Pinned both ways by `src/types/predicate-slot.test.ts`.
+
+The options as they were weighed:
 
 1. **Accept** the MonadicError trust model for `Predicate`, recorded here with the reasoning above.
 2. **Harden the slot**: validate what is found there before adopting it (e.g. require a

@@ -4255,9 +4255,10 @@ fixed on 2026-09-25 — see the report's STATUS block. What is deferred is named
       re-review ran. Cover it with the scoped re-review the report prescribes: correctness +
       security over `release-gate.ts`/`release-stamp.ts`, `runtime.ts` agentRun/runCode, the
       boundary sweep, the emitted Generic stub and FORMS, plus Tier 0 — and the bump itself.
-- [ ] **`Predicate`'s global slot — trust model awaiting a decision.** Recorded as OPEN in
-      `docs/runtime-fusion.md` §7 with three options (accept / harden / drop fusion). The
-      maintainer's call, not an agent's.
+- [x] **`Predicate`'s global slot — trust model.** DECIDED 2026-09-25 by the maintainer:
+      the MonadicError model (adopt any constructor, unvalidated); the single guard refuses a
+      value that cannot be a constructor at all and records it. `docs/runtime-fusion.md` §7,
+      pinned by `src/types/predicate-slot.test.ts`.
 - [ ] **No test that a consumer's tree-shaker keeps the `Predicate` slot claim.** The slot write
       in `predicate-brand.ts` runs in bundles (`tjs-css`, `tjs-lang`, `tjs-browser`, …) that are
       not in `sideEffects`, and `side-effects-allowlist.test.ts` exempts that module on the

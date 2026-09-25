@@ -43,8 +43,48 @@ Object.setPrototypeOf(PredicateBrand.prototype, Function.prototype)
 
 const PREDICATE_SLOT = '__tjs_Predicate_1'
 const g = globalThis as any
-export const Predicate: typeof PredicateBrand = (g[PREDICATE_SLOT] ??=
-  PredicateBrand)
+
+/**
+ * Adopt whatever constructor already holds the slot — WITHOUT validating it.
+ *
+ * Decided 2026-09-25 (docs/runtime-fusion.md §7): the same trust model as `MonadicError`.
+ * Checking the found class's shape would be security theatre — code that runs before tjs-lang
+ * can build a class that passes any structural check, and can as easily patch
+ * `Function.prototype` — while costing something real: a rejected slot splits the brand per
+ * bundle and silently brings back cross-bundle `instanceof` failure (the 0.14.0 review's B2).
+ *
+ * The ONE refusal is not a security check but an honest-accident guard: a value that cannot be
+ * a constructor at all. Adopting it would break every predicate at the first `brandPredicate`
+ * with an error naming nothing useful; instead, fall back to the local class and record it.
+ * `typeof prototype === 'object'` is what separates a class or function declaration from an
+ * arrow, a number or a plain object.
+ */
+function claimSlot(): typeof PredicateBrand {
+  const found = g[PREDICATE_SLOT]
+  if (found === undefined) return (g[PREDICATE_SLOT] = PredicateBrand)
+  if (
+    typeof found === 'function' &&
+    typeof found.prototype === 'object' &&
+    found.prototype !== null
+  )
+    return found
+  try {
+    g.__tjs?.record?.({
+      source: 'type',
+      severity: 'warning',
+      message:
+        `globalThis.${PREDICATE_SLOT} holds a ${typeof found} that is not a constructor — ` +
+        `something else is using tjs-lang's slot. Using this bundle's own Predicate class, ` +
+        `so \`instanceof Predicate\` may disagree across bundles until that is removed.`,
+      data: { slot: PREDICATE_SLOT, found: typeof found },
+    })
+  } catch {
+    // the recorder is advisory; a missing runtime is not an error
+  }
+  return PredicateBrand
+}
+
+export const Predicate: typeof PredicateBrand = claimSlot()
 /** The instance type, so `Predicate` still works in type position. */
 export type Predicate = PredicateBrand
 
