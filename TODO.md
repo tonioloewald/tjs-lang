@@ -455,6 +455,48 @@ the same components. We are not porting a playground; we are **retiring** one.
   `bin/site.ts`), the site build, and anything the language side needs to be a good citizen of
   their doc system (Prism definitions — done).
 
+## 0.14.0 DOC-SITE ORGANISATION — done 2026-09-25; follow-ups
+
+The corpus is organised for the tosijs-ui doc site (commits `229e8c2`, `c3b060c`, `9ffd3ab`):
+five nav sections (TJS, AJS, TypeScript, The TJS Language, TypeScript: the Good, the Bad, and
+the Ugly), four books (site, `language`, `ts`, `ajs`), private notes hidden, metadata in each
+file. Guarded by `src/doc-site-structure.test.ts`. Hosting: the doc site goes to **GitHub
+Pages**, the old playground stays on **Firebase** until the new site supersedes it — both
+deployed after the publish.
+
+- [ ] **Choose the GitHub Pages address** (a `tosijs.net` subdomain, or the github.io default),
+      then set `host: 'github-pages'` + `baseUrl` (+ `basePath` for github.io) in
+      `tjs-site.config.ts`. It is `host: 'static'` until then, because `github-pages` writes a
+      CNAME from `baseUrl`, which is still the Firebase address.
+- [ ] **Prove live examples RUN on the generated site** (TJS, TS, and AJS) in a real browser —
+      the bar for retiring the playground. The static preview renders examples as plain code;
+      live examples need the site's runtime bundle configured.
+- [ ] **AJS examples are static on the new site** until tosijs-ui#184 (pluggable dialects) or a
+      JS-host wrapper (`import { AgentVM, ajs } from 'tjs-lang'`). NOT rewritten now: the old
+      playground runs them natively and stays live.
+- [ ] **TS examples exist twice** — `guides/examples/ts/*.md` (migrated 2026-09-25) and
+      `demo/src/ts-examples.ts`, which the playground still reads. Delete the latter when the
+      playground is retired; until then, edit both or they drift.
+- [ ] **`/CLAUDE-TJS-SYNTAX/` is a public URL.** Pages are named after files, so the syntax
+      reference's address says "CLAUDE". Renaming the file means updating its many references
+      (CLAUDE.md, llms.txt, the syntax docs); worth doing before the site is public.
+- [ ] **Section-list links are root-relative** (`/why-tjs/`): right on the doc site, but they
+      404 when the same Markdown is read on GitHub, and do not work in the old playground
+      (`?filename`). tosijs-ui writes them that way; raise upstream if it matters.
+- [ ] **ePub covers**: the books build without covers because `@resvg/resvg-js` is not
+      installed. Add it as a devDependency, or set `epub.cover`.
+- [ ] **tosijs-ui identifies docs by bare filename** — a duplicate silently drops one from the
+      nav (measured). Worked around here (unique basenames, guarded); file upstream so identity
+      becomes the path.
+- [ ] **The playground's "safe" toggle prepends `safety none`, and that directive still turns
+      validation off** — while CLAUDE.md says all nine mode directives were abolished on
+      2026-08-02. Find out which is true; fix the code or the docs. (Its WASM toggle is dead —
+      the flag is never read — but the playground is being retired.)
+- [ ] **Content still to write** (Tonio to write or outline): the TypeScript volume beyond its
+      seed material; the Safe Eval chapter beyond the assembled one; and the framing both
+      theses give (Safe Eval; the Lisp lineage — TJS restores introspection, AJS restores
+      dynamism and portability).
+
 ## Phase B — migrate to the tosijs-ui build/doc system
 
 > **SCOPE DECISION 2026-09-16: 0.14.0 ships the FRONT END on the EXISTING backend.**
@@ -481,6 +523,12 @@ the same components. We are not porting a playground; we are **retiring** one.
 > | #155  | Prism `display-only` orthogonality, before it bakes into print/ePub | OPEN                                                                                                                                  |
 > | #153  | B1 cleanup (drops our `DOC_FILES` walker)                           | closed upstream, **NOT in any release** — `SiteConfig` still has no `ignore`                                                          |
 > | #156  | B1 cleanup (drops `stripMisreadFrontmatter`)                        | closed upstream, **NOT in any release** — the match is still unanchored, which is why `bun run docs` still warns on `UPSTREAM.md`     |
+>
+> **CORRECTED 2026-09-25 — nothing in this list blocks the site any more.** #135's pin half
+> shipped in tosijs-ui **1.14.3** (their devDependency and both CDN pins are 0.13.13, which
+> carries the quoted-`test`-block fix); its remaining item is a "for later" capability
+> question. This list was cited as a blocker after it had stopped being one — including by me,
+> to the maintainer, on 2026-09-25. The live plan is "0.14.0 DOC-SITE ORGANISATION" below.
 >
 > **RESOLVED 2026-09-20: tosijs-ui 1.15.0 shipped** and carries #153 and #156. #154 is partial
 > and #135/#155 remain open. Phase B's remaining work is no longer blocked on a release — it is
