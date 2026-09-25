@@ -1,4 +1,4 @@
-<!--{"parent": "tjs.md", "order": 5}-->
+<!--{"parent": "ajs.md", "order": 5}-->
 
 # AJS Patterns
 

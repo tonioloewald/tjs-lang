@@ -79,7 +79,7 @@ function section(d: Difference): string {
 }
 
 export function render(): string {
-  return `<!--{"section": "home", "order": 6, "navTitle": "TJS vs TypeScript"}-->
+  return `<!--{"section": "home", "order": 1, "navTitle": "TJS vs TypeScript", "parent": "typescript-good-bad-ugly.md"}-->
 
 # TJS vs TypeScript vs JavaScript
 

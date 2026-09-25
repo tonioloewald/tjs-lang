@@ -432,7 +432,13 @@ const date = new Date().toISOString().split('T')[0]
 const nodeVersion = process.versions.bun || process.version
 const platform = `${process.platform} ${process.arch}`
 
-let markdown = `# TJS Benchmarks
+// Placement metadata for the doc site. Emitted here, not added by hand: this file overwrites
+// benchmarks.md whole, so a hand-added header is erased by the next `bun run bench`.
+const BENCHMARKS_HEADER = '<!--{"pin": "bottom", "order": 6}-->'
+
+let markdown = `${BENCHMARKS_HEADER}
+
+# TJS Benchmarks
 
 Generated: ${date}
 Runtime: Bun ${nodeVersion}

@@ -33,10 +33,17 @@ function findExampleInDocs(
   section: string,
   exampleName: string
 ): any | null {
+  const title = RENAMED_EXAMPLES[exampleName] ?? exampleName
   return docs.find(
     (d: any) =>
-      d.type === 'example' && d.section === section && d.title === exampleName
+      d.type === 'example' && d.section === section && d.title === title
   )
+}
+
+// Old example titles → current ones. Links are shared by TITLE (`#example=Type%20Declarations`),
+// so renaming an example breaks every link to it unless the old title keeps resolving.
+const RENAMED_EXAMPLES: Record<string, string> = {
+  'Type Declarations': 'Declarations', // 0.14.0: grew into the Declarations chapter
 }
 
 // Import settings dialog

@@ -421,8 +421,8 @@ Use `(!)` for internal functions that are called frequently with known-good data
 
 ### SafeFunction and Eval
 
-Safe replacements for `eval()` and `new Function()` — typed inputs and outputs, fuel-metered,
-no ambient authority. See **[Safe Eval](./safe-eval.md)**, which covers the API, what the
+Safe replacements for `eval()` and `new Function()` — fuel-metered, time-limited, and with no
+ambient authority: the code can reach only what you pass it. See **[Safe Eval](./safe-eval.md)**, which covers the API, what the
 sandbox guarantees, and what it does not.
 
 ## Testing

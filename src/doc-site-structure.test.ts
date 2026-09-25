@@ -92,6 +92,31 @@ describe('doc-site structure', () => {
     expect(siteMissing).toEqual([])
   })
 
+  // A generated page's placement must come from its GENERATOR. Both of these once carried a
+  // hand-added metadata header that the next regeneration would silently erase, dropping the
+  // page back to the nav's root (docs review, 0.14.0).
+  it('generated docs get their placement metadata from the generator', () => {
+    const root = join(import.meta.dir, '..')
+    const firstLine = (f: string) =>
+      readFileSync(join(root, f), 'utf8').split('\n')[0]
+    const generators: [string, string][] = [
+      ['benchmarks.md', 'bin/benchmarks.ts'],
+      ['docs/tjs-vs-typescript.md', 'scripts/build-differences.ts'],
+    ]
+    const handAdded = generators
+      .filter(([doc]) => firstLine(doc).startsWith('<!--{'))
+      .filter(
+        ([doc, gen]) =>
+          !readFileSync(join(root, gen), 'utf8').includes(firstLine(doc))
+      )
+      .map(([doc, gen]) => `${doc} header is not emitted by ${gen}`)
+    expect(handAdded).toEqual([])
+    // Apparatus: both generated pages DO carry placement, so the filter above is not vacuous.
+    expect(
+      generators.every(([doc]) => firstLine(doc).startsWith('<!--{'))
+    ).toBe(true)
+  })
+
   it('the OLD playground still finds every doc it looks up by name', () => {
     // demo/src/demo-nav.ts selects these by filename, not by section.
     const playground = JSON.parse(

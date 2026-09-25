@@ -1,4 +1,4 @@
-<!--{"section": "home", "order": 6, "navTitle": "TJS vs TypeScript"}-->
+<!--{"section": "home", "order": 1, "navTitle": "TJS vs TypeScript", "parent": "typescript-good-bad-ugly.md"}-->
 
 # TJS vs TypeScript vs JavaScript
 

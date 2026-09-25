@@ -489,10 +489,24 @@ deployed after the publish.
       nav (measured). Worked around here (unique basenames, guarded). Filed upstream as
       [tosijs-ui#190](https://github.com/tonioloewald/tosijs-ui/issues/190), asking for the
       path as identity, or at least a failing build.
-- [ ] **The playground's "safe" toggle prepends `safety none`, and that directive still turns
-      validation off** — while CLAUDE.md says all nine mode directives were abolished on
-      2026-08-02. Find out which is true; fix the code or the docs. (Its WASM toggle is dead —
-      the flag is never read — but the playground is being retired.)
+- [x] ~~The playground's "safe" toggle prepends `safety none`, which contradicts the abolition~~ —
+      **premise was false** (checked 2026-09-25). The nine abolished directives are the `Tjs*`
+      MODES; `safety none|inputs|all` is a live, documented directive (DOCS-TJS.md,
+      CLAUDE-TJS-SYNTAX.md), so the toggle works as designed. (Its WASM toggle is still dead.)
+- [ ] **Converted TypeScript, once validated, rejects valid data** (found 2026-09-25 running the
+      TS examples; blocks the three examples that promise validation). Three defects, all
+      latent because converted code never validates by default:
+  1. **`TjsStrict` does not turn on input validation.** It sets every mode but leaves the
+     compat `safety none`, though documented as "full TJS; .tjs has this already". Fix and
+     repro test are written and HELD (`if (!safetyExplicit) moduleSafety = undefined` in the
+     TjsStrict branch of `parser.ts`) — shipping it alone turns "opt-in does nothing" into
+     "opt-in rejects valid data", because of 2 and 3.
+  2. **A `Type` example's integer-valued float literal narrows to INTEGER.** `Type P = 0.0`
+     rejects 1.5: at runtime `0.0` is just `0`, and `__match` (js.ts inline stub) narrows
+     `Number.isInteger(ex)`. Inline param types are fine — they infer from the AST's raw
+     text. Native TJS is affected too, and `fromTS` maps every TS `number` to `0.0`.
+  3. **`fromTS` emits `Product[]` (interface element) as `[null]`**, and `__match(x, null)`
+     means "must be null" — any non-empty array fails.
 - [ ] **Content still to write** (Tonio to write or outline): the TypeScript volume beyond its
       seed material; the Safe Eval chapter beyond the assembled one; and the framing both
       theses give (Safe Eval; the Lisp lineage — TJS restores introspection, AJS restores
