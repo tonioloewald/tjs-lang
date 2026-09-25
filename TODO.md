@@ -5107,7 +5107,7 @@ TS→TJS path can't yet handle. Un-skip as support lands:
 
 - [ ] Class with private fields and methods (gated on class support)
 - [ ] Builder pattern with method chaining (gated on class support)
-- [ ] Complex decorator patterns (requires `experimentalDecorators`)
+- [x] Complex decorator patterns — RESOLVED 2026-09-25 as a loud REFUSAL, not support: the skip's reason ("does not parse") had become false and the converter was silently DROPPING decorators. Decorators cannot be converted faithfully (legacy vs TC39 semantics), so `fromTS` now refuses them with the line and a remedy. See `src/lang/from-ts-class-totality.test.ts`.
 - [ ] Module augmentation (type-only, no runtime code)
 
 (Also 4 unconditional skips in `src/lang/metadata-cache.test.ts` — the transpile

@@ -220,15 +220,17 @@ describe('Self-hosting', () => {
         expect(result.code).toBeTruthy()
       })
 
-      // Decorators require experimental TS support - skip for now
-      // The ONLY remaining skip in this file, and its reason is real: `fromTS` parses with
-      // the default TS options, and decorators need `experimentalDecorators`, so the input
-      // does not parse rather than converting badly. Its three neighbours were skipped for
-      // reasons that had become false ("TODO: class support") and are unskipped as of
-      // 2026-08-16 — an unexplained skip is indistinguishable from a forgotten one.
-      it.skip('should handle complex decorator patterns (requires experimentalDecorators)', () => {
-        const result = fromTS(
-          `
+      // UN-SKIPPED 2026-09-25, with its assertion corrected. It was skipped for a reason that
+      // had become false ("decorators need experimentalDecorators, so the input does not
+      // parse") — the input parsed fine, and the converter DROPPED the decorator without a
+      // word. Worse, the old assertion (`toContain('class Service')`) would have gone GREEN on
+      // that lossy output had anyone simply unskipped it. The contract is that an
+      // unconvertible decorator is REFUSED loudly; the full table of class constructs is in
+      // `src/lang/from-ts-class-totality.test.ts`.
+      it('refuses complex decorator patterns rather than silently dropping them', () => {
+        expect(() =>
+          fromTS(
+            `
           function logged(target: any, key: string, descriptor: PropertyDescriptor) {
             const original = descriptor.value
             descriptor.value = function(...args: any[]) {
@@ -243,9 +245,9 @@ describe('Self-hosting', () => {
             doWork() { return 42 }
           }
         `,
-          { emitTJS: true }
-        )
-        expect(result.code).toContain('class Service')
+            { emitTJS: true }
+          )
+        ).toThrow(/decorator/i)
       })
 
       // Module augmentation is declaration merging - no runtime code

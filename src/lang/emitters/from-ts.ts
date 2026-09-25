@@ -2190,6 +2190,93 @@ function stripTypeArguments(
   return out
 }
 
+/** Throw a conversion refusal that names WHERE and what to do — never a silent drop. */
+function refuse(
+  what: string,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  remedy: string
+): never {
+  const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+    node.getStart(sourceFile)
+  )
+  throw new Error(
+    `fromTS: ${what} at ${sourceFile.fileName}:${line + 1}:${
+      character + 1
+    } cannot be ` +
+      `converted faithfully, so it is refused rather than dropped. ${remedy}`
+  )
+}
+
+/**
+ * File-wide refusals — constructs that must never reach an emitter that would silently lose
+ * them. Currently: decorators, anywhere (classes, members, parameters, class expressions).
+ */
+function refuseUnconvertible(sourceFile: ts.SourceFile, _filename: string) {
+  const visit = (n: ts.Node) => {
+    if (n.kind === ts.SyntaxKind.Decorator)
+      refuse(
+        `a decorator (\`${n.getText(sourceFile).slice(0, 60)}\`)`,
+        n,
+        sourceFile,
+        'TypeScript decorators use LEGACY semantics `(target, key, descriptor)`; as JavaScript ' +
+          'they would run under the TC39 semantics instead, and dropping them deletes what ' +
+          'they do. Apply the decorator by hand (e.g. wrap the method after the class), or ' +
+          'remove it, then convert.'
+      )
+    ts.forEachChild(n, visit)
+  }
+  visit(sourceFile)
+}
+
+/**
+ * Modifiers the class transform understands, and what each means for EMISSION. The transform
+ * rebuilds a class from parts, so a modifier that is not listed here would otherwise simply not
+ * come out — the defect this table exists to end. Anything unlisted is refused.
+ */
+const CLASS_MEMBER_MODIFIERS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.StaticKeyword, // emitted
+  ts.SyntaxKind.AsyncKeyword, // emitted
+  ts.SyntaxKind.PublicKeyword, // type-only (or a parameter property, handled)
+  ts.SyntaxKind.PrivateKeyword, // type-only, or `#` under TjsClass
+  ts.SyntaxKind.ProtectedKeyword, // type-only
+  ts.SyntaxKind.ReadonlyKeyword, // type-only
+  ts.SyntaxKind.AbstractKeyword, // type-only; a bodyless abstract member is erased
+  ts.SyntaxKind.OverrideKeyword, // type-only
+  ts.SyntaxKind.DeclareKeyword, // type-only; a declared field is erased
+  ts.SyntaxKind.Decorator, // refused file-wide before this point
+])
+const CLASS_MODIFIERS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.ExportKeyword, // emitted
+  ts.SyntaxKind.DefaultKeyword, // emitted — dropping it turned a default export into a named one
+  ts.SyntaxKind.AbstractKeyword, // type-only
+  ts.SyntaxKind.DeclareKeyword, // AMBIENT — the whole class is type-only and is erased
+  ts.SyntaxKind.Decorator, // refused file-wide before this point
+])
+
+function checkModifiers(
+  node: ts.Node & { modifiers?: ts.NodeArray<ts.ModifierLike> },
+  allowed: Set<ts.SyntaxKind>,
+  sourceFile: ts.SourceFile
+) {
+  for (const m of node.modifiers ?? []) {
+    if (m.kind === ts.SyntaxKind.AccessorKeyword)
+      refuse(
+        'an auto-accessor (`accessor`)',
+        m,
+        sourceFile,
+        'Write the field and its get/set pair explicitly, then convert.'
+      )
+    if (!allowed.has(m.kind))
+      refuse(
+        `the modifier \`${m.getText(sourceFile)}\``,
+        m,
+        sourceFile,
+        'The converter has no rule for it yet — please report it; it must not be dropped silently.'
+      )
+  }
+}
+
 function transformClassToTJS(
   node: ts.ClassDeclaration,
   sourceFile: ts.SourceFile,
@@ -2197,6 +2284,19 @@ function transformClassToTJS(
   ctx?: TypeResolutionContext,
   convertPrivateToHash = false
 ): string {
+  // Every modifier and member kind is CLASSIFIED — converted, erased as type-only, or refused.
+  // This function rebuilds a class from parts, so anything it does not classify would otherwise
+  // simply not come out; that silent drop is the defect `from-ts-class-totality.test.ts` pins.
+  checkModifiers(node, CLASS_MODIFIERS, sourceFile)
+
+  // `declare class X { … }` is AMBIENT: it describes a class that exists elsewhere (kysely
+  // declares tedious's `TediousRequest` this way), and TypeScript emits nothing for it. This used
+  // to FABRICATE a real runtime class — `export class TediousRequest { addParameter() { } … }` —
+  // an export with empty methods that the TypeScript output does not have. Erased; its type
+  // metadata is still extracted by the caller.
+  if (node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword))
+    return ''
+
   // Build type parameter map from class-level generics
   let resolveCtx = ctx
   if (node.typeParameters && node.typeParameters.length > 0) {
@@ -2281,6 +2381,38 @@ function transformClassToTJS(
   const members: string[] = []
 
   for (const member of node.members) {
+    // Classify the member kind FIRST. Type-only kinds are erased, as TypeScript erases them;
+    // anything unknown is refused rather than skipped by falling through every branch below.
+    if (
+      ts.isIndexSignatureDeclaration(member) ||
+      ts.isSemicolonClassElement(member)
+    )
+      continue
+    if (
+      !ts.isConstructorDeclaration(member) &&
+      !ts.isMethodDeclaration(member) &&
+      !ts.isGetAccessorDeclaration(member) &&
+      !ts.isSetAccessorDeclaration(member) &&
+      !ts.isPropertyDeclaration(member) &&
+      !ts.isClassStaticBlockDeclaration(member)
+    )
+      refuse(
+        `a class member of kind ${ts.SyntaxKind[member.kind]}`,
+        member,
+        sourceFile,
+        'The converter has no rule for it yet — please report it; it must not be dropped silently.'
+      )
+    if (ts.canHaveModifiers(member))
+      checkModifiers(member as any, CLASS_MEMBER_MODIFIERS, sourceFile)
+
+    // `static { … }` — plain JavaScript (ES2022), so it converts verbatim once types are stripped.
+    // It used to fall through every branch and vanish, so its code never ran.
+    if (ts.isClassStaticBlockDeclaration(member)) {
+      const block = stripTypeSyntax(member.body.getText(sourceFile))
+      members.push(`  static ${replacePrivateRefs(block)}`)
+      continue
+    }
+
     // Constructor
     if (ts.isConstructorDeclaration(member)) {
       // A bodyless constructor is an OVERLOAD SIGNATURE, and TypeScript erases it.
@@ -2335,6 +2467,13 @@ function transformClassToTJS(
     }
 
     // Regular methods
+    //
+    // A BODYLESS method is an overload signature or an abstract declaration, and TypeScript
+    // erases both — the same rule the constructor branch above already applied. Emitting one
+    // produced an EMPTY method: an abstract `m()` became `m() { }` (so a subclass that forgot to
+    // override got `undefined` instead of "not a function"), and each overload signature became
+    // another method.
+    if (ts.isMethodDeclaration(member) && !member.body) continue
     if (ts.isMethodDeclaration(member) && member.name) {
       const methodName = member.name.getText(sourceFile)
       const isStatic = member.modifiers?.some(
@@ -2385,6 +2524,14 @@ function transformClassToTJS(
         )})${returnAnnotation} ${body}`
       )
     }
+
+    // A bodyless accessor is `abstract get x(): T` — erased, for the same reason.
+    if (
+      (ts.isGetAccessorDeclaration(member) ||
+        ts.isSetAccessorDeclaration(member)) &&
+      !member.body
+    )
+      continue
 
     // Getters
     if (ts.isGetAccessorDeclaration(member) && member.name) {
@@ -2509,7 +2656,16 @@ function transformClassToTJS(
   const isExported = node.modifiers?.some(
     (m) => m.kind === ts.SyntaxKind.ExportKeyword
   )
-  const exportPrefix = isExported ? 'export ' : ''
+  // `default` was not read, so `export default class F` came out as `export class F` — a NAMED
+  // export, silently breaking every `import F from …`.
+  const isDefault = node.modifiers?.some(
+    (m) => m.kind === ts.SyntaxKind.DefaultKeyword
+  )
+  const exportPrefix = isExported
+    ? isDefault
+      ? 'export default '
+      : 'export '
+    : ''
   const extendsStr = extendsClause ? ` extends ${extendsClause}` : ''
   return `${exportPrefix}class ${className}${extendsStr} {\n${members.join(
     '\n'
@@ -3318,6 +3474,15 @@ export function fromTS(
     ts.ScriptTarget.Latest,
     true
   )
+
+  // Decorators are REFUSED, file-wide, before anything is emitted. They cannot be converted
+  // faithfully — the input is TypeScript's LEGACY decorator semantics (`(target, key,
+  // descriptor)`), and emitting them as JavaScript decorators would run them under the TC39
+  // semantics, a different call signature — and the class transform used to DROP them without
+  // a word, deleting whatever they did (logging, validation, injection). File-wide rather than
+  // in the class transform because class EXPRESSIONS take a different path. See
+  // `from-ts-class-totality.test.ts`.
+  refuseUnconvertible(sourceFile, filename)
 
   // Build annotation map from @tjs comments
   const annotationMap = emitTJS

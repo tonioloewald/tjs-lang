@@ -206,6 +206,29 @@ Predicate` to "callable and boolean-ish".
 
 ### Fixed
 
+- **`fromTS` no longer silently drops class constructs it does not understand.** It rebuilds a
+  class from parts, from a closed whitelist, and anything off the list simply did not come out —
+  no error, no warning. Measured, every one converting "successfully":
+
+  | TypeScript                                  | was                                      | now                                                 |
+  | ------------------------------------------- | ---------------------------------------- | --------------------------------------------------- |
+  | decorators — class, method, property, param | **dropped**, behaviour deleted           | **refused**, with the line and a remedy             |
+  | `static { … }`                              | **dropped** — the code never ran         | converted                                           |
+  | `export default class F`                    | `export class F` — default imports break | `export default class F`                            |
+  | `abstract m(): T`                           | an **empty method** `m() { }`            | erased, as TypeScript erases it                     |
+  | method overload signatures                  | one extra empty method each              | erased — one method                                 |
+  | `declare class X { … }` (ambient)           | a **fabricated** runtime class           | erased — it describes a class that exists elsewhere |
+  | `accessor x`                                | dropped                                  | refused                                             |
+
+  Decorators are refused rather than converted because they cannot be converted faithfully:
+  TypeScript's are the LEGACY semantics `(target, key, descriptor)`, and emitted as JavaScript
+  decorators they would run under the TC39 semantics instead. The class transform now
+  classifies every member kind and modifier, and **refuses anything it cannot classify** — new
+  syntax fails loudly instead of vanishing. Found through a permanently skipped test whose
+  reason ("does not parse") had quietly become false, and whose assertion would have gone
+  GREEN on the lossy output had anyone simply unskipped it. The ambient-class case was found
+  by the compat corpus (kysely) the moment the modifier table existed.
+
 - **`agentRun` with an inline AST, and `runCode`, now apply the AST version gate.** Both
   executed an AST of a format this build cannot read — `{op:'agentRun', agentId: <a $ajs:99
 AST>}` ran its body, with no capability required, and `runCode` ran whatever a host
