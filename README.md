@@ -110,55 +110,23 @@ The agent carries its own validation. The server grants capabilities. Caching ha
 
 ## Safe Eval
 
-The holy grail: `eval()` that's actually safe.
+`eval()` that is safe to hand untrusted code: fuel-metered so it always halts, and with no way
+out except the capabilities you give it.
 
-```typescript
+```js
 import { Eval } from 'tjs-lang/eval'
 
-// Whitelist-wrapped fetch - untrusted code only reaches your domains
-const safeFetch = (url: string) => {
-  const allowed = ['api.example.com', 'cdn.example.com']
-  const host = new URL(url).host
-  if (!allowed.includes(host)) {
-    return { error: 'Domain not allowed' }
-  }
-  return fetch(url)
-}
-
-const { result, fuelUsed } = await Eval({
-  code: `
-    let data = fetch('https://api.example.com/products')
-    return data.filter(x => x.price < budget)
-  `,
-  context: { budget: 100 },
+const { result } = await Eval({
+  code: 'items.filter(x => x.price < budget)',
+  context: { items: [{ price: 40 }, { price: 250 }], budget: 100 },
   fuel: 1000,
-  capabilities: { fetch: safeFetch }, // Only whitelisted domains
 })
+console.log(result) // → [{"price":40}]
 ```
 
-The untrusted code thinks it has `fetch`, but it only has _your_ `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
-
-**What the sandbox guarantees, and what it doesn't** (as of v0.12.0 — be precise here, because
-a security claim you can't cash is worse than none):
-
-- **Termination is guaranteed, not decided.** Fuel metering sidesteps the halting problem
-  rather than solving it: every atom costs fuel and execution stops when it runs out, so a
-  program either finishes or is killed. There is no "will it halt?" question to answer.
-- **No ambient authority.** The VM has zero IO by default; the only way out is a capability you
-  inject. Every atom touching one is tagged `effects: 'io'` and that tagging is itself
-  test-guarded, so the audit surface is enumerable.
-- **The guest holds data, not references.** Capability returns cross a `structuredClone`
-  membrane, so a guest can't reach a host object or mutate one you still hold.
-- **Layered and tested — not formally proven.** The properties above are structural and could
-  in principle be proven; today they are enforced by construction and covered by an adversarial
-  test suite. Treat "proven" as the roadmap, not the current state.
-- **Known gap: cross-endpoint amplification.** Recursive agent calls are bounded by a depth
-  header (`X-Agent-Depth`, max 10), but that is **cooperative** — it stops accidental loops and
-  friendly infrastructure, not an adversarial endpoint that simply drops the header. If you
-  expose completely open endpoints, rate-limit them.
-- **Out of scope:** timing side channels, JS-engine JIT bugs, and memory-level attacks. A
-  JS-in-JS sandbox cannot address those; put process isolation underneath if your threat model
-  includes them.
+No CSP violations, no infinite loops, no access to anything you did not grant. **[Safe
+Eval](guides/safe-eval.md)** covers `SafeFunction`, network access through an injected
+`fetch`, and exactly what the sandbox guarantees and what it does not.
 
 ![Safe Eval: Capability-Based Security](docs/diagrams/safe-eval.svg)
 

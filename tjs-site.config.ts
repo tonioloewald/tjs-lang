@@ -49,24 +49,34 @@ function markdownFiles(dir = '.', out: string[] = []): string[] {
 }
 
 /**
- * Markdown files, plus the specific SOURCE files whose `/*# … *\/` blocks are documentation.
+ * Source DIRECTORIES whose `/*# … *\/` blocks are documentation, plus two `.tjs` files.
  *
- * This used to pass all of `src`, and `extractDocs` duly published every file with a doc block —
- * including five TEST files (`transpiler.test.ts`, `parser.test.ts`, `docs.test.ts`,
- * `dts.test.ts`, `bootstrap.test.ts`) as pages. Named explicitly now, so publishing a source
- * file is a decision. `src/vm/runtime.ts` must stay: the old playground's AJS nav lists it by
- * filename (`demo/src/demo-nav.ts`). The two `.tjs` entries are picked up by `bin/site.ts`'s
- * own `.tjs` scan, which also reads this list.
+ * DIRECTORIES, because tosijs-ui's `extractDocs` scans a directory for doc blocks and SILENTLY
+ * IGNORES a path naming a single `.ts` file. Listing files dropped every one of them from both
+ * corpora and emptied the old playground's AJS Docs nav, which finds `runtime.ts` by name (docs
+ * review B-1, 2026-09-25). These two directories hold exactly the intended files and no test
+ * file with a doc block; `doc-site-structure.test.ts` fails if a test file is ever published,
+ * and names the source pages that must come out (`SOURCE_PAGES`).
+ *
+ * All of `src` was passed before, which published five TEST files as pages. `src/rbac/index.ts`
+ * is deliberately absent: it is not exported (CLAUDE.md), and its basename collides with the
+ * store's `index.ts`. The `.tjs` files are picked up by `bin/site.ts`'s own `.tjs` scan, which
+ * also reads this list and does accept file paths.
  */
-const SOURCE_DOCS = [
+export const SOURCE_DOCS = [
+  'src/vm',
+  'src/store',
+  'src/rbac/rules.tjs',
+  'src/linalg/index.tjs',
+]
+
+/** The source pages the corpus must contain — the guard's expectation, independent of how. */
+export const SOURCE_PAGES = [
   'src/vm/runtime.ts',
   'src/store/index.ts',
   'src/store/interface.ts',
   'src/store/memory.ts',
   'src/store/indexeddb.ts',
-  'src/rbac/index.ts',
-  'src/rbac/rules.tjs',
-  'src/linalg/index.tjs',
 ]
 
 const DOC_FILES = [...markdownFiles(), ...SOURCE_DOCS]

@@ -17,7 +17,9 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { extractDocs } from 'tosijs-ui/site'
-import config from '../tjs-site.config'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import config, { SOURCE_PAGES } from '../tjs-site.config'
 
 const all: any[] =
   (extractDocs({ paths: (config as any).docPaths } as any) as any[]) ?? []
@@ -77,5 +79,33 @@ describe('doc-site structure', () => {
         )
       )
     expect(leaked).toEqual([])
+  })
+
+  // The docs review's B-1. `extractDocs` scans DIRECTORIES for `/*# */` blocks and silently
+  // ignores a path that names a single .ts file, so narrowing `src` to a list of files dropped
+  // runtime.ts and the store docs from BOTH corpora — and the live playground's AJS Docs nav
+  // (which finds runtime.ts BY NAME) went empty. Every test here stayed green, because each
+  // built its corpus with the same `extractDocs` call that was dropping them.
+  it('every listed SOURCE doc actually yields a page', () => {
+    const paths = new Set(all.map((d) => d.path))
+    const siteMissing = SOURCE_PAGES.filter((p: string) => !paths.has(p))
+    expect(siteMissing).toEqual([])
+  })
+
+  it('the OLD playground still finds every doc it looks up by name', () => {
+    // demo/src/demo-nav.ts selects these by filename, not by section.
+    const playground = JSON.parse(
+      readFileSync(join(import.meta.dir, '..', 'demo', 'docs.json'), 'utf8')
+    )
+    const names = new Set(
+      (Array.isArray(playground)
+        ? playground
+        : Object.values(playground).flat()
+      ).map((d: any) => d.filename)
+    )
+    const missing = ['runtime.ts', 'CONTEXT.md', 'PLAN.md'].filter(
+      (n) => !names.has(n)
+    )
+    expect(missing).toEqual([])
   })
 })

@@ -9,6 +9,7 @@
 
 import { AgentVM, setTranspiler } from '../vm/vm'
 import { transpile } from './core'
+import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
 
 // This entry exists to execute SOURCE, so it must supply the transpiler the VM no longer
 // imports for itself (see `setTranspiler` in `../vm/vm` — injected so `tjs-lang/vm-ast` can
@@ -45,8 +46,21 @@ function wrapReturnValues(node: any): void {
 
 /** Capabilities that can be injected into SafeFunction/Eval */
 export interface SafeCapabilities {
-  /** Fetch function for HTTP requests */
-  fetch?: typeof globalThis.fetch
+  /**
+   * HTTP access for the `httpFetch` atom. **Return the response BODY as plain data** — parsed
+   * JSON, or text — **not a `Response`**: every capability return crosses a `structuredClone`
+   * membrane before it reaches guest code, and a `Response` cannot be cloned, so it is rejected.
+   * So `capabilities: { fetch: globalThis.fetch }` never works; wrap it:
+   *
+   * ```ts
+   * fetch: (url, init) => fetch(url, init).then((r) => r.json())
+   * ```
+   *
+   * This used to be typed `typeof globalThis.fetch`, which invited exactly that call, and the
+   * README's own example made it (0.14.0 docs review). TypeScript cannot forbid it —
+   * `Promise<Response>` is assignable to `Promise<unknown>` — so the contract lives here.
+   */
+  fetch?: (url: string, init?: Record<string, unknown>) => Promise<unknown>
   /** Console for logging */
   console?: Pick<typeof console, 'log' | 'warn' | 'error'>
   /** Additional capabilities to expose */
@@ -54,6 +68,15 @@ export interface SafeCapabilities {
 }
 
 /** Options for Eval */
+/** A context key that can be declared as a parameter name. */
+const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+/** Reserved words that are identifiers lexically but cannot name a parameter. */
+const RESERVED = new Set(
+  'break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof let new null return super switch this throw true try typeof var void while with yield await implements interface package private protected public static arguments eval'.split(
+    ' '
+  )
+)
+
 export interface EvalOptions {
   /** Code to evaluate (expression or statements with return) */
   code: string
@@ -124,11 +147,23 @@ export async function Eval(options: EvalOptions): Promise<{
 
   const vm = getVM()
 
-  // Wrap code in a function - detect if it's an expression or has return
+  // Wrap code in a function - detect if it's an expression or has return.
+  //
+  // The context keys are DECLARED as a destructured parameter. The wrapper used to take no
+  // parameters, so context values reached plain expressions (`items.length`) through a fallback
+  // but not ATOMS: `items.filter(…)` failed with "filter: items is not an array", because atoms
+  // resolve names from declared variables. `SafeFunction` declares its params and never had the
+  // problem; every documented example happened to avoid it (0.14.0 docs review). Only keys usable
+  // as identifiers can be declared — any other key was never nameable in the code anyway — and
+  // the forbidden prototype keys never become variables.
+  const params = Object.keys(context).filter(
+    (k) => IDENTIFIER.test(k) && !RESERVED.has(k) && !FORBIDDEN_KEYS_SET.has(k)
+  )
+  const signature = params.length ? `{ ${params.join(', ')} }` : ''
   const hasReturn = /\breturn\b/.test(code)
   const wrappedCode = hasReturn
-    ? `function __eval() { ${code} }`
-    : `function __eval() { return (${code}) }`
+    ? `function __eval(${signature}) { ${code} }`
+    : `function __eval(${signature}) { return (${code}) }`
 
   try {
     // Inside the try, so an oversized payload comes back as `{ error }` like every other
@@ -145,7 +180,11 @@ export async function Eval(options: EvalOptions): Promise<{
     // { op: 'return', value: { __result: originalValue } }
     wrapReturnValues(ast)
 
-    const vmResult = await vm.run(ast, context, {
+    // Only the DECLARED keys: the VM validates arguments against the declared parameters, so an
+    // undeclared key (not an identifier, or a forbidden prototype key) would reject the whole
+    // call — and no code could name one anyway.
+    const args = Object.fromEntries(params.map((key) => [key, context[key]]))
+    const vmResult = await vm.run(ast, args, {
       fuel,
       timeoutMs,
       capabilities,

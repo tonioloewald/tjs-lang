@@ -13,103 +13,110 @@ It is the same machine as AJS — a fuel-metered VM with no ambient authority �
 two calls JavaScript already has: `eval()` becomes `Eval`, `new Function()` becomes
 `SafeFunction`.
 
-## Untrusted code, bounded
+## `Eval` — run code once
 
-```typescript
-import { Eval } from 'tjs-lang/eval'
+`Eval` runs a snippet of code in the sandbox and returns what it produced, with the fuel it
+used. The code sees only the `context` you hand it.
 
-// Whitelist-wrapped fetch - untrusted code only reaches your domains
-const safeFetch = (url: string) => {
-  const allowed = ['api.example.com', 'cdn.example.com']
-  const host = new URL(url).host
-  if (!allowed.includes(host)) {
-    return { error: 'Domain not allowed' }
+```js
+import { Eval, SafeFunction } from 'tjs-lang/eval'
+
+const { result, fuelUsed } = await Eval({ code: 'a + b', context: { a: 1, b: 2 } })
+console.log(result) // → 3
+console.log(fuelUsed > 0) // → true
+```
+
+## `SafeFunction` — compile once, call many times
+
+`SafeFunction` turns a function body into a callable. Its parameters are **names**, and each
+call returns the same shape as `Eval`.
+
+```js
+const add = await SafeFunction({ params: ['a', 'b'], body: 'return a + b' })
+console.log((await add(1, 2)).result) // → 3
+console.log((await add(20, 22)).result) // → 42
+```
+
+## Nothing runs forever
+
+Every step costs fuel, and a run that spends its budget is stopped. The failure comes back as a
+value — an `error` alongside the result — rather than as an exception the caller has to catch.
+
+```js
+const runaway = await Eval({
+  code: 'let i = 0\nwhile (true) { i = i + 1 }\nreturn i',
+  fuel: 100,
+})
+console.log(runaway.error.message) // → Out of Fuel
+```
+
+Creating a `SafeFunction` is the exception: a body that does not parse, or is over the source
+size limit, throws when you create it — before any untrusted code has run.
+
+## Nothing reaches out unless you allow it
+
+The sandbox has no network, no file system and no globals. Network access goes through the
+`httpFetch` atom, and only if you inject a `fetch` capability — so the untrusted code gets
+_your_ `fetch`, with whatever rules you put in it.
+
+A `fetch` capability returns the response **body** as plain data, not a `Response`: everything
+a capability returns is copied across a boundary before the guest sees it, so the guest never
+holds a live host object.
+
+```js
+const allowed = ['api.example.com']
+const safeFetch = (url, init) => {
+  if (!allowed.includes(new URL(url).host)) {
+    throw new Error(`Domain not allowed: ${new URL(url).host}`)
   }
-  return fetch(url)
+  return fetch(url, init).then((r) => r.json()) // the BODY, not the Response
 }
 
-const { result, fuelUsed } = await Eval({
+const cheap = await Eval({
   code: `
-    let data = fetch('https://api.example.com/products')
-    return data.filter(x => x.price < budget)
+    let products = httpFetch({ url: 'https://api.example.com/products' })
+    return products.filter(x => x.price < budget)
   `,
   context: { budget: 100 },
-  fuel: 1000,
-  capabilities: { fetch: safeFetch }, // Only whitelisted domains
+  capabilities: { fetch: safeFetch },
 })
+console.log(cheap.result) // → [{"name":"widget","price":40}]
+
+const blocked = await Eval({
+  code: "return httpFetch({ url: 'https://evil.example.net/steal' })",
+  capabilities: { fetch: safeFetch },
+})
+console.log(blocked.error.message) // → Domain not allowed: evil.example.net
 ```
 
-The untrusted code thinks it has `fetch`, but it only has _your_ `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
+## What the sandbox guarantees, and what it does not
 
-**What the sandbox guarantees, and what it doesn't** (as of v0.12.0 — be precise here, because
-a security claim you can't cash is worse than none):
+Be precise here: a security claim you cannot cash is worse than none.
 
 - **Termination is guaranteed, not decided.** Fuel metering sidesteps the halting problem
-  rather than solving it: every atom costs fuel and execution stops when it runs out, so a
-  program either finishes or is killed. There is no "will it halt?" question to answer.
-- **No ambient authority.** The VM has zero IO by default; the only way out is a capability you
-  inject. Every atom touching one is tagged `effects: 'io'` and that tagging is itself
-  test-guarded, so the audit surface is enumerable.
+  rather than solving it: every step costs fuel and execution stops when it runs out, so a
+  program either finishes or is stopped. A wall-clock timeout (by default ten milliseconds per
+  unit of fuel) backs it up, and a stopped run cancels any request it had in flight.
+- **Bounded memory.** The VM caps how much the guest can hold live at once (64 MB by default),
+  separately from fuel, which bounds only how much work it does.
+- **Bounded input.** Source over 64 KB is refused _before_ it is transpiled, because
+  transpiling runs before fuel and the timeout apply. Raise or disable the cap with
+  `maxSourceBytes` for trusted source.
+- **No ambient authority.** The VM has no IO by default; the only way out is a capability you
+  inject, and every atom that touches one is tagged as IO — a tagging that is itself tested, so
+  the list of ways out can be enumerated.
 - **The guest holds data, not references.** Capability returns cross a `structuredClone`
-  membrane, so a guest can't reach a host object or mutate one you still hold.
-- **Layered and tested — not formally proven.** The properties above are structural and could
-  in principle be proven; today they are enforced by construction and covered by an adversarial
-  test suite. Treat "proven" as the roadmap, not the current state.
+  boundary, so guest code cannot reach a host object or mutate one you still hold. A value that
+  cannot be copied — a `Response`, a function, an object with getters — is rejected rather
+  than passed through.
+- **Layered and tested — not formally proven.** These properties are structural and could in
+  principle be proven; today they are enforced by construction and covered by an adversarial
+  test suite.
 - **Known gap: cross-endpoint amplification.** Recursive agent calls are bounded by a depth
-  header (`X-Agent-Depth`, max 10), but that is **cooperative** — it stops accidental loops and
-  friendly infrastructure, not an adversarial endpoint that simply drops the header. If you
-  expose completely open endpoints, rate-limit them.
-- **Out of scope:** timing side channels, JS-engine JIT bugs, and memory-level attacks. A
-  JS-in-JS sandbox cannot address those; put process isolation underneath if your threat model
-  includes them.
+  header (`X-Agent-Depth`, max 10), but that is **cooperative** — it stops accidental loops,
+  not an adversarial endpoint that drops the header. Rate-limit completely open endpoints.
+- **Out of scope:** timing side channels, JavaScript-engine JIT bugs and memory-level attacks.
+  A JavaScript-in-JavaScript sandbox cannot address those; put process isolation underneath if
+  your threat model includes them.
 
-![Safe Eval: Capability-Based Security](../docs/diagrams/safe-eval.svg)
-
-## `Eval` and `SafeFunction`
-
-Safe replacements for `new Function()` and `eval()` with typed inputs/outputs:
-
-```javascript
-// SafeFunction - create a typed async function from code
-const add = await SafeFunction({
-  inputs: { a: 0, b: 0 }, // typed parameters
-  output: 0, // typed return
-  body: 'return a + b',
-})
-await add(1, 2) // 3
-await add('x', 2) // Error: invalid input 'a'
-
-// Eval - evaluate code once with typed result
-const result = await Eval({
-  code: 'a + b',
-  context: { a: 1, b: 2 },
-  output: 0,
-}) // 3
-```
-
-**Key safety features:**
-
-- **Typed inputs/outputs** - validated at runtime
-- **Async execution** - can timeout, won't block
-- **Explicit context** - no implicit scope access
-- **Injectable capabilities** - fetch, console, etc. must be provided
-
-```javascript
-// With capabilities and timeout
-const fetcher = await SafeFunction({
-  inputs: { url: '' },
-  output: { data: [] },
-  body: 'return await fetch(url).then(r => r.json())',
-  capabilities: { fetch: globalThis.fetch },
-  timeoutMs: 10000,
-})
-
-const data = await Eval({
-  code: 'await fetch(url).then(r => r.json())',
-  context: { url: 'https://api.example.com' },
-  output: { items: [] },
-  capabilities: { fetch: globalThis.fetch },
-})
-```
-
-Both functions return errors as values (monadic) rather than throwing.
+![Safe Eval: capability-based security](../docs/diagrams/safe-eval.svg)
