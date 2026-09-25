@@ -166,6 +166,40 @@ describe('the remaining erasure and refusal branches are exercised', () => {
   })
 })
 
+describe('ambient STATEMENTS emit no code — the declare-class rule, at the top level', () => {
+  // Found by the class-metadata review, while checking an older overload gap: `declare function`
+  // and `declare enum` were FABRICATED into runtime values TypeScript never emits — shadowing the
+  // real one that lives elsewhere. Two `declare function f` signatures became two
+  // `export function f`, a duplicate declaration that an ES module refuses to load.
+  const code = (src: string) =>
+    convert(`${src}\nexport const z = 1`)
+      .replace(/\/\*[^]*?\*\//g, '')
+      .replace(/export const z = 1;?/, '')
+      .trim()
+
+  for (const [label, src] of [
+    ['declare function', 'declare function f(a: string): string'],
+    [
+      'two exported declare function signatures',
+      'export declare function f(a: string): string\nexport declare function f(a: number): number',
+    ],
+    ['declare enum', 'declare enum Color { Red, Green }'],
+    ['declare const enum', 'declare const enum Dir { Up, Down }'],
+    ['export declare const', 'export declare const API: string'],
+  ] as const) {
+    it(`${label} emits nothing`, () => {
+      expect(code(src)).toBe('')
+    })
+  }
+
+  it('an ordinary function and enum are unaffected — apparatus check', () => {
+    expect(
+      convert('export function g(a: number): number { return a }')
+    ).toMatch(/function g/)
+    expect(convert('enum E { A, B }')).toMatch(/Enum E/)
+  })
+})
+
 describe('the auto-accessor keyword is REFUSED', () => {
   it('`accessor v` throws rather than becoming a plain field or vanishing', () => {
     expect(() => convert('class G {\n  accessor v = 1\n}')).toThrow(/accessor/)

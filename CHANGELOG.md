@@ -206,19 +206,32 @@ Predicate` to "callable and boolean-ish".
 
 ### Fixed
 
-- **`fromTS` class metadata keeps what the code erases**: method OVERLOAD signatures and
-  `abstract`. Both are rightly erased from the emitted code — neither exists at runtime — but
-  metadata is where TJS keeps types, and both were being lost there too. Methods were recorded
-  by name, so the implementation silently overwrote each signature: `m(string): string` and
-  `m(number): number` collapsed to the implementation's `m(a: any)`. Methods now use the shape
-  top-level functions already had — the implementation, with `overloads: [...]` — and carry
-  `abstract: true`, as does an `abstract class` itself. Read from `fromTS(…).classes`.
+- **`fromTS` class metadata keeps what the code erases**: OVERLOAD signatures — of methods,
+  static methods AND constructors — and `abstract`. Both are rightly erased from the emitted
+  code — neither exists at runtime — but metadata is where TJS keeps types, and both were being
+  lost there too. Members were recorded by name, so the implementation silently overwrote each
+  signature: `m(string): string` and `m(number): number` collapsed to the implementation's
+  `m(a: any)`. Methods and abstract classes now carry `abstract: true`. Read from
+  `fromTS(…).classes`.
+
+  **One rule for the shape**, documented on `FunctionTypeInfo.overloads`: `overloads` is the
+  full list of CALLABLE signatures, present only when there is more than one; the entry is a
+  summary — the implementation, or the FIRST signature when there is none (ambient or abstract).
+  Render `overloads` when present. Note for consumers of a group WITHOUT an implementation: the
+  entry used to be the LAST signature and is now the first, matching declaration order.
 
   **Scope, stated plainly:** this is `fromTS`'s metadata. TJS's OWN introspection — runtime
   `__tjs` metadata, the playground's autocomplete — comes from TJS source, which has no way yet
   to express an abstract member or an overload signature, so those facts do not survive
   TS → TJS → JS. Carrying them through needs TJS syntax for a signature-only member; tracked in
   `TODO.md`.
+
+- **`fromTS` no longer fabricates runtime values from ambient declarations.** `declare
+function f(…)` became `function f(…) { }` and `declare enum E` a real `Enum` — values
+  TypeScript never emits, which shadow the real one that lives elsewhere. Two `export declare
+function f` signatures became two `export function f`: a duplicate declaration that an ES
+  module refuses to load. An ambient statement now contributes metadata and no code — one rule,
+  for every statement kind, matching `declare class`.
 
 - **`fromTS` now THROWS on constructs it refuses**, where it used to return (lossy) output:
   decorators anywhere in the file, `accessor`, and any modifier or class member kind it has no

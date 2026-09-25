@@ -72,7 +72,13 @@ export interface FunctionTypeInfo {
   description?: string
   /** Generic type parameters with constraints/defaults */
   typeParams?: Record<string, TypeParamInfo>
-  /** Overload signatures (when function has TS overloads) */
+  /**
+   * Overload signatures — THE full list of CALLABLE signatures, in declaration order, present
+   * only when there is more than one way to call it. The entry itself is a SUMMARY: the
+   * implementation's signature when there is one (which TypeScript does not expose to callers),
+   * else the FIRST signature. Render `overloads` when present, the entry otherwise. One rule for
+   * functions, methods and constructors, with an implementation or without (ambient/abstract).
+   */
   overloads?: FunctionTypeInfo[]
   /**
    * A class member declared `abstract` — a signature with no implementation in this class.
@@ -87,6 +93,8 @@ export interface ClassTypeInfo {
   /** Constructor parameters - also serves as the type shape */
   constructor?: {
     params: Record<string, ParamTypeInfo>
+    /** Constructor overload signatures — same rule as `FunctionTypeInfo.overloads`. */
+    overloads?: Array<{ params: Record<string, ParamTypeInfo> }>
   }
   /** Instance methods */
   methods: Record<string, FunctionTypeInfo>
@@ -3057,7 +3065,9 @@ function extractClassMetadata(
   const name = node.name?.getText(sourceFile) || 'anonymous'
   const methods: Record<string, FunctionTypeInfo> = {}
   const staticMethods: Record<string, FunctionTypeInfo> = {}
-  let constructorInfo: { params: Record<string, ParamTypeInfo> } | undefined
+  let constructorInfo: ClassTypeInfo['constructor'] | undefined
+  let ctorImpl: { params: Record<string, ParamTypeInfo> } | undefined
+  const ctorSignatures: Array<{ params: Record<string, ParamTypeInfo> }> = []
   const methodGroups = new Map<
     string,
     {
@@ -3092,7 +3102,11 @@ function extractClassMetadata(
           default: defaultValue,
         }
       }
-      constructorInfo = { params }
+      // GROUPED, not reassigned: every ConstructorDeclaration overwrote the last, so
+      // `constructor(a: string); constructor(a: number); constructor(a: any) {}` recorded only
+      // the implementation's `any` — the by-name defect, at the constructor site.
+      if (member.body) ctorImpl = { params }
+      else ctorSignatures.push({ params })
     }
 
     // Methods (instance and static)
@@ -3165,6 +3179,16 @@ function extractClassMetadata(
     if (sigs.length) entry.overloads = sigs
     if (g.signatures.some((sig) => sig.abstract)) entry.abstract = true
     ;(g.isStatic ? staticMethods : methods)[g.name] = entry
+  }
+
+  if (ctorImpl || ctorSignatures.length) {
+    constructorInfo = { ...(ctorImpl ?? ctorSignatures[0]) }
+    const sigs = ctorImpl
+      ? ctorSignatures
+      : ctorSignatures.length > 1
+      ? ctorSignatures
+      : []
+    if (sigs.length) constructorInfo.overloads = sigs
   }
 
   const result: ClassTypeInfo = {
@@ -3725,6 +3749,40 @@ export function fromTS(
     // Emit any doc comments before this statement
     if (emitTJS) {
       emitDocCommentsBefore(statement.getStart(sourceFile))
+    }
+
+    // AMBIENT statements (`declare …`) describe something that exists ELSEWHERE, and TypeScript
+    // emits nothing for them. `declare function` and `declare enum` used to be FABRICATED into
+    // runtime values — shadowing the real one — and two `export declare function f` signatures
+    // became two `export function f`, a duplicate declaration an ES module refuses to load. One
+    // rule, here, for every statement kind: metadata survives, code does not. (`declare class`
+    // is erased by `transformClassToTJS` itself, which still extracts its metadata.)
+    if (
+      !ts.isClassDeclaration(statement) &&
+      ts.canHaveModifiers(statement) &&
+      ts
+        .getModifiers(statement)
+        ?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)
+    ) {
+      if (ts.isFunctionDeclaration(statement) && statement.name) {
+        const name = statement.name.getText(sourceFile)
+        if (!metadata[name]) {
+          // All ambient signatures of this name, in order — same rule as every overload group.
+          const sigs = sourceFile.statements
+            .filter(
+              (st): st is ts.FunctionDeclaration =>
+                ts.isFunctionDeclaration(st) &&
+                st.name?.getText(sourceFile) === name
+            )
+            .map((st) =>
+              extractFunctionMetadata(st, sourceFile, warnings, resolutionCtx)
+            )
+          const entry = { ...sigs[0] }
+          if (sigs.length > 1) entry.overloads = sigs
+          metadata[name] = entry
+        }
+      }
+      continue
     }
 
     // Handle: function foo() {}

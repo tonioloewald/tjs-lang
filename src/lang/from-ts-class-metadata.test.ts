@@ -95,3 +95,50 @@ describe('the emitted code is unchanged by any of this — apparatus check', () 
     expect(code.match(/\bf\s*\(/g)?.length).toBe(1)
   })
 })
+
+describe('ONE rule for overload groups — with an implementation or without', () => {
+  // `overloads` is the full list of CALLABLE signatures; the entry is a summary — the
+  // implementation, or the FIRST signature when there is none. Render `overloads` when present.
+  // Before: a group with no implementation kept the LAST signature and no overloads at all.
+  it('an ambient class method group: entry = first signature, overloads = all of them', () => {
+    const m = classes(
+      'declare class D {\n  m(a: string): string\n  m(a: number): number\n}'
+    ).D.methods.m
+    expect(m.params.a.type.kind).toBe('string')
+    expect(m.overloads.map((o: any) => o.params.a.type.kind)).toEqual([
+      'string',
+      'number',
+    ])
+  })
+
+  it('ambient top-level function signatures use the same shape', () => {
+    const r: any = fromTS(
+      'export declare function f(a: string): string\nexport declare function f(a: number): number',
+      { emitTJS: true }
+    )
+    expect(r.types.f.params.a.type.kind).toBe('string')
+    expect(r.types.f.overloads.map((o: any) => o.params.a.type.kind)).toEqual([
+      'string',
+      'number',
+    ])
+  })
+
+  it('CONSTRUCTOR overloads survive too — the other site with the by-name defect', () => {
+    const c = classes(
+      'class A {\n  constructor(a: string)\n  constructor(a: number)\n  constructor(a: any) {}\n}'
+    ).A.constructor
+    expect(c.params.a.type.kind).toBe('any')
+    expect(c.overloads.map((o: any) => o.params.a.type.kind)).toEqual([
+      'string',
+      'number',
+    ])
+  })
+
+  it('a single ambient signature has no overloads field', () => {
+    const r: any = fromTS('declare function g(a: number): number', {
+      emitTJS: true,
+    })
+    expect(r.types.g.params.a.type.kind).toBe('number')
+    expect('overloads' in r.types.g).toBe(false)
+  })
+})
