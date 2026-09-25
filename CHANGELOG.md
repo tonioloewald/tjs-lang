@@ -206,6 +206,12 @@ Predicate` to "callable and boolean-ish".
 
 ### Fixed
 
+- **`fromTS` now THROWS on constructs it refuses**, where it used to return (lossy) output:
+  decorators anywhere in the file, `accessor`, and any modifier or class member kind it has no
+  rule for. If you convert a whole tree, catch per file. A refusal is a `FromTSRefusal` with
+  `code: 'FROMTS_REFUSED'`, so it can be told apart from a converter bug; the message names the
+  file, line and a remedy. The `tjs convert` CLI already reports per file.
+
 - **`fromTS` no longer silently drops class constructs it does not understand.** It rebuilds a
   class from parts, from a closed whitelist, and anything off the list simply did not come out —
   no error, no warning. Measured, every one converting "successfully":
@@ -219,11 +225,13 @@ Predicate` to "callable and boolean-ish".
   | method overload signatures                  | one extra empty method each              | erased — one method                                 |
   | `declare class X { … }` (ambient)           | a **fabricated** runtime class           | erased — it describes a class that exists elsewhere |
   | `accessor x`                                | dropped                                  | refused                                             |
+  | `constructor(override a: number)`           | `this.a = a` **dropped**                 | converted — `override` makes a parameter property   |
 
   Decorators are refused rather than converted because they cannot be converted faithfully:
-  TypeScript's are the LEGACY semantics `(target, key, descriptor)`, and emitted as JavaScript
-  decorators they would run under the TC39 semantics instead. The class transform now
-  classifies every member kind and modifier, and **refuses anything it cannot classify** — new
+  `fromTS` reads no tsconfig, so it cannot tell legacy `experimentalDecorators` semantics from
+  TC39's (the TypeScript 5 default) — which call them differently — and TJS cannot carry `@`
+  syntax. The class transform now classifies every member kind and modifier — on the class, its
+  members, and constructor parameters — and **refuses anything it cannot classify**, so new
   syntax fails loudly instead of vanishing. Found through a permanently skipped test whose
   reason ("does not parse") had quietly become false, and whose assertion would have gone
   GREEN on the lossy output had anyone simply unskipped it. The ambient-class case was found

@@ -125,6 +125,47 @@ describe('ambient declarations are ERASED, not fabricated', () => {
   })
 })
 
+describe('constructor PARAMETER modifiers are classified too — the third place modifiers live', () => {
+  // The narrow review of the totality fix found the counterexample: parameter modifiers were
+  // never classified. `override` alone makes a parameter property — tsc emits `this.a = a` —
+  // but only public/private/protected/readonly were recognised, so the assignment was dropped
+  // silently: `new C(5).a === 0`.
+  it('`override` alone makes a parameter property', () => {
+    const src =
+      'class B { a = 0 }\nclass C extends B {\n  constructor(override a: number) { super() }\n}\nconst c = new C(5)'
+    expect(run(src, 'c.a')).toBe(5)
+  })
+
+  it('each property-making modifier assigns', () => {
+    for (const mod of ['public', 'private', 'protected', 'readonly']) {
+      const src = `class P {\n  constructor(${mod} a: number) {}\n}\nconst p = new P(7)`
+      expect({ mod, a: run(src, 'p.a') }).toEqual({ mod, a: 7 })
+    }
+  })
+})
+
+describe('the remaining erasure and refusal branches are exercised', () => {
+  it('an abstract ACCESSOR is erased, not emitted as `get x() { }`', () => {
+    const out = convert(
+      'abstract class H {\n  abstract get x(): number\n  abstract set y(v: number)\n  n() { return 1 }\n}'
+    )
+    expect(out).not.toMatch(/\bget x\b/)
+    expect(out).not.toMatch(/\bset y\b/)
+    expect(out).toMatch(/\bn\s*\(/)
+  })
+
+  it('a refusal is identifiable — code FROMTS_REFUSED — so a batch caller can tell it from a crash', () => {
+    let err: any
+    try {
+      convert('class G {\n  accessor v = 1\n}')
+    } catch (e) {
+      err = e
+    }
+    expect(err?.code).toBe('FROMTS_REFUSED')
+    expect(err?.name).toBe('FromTSRefusal')
+  })
+})
+
 describe('the auto-accessor keyword is REFUSED', () => {
   it('`accessor v` throws rather than becoming a plain field or vanishing', () => {
     expect(() => convert('class G {\n  accessor v = 1\n}')).toThrow(/accessor/)

@@ -2200,12 +2200,26 @@ function refuse(
   const { line, character } = sourceFile.getLineAndCharacterOfPosition(
     node.getStart(sourceFile)
   )
-  throw new Error(
+  throw new FromTSRefusal(
     `fromTS: ${what} at ${sourceFile.fileName}:${line + 1}:${
       character + 1
     } cannot be ` +
       `converted faithfully, so it is refused rather than dropped. ${remedy}`
   )
+}
+
+/**
+ * A deliberate REFUSAL, distinguishable from a converter bug. `fromTS` throws this where it used
+ * to return (lossy) output, so a caller converting a whole tree can catch per file and tell
+ * "this file uses something we will not convert" from "the converter crashed":
+ * `e.code === 'FROMTS_REFUSED'`.
+ */
+export class FromTSRefusal extends Error {
+  readonly code = 'FROMTS_REFUSED'
+  constructor(message: string) {
+    super(message)
+    this.name = 'FromTSRefusal'
+  }
 }
 
 /**
@@ -2219,10 +2233,11 @@ function refuseUnconvertible(sourceFile: ts.SourceFile, _filename: string) {
         `a decorator (\`${n.getText(sourceFile).slice(0, 60)}\`)`,
         n,
         sourceFile,
-        'TypeScript decorators use LEGACY semantics `(target, key, descriptor)`; as JavaScript ' +
-          'they would run under the TC39 semantics instead, and dropping them deletes what ' +
-          'they do. Apply the decorator by hand (e.g. wrap the method after the class), or ' +
-          'remove it, then convert.'
+        'fromTS cannot carry decorators of either flavour: it reads no tsconfig, so it cannot ' +
+          'know whether they are legacy (`experimentalDecorators`: `(target, key, descriptor)`) ' +
+          'or TC39 — which call them differently — and the emitted code cannot hold `@` syntax. ' +
+          'Dropping them would delete what they do. Apply the decorator by hand after the ' +
+          'class, or remove it, then convert.'
       )
     ts.forEachChild(n, visit)
   }
@@ -2251,6 +2266,24 @@ const CLASS_MODIFIERS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.DefaultKeyword, // emitted — dropping it turned a default export into a named one
   ts.SyntaxKind.AbstractKeyword, // type-only
   ts.SyntaxKind.DeclareKeyword, // AMBIENT — the whole class is type-only and is erased
+  ts.SyntaxKind.Decorator, // refused file-wide before this point
+])
+
+/**
+ * Constructor PARAMETER modifiers — the third place modifiers live, and the one the first
+ * version of the class transform never classified. Each of these makes a PARAMETER PROPERTY:
+ * tsc emits `this.x = x`. `override` was missing, so `constructor(override a: number)` silently
+ * lost its assignment (narrow review of the 0.14.0 totality fix).
+ */
+const PARAMETER_PROPERTY_MODIFIERS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.PublicKeyword,
+  ts.SyntaxKind.PrivateKeyword,
+  ts.SyntaxKind.ProtectedKeyword,
+  ts.SyntaxKind.ReadonlyKeyword,
+  ts.SyntaxKind.OverrideKeyword,
+])
+const PARAMETER_MODIFIERS = new Set<ts.SyntaxKind>([
+  ...PARAMETER_PROPERTY_MODIFIERS,
   ts.SyntaxKind.Decorator, // refused file-wide before this point
 ])
 
@@ -2439,15 +2472,11 @@ function transformClassToTJS(
       // is `undefined` at runtime. The class still compiles and still runs, which is
       // what made this expensive: nothing reported it. (The plain-JS path was always
       // correct, because there tsc does its own downleveling.)
+      for (const p of member.parameters)
+        checkModifiers(p, PARAMETER_MODIFIERS, sourceFile)
       const paramProps = member.parameters
         .filter((p) =>
-          p.modifiers?.some(
-            (m) =>
-              m.kind === ts.SyntaxKind.PublicKeyword ||
-              m.kind === ts.SyntaxKind.PrivateKeyword ||
-              m.kind === ts.SyntaxKind.ProtectedKeyword ||
-              m.kind === ts.SyntaxKind.ReadonlyKeyword
-          )
+          p.modifiers?.some((m) => PARAMETER_PROPERTY_MODIFIERS.has(m.kind))
         )
         .map((p) => p.name.getText(sourceFile))
       if (paramProps.length) {
@@ -3476,12 +3505,12 @@ export function fromTS(
   )
 
   // Decorators are REFUSED, file-wide, before anything is emitted. They cannot be converted
-  // faithfully — the input is TypeScript's LEGACY decorator semantics (`(target, key,
-  // descriptor)`), and emitting them as JavaScript decorators would run them under the TC39
-  // semantics, a different call signature — and the class transform used to DROP them without
-  // a word, deleting whatever they did (logging, validation, injection). File-wide rather than
-  // in the class transform because class EXPRESSIONS take a different path. See
-  // `from-ts-class-totality.test.ts`.
+  // faithfully: fromTS reads no tsconfig, so it cannot tell legacy `experimentalDecorators`
+  // semantics `(target, key, descriptor)` from TC39's (the TypeScript 5 default), which call
+  // them differently; and the TJS parser cannot carry `@` syntax. The class transform used to
+  // DROP them without a word, deleting whatever they did (logging, validation, injection).
+  // File-wide rather than in the class transform because class EXPRESSIONS take a different
+  // path. See `from-ts-class-totality.test.ts`.
   refuseUnconvertible(sourceFile, filename)
 
   // Build annotation map from @tjs comments
