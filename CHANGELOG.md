@@ -7,13 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.14.0] — unreleased
+## [0.14.0] — 2026-09-25
 
-> **Release candidate: `0.14.0-rc.0`**, on the `rc` dist-tag (`npm i tjs-lang@rc`); `latest`
-> stays on 0.13.13 until 0.14.0 is final. Cut so tosijs-ui can verify against it before the
-> final release ([tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182)).
-> Note that `^0.14.0` does NOT admit `0.14.0-rc.0` — semver skips prereleases — so pin the
-> exact version to test it. Everything below is what the candidate contains.
+> Published first as **`0.14.0-rc.0`** on the `rc` dist-tag, so tosijs-ui could verify against it
+> before its peer range admitted 0.14 ([tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182)).
+> It did: **tosijs-ui 1.15.2** declares `tjs-lang: ^0.13.1 || ^0.14.0`, so npm consumers of both
+> resolve cleanly. Two review rounds ran between the rc and this release; their fixes are below.
 
 **A language release.** The tosijs-ui-hosted site was what 0.14.0 was originally reserved for;
 that work is real but lands separately, as a non-breaking change to build tooling that does not
@@ -199,6 +198,30 @@ Predicate` to "callable and boolean-ish".
   reading the same ASTs makes versioning load-bearing rather than merely prudent.
 
 ### Fixed
+
+- **`agentRun` with an inline AST, and `runCode`, now apply the AST version gate.** Both
+  executed an AST of a format this build cannot read — `{op:'agentRun', agentId: <a $ajs:99
+AST>}` ran its body, with no capability required, and `runCode` ran whatever a host
+  transpiler returned. Harmless today (`AST_VERSION` is 1) and wrong-semantics execution of
+  untrusted code the day a v2 format ships. Every execution of an AST that arrived from outside
+  is now gated, and `ast-version-boundaries.test.ts` sweeps every such site, so a new one fails
+  there by name.
+
+- **Emitted `Generic` instances are callable**, like every other runtime type. `Box(0)` was a
+  plain object in emitted code — `Box(0)(v)` threw `is not a function` — while the library's
+  is a callable `Predicate`. The factory itself is still not a predicate, in both.
+
+- **`Object.keys()` and spread really are unchanged from 0.13.13.** Serialisation support added
+  `toJSON` as an ordinary enumerable property, which added a key and made a spread copy carry
+  a `toJSON` bound to the ORIGINAL — so `{...Age, description: 'X'}` serialised as `Age`. It
+  is now non-enumerable; `JSON.stringify` still finds it. Pinned against the key list the
+  published 0.13.13 produces.
+
+- **A non-constructor in `Predicate`'s global slot is no longer adopted.** If something other
+  than a class sits under `globalThis.__tjs_Predicate_1`, this bundle uses its own class and
+  records a warning, instead of breaking every predicate at once. Any constructor found there
+  is still adopted, unchecked — the same trust model as `MonadicError`
+  (`docs/runtime-fusion.md` §7).
 
 - **A present-but-unreadable `$ajs` field is refused, not read as version 1.** `{"$ajs":"2"}` —
   a v2 AST whose number a JSON codec stringified in transit — was read as legacy and
