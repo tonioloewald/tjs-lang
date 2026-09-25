@@ -3751,15 +3751,24 @@ export function fromTS(
       emitDocCommentsBefore(statement.getStart(sourceFile))
     }
 
-    // AMBIENT statements (`declare …`) describe something that exists ELSEWHERE, and TypeScript
-    // emits nothing for them. `declare function` and `declare enum` used to be FABRICATED into
-    // runtime values — shadowing the real one — and two `export declare function f` signatures
-    // became two `export function f`, a duplicate declaration an ES module refuses to load. One
-    // rule, here, for every statement kind: metadata survives, code does not. (`declare class`
-    // is erased by `transformClassToTJS` itself, which still extracts its metadata.)
+    // AMBIENT VALUE declarations (`declare function|enum|const|let|var|namespace`) describe a
+    // value that exists ELSEWHERE, and TypeScript emits nothing for them. `declare function` and
+    // `declare enum` used to be FABRICATED into runtime values — shadowing the real one — and two
+    // `export declare function f` signatures became two `export function f`, a duplicate
+    // declaration an ES module refuses to load. So these contribute metadata and no code.
+    //
+    // An ALLOWLIST of value kinds, deliberately. The first version skipped EVERY `declare`
+    // statement and the narrow review BLOCKED it: in TJS an interface or type alias IS a runtime
+    // Type — the type is the metadata — so `export declare type Bar` lost its export and a
+    // parameter typed with an ambient interface degraded to `any`. For those kinds `declare` is
+    // redundant; they are promoted like any other type. Any `declare` form not listed here falls
+    // through to its ordinary handling, the old behaviour, rather than being erased.
+    // (`declare class` is erased by `transformClassToTJS`, which still extracts its metadata.)
     if (
-      !ts.isClassDeclaration(statement) &&
-      ts.canHaveModifiers(statement) &&
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isEnumDeclaration(statement) ||
+        ts.isVariableStatement(statement) ||
+        ts.isModuleDeclaration(statement)) &&
       ts
         .getModifiers(statement)
         ?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)

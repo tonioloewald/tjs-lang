@@ -192,6 +192,33 @@ describe('ambient STATEMENTS emit no code — the declare-class rule, at the top
     })
   }
 
+  // The narrow review BLOCKED the first version of this rule: it skipped EVERY `declare`
+  // statement, but in TJS an interface or type alias IS a runtime Type — the type is the
+  // metadata. `export declare type Bar` lost its export (an import of it failed to link) and a
+  // parameter typed with an ambient interface degraded to `any`. The rule is about VALUES:
+  // ambient function/enum/variable/namespace emit nothing, because TypeScript emits nothing;
+  // ambient TYPES are promoted like any other type.
+  it('`declare interface` is still promoted to a TJS Type', () => {
+    expect(convert('declare interface Foo { a: number }')).toMatch(/Type Foo\b/)
+  })
+
+  it('`export declare type` is still an exported TJS Type', () => {
+    expect(convert('export declare type Bar = { b: string }')).toMatch(
+      /export Type Bar\b/
+    )
+  })
+
+  it('and a parameter typed with an ambient interface keeps its type, not `any`', () => {
+    const tjsSrc = convert(
+      'declare interface Foo { a: number }\nexport function f(x: Foo): number { return x.a }'
+    )
+    const out = tjs(tjsSrc, { filename: 'x.tjs', runTests: false }) as any
+    const kind = out.types?.f?.params?.x?.type?.kind
+    // POSITIVE, not `not.toBe('any')` — an undefined path would pass that vacuously. `declared`
+    // is what the base commit produced (measured by the review's verifier).
+    expect(kind).toBe('declared')
+  })
+
   it('an ordinary function and enum are unaffected — apparatus check', () => {
     expect(
       convert('export function g(a: number): number { return a }')

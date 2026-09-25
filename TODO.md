@@ -4260,6 +4260,14 @@ listener (identity is now the command line — `6596ae3`); issue #4's stale publ
       constructor, methods and static methods are recorded. Autocomplete over a converted class
       therefore sees no properties. Found while adding `abstract`; same area, same consumer.
 
+## From the 0.14.0 ambient-statement review (BLOCK → resolved, 2026-09-25)
+
+- [ ] **A corpus fixture with ambient TYPE declarations.** The ambient rule's first version
+      erased `declare interface`/`declare type`, and compat-scan stayed 1973/1973 because none
+      of the six corpora contains one. Add a small `.d.ts`-style TypeScript module to the
+      compat-scan fixtures (ambient interfaces, type aliases, functions, enums, namespaces) so
+      the next change in this area is measured against real-shaped input, not only unit rows.
+
 ## Open findings — 0.14.0 SECOND re-review (GO_WITH_FOLLOWUPS, 2026-09-25)
 
 Full report: [`docs/reviews/0.14.0-re-review-2.md`](docs/reviews/0.14.0-re-review-2.md). Fixed before

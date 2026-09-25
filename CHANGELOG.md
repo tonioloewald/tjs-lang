@@ -230,8 +230,10 @@ Predicate` to "callable and boolean-ish".
 function f(…)` became `function f(…) { }` and `declare enum E` a real `Enum` — values
   TypeScript never emits, which shadow the real one that lives elsewhere. Two `export declare
 function f` signatures became two `export function f`: a duplicate declaration that an ES
-  module refuses to load. An ambient statement now contributes metadata and no code — one rule,
-  for every statement kind, matching `declare class`.
+  module refuses to load. Ambient VALUE declarations (`function`, `enum`, `const`/`let`/`var`,
+  `namespace`) now contribute metadata and no code, matching `declare class`. Ambient TYPE
+  declarations (`declare interface`, `declare type`) are unaffected — in TJS a type IS a runtime
+  `Type`, and `declare` adds nothing to one.
 
 - **`fromTS` now THROWS on constructs it refuses**, where it used to return (lossy) output:
   decorators anywhere in the file, `accessor`, and any modifier or class member kind it has no
