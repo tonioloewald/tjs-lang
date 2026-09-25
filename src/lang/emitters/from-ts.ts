@@ -74,6 +74,12 @@ export interface FunctionTypeInfo {
   typeParams?: Record<string, TypeParamInfo>
   /** Overload signatures (when function has TS overloads) */
   overloads?: FunctionTypeInfo[]
+  /**
+   * A class member declared `abstract` — a signature with no implementation in this class.
+   * Erased from emitted code (it does not exist at runtime) but kept here, because "declared,
+   * not implemented here" is exactly what autocomplete and documentation want to say.
+   */
+  abstract?: boolean
 }
 
 export interface ClassTypeInfo {
@@ -88,6 +94,8 @@ export interface ClassTypeInfo {
   staticMethods: Record<string, FunctionTypeInfo>
   /** Generic type parameters */
   typeParams?: Record<string, TypeParamInfo>
+  /** An `abstract class` — it cannot be instantiated, only extended. */
+  abstract?: boolean
 }
 
 export interface ParamTypeInfo {
@@ -3050,6 +3058,15 @@ function extractClassMetadata(
   const methods: Record<string, FunctionTypeInfo> = {}
   const staticMethods: Record<string, FunctionTypeInfo> = {}
   let constructorInfo: { params: Record<string, ParamTypeInfo> } | undefined
+  const methodGroups = new Map<
+    string,
+    {
+      isStatic: boolean
+      name: string
+      signatures: FunctionTypeInfo[]
+      impl?: FunctionTypeInfo
+    }
+  >()
 
   for (const member of node.members) {
     // Constructor
@@ -3113,12 +3130,41 @@ function extractClassMetadata(
         returns: member.type ? typeToInfo(member.type, resolveCtx) : undefined,
       }
 
-      if (isStatic) {
-        staticMethods[methodName] = methodInfo
-      } else {
-        methods[methodName] = methodInfo
+      if (
+        member.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
+      )
+        methodInfo.abstract = true
+
+      // GROUPED by name, not assigned: a name can have several bodyless SIGNATURES plus one
+      // implementation. Assigning by name let the implementation silently overwrite every
+      // signature, so `m(string): string` and `m(number): number` collapsed to the
+      // implementation's `m(a: any)` — the most precise types in the class, lost.
+      const key = `${isStatic ? 'static' : 'instance'}:${methodName}`
+      const group = methodGroups.get(key) ?? {
+        isStatic: !!isStatic,
+        name: methodName,
+        signatures: [],
       }
+      if (member.body) group.impl = methodInfo
+      else group.signatures.push(methodInfo)
+      methodGroups.set(key, group)
     }
+  }
+
+  // Resolve each group the way top-level functions already are: the IMPLEMENTATION is the
+  // entry, with every signature under `overloads`. A group with no implementation is an abstract
+  // (or ambient) declaration: its first signature is the entry, and if there are several they
+  // are all overloads. `overloads` is ABSENT, not [], when there are none.
+  for (const g of methodGroups.values()) {
+    const entry: FunctionTypeInfo = g.impl ?? { ...g.signatures[0] }
+    const sigs = g.impl
+      ? g.signatures
+      : g.signatures.length > 1
+      ? g.signatures
+      : []
+    if (sigs.length) entry.overloads = sigs
+    if (g.signatures.some((sig) => sig.abstract)) entry.abstract = true
+    ;(g.isStatic ? staticMethods : methods)[g.name] = entry
   }
 
   const result: ClassTypeInfo = {
@@ -3127,6 +3173,8 @@ function extractClassMetadata(
     staticMethods,
     constructor: constructorInfo,
   }
+  if (node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword))
+    result.abstract = true
 
   // Extract class-level generic type parameters
   if (node.typeParameters && node.typeParameters.length > 0) {

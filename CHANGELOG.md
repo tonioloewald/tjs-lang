@@ -206,6 +206,20 @@ Predicate` to "callable and boolean-ish".
 
 ### Fixed
 
+- **`fromTS` class metadata keeps what the code erases**: method OVERLOAD signatures and
+  `abstract`. Both are rightly erased from the emitted code — neither exists at runtime — but
+  metadata is where TJS keeps types, and both were being lost there too. Methods were recorded
+  by name, so the implementation silently overwrote each signature: `m(string): string` and
+  `m(number): number` collapsed to the implementation's `m(a: any)`. Methods now use the shape
+  top-level functions already had — the implementation, with `overloads: [...]` — and carry
+  `abstract: true`, as does an `abstract class` itself. Read from `fromTS(…).classes`.
+
+  **Scope, stated plainly:** this is `fromTS`'s metadata. TJS's OWN introspection — runtime
+  `__tjs` metadata, the playground's autocomplete — comes from TJS source, which has no way yet
+  to express an abstract member or an overload signature, so those facts do not survive
+  TS → TJS → JS. Carrying them through needs TJS syntax for a signature-only member; tracked in
+  `TODO.md`.
+
 - **`fromTS` now THROWS on constructs it refuses**, where it used to return (lossy) output:
   decorators anywhere in the file, `accessor`, and any modifier or class member kind it has no
   rule for. If you convert a whole tree, catch per file. A refusal is a `FromTSRefusal` with

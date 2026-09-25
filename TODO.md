@@ -4244,6 +4244,22 @@ listener (identity is now the command line — `6596ae3`); issue #4's stale publ
 (correction posted); the five declaration transforms rewriting TJS inside string literals
 (`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`).
 
+## Carry type-only class facts through to TJS introspection (raised 2026-09-25)
+
+- [ ] **Abstract members and overload signatures do not survive TS → TJS → JS.** `fromTS` now
+      records both in its `classes` metadata (0.14.0), but TJS's own introspection — runtime
+      `__tjs` metadata, playground autocomplete — is derived from TJS SOURCE, which cannot
+      express a signature-only member. The converter must erase them from the code (emitting
+      one invents runtime behaviour: `abstract m()` became `m() { }`), so the facts are lost at
+      the TJS boundary. The maintainer's motivating case: "just `abstract: true` is insanely
+      useful for autocomplete". Needs a language-design decision — a TJS form for a
+      signature-only member (declared, typed, not implemented) that emits NO runtime method
+      but lands in class metadata. Follow-on idea, separate and opt-in: TJS already has
+      polymorphic dispatch, so calls could be VALIDATED against declared overloads.
+- [ ] **Class fields and accessors are absent from `ClassTypeInfo` entirely** — only the
+      constructor, methods and static methods are recorded. Autocomplete over a converted class
+      therefore sees no properties. Found while adding `abstract`; same area, same consumer.
+
 ## Open findings — 0.14.0 SECOND re-review (GO_WITH_FOLLOWUPS, 2026-09-25)
 
 Full report: [`docs/reviews/0.14.0-re-review-2.md`](docs/reviews/0.14.0-re-review-2.md). Fixed before
