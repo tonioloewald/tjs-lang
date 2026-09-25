@@ -263,6 +263,14 @@ someone checks compatibility.
 
 ---
 
+## tosijs-ui — docs are identified by bare filename (tosijs-ui#190)
+
+**Filed 2026-09-25.** Two docs with the same basename in different directories collide as
+identities in the nav tree: one is shown twice, the other not at all, silently (reproduced
+against 1.15.0's `buildNavTree`). **Worked around here:** every visible doc has a unique
+basename, guarded by `src/doc-site-structure.test.ts`. **Waiting for:** the path as identity,
+or at least a failing build. When it lands, the guard can relax to "unique within a directory".
+
 ## tosijs-ui — what retiring the playground needs from it (tosijs-ui#184, #185, #186)
 
 **Filed 2026-09-25**, as tjs-lang moves its docs onto a tosijs-ui hosted site and retires the

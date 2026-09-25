@@ -486,8 +486,9 @@ deployed after the publish.
 - [ ] **ePub covers**: the books build without covers because `@resvg/resvg-js` is not
       installed. Add it as a devDependency, or set `epub.cover`.
 - [ ] **tosijs-ui identifies docs by bare filename** — a duplicate silently drops one from the
-      nav (measured). Worked around here (unique basenames, guarded); file upstream so identity
-      becomes the path.
+      nav (measured). Worked around here (unique basenames, guarded). Filed upstream as
+      [tosijs-ui#190](https://github.com/tonioloewald/tosijs-ui/issues/190), asking for the
+      path as identity, or at least a failing build.
 - [ ] **The playground's "safe" toggle prepends `safety none`, and that directive still turns
       validation off** — while CLAUDE.md says all nine mode directives were abolished on
       2026-08-02. Find out which is true; fix the code or the docs. (Its WASM toggle is dead —
