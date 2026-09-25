@@ -28,6 +28,35 @@ moves under you.
 
 ### Changed
 
+- **The documentation is organised as a book-shaped site.** Every doc now carries its place in
+  a navigation hierarchy and in one or more books, for the tosijs-ui doc site that will
+  replace the playground:
+
+  | section                                         | contents                                                                                                  |
+  | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+  | **TJS**                                         | the language guide, TJS for JS developers, and the examples, grouped                                      |
+  | **AJS**                                         | the AJS guide, **Safe Eval**, the LLM prompt, and the examples                                            |
+  | **TypeScript**                                  | TJS for TypeScript developers, and **14 TypeScript examples** as pages                                    |
+  | **The TJS Language**                            | why TJS exists, its principles, **Declarations**, the syntax reference, and the design notes from `docs/` |
+  | **TypeScript: the Good, the Bad, and the Ugly** | the measured comparison with TypeScript, plus two design notes; being written                             |
+
+  Four books build from the same source: the whole site, _The TJS Programming Language_,
+  _TypeScript: the Good, the Bad, and the Ugly_, and _AJS and Safe Eval_.
+
+  Two chapters are new. **Declarations** grows the old "Type Declarations" example into a chapter:
+  what each of `Type`, `Enum`, `Union`, `Generic` and `FunctionPredicate` declares, why each is
+  a callable predicate, and why a `FunctionPredicate` is a function's _type_ rather than a value
+  predicate. **Safe Eval** gathers what was spread across the README and two guides behind one
+  argument: `eval` is too powerful to allow, so the goal was the most powerful eval that is
+  still safe, and it ended up the one part of a program guaranteed to halt.
+
+  **Renamed files** (the doc site identifies pages by bare filename, and these collided):
+  `guides/benchmarks.md` → `guides/performance.md`,
+  `guides/examples/ajs/error-handling.md` → `ajs-error-handling.md`,
+  `guides/examples/tjs/dictionary-defaults.md` → `dictionary-defaults-example.md`, and
+  `guides/examples/tjs/type-declarations.md` → `declarations.md`. Agent instructions, TODO lists
+  and working notes are marked hidden and will not be published on the site.
+
 - **`tosijs-ui` 1.14.1 → 1.15.0, `tosijs` 1.6.1 → 1.10.3** (devDependencies; no effect on your
   install). 1.15.0 fixes two of the three defects that were blocking the doc-system migration:
   `SiteConfig` gained `ignoreDocPaths`, and `extractDocs`'s frontmatter match is anchored to
