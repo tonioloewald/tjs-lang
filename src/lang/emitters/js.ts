@@ -3076,6 +3076,13 @@ function generateMemberCheckLines(
       )
     }
   }
+  // A NULLABLE shape (`{…} | null`, and what `fromTS` emits for TS's `T | null`) admits
+  // `null` at the object-ness check, so its member reads need their own guard — without it
+  // `f(null)` THREW `null is not an object` rather than running (0.14.0 final review, M-1).
+  // Recursion puts the guard at every nullable level.
+  if (type.nullable && lines.length) {
+    return [`if (${accessExpr} != null) {`, ...lines, '}']
+  }
   return lines
 }
 

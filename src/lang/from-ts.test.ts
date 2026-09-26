@@ -1090,3 +1090,22 @@ describe('exported enums', () => {
     expect(js).toMatch(/export const Kind = /)
   })
 })
+
+describe('optional members are decided at the TOP level (0.14.0 final review, M-2)', () => {
+  const emit = (ts: string) => fromTS(ts, { emitTJS: true }).code
+  it('a nested optional does not stop the parent being optional', () => {
+    expect(emit('interface A { name: string; b?: { c?: string } }')).toContain(
+      "b: { c: '' | undefined } | undefined"
+    )
+  })
+  it('an optional array of optional elements', () => {
+    expect(emit('interface C { tags?: (string | undefined)[] }')).toContain(
+      "tags: ['' | undefined] | undefined"
+    )
+  })
+  it('an already-optional member is not marked twice', () => {
+    expect(emit('interface E { a?: string | undefined }')).toContain(
+      "a: '' | undefined }"
+    )
+  })
+})

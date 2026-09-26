@@ -134,3 +134,59 @@ describe('converted unions and aliases are checked — not dropped (re-review 2,
     expect(() => tjs('Type T { example: 1 +* 2 }')).toThrow(/could not be read/)
   })
 })
+
+describe('0.14.0 final review: nullable shapes and nested optionals (M-1, M-2)', () => {
+  const strict = (ts: string, name: string) =>
+    load(fromTS('/* @tjs TjsStrict */\n' + ts, { emitTJS: true }).code, name)
+
+  it('M-1: a converted `{…} | null` parameter accepts null instead of THROWING', () => {
+    const f = strict(
+      'function f(o: { a: number } | null): number { return o ? o.a : 0 }',
+      'f'
+    )
+    expect(f(null)).toBe(0)
+    expect(f({ a: 2 })).toBe(2)
+    expect(isMonadicError(f({ a: 'x' }))).toBe(true)
+  })
+
+  it('M-1: native `.tjs` too, and at a NESTED nullable level', () => {
+    const g = load(
+      'function g(o: { a: 0 } | null):! 0 { return o ? o.a : 0 }',
+      'g'
+    )
+    expect(g(null)).toBe(0)
+    expect(isMonadicError(g({ a: 'x' }))).toBe(true)
+    const h = load(
+      'function h(o: { p: { a: 0 } | null }):! 0 { return o.p ? o.p.a : 0 }',
+      'h'
+    )
+    expect(h({ p: null })).toBe(0)
+    expect(h({ p: { a: 3 } })).toBe(3)
+    expect(isMonadicError(h({ p: { a: 'x' } }))).toBe(true)
+  })
+
+  it('M-2: a nested optional member does not make its parent required', () => {
+    const fa = strict(
+      'interface A { name: string; b?: { c?: string } }\nfunction fa(a: A): number { return 1 }',
+      'fa'
+    )
+    expect(fa({ name: 'x' })).toBe(1)
+    expect(fa({ name: 'x', b: {} })).toBe(1)
+    expect(isMonadicError(fa({ name: 'x', b: { c: 5 } }))).toBe(true)
+  })
+
+  it('M-2: an optional array of optional elements, and the control', () => {
+    const fc = strict(
+      'interface C { tags?: (string | undefined)[] }\nfunction fc(c: C): number { return 1 }',
+      'fc'
+    )
+    expect(fc({})).toBe(1)
+    expect(fc({ tags: ['a', undefined] })).toBe(1)
+    const fd = strict(
+      'interface D { b?: { c: string } }\nfunction fd(d: D): number { return 1 }',
+      'fd'
+    )
+    expect(fd({})).toBe(1)
+    expect(isMonadicError(fd({ b: {} }))).toBe(true)
+  })
+})

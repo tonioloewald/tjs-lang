@@ -35,6 +35,7 @@ import {
   maskLiteralsKeepComments,
   scanLiterals,
   commentSafe,
+  splitTopLevelTrimmed,
 } from '../../strip-comments'
 import { typeSignatureFor } from '../type-signature'
 
@@ -400,7 +401,14 @@ function leadingSuperCallLength(body: string): number {
  * `markExampleKinds` turns into a member that may be absent. `any` already admits absence.
  */
 function optionalExample(example: string): string {
-  if (example === 'any' || /\bundefined\b/.test(example)) return example
+  // Only a TOP-LEVEL `undefined` member makes it optional already. A substring test saw the
+  // `undefined` inside `{ c: '' | undefined }` or `('' | undefined)[]` and left the OUTER
+  // member required, so valid calls were rejected under TjsStrict (0.14.0 final review, M-2).
+  if (
+    example === 'any' ||
+    splitTopLevelTrimmed(example, '|').includes('undefined')
+  )
+    return example
   return `${example} | undefined`
 }
 
