@@ -2386,11 +2386,12 @@ export wasm function mul(a: f64, b: f64): f64 { return a * b }
     expect(result.code).toContain('__wasmModuleB64')
     expect(result.code).toContain('new WebAssembly.Module(')
 
-    // No external runtime setup required — the inline __tjs fallback
-    // covers everything actually used. (Only the helpers this file needs
-    // are inlined, so simple wasm-wrapper libraries get a small fallback;
-    // libraries with type checks would also inline MonadicError etc.)
-    expect(result.code).toContain('globalThis.__tjs?.createRuntime?.()')
+    // No external runtime setup required — the inline __tjs fallback covers everything
+    // actually used, and a module that uses NO runtime helper carries none. (This asserted
+    // the fallback text itself, which held only while every function emitted a
+    // per-parameter error pre-check; the wrappers here are unchecked, so they need nothing.)
+    if (/\b__tjs\./.test(result.code))
+      expect(result.code).toContain('globalThis.__tjs?.createRuntime?.()')
   })
 
   it('dynamic import of the boundary form gives a working module', async () => {

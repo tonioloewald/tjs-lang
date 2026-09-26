@@ -45,15 +45,19 @@ pass into a returned `MonadicError`:
 - **A `Type` with a predicate enforces its example with no runtime installed.** Standalone
   emitted code used to skip the example and run only the predicate, so a predicate wider
   than its example now rejects what the example rejects.
-- **`TjsStrict` on converted TypeScript now validates arguments** — and with validation comes
-  TJS's error propagation: a validated function that receives an `Error` as ANY argument
-  returns it without running its body. That includes parameters declared `Error`, `any` or
-  `unknown`, so under `TjsStrict` a helper like `describe(e: Error)` or `isErr(x: unknown)`
-  hands the error straight back. **Leave `TjsStrict` off in files that handle errors**, or add
-  `safety none`. (Native `.tjs` has always behaved this way; whether it should for parameters
-  whose type admits an error is an open question — see TODO.) A TS `object` parameter is
+- **`TjsStrict` on converted TypeScript now validates arguments.** A TS `object` parameter is
   checked only loosely (anything is accepted): TJS has no "non-primitive" type yet, and
   under-checking is the safe direction.
+- **Error propagation is decided at the type check** (native `.tjs` and converted code). A
+  `MonadicError` passed where it does not fit a parameter's type is still returned unchanged
+  without running the body. But every validated function used to begin with a pre-check that
+  returned ANY `Error` from ANY parameter, whatever its declared type — so a function that
+  DECLARES it takes an error could never receive one: `describe(e: Error)`, `isErr(x: unknown)`,
+  `log(msg: '', detail: any)` and every catch-handler helper handed their argument straight
+  back. They now run. A plain `Error` (from `new Error()` or a `catch`) passed where something
+  else is expected is now a TYPE ERROR rather than being passed through as if it were a TJS
+  error. A `MonadicError` passed as a defaulted dictionary argument propagates instead of being
+  merged with the defaults.
 - **`Type X = …` reads the whole default expression.** `Type Opt = '' | undefined` used to emit
   `Type(…, '') | undefined` — bitwise OR, so `Opt` was the number 0 — and an object default
   stopped at its first `}`.

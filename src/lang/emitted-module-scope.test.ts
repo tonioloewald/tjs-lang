@@ -227,3 +227,32 @@ describe('emitted output loads as an ES module', () => {
     }
   }
 })
+
+describe('every `__tjs.X` the emitted code calls is bound', () => {
+  // `__tjs` is emitted only when `needsRuntime` says so, and that list is hand-kept. `switch`
+  // (→ `__tjs.swKey`) was missing from it; it went unseen while every function carrying a
+  // `switch` also happened to carry validation lines that pulled the runtime in.
+  const SOURCES = [
+    // `given` is what lowers to `__tjs.swKey(…)` (a plain `switch` keeps C semantics).
+    "export function area(s: any):! 0.0 {\n  given s.kind {\n    'a' { return 1 }\n  } else {\n    return 0\n  }\n}",
+    'export function f(x) { return x }',
+  ]
+  for (const src of SOURCES)
+    it(JSON.stringify(src.slice(0, 40)), () => {
+      const saved = (globalThis as any).__tjs
+      delete (globalThis as any).__tjs
+      try {
+        const { code } = tjs(src)
+        if (/\b__tjs\./.test(code)) expect(code).toMatch(/const __tjs = /)
+        if (src.includes('given')) expect(code).toContain('__tjs.swKey(') // apparatus
+        const fn = new Function(
+          code.replace(/^export /gm, '') +
+            '\nreturn ' +
+            (src.includes('area') ? 'area' : 'f')
+        )()
+        expect(() => fn({ kind: 'a' })).not.toThrow()
+      } finally {
+        ;(globalThis as any).__tjs = saved
+      }
+    })
+})

@@ -1331,7 +1331,15 @@ describe('Monadic error handling', () => {
   installRuntime() // Sets globalThis.__tjs
 
   describe('error pass-through (monadic propagation)', () => {
-    it('passes through Error input without processing', () => {
+    // Propagation is decided at a FAILED type check: a value that is already a
+    // MonadicError is returned unchanged. (It used to be a pre-check that returned ANY
+    // `Error` from ANY function before its body ran — so a function declared to TAKE an
+    // error, `e: Error` or `x: unknown`, could never receive one.) A plain `Error` where
+    // something else was expected is now an honest type error, still never processed.
+    const upstream = (msg: string) =>
+      new MonadicError(msg, '<test>', 'integer', 'string')
+
+    it('passes through a MonadicError input without processing', () => {
       const tjsSource = `
 function double(x: 0):! 0 {
   return x * 2
@@ -1342,11 +1350,35 @@ function double(x: 0):! 0 {
       const double = new Function(code + '; return double')()
 
       // Pass an error as input
-      const inputError = new Error('upstream failure')
+      const inputError = upstream('upstream failure')
       const result = double(inputError)
 
       // Should return the same error, not process it
       expect(result).toBe(inputError)
+    })
+
+    it('a plain Error where a number is expected is a TYPE error, not processed', () => {
+      const { code } = tjs(`function double(x: 0):! 0 {\n  return x * 2\n}`)
+      const double = new Function(code + '; return double')()
+      const plain = new Error('not ours')
+      const result = double(plain)
+      expect(result).toBeInstanceOf(MonadicError)
+      expect(result).not.toBe(plain)
+      expect(result.path).toContain('double.x')
+    })
+
+    it('a function DECLARED to take an error receives one', () => {
+      const { code } = tjs(
+        `function describe(e: Error):! '' {\n  return 'caught: ' + e.message\n}\n` +
+          `function isErr(x: any):! false {\n  return x instanceof Error\n}`
+      )
+      const { describe: d, isErr } = new Function(
+        code + '; return { describe, isErr }'
+      )()
+      expect(d(new Error('boom'))).toBe('caught: boom')
+      expect(d(upstream('ours'))).toBe('caught: ours')
+      expect(isErr(new Error('x'))).toBe(true)
+      expect(isErr(upstream('y'))).toBe(true)
     })
 
     it('passes through error in multi-param function', () => {
@@ -1358,7 +1390,7 @@ function add(a: 0, b: 0):! 0 {
       const { code } = tjs(tjsSource)
       const add = new Function(code + '; return add')()
 
-      const inputError = new Error('bad value')
+      const inputError = upstream('bad value')
 
       // Error in first param
       expect(add(inputError, 5)).toBe(inputError)
@@ -1385,7 +1417,7 @@ function step3(x: 0):! 0 {
       const fns = new Function(code + '; return { step1, step2, step3 }')()
 
       // Chain: step3(step2(step1(error)))
-      const inputError = new Error('start with error')
+      const inputError = upstream('start with error')
       const result = fns.step3(fns.step2(fns.step1(inputError)))
 
       // Same error flows through all three functions
@@ -1627,10 +1659,14 @@ function process(data: { error: false }):! { error: false } {
       // because it's not an Error instance
       expect(result).toBe(errorLikeObj)
 
-      // But a real Error WOULD be passed through
+      // A MonadicError IS passed through…
+      const ours = new MonadicError('ours', '<test>', 'object', 'string')
+      expect(process(ours)).toBe(ours)
+      // …and a plain Error that does not match the shape is a type error, not passed on
       const realError = new Error('real error')
       const errorResult = process(realError)
-      expect(errorResult).toBe(realError)
+      expect(errorResult).toBeInstanceOf(MonadicError)
+      expect(errorResult).not.toBe(realError)
     })
   })
 

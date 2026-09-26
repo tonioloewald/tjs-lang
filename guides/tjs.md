@@ -260,18 +260,24 @@ uppercase name; a reassignment of an already-declared binding
 
 ### Monadic Error Handling
 
-TJS functions propagate errors automatically:
+TJS functions propagate errors automatically — when a `MonadicError` arrives where it does
+not fit the parameter's type:
 
 ```javascript
-// If any input is an error, it passes through
+// processData(input: { rows: [0] }) — a MonadicError is not { rows: [0] }
 const result = processData(maybeError)
-// If maybeError is an error, result is that error (processData not called)
+// If maybeError is a MonadicError, result is that same error (the body does not run)
 
 // Check for errors
 if (isError(result)) {
   console.log(result.message)
 }
 ```
+
+The rule is decided at the type check, so a function that DECLARES it takes an error gets
+one: `describe(e: Error)`, `log(detail: any)` and `isErr(x: unknown)` run their bodies. A
+plain `Error` (from `new Error()` or a `catch`) where something else is expected is an
+ordinary type error, not a pass-through.
 
 ### The Flight Recorder
 

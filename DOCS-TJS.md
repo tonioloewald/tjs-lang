@@ -853,6 +853,12 @@ if (isMonadicError(result)) {
 
 No try/catch gambling. The host survives invalid inputs.
 
+**Propagation.** A `MonadicError` passed where it does not fit a parameter's type is returned
+unchanged, without running the body — so an error travels down a call chain to the one place
+you check it. It is decided AT the type check, which means a function that declares it takes
+an error receives one: `describe(e: Error)`, `log(detail: any)` and `isErr(x: unknown)` run.
+A plain `Error` where something else is expected is an ordinary type error.
+
 For general-purpose error values (not type errors), use the `error()` helper
 which returns plain `{ $error: true, message }` objects checkable with `isError()`.
 

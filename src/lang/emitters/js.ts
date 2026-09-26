@@ -87,7 +87,7 @@ const INLINE_MONADIC_ERROR = `const MonadicError=(globalThis.__tjs_MonadicError_
  * behavior of the program it records.
  */
 const INLINE_TYPE_ERROR = `function __arrKinds(v){if(!v.length)return'empty array';const k=[],n=Math.min(v.length,64);for(let i=0;i<n;i++){const x=v[i],t=x===null?'null':Array.isArray(x)?'array':typeof x;if(!k.includes(t))k.push(t);if(k.length===4)return'array of '+k.join(' | ')+(i+1<v.length?' …':'')}return'array of '+k.join(' | ')+(v.length>64?' …':'')}
-function typeError(p,e,v,r){const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
+function typeError(p,e,v,r,o){const g0=o!==undefined?o:v;if(isMonadicError(g0))return g0;const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
 import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
@@ -688,10 +688,8 @@ function generateInlineValidationCode(
 
     if (fieldNames.length === 0) return null
 
-    // 1. Error pass-through: check if any field is an Error
-    for (const fieldName of fieldNames) {
-      lines.push(`if (${fieldName} instanceof Error) return ${fieldName};`)
-    }
+    // (Error propagation is decided at a FAILED check — `typeError` returns an existing
+    // MonadicError unchanged — not by a pre-check that skipped the body for any Error.)
 
     // 2. Type checks with proper error emission
     for (const [fieldName, fieldType] of Object.entries(shape)) {
@@ -735,10 +733,10 @@ function generateInlineValidationCode(
   const params = Object.entries(types.params)
   if (params.length === 0) return null
 
-  // 1. Error pass-through: check if any param is an Error
-  for (const [paramName] of params) {
-    lines.push(`if (${paramName} instanceof Error) return ${paramName};`)
-  }
+  // Error propagation is decided at a FAILED check: `typeError` returns a value that is
+  // already a MonadicError unchanged. There used to be a pre-check here, emitted for every
+  // parameter, that returned ANY `Error` before the body ran — so a function declared to
+  // take an error (`e: Error`, `x: unknown`) could never receive one.
 
   // 2. Type checks with proper error emission
   // One uid counter shared across ALL dict-default params in this function —
@@ -803,9 +801,10 @@ function generateInlineValidationCode(
       const shapeCheck = generateFunctionShapeCheck(paramName, param.type, path)
       if (shapeCheck) {
         lines.push(shapeCheck)
-        // checkFnShape returns either the function unchanged or a
-        // MonadicError. Re-check Error propagation after the assignment.
-        lines.push(`if (${paramName} instanceof Error) return ${paramName};`)
+        // checkFnShape returns either the function unchanged or a MonadicError.
+        lines.push(
+          `if (__tjs.isMonadicError(${paramName})) return ${paramName};`
+        )
       }
     }
   }
@@ -1812,7 +1811,13 @@ export function transpileToJS(
     needsExactly ||
     needsBang ||
     needsToBool ||
-    needsCheckFnShape
+    needsCheckFnShape ||
+    // `switch` lowers to `__tjs.swKey(…)`. It was missing here, and nobody noticed because
+    // every function that contained a `switch` also carried validation lines that pulled
+    // the runtime in — until error propagation stopped emitting a per-parameter pre-check
+    // (0.14.0), and `area(s: any) { switch … }` threw `__tjs is not defined` standalone.
+    needsSwKey ||
+    needsOneOf
 
   if (needsRuntime) {
     // Build standalone preamble — emitted JS must work without any setup.
@@ -2871,7 +2876,9 @@ function generateDictMergeLines(
 
   // Post-JS-default, the param is never undefined — check object-ness flat out.
   lines.push(
-    `if (typeof ${paramName} !== 'object' || ${paramName} === null || Array.isArray(${paramName})) return __tjs.typeError('${displayPath}', 'object', ${paramName});`
+    // A MonadicError is an object, but never the options bag a dictionary declares: without
+    // this it passed, was MERGED with the defaults, and the body ran on the result.
+    `if (typeof ${paramName} !== 'object' || ${paramName} === null || Array.isArray(${paramName}) || __tjs.isMonadicError(${paramName})) return __tjs.typeError('${displayPath}', 'object', ${paramName});`
   )
   emitDictLevel(
     paramName,
@@ -3001,7 +3008,9 @@ function emitDictLevel(
 function generateMemberCheckLines(
   accessExpr: string,
   displayPath: string,
-  type: TypeDescriptor
+  type: TypeDescriptor,
+  /** The ARGUMENT these members belong to — error propagation is decided on it. */
+  rootExpr: string = accessExpr
 ): string[] {
   const lines: string[] = []
   if (type.kind !== 'object' || !type.shape) return lines
@@ -3015,12 +3024,17 @@ function generateMemberCheckLines(
           ? (memberType as any).members.map((m: any) => m.kind).join(' | ')
           : memberType.kind
       lines.push(
-        `if (${check}) return __tjs.typeError('${memberPath}', '${expected}', ${memberExpr});`
+        `if (${check}) return __tjs.typeError('${memberPath}', '${expected}', ${memberExpr}, undefined, ${rootExpr});`
       )
     }
     if (memberType.kind === 'object' && memberType.shape) {
       lines.push(
-        ...generateMemberCheckLines(memberExpr, memberPath, memberType)
+        ...generateMemberCheckLines(
+          memberExpr,
+          memberPath,
+          memberType,
+          rootExpr
+        )
       )
     }
   }
@@ -3227,9 +3241,9 @@ const SIMPLE_KINDS = new Set([
 /**
  * Generate a `__tjs.checkFnShape(...)` call that validates a passed-in
  * function's declared shape against the expected shape ONCE at pass time.
- * On mismatch the param is reassigned to a MonadicError; the existing
- * `if (param instanceof Error) return param` check above handles
- * propagation. On match the param is unchanged. Untyped functions
+ * On mismatch the param is reassigned to a MonadicError; the
+ * `if (__tjs.isMonadicError(param)) return param` emitted right after it
+ * propagates it. On match the param is unchanged. Untyped functions
  * (no `__tjs` metadata — anonymous arrows) pass through unchanged.
  *
  * Returns null when the expected shape can't be represented as simple

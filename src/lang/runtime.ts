@@ -423,8 +423,22 @@ export function typeError(
   path: string,
   expected: string,
   value: unknown,
-  reason?: string
+  reason?: string,
+  /**
+   * The ARGUMENT whose check failed, when `value` is one of its members. Propagation is
+   * decided on the argument: a MonadicError passed where `{ a: 0 }` is expected passes the
+   * object check and fails on `.a` — whose value is `undefined`, not the error.
+   */
+  root?: unknown
 ): MonadicError {
+  // The value is ALREADY a TJS error: propagate it, unchanged and unrecorded — this is how
+  // an error flows through a call chain. It is decided HERE, at the failed check, not by a
+  // pre-check on every parameter: that returned ANY `Error` from ANY function before its
+  // body ran, so `describe(e: Error)`, `isErr(x: unknown)` and every catch-handler helper
+  // silently handed their argument back. A value that MATCHES the declared type now always
+  // reaches the body; a plain `Error` that does not is an honest type error.
+  const arg = root !== undefined ? root : value
+  if (isMonadicError(arg)) return arg
   // `typeof []` is 'object', which made every array failure report "got object" — least
   // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
   // the only honest answer here.
@@ -2143,8 +2157,13 @@ export function createRuntime() {
   function instanceTypeError(
     path: string,
     expected: string,
-    value: unknown
+    value: unknown,
+    _reason?: string,
+    root?: unknown
   ): MonadicError {
+    // Already a TJS error: propagate it (see `typeError`, including `root`).
+    const arg = root !== undefined ? root : value
+    if (isMonadicError(arg)) return arg
     // `typeof []` is 'object', which made every array failure report "got object" — least
     // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
     // the only honest answer here.

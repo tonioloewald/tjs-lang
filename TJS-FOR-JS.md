@@ -278,7 +278,7 @@ if (result?.$error) {
 }
 ```
 
-Errors propagate automatically through function calls. If you pass a monadic error to another TJS function, it passes through without executing:
+Errors propagate automatically through function calls. If you pass a monadic error to another TJS function where it does not fit the parameter's type, it passes through without executing:
 
 ```javascript
 const a = step1(badInput) // MonadicError
@@ -286,7 +286,9 @@ const b = step2(a) // skips execution, returns the same error
 const c = step3(b) // skips again -- error flows to the surface
 ```
 
-This is sometimes called "railway-oriented programming."
+This is sometimes called "railway-oriented programming." A function that declares it takes an
+error (`e: Error`, `x: any`, `x: unknown`) receives it and runs — that is how a handler works —
+and a plain `Error` passed where something else is expected is an ordinary type error.
 
 ### 6. Classes Without `new`
 

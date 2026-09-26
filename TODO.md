@@ -530,9 +530,11 @@ deployed after the publish.
     First run 4350 / 41 fail / 1 load error; after the re-review fixes 4476 / 34 / 0, and ALL
     34 are error propagation (next item). Along the way it found three real defects (a
     load failure, a template literal rewritten by auto-const, `Type X = a | b` as bitwise OR).
-    Kept MANUAL, not a gate, until the propagation decision: its known-failure list would be
-    exactly that decision. Run it whenever `fromTS` or TjsStrict changes, then make it a
-    ratchet (`test:dogfood:strict`) once the list is stable.
+    After the propagation fix (2026-09-26): **4541 pass / 0 fail**. Seven suites do not
+    TRANSPILE under TjsStrict, by design — full TJS rejects `new` on a local class, `eval()`
+    and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
+    malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
+    seven as its known-conversion list, each with that reason.
 - [ ] **0.14.0 example-kinds re-review 2 — deferred items** (docs/reviews/0.14.0-example-kinds-rereview-2.md;
       B-1, M-1, M-2, M-3, m-1, m-2, n-1 are FIXED):
   - m-3: `toJSONSchema()` of a RECURSIVE type truncates to `{}` at the recursion point, so
@@ -547,13 +549,12 @@ deployed after the publish.
     does not; add a two-module test with a hostile DAG and a cycle.
   - gap 3: a user predicate that calls another Type's `.check` and NEGATES it re-enters
     live kind state; add a test that the answer is the same as with fresh state.
-- [ ] **DECISION NEEDED — error propagation swallows functions that TAKE an error.** Every
-      validated function starts `if (p instanceof Error) return p` for EVERY parameter, whatever
-      its declared type, and for any `Error` (not only `MonadicError`). So `describe(e: Error)`,
-      `isErr(x: unknown)` and every catch-handler helper skip their body and return the error.
-      Native TJS has always done this; `TjsStrict` validating (0.14.0) newly applies it to
-      converted TypeScript. Options: propagate only `MonadicError`; never for a parameter whose
-      declared type admits an error (`Error`, `any`, `unknown`); or both.
+- [x] **Error propagation — DECIDED 2026-09-26 and done:** decided AT the type check (Tonio: "if
+      it's not the type we wanted, return a MonadicError unless we already have one"). The
+      per-parameter `if (p instanceof Error) return p` pre-check is gone; `typeError` returns an
+      existing MonadicError unchanged (on the ARGUMENT, via its `root` parameter, so a member
+      check on a MonadicError argument still propagates it). Handlers typed `Error`/`any`/
+      `unknown` now run.
 - [ ] **kysely's compat lane only TRANSPILES.** Unlike the other five it never loads the
       converted modules or runs kysely's tests (they need databases), so "kysely 395/395"
       means "converts", not "works". CLAUDE.md's "runs that project's own test suite" is not
