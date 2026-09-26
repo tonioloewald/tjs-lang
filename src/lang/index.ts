@@ -27,9 +27,6 @@ import type {
   TranspileResult,
   FunctionSignature,
 } from './types'
-import { extractFunctions } from './parser'
-import { parseAgentSource } from './parser-agent'
-import { transformFunction } from './emitters/ast'
 
 export * from './types'
 export {
@@ -186,64 +183,12 @@ export {
 import { MetadataCache, getGlobalCache } from './metadata-cache'
 import { typeDescriptorToJSONSchema } from './json-schema'
 
-/**
- * Transpile JavaScript source code to Agent99 AST
- *
- * @param source - JavaScript source code containing a single function
- * @param options - Transpilation options
- * @returns The AST, signature, and any warnings
- *
- * @example
- * ```typescript
- * const result = transpile(`
- *   function search(query: 'string', limit = 10) {
- *     let results = storeSearch({ query, limit })
- *     return { results }
- *   }
- * `)
- *
- * console.log(result.signature)
- * // {
- * //   name: 'search',
- * //   parameters: {
- * //     query: { type: 'string', required: true },
- * //     limit: { type: 'number', required: false, default: 10 }
- * //   }
- * // }
- * ```
- */
-export function transpile(
-  source: string,
-  options: TranspileOptions = {}
-): TranspileResult {
-  // Parse the source through the AJS core — NOT `parse()`, which is TJS's.
-  // See `parser-agent.ts` for why this is a separate function rather than a flag.
-  const {
-    ast: program,
-    returnType,
-    originalSource,
-    requiredParams,
-  } = parseAgentSource(source, { filename: options.filename })
-
-  // Validate structure
-  const { entry, helpers } = extractFunctions(program, options.filename)
-
-  // Transform to Agent99 AST
-  const { ast, signature, warnings } = transformFunction(
-    entry,
-    originalSource,
-    returnType,
-    options,
-    requiredParams,
-    helpers.size > 0 ? helpers : undefined
-  )
-
-  return {
-    ast: ast as SeqNode,
-    signature,
-    warnings,
-  }
-}
+// ONE `transpile`: this module used to carry its own copy of core's, and the two drifted —
+// this one never got `requiredValueOffsets`, `parsed`, or the `maxSourceBytes` admission that
+// the vm.run(source) deprecation's recommended path needs (0.14.0 final re-review 10). The
+// other twins here (`ajs`, `tjs`, `createAgent`, `getToolDefinitions`) are tracked in TODO.md.
+import { transpile } from './core'
+export { transpile }
 
 /**
  * Transpile AsyncJS source and return just the AST.

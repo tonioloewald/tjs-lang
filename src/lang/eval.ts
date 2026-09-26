@@ -157,7 +157,7 @@ export interface EvalOptions {
   /** Capabilities to inject (fetch, console, etc.) */
   capabilities?: SafeCapabilities
   /**
-   * Maximum bytes of source accepted, refused BEFORE transpilation (default 64 KB).
+   * Maximum bytes of source accepted, refused BEFORE transpilation (default 8 KB — `DEFAULT_MAX_SOURCE_BYTES`).
    *
    * `fuel` and `timeoutMs` are properties of `vm.run`, and transpilation happens before it —
    * so neither bounds the compile. `preprocess` is super-linear in source length, and the
@@ -194,7 +194,15 @@ export { DEFAULT_MAX_SOURCE_BYTES }
  * would otherwise buy several times the intended budget.
  */
 function checkSourceSize(code: string, max: number, what: string): void {
-  if (max <= 0) return
+  // Only a real non-negative number is a cap; 0 (and Infinity) disable it. `NaN` and a negative
+  // used to disable it too — fail-open — where vm.run refuses them (re-review 10).
+  if (typeof max !== 'number' || Number.isNaN(max) || max < 0)
+    throw new Error(
+      `Invalid maxSourceBytes: ${String(
+        max
+      )} — it must be a non-negative number`
+    )
+  if (max === 0) return
   // The shared, length-first measure (src/vm/admission.ts) — one reading of "too big" for
   // every entry that transpiles caller text.
   const bytes = sourceBytesOver(code, max)
@@ -361,11 +369,12 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
 
   const vm = getVM()
 
-  checkSourceSize(body, maxSourceBytes, 'SafeFunction body')
-
   // Build function source with parameters
   const paramList = params.join(', ')
   const source = `function __safeFn(${paramList}) { ${body} }`
+  // The ASSEMBLED source: `params` are spliced in too, and measuring only `body` let 32KB of
+  // destructuring in `params` through (re-review 10).
+  checkSourceSize(source, maxSourceBytes, 'SafeFunction source')
 
   // Pre-compile the AST (done once at creation time)
   const { ast } = transpile(source)

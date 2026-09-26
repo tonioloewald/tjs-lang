@@ -23,11 +23,14 @@ accept source at all.** `maxSourceBytes` for `Eval`, `SafeFunction`, `vm.run(sou
 another input shape that the AJS preprocessor or acorn parses super-linearly — nested
 destructuring took 19s at 60KB, a `function` head followed by whitespace 2.9s — and patching
 them did not converge. A quadratic cost shrinks with the square of the cap: at 8KB the worst
-known shape is ~250ms. Raise it per call for trusted source. **If you run agents from
-untrusted callers, take an AST instead:** transpile on the caller's side
-(`tjs-lang/browser` or `tjs-lang/lang`), send the AST, and run it with `tjs-lang/vm-ast`,
-which has no parser in it at all — the parse cost then lands on whoever sent the source, and
-what remains on the host is linear.
+known shape is ~455ms (densely nested destructuring, measured 2026-09-26). Raise it per call
+for trusted source — `vm.run`'s `maxSourceBytes` also governs `runCode`/`transpileCode`, and
+`transpile(source, { maxSourceBytes })` (new, opt-in) caps an in-process transpile. **If you
+run agents from untrusted callers, take an AST instead:** transpile on the caller's side
+(`tjs-lang/browser` or `tjs-lang/lang`) or in a worker or process you can afford to lose, send
+the AST, and run it with `tjs-lang/vm-ast`, which has no parser in it at all — the parse cost
+then lands on whoever sent the source, and what remains on the host is linear. (This project's
+own hosted endpoints still accept source, capped at 8KB; moving them to ASTs is next.)
 
 **Deprecated: `vm.run(source)` — the VM parsing AJS.** It still works (capped at 8KB) and
 notes itself once in the flight recorder. The VM should never be the thing that parses:

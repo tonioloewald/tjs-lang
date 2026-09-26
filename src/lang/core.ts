@@ -5,6 +5,7 @@
  * Import from here (not ./index) to avoid pulling in the TS compiler.
  */
 
+import { sourceBytesOver } from '../vm/admission'
 import type { SeqNode } from '../builder'
 import type {
   TranspileOptions,
@@ -39,6 +40,16 @@ export function transpile(
   source: string,
   options: TranspileOptions = {}
 ): TranspileResult {
+  // Opt-in admission for in-process transpiles of UNTRUSTED source — the path vm.run(source)'s
+  // deprecation recommends had no cap at all (0.14.0 final re-review 10).
+  if (options.maxSourceBytes !== undefined) {
+    const over = sourceBytesOver(source, options.maxSourceBytes)
+    if (over !== null)
+      throw new Error(
+        `Source is ${over} bytes, over the ${options.maxSourceBytes}-byte limit (maxSourceBytes). ` +
+          `Parsing runs before any budget, so oversized untrusted source is refused.`
+      )
+  }
   const {
     ast: program,
     returnType,

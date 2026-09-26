@@ -77,13 +77,15 @@ export function recordVmEvent(entry: {
   severity: string
   message: string
   data?: unknown
-}): void {
+}): boolean {
   const g = globalThis as any
-  if (!g.__tjs || typeof g.__tjs.record !== 'function') return
+  if (!g.__tjs || typeof g.__tjs.record !== 'function') return false
   try {
     g.__tjs.record(entry)
+    return true
   } catch {
     // The recorder is not allowed to take the VM down with it.
+    return false
   }
 }
 
@@ -269,6 +271,7 @@ export interface RuntimeContext {
    */
   quotaUsed?: Record<string, number>
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
+  maxSourceBytes?: number // Cap on guest-built source for runCode/transpileCode (the run's `maxSourceBytes`; default DEFAULT_MAX_SOURCE_BYTES, 0 disables)
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
   membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default MEMBRANE_MAX_BYTES)
   maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default MAX_HEAP_BYTES). Fuel bounds work; this bounds peak memory.
@@ -4218,9 +4221,12 @@ const MAX_TRANSPILE_SOURCE_BYTES = DEFAULT_MAX_SOURCE_BYTES
 
 function admitSource(ctx: RuntimeContext, code: unknown, op: string): string {
   if (typeof code !== 'string') throw new Error(`${op}: code must be a string`)
-  if (sourceBytesOver(code, MAX_TRANSPILE_SOURCE_BYTES) !== null)
+  // The RUN's `maxSourceBytes`, so a host can raise it per call — the CHANGELOG said it could,
+  // and it was a module constant (0.14.0 final re-review 10).
+  const max = ctx.maxSourceBytes ?? MAX_TRANSPILE_SOURCE_BYTES
+  if (sourceBytesOver(code, max) !== null)
     throw new Error(
-      `${op}: source is over the ${MAX_TRANSPILE_SOURCE_BYTES}-byte limit. Transpilation runs ` +
+      `${op}: source is over the ${max}-byte limit. Transpilation runs ` +
         `before fuel can stop it, so oversized source is refused rather than metered.`
     )
   if (!chargeForSize(ctx, code, op)) throw new Error('Out of Fuel')

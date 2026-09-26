@@ -31,7 +31,7 @@ export const MAX_TIMER_MS = 2 ** 31 - 1
  * `function` head followed by whitespace (2.9s: regex backtracking), brace nesting in acorn,
  * uncharged regex scans. Patching them one at a time did not converge, and a work meter
  * cannot see regex-engine or acorn work. A quadratic cost shrinks with the SQUARE of the
- * cap: at 8KB the worst shape known is ~250ms (at 64KB it was ~19s), and one nobody has found
+ * cap: at 8KB the worst shape known is ~455ms, densely nested destructuring (at 64KB it was ~19s), and one nobody has found
  * yet shrinks the same way. The largest AJS example in this repo is ~1.1KB; stored agents and
  * RBAC rules are far smaller than 8KB. Raise it per call (`maxSourceBytes`) for trusted
  * source. The structural fix — a single-pass AJS parser whose complexity is provable, and

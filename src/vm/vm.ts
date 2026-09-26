@@ -204,7 +204,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
       argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default DEFAULT_ARGS_MAX_BYTES); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
-      maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES; 0 disables — trusted source only); transpiling runs before any budget
+      maxSourceBytes?: number // Ceiling on SOURCE: passed as a string, or built by the guest for runCode/transpileCode (default DEFAULT_MAX_SOURCE_BYTES; 0 disables — trusted source only); transpiling runs before any budget
       maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
     } = {}
   ): Promise<RunResult> {
@@ -256,17 +256,19 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         // machine) and hands the AST to `tjs-lang/vm-ast`, which has no parser at all — a bad
         // payload can then take down only the step that parsed it. Still works; noted once per
         // process in the flight recorder (never on the console, never changing behaviour).
-        if (!deprecationNoted) {
-          deprecationNoted = true
-          recordVmEvent({
+        // Counted as noted only once something actually RECORDED it — with no recorder
+        // installed yet, the first call would otherwise spend it (re-review 10).
+        if (!deprecationNoted)
+          deprecationNoted = recordVmEvent({
             source: 'vm',
             severity: 'notice',
             message:
-              'vm.run(source) is deprecated: transpile separately (tjs-lang/lang `transpile`) and ' +
-              'run the AST with tjs-lang/vm-ast, so parsing untrusted source can never take the VM ' +
-              'host down with it.',
+              'vm.run(source) is deprecated. Run ASTs with tjs-lang/vm-ast, and transpile ' +
+              "OUTSIDE the VM host: on the caller's machine, or in a worker or separate process " +
+              'you can afford to lose. A hostile payload then costs only the step that parsed it. ' +
+              'If you must transpile untrusted source in-process, cap it: ' +
+              'transpile(source, { maxSourceBytes: 8192 }) from tjs-lang/lang.',
           })
-        }
         try {
           ast = transpileImpl(astOrToken).ast as BaseNode
         } catch (e: any) {
@@ -461,6 +463,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       signal: controller.signal,
       costOverrides: options.costOverrides,
       quotas: options.quotas,
+      maxSourceBytes: options.maxSourceBytes,
       quotaUsed: options.quotaUsed ?? {},
       timeoutOverrides: options.timeoutOverrides,
       context: options.context,

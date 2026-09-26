@@ -54,9 +54,11 @@ const SOURCES: Record<string, string> = {
   // Re-review 9's four, each super-linear with no refusal until the cap bounded them:
   'regexes in return types (B-1)':
     '[' + '(a): [x/] => 1,'.repeat(Math.floor(CAP / 15)) + '/]',
+  // The DENSEST unit, sized to the cap: the worst shape known at 8KB (~455ms). A sparser
+  // one understated the documented worst case (re-review 10).
   'nested destructuring (B-2)': (() => {
-    const d = Math.floor(CAP / 8)
-    return `(function (${'{a: '.repeat(d)}b${' }'.repeat(d)}) { return 1 })`
+    const d = Math.floor((CAP - 40) / 4)
+    return `(function (${'{a:'.repeat(d)}b${'}'.repeat(d)}) { return 1 })`
   })(),
   'function head + whitespace run (B-3)': 'function' + ' '.repeat(CAP - 20),
   'brace nesting (B-4)': '{a;'.repeat(Math.floor(CAP / 3)),
@@ -68,6 +70,16 @@ const SOURCES: Record<string, string> = {
 
 /** Every entry that takes caller SOURCE, as `expr → outcome`. */
 const SOURCE_ENTRIES: Record<string, (expr: string) => Promise<unknown>> = {
+  // The path vm.run(source)'s deprecation recommends, used IN-PROCESS: opt-in cap.
+  'transpile (in-process, capped)': async (e) => {
+    try {
+      return transpile(`function f() { return { v: ${e} } }`, {
+        maxSourceBytes: 8 * 1024,
+      })
+    } catch (err) {
+      return err
+    }
+  },
   'Eval(code)': (e) => Eval({ code: e, fuel: 10, timeoutMs: 1 }),
   'SafeFunction(body)': async (e) => {
     try {
@@ -550,27 +562,85 @@ describe('the work budget never refuses VALID AJS under the cap (re-review 9)', 
 })
 
 describe('vm.run(source) is deprecated, noted once in the flight recorder', () => {
-  it('records one notice per process, and still runs', async () => {
-    const { createRuntime } = require('./lang/runtime')
-    const saved = (globalThis as any).__tjs
-    const rt = createRuntime()
-    ;(globalThis as any).__tjs = rt
-    try {
+  it('exactly one notice per process, none for ASTs, and it names where to parse', () => {
+    // Paths from `import.meta.dir`, which the dogfood harness rewrites to the real tree when it
+    // relocates this file; `require.resolve('./x')` it does not rewrite.
+    const SRC = import.meta.dir
+    // A fresh PROCESS: the once-flag is process-wide, and an in-process test passed even with
+    // the record call deleted (re-review 10).
+    const script = `
+      import { AgentVM } from ${JSON.stringify(SRC + '/vm/vm.ts')}
+      import { createRuntime } from ${JSON.stringify(SRC + '/lang/runtime.ts')}
+      import { transpile } from ${JSON.stringify(SRC + '/lang/index.ts')}
+      globalThis.__tjs = createRuntime()
       const vm = new AgentVM()
-      const a = await vm.run(
-        'function f() { return { a: 1 } }',
-        {},
-        { fuel: 50 }
-      )
+      await vm.run(transpile('function f() { return { a: 0 } }').ast, {}, { fuel: 50 })
+      const before = globalThis.__tjs.records({ source: 'vm' }).length
+      const r = await vm.run('function f() { return { a: 1 } }', {}, { fuel: 50 })
       await vm.run('function f() { return { a: 2 } }', {}, { fuel: 50 })
-      expect((a.result as any).a).toBe(1)
-      const notes = rt
-        .records({ source: 'vm' })
-        .filter((r: any) => /vm\.run\(source\) is deprecated/.test(r.message))
-      // Once per PROCESS: another test file may already have spent it.
-      expect(notes.length).toBeLessThanOrEqual(1)
-    } finally {
-      ;(globalThis as any).__tjs = saved
+      const notes = globalThis.__tjs.records({ source: 'vm' }).filter((x) => /deprecated/.test(x.message))
+      console.log(JSON.stringify({ before, n: notes.length, a: r.result.a, msg: notes[0]?.message }))
+    `
+    const out = Bun.spawnSync(['bun', '-e', script], {
+      cwd: import.meta.dir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const res = JSON.parse(
+      new TextDecoder().decode(out.stdout).trim().split('\n').pop()!
+    )
+    expect(res.before).toBe(0)
+    expect(res.n).toBe(1)
+    expect(res.a).toBe(1)
+    expect(res.msg).toMatch(
+      /caller's machine, or in a worker or separate process/
+    )
+    expect(res.msg).toMatch(/maxSourceBytes/)
+  })
+})
+
+describe('re-review 10: caps that were fail-open or unreachable', () => {
+  it('Eval and SafeFunction refuse a NaN or negative maxSourceBytes (they disabled the cap)', async () => {
+    for (const bad of [NaN, -1]) {
+      const r = await Eval({ code: '1', maxSourceBytes: bad as any })
+      expect(reasonOf(r)).toMatch(/Invalid maxSourceBytes/)
+      await expect(
+        SafeFunction({ body: 'return 1', maxSourceBytes: bad as any })
+      ).rejects.toThrow(/Invalid maxSourceBytes/)
     }
+  })
+  it('SafeFunction measures the ASSEMBLED source — params cannot carry a payload past the cap', async () => {
+    const d = 3000
+    const params = [`${'{a: '.repeat(d)}b${' }'.repeat(d)}`]
+    await expect(SafeFunction({ params, body: 'return 1' })).rejects.toThrow(
+      /over the \d+-byte limit/
+    )
+  })
+  it("runCode honours the run's maxSourceBytes (the CHANGELOG said it could be raised)", async () => {
+    const code = { transpile: (s: string) => transpile(s).ast }
+    const src = 'function f() { return { v: 1 } }\n' + '// pad\n'.repeat(1500) // ~10KB
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'runCode', code: { $kind: 'arg', path: 'src' }, result: 'r' },
+        { op: 'return', value: {} },
+      ],
+    } as any
+    const refused = await new AgentVM().run(
+      ast,
+      { src },
+      { fuel: 10_000, capabilities: { code } }
+    )
+    expect(reasonOf(refused)).toMatch(/over the 8192-byte limit/)
+    const raised = await new AgentVM().run(
+      ast,
+      { src },
+      {
+        fuel: 10_000,
+        maxSourceBytes: 16 * 1024,
+        capabilities: { code },
+      }
+    )
+    expect(reasonOf(raised)).toBe('')
   })
 })

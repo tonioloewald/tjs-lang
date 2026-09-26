@@ -535,6 +535,29 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 10 — dispositions** (docs/reviews/0.14.0-final-rereview-10.md;
+      B-1 FIXED — the deprecation notice says WHERE to parse and how to cap it, and
+      `transpile(source, { maxSourceBytes })` is the opt-in funnel for in-process use; the
+      `index.ts` twin of `transpile` collapsed onto core's (it had drifted: no
+      requiredValueOffsets, no `parsed`); runCode/transpileCode take the run's
+      maxSourceBytes; Eval/SafeFunction refuse NaN/negative caps and SafeFunction measures its
+      assembled source; the notice is spent only once recorded, tested in a subprocess; the
+      worst figure restated at ~455ms from the densest shape). Open:
+  - **Structural twins in `src/lang/index.ts` vs `core.ts`: `ajs`, `tjs`, `createAgent`,
+    `getToolDefinitions`.** Kept for now — they DIFFER (getToolDefinitions uses a different
+    schema helper and name fallback), so collapsing needs a decision on which is right, not
+    a mechanical merge. Owner: next session, before 0.14.1. (Practices: a structural twin is
+    not deferred silently; this is the recorded keep.)
+  - File acorn's quadratic block-nesting cost upstream (acornjs/acorn; repro in the report)
+    and add an UPSTREAM.md row naming the 8KB cap as the local workaround. Owner's call —
+    filing on a third-party repo is outward-facing.
+  - Before the functions deploy: query Firestore for stored functions / RBAC rules over 8KB;
+    they start failing on deploy otherwise.
+  - A host `capabilities.agent.run(id)` that transpiles must apply the cap itself — document.
+  - README and DOCS-AJS headline examples demonstrate `vm.run(source)`; rewrite them around
+    `transpile` + `vm-ast` with the ASTs-at-the-boundary work.
+  - The deprecation notice ships in `vm-ast` where it can never run (+0.2KB); move it to the
+    transpiler wiring in `tjs-lang/vm`.
 - [ ] **0.14.0 final re-review 8 — dispositions** (docs/reviews/0.14.0-final-rereview-8.md;
       B-1 FIXED and the class BOUNDED — a deterministic work budget on the AJS transform
       (TransformWork, 64× source length), since hunting scans one at a time had failed five

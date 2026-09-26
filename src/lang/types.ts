@@ -113,6 +113,13 @@ export interface TranspileOptions {
    * twice doubled its pre-fuel work at the size cap (0.14.0 final re-review 2).
    */
   parsed?: unknown
+  /**
+   * Refuse source over this many bytes BEFORE parsing it (default: no cap — trusted source).
+   * Set it when transpiling UNTRUSTED source in-process: parsing runs before any budget, and
+   * some hostile shapes cost super-linear time. `DEFAULT_MAX_SOURCE_BYTES` (8KB) is the value
+   * the VM's own entries use. Better still, transpile on the caller's side or in a worker.
+   */
+  maxSourceBytes?: number
   /** Include source locations in output AST */
   sourceMaps?: boolean
   /** Atom registry for validation (optional) */
