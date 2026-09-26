@@ -148,6 +148,38 @@ function statementFunnel(st: ts.Statement): ts.CallExpression | undefined {
   return undefined
 }
 
+/** Funnels that RETURN a refusal instead of throwing one. */
+const RETURNS_REASON = new Set(['validateRunOptions'])
+
+/**
+ * A throwing funnel acts by being called. One that RETURNS its refusal acts only if the result
+ * is kept and a following statement leaves on it: `const bad = validateRunOptions(o)` then
+ * `if (bad) return …` / `throw …`. A bare `validateRunOptions(o)` validates nothing.
+ */
+function acted(
+  st: ts.Statement,
+  call: ts.CallExpression,
+  after: readonly ts.Statement[]
+): boolean {
+  if (!RETURNS_REASON.has(calleeName(call) ?? '')) return true
+  if (!ts.isVariableStatement(st)) return false
+  const d = st.declarationList.declarations[0]
+  if (!ts.isIdentifier(d.name)) return false
+  const name = d.name.text
+  const leaves = (n: ts.Node): boolean =>
+    ts.isReturnStatement(n) ||
+    ts.isThrowStatement(n) ||
+    (!ts.isFunctionLike(n) &&
+      !!ts.forEachChild(n, (c) => leaves(c) || undefined))
+  return after.some(
+    (a) =>
+      ts.isIfStatement(a) &&
+      ts.isIdentifier(a.expression) &&
+      a.expression.text === name &&
+      leaves(a.thenStatement)
+  )
+}
+
 /**
  * Is `node` DOMINATED by a funnel call satisfying `matches` — a funnel statement that runs,
  * unconditionally, before it in the same function? Walks up the enclosing blocks, looking at
@@ -171,10 +203,16 @@ function dominated(
       ts.isFunctionExpression(p))
   ) {
     if (ts.isBlock(p) || ts.isSourceFile(p)) {
-      for (const st of p.statements) {
-        if (st === child) break
-        const call = statementFunnel(st)
-        if (call && matches(call)) return true
+      const stmts = p.statements
+      const upto = stmts.indexOf(child as ts.Statement)
+      for (let i = 0; i < (upto < 0 ? stmts.length : upto); i++) {
+        const call = statementFunnel(stmts[i])
+        if (
+          call &&
+          matches(call) &&
+          acted(stmts[i], call, stmts.slice(i + 1, upto))
+        )
+          return true
       }
     }
     child = p
@@ -478,6 +516,8 @@ describe('budget funnel', () => {
       afterWrongCheck: `function f(o) { validateRunOptions(other); return o.fuel }`,
       beforeCheck: `function f(o) { const x = o.fuel; validateRunOptions(o); return x }`,
       comparedBeforeFunnel: `function f(a) { const t = a.fuel; if (t > 0) go(); budgetOption('t', t, 1) }`,
+      ignoredReason: `function f(o) { validateRunOptions(o); return o.fuel > 1 }`,
+      keptButUnused: `function f(o) { const bad = validateRunOptions(o); return o.fuel > 1 }`,
       untypedCtx: `function f(ctx) { return ctx.maxHeapBytes > 0 }`,
       spreadCtx: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.fuel } }) }`,
       renamedForward: `function f(o) { return g({ limit: o.fuel }) }`,
@@ -499,7 +539,7 @@ describe('budget funnel', () => {
     const good = {
       funneled: `function f(o) { return budgetOption('fuel', o.fuel, 1) }`,
       forwarded: `function f(o) { return vm.run(x, {}, { fuel: o.fuel }) }`,
-      validated: `function f(o) { validateRunOptions(o); return o.fuel ?? 1 }`,
+      validated: `function f(o) { const bad = validateRunOptions(o); if (bad) throw new Error(bad); return o.fuel ?? 1 }`,
       local: `function f(a) { const raw = a.timeoutMs; return budgetOption('t', raw, 1) }`,
       destructuredForwarded: `function f(options) { const { fuel = 1 } = options; return run({ fuel }) }`,
       wrapper: `function check(c, max) { sourceBytesOver(c, max) }
@@ -510,7 +550,7 @@ describe('budget funnel', () => {
       ctx: `function f(ctx: RuntimeContext) { return ctx.maxHeapBytes ?? 1 }`,
       atomBody: `defineAtom('x', s, o, async (step, ctx) => ctx.fuel.current)`,
       derivedCtx: `function f(ctx: RuntimeContext) { return run({ ...ctx, fuel: ctx.fuel }) }`,
-      closureAfterCheck: `function f(o) { validateRunOptions(o); return () => o.fuel * 2 }`,
+      closureAfterCheck: `function f(o) { budgetOption('fuel', o.fuel, 1); return () => o.fuel * 2 }`,
       write: `function f(o) { o.fuel = 3 }`,
     }
     for (const [label, src] of Object.entries(good))
