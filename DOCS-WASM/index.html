@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>WASM in TJS — tjs-lang</title>
+  <meta name="description" content="Canonical reference for WebAssembly in TJS — what you can write, how it&#39;s compiled, and how cross-file composition works." />
+  <link rel="canonical" href="https://tjs.tosijs.net/DOCS-WASM/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="WASM in TJS — tjs-lang" />
+  <meta property="og:description" content="Canonical reference for WebAssembly in TJS — what you can write, how it&#39;s compiled, and how cross-file composition works." />
+  <meta property="og:url" content="https://tjs.tosijs.net/DOCS-WASM/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"WASM in TJS","description":"Canonical reference for WebAssembly in TJS — what you can write, how it's compiled, and how cross-file composition works.","url":"https://tjs.tosijs.net/DOCS-WASM/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "tjs.md", "order": 6}--><h1>WASM in TJS</h1>
+<p>Canonical reference for WebAssembly in TJS — what you can write, how it&#39;s
+compiled, and how cross-file composition works.</p>
+<p>For a 5-minute introduction, start with <a href="docs/WASM-QUICKSTART.md"><code>docs/WASM-QUICKSTART.md</code></a>.
+For the cross-file libraries design rationale, see <a href="wasm-library-plan.md"><code>wasm-library-plan.md</code></a>.</p>
+<hr>
+<h2>Two flavors</h2>
+<p>TJS supports two related ways of writing WebAssembly:</p>
+<table>
+<thead>
+<tr>
+<th>Flavor</th>
+<th>Syntax</th>
+<th>Use when</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Inline block</strong></td>
+<td><code>wasm { ... }</code> inside a regular function</td>
+<td>One-off acceleration of a hot inner loop in a single function; you want a JS fallback</td>
+</tr>
+<tr>
+<td><strong>Top-level declaration</strong></td>
+<td><code>wasm function NAME(...): T { ... }</code> at module scope</td>
+<td>Reusable kernel that other files (or this one) may want to import</td>
+</tr>
+</tbody></table>
+<p>Both flavors compile to the same <code>WebAssembly.Module</code> per file (one module per
+file, multiple exported functions), and both share one linear memory.</p>
+<h3>Inline blocks</h3>
+<p>The original form. Captures (free variables) are auto-detected from the
+enclosing scope and become wasm function parameters. Optional <code>fallback { ... }</code>
+provides a JS path when SIMD or other features are unavailable.</p>
+<pre><code class="language-tjs">function double(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i &lt; len; i++) {
+      arr[i] = arr[i] * 2.0
+    }
+  } fallback {
+    for (let i = 0; i &lt; len; i++) arr[i] *= 2
+  }
+}
+</code></pre>
+<p>See <code>docs/WASM-QUICKSTART.md</code> for a thorough walkthrough.</p>
+<h3>Runtime: readiness, silent-fallback warnings, and the enable toggle</h3>
+<p>Inline <code>wasm{}</code> blocks instantiate <strong>asynchronously</strong> (<code>WebAssembly.compile</code> +
+<code>instantiate</code> in a fire-and-forget IIFE), so code that runs synchronously right
+after transpile+eval takes the JS <code>fallback{}</code> — the module isn&#39;t ready yet.
+Three runtime controls (all on <code>globalThis</code>):</p>
+<ul>
+<li><strong><code>await globalThis.__tjs_wasm_ready()</code></strong> — resolves once every emitted module&#39;s
+WASM has instantiated. Await it before your first call to guarantee the WASM
+path instead of racing the fallback. (Modules push their instantiation promise
+onto <code>globalThis.__tjs_wasm_pending</code>; <code>__tjs_wasm_ready()</code> awaits them all.)</li>
+<li><strong><code>globalThis.__tjs_wasm_enabled = false</code></strong> — forces every block to run its
+<code>fallback{}</code> (JS) even when the WASM is instantiated. A public A/B toggle for
+&quot;WASM vs JS, N×&quot; benchmarking without poking the internal <code>__tjs_wasm_&lt;id&gt;</code>
+globals. Set back to <code>true</code> (or delete) to re-enable.</li>
+<li><strong>Silent-fallback is now surfaced.</strong> A block that <em>can&#39;t compile</em> (unsupported
+construct) still falls back — but that used to be invisible. The failure is now
+in <code>result.wasmCompiled</code> (per-block <code>success:false</code> + <code>error</code>) <strong>and</strong> mirrored
+into <code>result.warnings</code> (<code>&quot;wasm{} block &#39;&lt;id&gt;&#39; did not compile — running the fallback{} (JS): &lt;reason&gt;&quot;</code>), so it no longer looks like WASM &quot;worked.&quot;</li>
+</ul>
+<h3>Top-level declarations</h3>
+<p>The Phase 1+ form. Declared with explicit parameters and return type, at module
+scope. The function name is what consumers (in this file or other files) call.
+No <code>fallback {}</code> block — these are pure wasm kernels.</p>
+<pre><code class="language-tjs">export wasm function dot(a: Float32Array, b: Float32Array, n: i32): f64 {
+  let acc = f32x4_splat(0.0)
+  for (let i = 0; i &lt; n; i += 4) {
+    let off = i * 4
+    let av = f32x4_load(a, off)
+    let bv = f32x4_load(b, off)
+    acc = f32x4_add(acc, f32x4_mul(av, bv))
+  }
+  return f32x4_extract_lane(acc, 0)
+    + f32x4_extract_lane(acc, 1)
+    + f32x4_extract_lane(acc, 2)
+    + f32x4_extract_lane(acc, 3)
+}
+</code></pre>
+<p>The transpiler replaces the declaration with a regular JS wrapper that forwards
+to the wasm export. Callers see a normal JavaScript function.</p>
+<hr>
+<h2>Parameter types</h2>
+<p><code>wasm function</code> parameters use wasm type names, <strong>not</strong> TJS example-based
+syntax. (Inside a <code>wasm function</code>, <code>name: &#39;hello&#39;</code> would be a type error, not
+an example value.)</p>
+<table>
+<thead>
+<tr>
+<th>Annotation</th>
+<th>WASM type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>name: i32</code></td>
+<td><code>i32</code></td>
+<td>32-bit signed integer</td>
+</tr>
+<tr>
+<td><code>name: i64</code></td>
+<td><code>i64</code></td>
+<td>64-bit signed integer</td>
+</tr>
+<tr>
+<td><code>name: f32</code></td>
+<td><code>f32</code></td>
+<td>32-bit float</td>
+</tr>
+<tr>
+<td><code>name: f64</code></td>
+<td><code>f64</code></td>
+<td>64-bit float</td>
+</tr>
+<tr>
+<td><code>name: number</code></td>
+<td><code>f64</code></td>
+<td>Alias</td>
+</tr>
+<tr>
+<td><code>name: int</code></td>
+<td><code>i32</code></td>
+<td>Alias</td>
+</tr>
+<tr>
+<td><code>name: Float32Array</code></td>
+<td><code>i32</code> (pointer)</td>
+<td>Pointer to f32 array in linear memory</td>
+</tr>
+<tr>
+<td><code>name: Float64Array</code></td>
+<td><code>i32</code> (pointer)</td>
+<td>Pointer to f64 array</td>
+</tr>
+<tr>
+<td><code>name: Int32Array</code></td>
+<td><code>i32</code> (pointer)</td>
+<td>Pointer to i32 array</td>
+</tr>
+<tr>
+<td><code>name: Uint8Array</code></td>
+<td><code>i32</code> (pointer)</td>
+<td>Pointer to u8 array</td>
+</tr>
+</tbody></table>
+<p>The JS-side wrapper auto-marshals typed arrays: if you pass a regular
+<code>Float32Array</code>, the wrapper copies it into wasm memory and back; if you pass a
+<code>wasmBuffer(Float32Array, n)</code>, the wrapper detects the shared backing buffer
+and skips the copy (zero-copy fast path).</p>
+<h2>Return types</h2>
+<p><strong>Current backend limitation:</strong> wasm functions return <code>f64</code> or void only.</p>
+<p><code>: f64</code> and omitted-return both work today. Other return types (<code>: i32</code>,
+<code>: f32</code>, <code>: v128</code>) are parsed but not yet driving the emitted bytecode; the
+backend always emits f64. This is a known limitation tracked in
+<code>wasm-library-plan.md</code> as &quot;Phase 1.5 work.&quot;</p>
+<p>Practically: if your function would naturally return f32 (e.g., a SIMD reduce),
+return f64 and let the caller downcast. If you need integer results, return
+f64 and cast on the JS side.</p>
+<h2>SIMD intrinsics</h2>
+<p>v1 of the wasm-library plan <strong>requires SIMD baseline</strong>. All the f32x4
+intrinsics from inline blocks work in <code>wasm function</code> bodies:</p>
+<ul>
+<li><strong>memory / lanes:</strong> <code>f32x4_splat</code>, <code>f32x4_load</code>, <code>f32x4_store</code>,
+<code>f32x4_extract_lane</code>, <code>f32x4_replace_lane</code></li>
+<li><strong>arithmetic:</strong> <code>f32x4_add</code>, <code>f32x4_sub</code>, <code>f32x4_mul</code>, <code>f32x4_div</code>,
+<code>f32x4_neg</code>, <code>f32x4_sqrt</code>, <code>f32x4_min</code>, <code>f32x4_max</code></li>
+<li><strong>comparisons</strong> (return a v128 lane <strong>mask</strong> — all-1s where true, all-0s else):
+<code>f32x4_eq</code>, <code>f32x4_ne</code>, <code>f32x4_lt</code>, <code>f32x4_gt</code>, <code>f32x4_le</code>, <code>f32x4_ge</code></li>
+<li><strong>branch-free blend:</strong> <code>f32x4_select(mask, a, b)</code> — picks lane <code>a</code> where the
+mask lane is true, <code>b</code> where false (compiles to <code>v128.bitselect</code>).</li>
+</ul>
+<p>The compare → mask → <code>select</code> trio is what makes <strong>data-dependent</strong> SIMD possible
+(clamp/saturate, conditional blends, per-lane escape masking à la SIMD Mandelbrot)
+— not just branchless arithmetic. Example, a branch-free clamp:</p>
+<pre><code class="language-tjs">let lo = f32x4_splat(0.0)
+let hi = f32x4_splat(1.0)
+let clamped = f32x4_min(f32x4_max(v, lo), hi)          // via min/max
+// or, equivalently, via a mask + select:
+let tooBig = f32x4_gt(v, hi)                            // → lane mask
+let out = f32x4_select(tooBig, hi, clamped)            // hi where v&gt;hi, else clamped
+</code></pre>
+<p>Lengths must be multiples of 4 for SIMD loops. Callers pad as needed.</p>
+<hr>
+<h2>Memory discipline</h2>
+<p><strong>JS allocates every byte; wasm functions never allocate.</strong></p>
+<p>This is the load-bearing invariant of the whole system. Wasm functions receive
+typed-array pointers and operate on memory regions reachable from arguments.
+The JS-side wrapper (or the caller, for <code>wasmBuffer</code>-backed arrays) is
+responsible for allocation and lifetime.</p>
+<h3><code>wasmBuffer()</code></h3>
+<p>Allocate a typed array backed by wasm linear memory:</p>
+<pre><code class="language-tjs">const xs = wasmBuffer(Float32Array, 50000)
+xs[0] = 1.0  // writes directly into wasm memory
+dot(xs, ys, 50000)  // zero-copy: wrapper detects the shared buffer
+</code></pre>
+<h3>Bump allocator caveat</h3>
+<p><code>wasmBuffer</code> uses a bump allocator with <strong>no free</strong> — allocations persist for
+program lifetime. This is deliberate: it eliminates lifetime/ownership
+questions across library boundaries. The cost: long-running programs that
+allocate per-call would leak.</p>
+<p>The stdlib API shape (Phase 5+) follows from this: every function that would
+produce a buffer takes an <code>out</code> parameter instead, so the caller allocates
+once and reuses. Functions returning scalars (<code>dot</code>, <code>norm_sq</code>) are fine
+as-is.</p>
+<h3>What this eliminates</h3>
+<ul>
+<li>Cross-block allocator coordination</li>
+<li>Lifetime / ownership across library boundaries</li>
+<li>Fragmentation</li>
+<li>Inline-vs-boundary semantic divergence</li>
+</ul>
+<hr>
+<h2>Cross-file composition (Phase 3)</h2>
+<p>A file can declare <code>wasm function</code>s; another file can import and use them.
+The import is resolved <strong>at transpile time</strong> and the imported function&#39;s body
+is composed into the consumer&#39;s wasm module as a local function — no
+JS↔wasm boundary on intra-module calls.</p>
+<h3>Library file</h3>
+<pre><code class="language-tjs">// my-lib/index.tjs
+export wasm function dot(a: Float32Array, b: Float32Array, n: i32): f64 {
+  // ... SIMD dot product ...
+}
+</code></pre>
+<h3>Consumer file</h3>
+<pre><code class="language-tjs">// app.tjs
+import { dot } from &#39;./my-lib/index.tjs&#39;
+
+const a = wasmBuffer(Float32Array, 128)
+const b = wasmBuffer(Float32Array, 128)
+// ... populate ...
+const d = dot(a, b, 128)  // calls into the composed wasm module
+</code></pre>
+<p>The consumer&#39;s transpiled output contains the wasm bytes for <code>dot</code> as a local
+function in its single <code>WebAssembly.Module</code>. No separate library bundle is
+fetched at runtime.</p>
+<h3>Enabling composition</h3>
+<p>The composition pass is opt-in: pass a <code>ModuleLoader</code> to <code>tjs()</code> or
+<code>transpileToJS()</code>. Without one, imports are preserved verbatim and the
+runtime resolves them as before.</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> tjs<span class="token punctuation">,</span> ModuleLoader <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang/lang'</span>
+
+<span class="token keyword">const</span> loader <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">ModuleLoader</span><span class="token punctuation">(</span><span class="token punctuation">{</span> baseDir<span class="token operator">:</span> <span class="token string">'/path/to/project'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token function">tjs</span><span class="token punctuation">(</span>appSource<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  moduleLoader<span class="token operator">:</span> loader<span class="token punctuation">,</span>
+  filename<span class="token operator">:</span> <span class="token string">'/path/to/project/app.tjs'</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<hr>
+<h2>Two distribution forms</h2>
+<p>Same source produces two outputs depending on how the library is consumed:</p>
+<p><strong>Composed form</strong> (tjs-to-tjs, when the consumer transpiles with a loader):</p>
+<ul>
+<li>Library&#39;s wasm functions become local exports in the consumer&#39;s module</li>
+<li>One <code>WebAssembly.compile</code> per consumer file</li>
+<li>Intra-module calls between the consumer&#39;s own wasm and the imported wasm are
+pure wasm calls (no JS↔wasm boundary)</li>
+</ul>
+<p><strong>Boundary form</strong> (when the library is consumed as a published <code>.js</code>):</p>
+<ul>
+<li>Library transpiles to a self-contained <code>.js</code> with embedded wasm + JS wrappers</li>
+<li>Consumer imports the <code>.js</code> via normal ESM</li>
+<li>Each call from JS into a library wrapper crosses the JS↔wasm boundary</li>
+<li>Per-call cost is single-digit nanoseconds for small functions — usually
+negligible after JIT warmup</li>
+</ul>
+<p>Both forms compile from the same TJS source and produce identical results.</p>
+<p>A published library typically ships both:</p>
+<pre><code>my-lib/
+  src/
+    index.tjs      ← TJS source, used by tjs consumers (composed form)
+  dist/
+    index.js       ← Transpiled, used by everyone else (boundary form)
+</code></pre>
+<p><code>package.json</code> <code>exports</code>:</p>
+<pre><code class="language-json" data-highlighted><span class="token property">"exports"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+  <span class="token property">"./my-lib"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token property">"bun"</span><span class="token operator">:</span> <span class="token string">"./src/index.tjs"</span><span class="token punctuation">,</span>
+    <span class="token property">"default"</span><span class="token operator">:</span> <span class="token string">"./dist/index.js"</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<hr>
+<h2>Purity and the <code>(!)</code> unsafe marker</h2>
+<p>A <code>wasm function</code> may not call any host function. This rule is enforced by
+the backend: the bytecode builder has no support for emitting host imports,
+so any attempt (e.g. <code>Math.sin</code>, which would require a JS-side trampoline)
+fails at compile time. Math functions with wasm intrinsics — <code>sqrt</code>, <code>abs</code>,
+<code>floor</code>, <code>ceil</code>, <code>min</code>, <code>max</code> — work fine.</p>
+<p>The <code>(!)</code> marker is <strong>reserved syntax</strong> for a future &quot;unsafe wasm function&quot;
+variant that would relax purity (allow host imports, side-effecting globals).
+Writing <code>wasm function (! name(...)</code> today produces a clear error directing
+you to either remove the bang or wait for the unsafe variant to be implemented.</p>
+<hr>
+<h2>tjs-lang/linalg</h2>
+<p>The first stdlib library built on this infrastructure ships two SIMD
+kernels:</p>
+<pre><code class="language-tjs">import { dot, norm_sq } from &#39;tjs-lang/linalg&#39;
+
+const a = wasmBuffer(Float32Array, 128)
+const b = wasmBuffer(Float32Array, 128)
+// ... populate ...
+const cos = dot(a, b, 128) / Math.sqrt(norm_sq(a, 128) * norm_sq(b, 128))
+</code></pre>
+<p><strong>Preconditions:</strong> <code>n</code> must be a multiple of 4 (the SIMD lane width). Pad
+shorter vectors with zeros.</p>
+<p><strong>Future additions</strong> (planned, not yet shipped): <code>norm</code>, <code>normalize</code>,
+<code>add</code>, <code>sub</code>, <code>scale</code>, <code>lerp</code>, <code>matmul</code>, <code>transpose</code>, <code>cross</code>, <code>quat_mul</code>,
+<code>look_at</code>, <code>perspective</code>. See <code>wasm-library-plan.md</code> § 5.</p>
+<hr>
+<h2>Supported subset inside <code>wasm{}</code> / <code>wasm function</code></h2>
+<p>A <code>wasm{}</code> body is a <strong>small, typed subset</strong> of JS, not arbitrary code. Anything
+outside it makes an inline block fall back to its <code>fallback{}</code> (and now emits a
+warning — see § Runtime). Supported:</p>
+<ul>
+<li><strong>Numeric locals:</strong> <code>let x = &lt;expr&gt;</code> (i32 or f64, inferred from the initializer).</li>
+<li><strong><code>for</code> loops</strong> with numeric bounds — <code>for (let i = 0; i &lt; n; i += k) { … }</code> —
+including <strong>nested</strong> loops. <code>break</code> / <code>continue</code> work.</li>
+<li><strong><code>if</code> / <code>else</code></strong> and the logical operators <code>&amp;&amp;</code> / <code>||</code>.</li>
+<li><strong>Arithmetic / comparison</strong> on i32 and f64 (see the coercion gotcha below).</li>
+<li><strong>Typed-array element access</strong> — <code>arr[i]</code> reads/writes, where <code>arr</code> is a typed-
+array <strong>parameter</strong> (annotated <code>Float32Array</code> / <code>Float64Array</code> / <code>Int32Array</code> /
+<code>Uint8Array</code>, marshaled to a pointer). A plain <code>[0.0]</code> example-typed param is a
+JS array, <strong>not</strong> a wasm pointer — annotate it as <code>Float32Array</code>.</li>
+<li><strong>Math intrinsics:</strong> <code>sqrt</code>, <code>abs</code>, <code>floor</code>, <code>ceil</code>, <code>min</code>, <code>max</code>, <code>sin</code>, <code>cos</code>,
+<code>log</code>, <code>exp</code>, <code>pow</code>.</li>
+<li><strong>SIMD:</strong> the full <code>f32x4_*</code> set (see § SIMD intrinsics).</li>
+</ul>
+<p>Not supported (→ fallback + warning): allocation (JS owns all memory), function
+calls other than the intrinsics above, closures, objects/strings, <code>try</code>/<code>catch</code>,
+<code>while</code> (use <code>for</code>). Watch the <code>result.warnings</code> / <code>result.wasmCompiled</code> to catch
+a block that fell back.</p>
+<h3>Numeric gotcha: i32 / i32 is <strong>integer</strong> division</h3>
+<p>Types are inferred per operand, and coercion to f64 happens <strong>per binary op</strong>, at
+the <em>next</em> operator — so a division where both operands are i32 (loop vars,
+<code>0</code>-annotated params, integer literals) does <strong>integer</strong> division and truncates,
+even in a float-heavy kernel:</p>
+<pre><code class="language-tjs">// x and w are i32 (loop var / param): x / w truncates to 0 for all x &lt; w,
+// so (x / w - 0.5) is (0 - 0.5) everywhere — a constant, silently wrong.
+let bad = x / w - 0.5
+// Force float early by adding 0.0 to one operand:
+let fx = x + 0.0
+let good = fx / w - 0.5          // now f64 division
+</code></pre>
+<p>This bit a real Mandelbrot kernel. Rule of thumb: in a float kernel, seed your
+integer loop vars into f64 (<code>let fx = i + 0.0</code>) before dividing. (A compile-time
+lint for i32/i32 division feeding a float context is a tracked follow-up.)</p>
+<h2>Current limitations (v1)</h2>
+<p>These are real constraints worth knowing about. Most are scoped follow-ups
+from the wasm-library plan.</p>
+<ul>
+<li><strong>Return types:</strong> <code>f64</code> and void only. <code>i32</code>, <code>f32</code>, <code>v128</code> returns are
+parsed but not yet emitted as the bytecode return type.</li>
+<li><strong>SIMD lengths:</strong> SIMD kernels assume <code>n % 4 == 0</code>. No tail-loop yet.</li>
+<li><strong>Bump allocator:</strong> <code>wasmBuffer</code> allocations persist forever. Use <code>out</code>
+parameters for repeated allocations; design APIs around buffer reuse.</li>
+<li><strong>Unsafe marker reserved:</strong> <code>(!)</code> syntax is parsed but rejected pending the
+unsafe variant implementation (Phase 7).</li>
+<li><strong>One file = one module:</strong> the consumer&#39;s transpiled output has exactly one
+<code>WebAssembly.Module</code>, period. Cross-module wasm-to-wasm calls aren&#39;t a thing
+— they&#39;re composed at the source level into the same module.</li>
+<li><strong>Boundary form per-call cost:</strong> when a library is consumed via its
+transpiled <code>.js</code>, each call crosses the JS↔wasm boundary. Engines inline
+small functions at JIT time, but the boundary still costs single-digit
+nanoseconds. Composed form (tjs-to-tjs) avoids this.</li>
+<li><strong>Library duplication across <code>.js</code> deps:</strong> if two third-party libraries both
+embed <code>linalg</code> in their <code>.js</code> distribution, the consumer carries two copies.
+Matches JS ecosystem norms — a future &quot;shared wasm module registry&quot; could
+dedup at the cost of new infrastructure.</li>
+</ul>
+<hr>
+<h2>References</h2>
+<ul>
+<li><code>docs/WASM-QUICKSTART.md</code> — 5-minute introduction (inline blocks)</li>
+<li><code>wasm-library-plan.md</code> — Design rationale and phased implementation plan</li>
+<li><code>CLAUDE-TJS-SYNTAX.md</code> § &quot;WASM Blocks&quot; — Inline block reference</li>
+<li><code>src/linalg/index.tjs</code> — First stdlib library, readable as source</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link current" href="../DOCS-WASM/" aria-current="page">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

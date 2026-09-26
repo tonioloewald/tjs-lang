@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>TJS vs TypeScript vs JavaScript — tjs-lang</title>
+  <meta name="description" content="Source: src/lang/differences.ts Regenerate: bun run docs:differences Every row below is executed against tsc --strict and TJS by src/lang/differences.test.ts…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/tjs-vs-typescript/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="TJS vs TypeScript vs JavaScript — tjs-lang" />
+  <meta property="og:description" content="Source: src/lang/differences.ts Regenerate: bun run docs:differences Every row below is executed against tsc --strict and TJS by src/lang/differences.test.ts…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/tjs-vs-typescript/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"TJS vs TypeScript vs JavaScript","description":"Source: src/lang/differences.ts Regenerate: bun run docs:differences Every row below is executed against tsc --strict and TJS by src/lang/differences.test.ts…","url":"https://tjs.tosijs.net/tjs-vs-typescript/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "home", "order": 1, "navTitle": "TJS vs TypeScript", "parent": "typescript-good-bad-ugly.md"}--><h1>TJS vs TypeScript vs JavaScript</h1>
+<!-- GENERATED FILE — do not edit.
+     Source: src/lang/differences.ts
+     Regenerate: bun run docs:differences
+     Every row below is executed against `tsc --strict` and TJS by
+     src/lang/differences.test.ts, which fails if a documented result is not the
+     observed one. --><p>Every difference on this page is <strong>executed</strong>, not asserted. Each snippet is run through
+<code>tsc --strict</code> and through TJS on every test run, and the table below reports what those
+compilers actually did — not what someone believed when they wrote the page.</p>
+<p>That matters more than it sounds. One review cycle of this project turned up six
+documented behaviours that did not exist: an arrow return syntax that was never
+implemented, a <code>predicate =&gt;</code> form that parsed and validated nothing, <code>.d.ts</code> stubs that
+were never emitted, annotations documented as checked that resolved to <code>any</code>, an editor
+completion suggesting a form the compiler rejects, and a playground page teaching nine
+abolished directives. Not one was caught by reading.</p>
+<p><strong>&quot;rejected&quot; means the compiler refused it.</strong> A value means it compiled and that is what
+it printed.</p>
+<h3>Assigning a number to a DOM string property</h3>
+<pre><code class="language-ts">declare const input: HTMLInputElement
+input.value = 42
+</code></pre>
+<p>The same program in TJS (the snippet above is TypeScript-only syntax):</p>
+<pre><code class="language-js">class Input {
+  constructor() { this._v = &quot;&quot; }
+  get value() { return this._v }
+  set value(x) { this._v = String(x) }
+}
+const input = unsafe new Input()
+input.value = 42
+console.log(input.value)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td><strong>rejected</strong></td>
+<td><code>42</code></td>
+</tr>
+</tbody></table>
+<p>The DOM spec coerces to a string on assignment. TypeScript models <code>value</code> as a plain <code>string</code> property, so it rejects code the platform is specified to accept.</p>
+<hr>
+<h3><code>typeof null</code></h3>
+<pre><code class="language-js">console.log(typeof null)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td><code>object</code></td>
+<td><code>null</code></td>
+</tr>
+</tbody></table>
+<p>A 1995 bug JavaScript cannot fix without breaking the web. TypeScript inherits it; TJS reports what the value actually is.</p>
+<hr>
+<h3><code>==</code> between a string and a number</h3>
+<pre><code class="language-js">console.log(&#39;5&#39; == 5)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td><strong>rejected</strong></td>
+<td><code>false</code></td>
+</tr>
+</tbody></table>
+<p>TypeScript CATCHES this one — TS2367, &quot;no overlap&quot; — whenever it can see both types statically. TJS makes it <code>false</code> at runtime instead, which also covers the case where TypeScript cannot see them (next row).</p>
+<hr>
+<h3><code>==</code> when the type is not statically known</h3>
+<pre><code class="language-js">const a = JSON.parse(&#39;&quot;5&quot;&#39;)
+console.log(a == 5)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+</tbody></table>
+<p>The honest version of the previous row. Once a value is <code>any</code> — which is what arrives from JSON, the DOM or a network — TypeScript has nothing to compare and the coercion is back. TJS never coerces, because the check happens where the value is.</p>
+<hr>
+<h3><code>var</code></h3>
+<pre><code class="language-js">var x = 1
+console.log(x)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td><code>1</code></td>
+<td><strong>rejected</strong></td>
+</tr>
+</tbody></table>
+<p>Function-scoped hoisting is a hazard with no remaining use. <code>unsafe var x = 1</code> keeps it at a single site when a port needs it.</p>
+<hr>
+<h3><code>new Date()</code></h3>
+<pre><code class="language-js">const d = new Date(0)
+console.log(d.getTime())
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td><code>0</code></td>
+<td><strong>rejected</strong></td>
+</tr>
+</tbody></table>
+<p><code>Date</code> is mutable and timezone-dependent. <code>Timestamp</code> is epoch milliseconds and pure; <code>unsafe new Date(x)</code> is the per-site escape.</p>
+<hr>
+<h3>Distinguishing an integer from a float</h3>
+<pre><code class="language-js">function f(n: int) { return n }
+console.log(String(f(2.5)).slice(0, 22))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>MonadicError: Expected</code></td>
+</tr>
+</tbody></table>
+<p>TypeScript has one numeric type, so &quot;this is a count/index/id&quot; is inexpressible and ends up policed by comments. <code>int</code>, <code>unsigned</code> and <code>float</code> name the distinction.</p>
+<hr>
+<h3>A type that survives to runtime</h3>
+<pre><code class="language-js">function greet(name: &#39;&#39;) { return &#39;hi &#39; + name }
+console.log(String(greet(42)).slice(0, 22))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>MonadicError: Expected</code></td>
+</tr>
+</tbody></table>
+<p>TypeScript erases annotations before the program runs, so a value arriving from JSON, the DOM or a network is unchecked. TJS checks at the boundary and returns a <code>MonadicError</code> rather than throwing.</p>
+<hr>
+<h3>The annotation IS a test</h3>
+<pre><code class="language-js">function add(a: 2, b: 3): 5 { return a + b }
+console.log(&#39;ok&#39;)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>ok</code></td>
+</tr>
+</tbody></table>
+<p>A return example is a worked example, compared by deep equality at build time. <code>add(2, 3)</code> must be 5 — change the body to <code>a - b</code> and the build fails, with no test file and no runner.</p>
+<hr>
+<h3>A wrong worked example fails the build</h3>
+<pre><code class="language-js">function add(a: 2, b: 3): 6 { return a + b }
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><strong>rejected</strong></td>
+</tr>
+</tbody></table>
+<p>The other half of the previous row: the example is checked, not decoration. TypeScript has no equivalent — a return type cannot be wrong about a value.</p>
+<hr>
+<h3>Property names that declare their own types</h3>
+<pre><code class="language-js">Type Prefixed {
+  example: {}
+  predicate(o) {
+    return Object.entries(o).every(([k, v]) =&gt;
+      k.startsWith(&#39;is&#39;) ? typeof v === &#39;boolean&#39; : true
+    )
+  }
+}
+function render(p: Prefixed) { return 1 }
+console.log(String(render({ isOpen: &#39;yes&#39; })).slice(0, 22))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>MonadicError: Expected</code></td>
+</tr>
+</tbody></table>
+<p>An index signature forces one type across all keys and a mapped type needs them enumerated in advance, so TypeScript cannot express a convention over an OPEN key set. A predicate reads the name and decides.</p>
+<hr>
+<h3>Terse predicate: <code>predicate =&gt; expr</code></h3>
+<pre><code class="language-js">Type Even {
+  example: 2
+  predicate =&gt; Even % 2 === 0
+}
+console.log(Even.check(4), Even.check(3))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>true false</code></td>
+</tr>
+</tbody></table>
+<p>Mirrors an arrow function body: <code>=&gt;</code> implies the return, and the type name binds to the value under test. It used to parse and accept every value, then was rejected outright rather than ignored; now it is normalised into the function form, so it inherits predicate verification and fuel bounding rather than re-implementing them.</p>
+<hr>
+<h3>Block predicate: <code>predicate { return expr }</code></h3>
+<pre><code class="language-js">Type Even {
+  example: 2
+  predicate { return Even % 2 === 0 }
+}
+console.log(Even.check(4), Even.check(3))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>true false</code></td>
+</tr>
+</tbody></table>
+<p>The multi-line half of the same rule — a <code>{ }</code> body requires <code>return</code>, exactly as in JavaScript. Nothing new to learn, which is the argument for this spelling over an implicit last expression.</p>
+<hr>
+<h3>A parameterized type needs no predicate to check its parameter</h3>
+<pre><code class="language-js">Type Box&lt;T&gt; {
+  example: { value: T }
+}
+console.log(Box(0).check({ value: 7 }), Box(0).check({ value: &#39;s&#39; }))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>true false</code></td>
+</tr>
+</tbody></table>
+<p>The example already says WHERE the parameter goes, so <code>T</code> applied at that slot is derivable and writing <code>predicate(x, T) { return T(x.value) }</code> restates it. Until this was built, omitting the predicate emitted <code>Generic([...], () =&gt; true)</code> — a parameterized type that accepted every value while looking like it checked one.</p>
+<hr>
+<h3>Type arguments in an annotation: <code>b: Box&lt;int&gt;</code></h3>
+<pre><code class="language-js">Type Box&lt;T&gt; {
+  predicate(x, T) { return T(x.value) }
+}
+function unbox(b: Box&lt;int&gt;) { return b.value }
+console.log(String(unbox({ value: 1.5 })).slice(0, 22))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>MonadicError: Expected</code></td>
+</tr>
+</tbody></table>
+<p>A parameterized type applied to arguments is a CALL at run time, and a primitive argument has no runtime binding — so it becomes a PREDICATE, the only representation available for a type that is not a value. The applied type is hoisted to a module-level <code>const</code> named after the annotation, so it is built once rather than per call and the emitter&#39;s existing declared-type path handles it unchanged. Composes: <code>Box&lt;Box&lt;int&gt;&gt;</code> works because a parameterized type is itself a valid type argument.</p>
+<hr>
+<h3>Two functions with the same name</h3>
+<pre><code class="language-js">function area(w: number) { return w * w }
+function area(w: number, h: number) { return w * h }
+console.log(area(3), area(3, 4))
+</code></pre>
+<p>The same program in TJS (the snippet above is TypeScript-only syntax):</p>
+<pre><code class="language-js">function area(w: 0.0) { return w * w }
+function area(w: 0.0, h: 0.0) { return w * h }
+console.log(area(3.0), area(3.0, 4.0))
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td><strong>rejected</strong></td>
+<td><code>9 12</code></td>
+</tr>
+</tbody></table>
+<p>TypeScript HAS overloads, but they are signature declarations over ONE implementation — TS2393 for a second body — and they are erased entirely, so you write the dispatch by hand. TJS merges same-name declarations into a real arity/type dispatcher, so each case is its own function.</p>
+<hr>
+<h3><code>new</code> on a user class</h3>
+<pre><code class="language-js">class P { constructor(x: 0) { this.x = x } }
+const p = new P(1)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><strong>rejected</strong></td>
+</tr>
+</tbody></table>
+<p><code>P(1)</code> and <code>new P(2)</code> produce identical objects — a TJS class is CALLED — so <code>new</code> was decoration with the look of significance. Scoped to classes declared in the file: for a built-in <code>new</code> is MANDATORY (<code>new Float32Array(4)</code> throws without it), a limit found by shipping the general rule and watching eight examples break within a minute.</p>
+<hr>
+<h3>Calling a class without <code>new</code></h3>
+<pre><code class="language-js">class P { constructor(x: 0) { this.x = x } }
+const p = P(1)
+console.log(p.x)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>TypeScript</th>
+<th>TJS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>result</td>
+<td>—</td>
+<td><code>1</code></td>
+</tr>
+</tbody></table>
+<p>A TJS class is called, not constructed — <code>new</code> adds nothing. In JavaScript (and TypeScript) calling a class without <code>new</code> is a TypeError, so the ceremony is mandatory even though it carries no information.</p>
+<hr>
+<h2>Adding a row</h2>
+<p>Edit <code>src/lang/differences.ts</code>, then run <code>bun run docs:differences</code>. If
+<code>differences.test.ts</code> disagrees with your row, it is reporting the language as it is —
+which is the point. A row that cannot be executed does not belong on this page.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link current" href="../tjs-vs-typescript/" aria-current="page">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Starfield — tjs-lang</title>
+  <meta name="description" content="Interactive space flythrough with parallax stars and nebula clouds. Uses wasmBuffer() for zero-copy WASM memory and SIMD-accelerated particle movement." />
+  <link rel="canonical" href="https://tjs.tosijs.net/wasm-starfield/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Starfield — tjs-lang" />
+  <meta property="og:description" content="Interactive space flythrough with parallax stars and nebula clouds. Uses wasmBuffer() for zero-copy WASM memory and SIMD-accelerated particle movement." />
+  <meta property="og:url" content="https://tjs.tosijs.net/wasm-starfield/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Starfield","description":"Interactive space flythrough with parallax stars and nebula clouds. Uses wasmBuffer() for zero-copy WASM memory and SIMD-accelerated particle movement.","url":"https://tjs.tosijs.net/wasm-starfield/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "tjs", "type": "example", "group": "featured", "order": 0, "parent": "tjs-featured.md"}--><h1>Starfield</h1>
+<blockquote>
+<p>New to WASM in TJS? Start with the <strong><a href="https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md">WASM Quick Start</a></strong>.</p>
+</blockquote>
+<p>Interactive space flythrough with parallax stars and nebula clouds. Uses <code>wasmBuffer()</code> for zero-copy WASM memory and SIMD-accelerated particle movement.</p>
+<pre><code class="language-tjs">/#
+# Space Flythrough Demo
+
+A Star Trek-style starfield with parallax depth and nebula clouds.
+Uses `wasmBuffer()` to allocate particle arrays directly in WASM memory —
+no copy-in/copy-out overhead. SIMD processes 4 particles per instruction.
+
+**Controls:**
+- Move mouse **left/right** to steer laterally
+- Move mouse **up/down** to steer vertically
+- **Scroll wheel** to control speed
+- **Click** to pause/resume
+#/
+
+// Configuration
+const NUM_STARS = 50000
+const NUM_NEBULA = 5000
+const MAX_DEPTH = 1000
+const BASE_SPEED = 8
+
+// Particle arrays in WASM memory (zero-copy when passed to wasm blocks)
+const starX = wasmBuffer(Float32Array, NUM_STARS)
+const starY = wasmBuffer(Float32Array, NUM_STARS)
+const starZ = wasmBuffer(Float32Array, NUM_STARS)
+
+const nebulaX = wasmBuffer(Float32Array, NUM_NEBULA)
+const nebulaY = wasmBuffer(Float32Array, NUM_NEBULA)
+const nebulaZ = wasmBuffer(Float32Array, NUM_NEBULA)
+const nebulaR = new Float32Array(NUM_NEBULA)
+const nebulaG = new Float32Array(NUM_NEBULA)
+const nebulaB = new Float32Array(NUM_NEBULA)
+
+// Initialize stars
+for (let i = 0; i &lt; NUM_STARS; i++) {
+  starX[i] = (Math.random() - 0.5) * 2000
+  starY[i] = (Math.random() - 0.5) * 2000
+  starZ[i] = Math.random() * MAX_DEPTH
+}
+
+// Initialize nebula with random positions and colors
+for (let i = 0; i &lt; NUM_NEBULA; i++) {
+  nebulaX[i] = (Math.random() - 0.5) * 1500
+  nebulaY[i] = (Math.random() - 0.5) * 1500
+  nebulaZ[i] = Math.random() * MAX_DEPTH
+  nebulaR[i] = 0.3 + Math.random() * 0.7
+  nebulaG[i] = 0.2 + Math.random() * 0.6
+  nebulaB[i] = 0.4 + Math.random() * 0.6
+}
+
+// Move particles — SIMD accelerated with wasmBuffer (zero-copy)
+// Moves along Z (forward) and applies XY drift from steering
+function moveParticles(! xs: Float32Array, ys: Float32Array, zs: Float32Array, len: 0, dx: 0.0, dy: 0.0, dz: 0.0) {
+  wasm {
+    let vdx = f32x4_splat(dx)
+    let vdy = f32x4_splat(dy)
+    let vdz = f32x4_splat(dz)
+    for (let i = 0; i &lt; len; i += 4) {
+      let off = i * 4
+      f32x4_store(xs, off, f32x4_add(f32x4_load(xs, off), vdx))
+      f32x4_store(ys, off, f32x4_add(f32x4_load(ys, off), vdy))
+      f32x4_store(zs, off, f32x4_sub(f32x4_load(zs, off), vdz))
+    }
+  } fallback {
+    for (let i = 0; i &lt; len; i++) {
+      xs[i] += dx
+      ys[i] += dy
+      zs[i] -= dz
+    }
+  }
+}
+
+// Respawn stars that passed camera or went too far
+function respawnStars(xs, ys, zs, len, maxDepth) {
+  for (let i = 0; i &lt; len; i++) {
+    if (zs[i] &lt; 1 || zs[i] &gt; maxDepth) {
+      if (zs[i] &lt; 1) {
+        zs[i] = maxDepth * (0.7 + Math.random() * 0.3)
+      } else {
+        zs[i] = 10 + Math.random() * 50
+      }
+      xs[i] = (Math.random() - 0.5) * 2000
+      ys[i] = (Math.random() - 0.5) * 2000
+    }
+  }
+}
+
+// Respawn nebula particles
+function respawnNebula(xs, ys, zs, len, maxDepth) {
+  for (let i = 0; i &lt; len; i++) {
+    if (zs[i] &lt; 1 || zs[i] &gt; maxDepth) {
+      if (zs[i] &lt; 1) {
+        zs[i] = maxDepth * (0.5 + Math.random() * 0.5)
+      } else {
+        zs[i] = 50 + Math.random() * 100
+      }
+      xs[i] = (Math.random() - 0.5) * 1500
+      ys[i] = (Math.random() - 0.5) * 1500
+    }
+  }
+}
+
+// Create canvas
+const canvas = document.createElement(&#39;canvas&#39;)
+canvas.style.background = &#39;#000&#39;
+canvas.style.display = &#39;block&#39;
+canvas.style.cursor = &#39;crosshair&#39;
+canvas.style.width = &#39;100%&#39;
+canvas.style.height = &#39;100%&#39;
+canvas.style.position = &#39;absolute&#39;
+canvas.style.top = &#39;0&#39;
+canvas.style.left = &#39;0&#39;
+
+const ctx = canvas.getContext(&#39;2d&#39;)
+
+let width, height, halfW, halfH, fov
+
+function resize() {
+  width = canvas.width = canvas.offsetWidth || 800
+  height = canvas.height = canvas.offsetHeight || 500
+  halfW = width / 2
+  halfH = height / 2
+  fov = width * 0.7
+}
+
+document.body.appendChild(canvas)
+resize()
+window.addEventListener(&#39;resize&#39;, resize)
+
+// Mouse state — position controls steering, scroll controls speed
+let mouseX = 0.5, mouseY = 0.5
+let speedMultiplier = 1.0
+
+canvas.addEventListener(&#39;mousemove&#39;, (e) =&gt; {
+  const rect = canvas.getBoundingClientRect()
+  mouseX = (e.clientX - rect.left) / width
+  mouseY = (e.clientY - rect.top) / height
+})
+
+canvas.addEventListener(&#39;wheel&#39;, (e) =&gt; {
+  e.preventDefault()
+  speedMultiplier = Math.max(0.1, Math.min(4.0, speedMultiplier - e.deltaY * 0.002))
+}, { passive: false })
+
+canvas.addEventListener(&#39;click&#39;, () =&gt; {
+  speedMultiplier = speedMultiplier &gt; 0.5 ? 0.0 : 1.0
+})
+
+// FPS tracking
+let frameCount = 0
+let fps = 0
+let lastFpsTime = performance.now()
+
+function animate() {
+  frameCount++
+  const now = performance.now()
+  if (now - lastFpsTime &gt; 1000) {
+    fps = frameCount
+    frameCount = 0
+    lastFpsTime = now
+  }
+
+  const speed = BASE_SPEED * speedMultiplier
+  // Steering: mouse offset from center generates lateral drift
+  const dx = (mouseX - 0.5) * speed * 3
+  const dy = (mouseY - 0.5) * speed * 3
+
+  // Clear
+  ctx.fillStyle = &#39;#08080f&#39;
+  ctx.fillRect(0, 0, width, height)
+
+  // Update particles
+  moveParticles(starX, starY, starZ, NUM_STARS, dx, dy, speed)
+  respawnStars(starX, starY, starZ, NUM_STARS, MAX_DEPTH)
+  moveParticles(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, dx * 0.25, dy * 0.25, speed * 0.25)
+  respawnNebula(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, MAX_DEPTH)
+
+  // Draw nebula (behind stars)
+  for (let i = 0; i &lt; NUM_NEBULA; i++) {
+    const z = nebulaZ[i]
+    if (z &lt; 1) continue
+
+    const x = (nebulaX[i] / z) * fov + halfW
+    const y = (nebulaY[i] / z) * fov + halfH
+
+    if (x &lt; -100 || x &gt; width + 100 || y &lt; -100 || y &gt; height + 100) continue
+
+    const depth = 1 - z / MAX_DEPTH
+    const alpha = depth * depth * 0.08
+    const size = depth * 60 + 30
+
+    const r = Math.floor(nebulaR[i] * 255)
+    const g = Math.floor(nebulaG[i] * 255)
+    const b = Math.floor(nebulaB[i] * 255)
+
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, size)
+    gradient.addColorStop(0, `rgba(${r},${g},${b},${alpha})`)
+    gradient.addColorStop(0.5, `rgba(${r},${g},${b},${alpha * 0.3})`)
+    gradient.addColorStop(1, &#39;rgba(0,0,0,0)&#39;)
+    ctx.fillStyle = gradient
+    ctx.beginPath()
+    ctx.arc(x, y, size, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Draw stars
+  for (let i = 0; i &lt; NUM_STARS; i++) {
+    const z = starZ[i]
+    if (z &lt; 1) continue
+
+    const x = (starX[i] / z) * fov + halfW
+    const y = (starY[i] / z) * fov + halfH
+
+    if (x &lt; 0 || x &gt; width || y &lt; 0 || y &gt; height) continue
+
+    const depth = 1 - z / MAX_DEPTH
+    const brightness = depth * depth
+    const size = brightness * 2 + 0.5
+
+    const c = Math.floor(180 + brightness * 75)
+    ctx.fillStyle = `rgba(${c},${c},255,${0.6 + brightness * 0.4})`
+    ctx.beginPath()
+    ctx.arc(x, y, size, 0, Math.PI * 2)
+    ctx.fill()
+
+    if (brightness &gt; 0.5) {
+      ctx.fillStyle = `rgba(220,230,255,${(brightness - 0.5) * 0.4})`
+      ctx.beginPath()
+      ctx.arc(x, y, size * 2.5, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+
+  // Subtle vignette
+  const vignette = ctx.createRadialGradient(halfW, halfH, height * 0.3, halfW, halfH, height * 0.8)
+  vignette.addColorStop(0, &#39;rgba(0,0,0,0)&#39;)
+  vignette.addColorStop(1, &#39;rgba(0,0,0,0.4)&#39;)
+  ctx.fillStyle = vignette
+  ctx.fillRect(0, 0, width, height)
+
+  // HUD
+  ctx.fillStyle = &#39;#fff&#39;
+  ctx.font = &#39;bold 16px monospace&#39;
+  const simdLabel = typeof globalThis.__tjs_wasm_0 === &#39;function&#39; ? &#39;SIMD&#39; : &#39;JS&#39;
+  ctx.fillText(`FPS: ${fps} | ${simdLabel} | Stars: ${NUM_STARS.toLocaleString()} | Speed: ${speedMultiplier.toFixed(1)}x`, 10, 24)
+  ctx.font = &#39;14px monospace&#39;
+  ctx.fillText(&#39;Steer: mouse | Speed: scroll/click&#39;, 10, height - 12)
+
+  requestAnimationFrame(animate)
+}
+
+animate()
+</code></pre>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details open><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details open><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link current" href="../wasm-starfield/" aria-current="page">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

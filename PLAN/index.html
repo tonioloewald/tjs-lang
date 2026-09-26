@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>TJS Roadmap — tjs-lang</title>
+  <meta name="description" content="The standing note was &quot;reassess a real lexer/CST if edge cases increase&quot;. They have. Seven remaining compat-corpus failures reduce to ~6 bugs, essentially all…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/PLAN/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="TJS Roadmap — tjs-lang" />
+  <meta property="og:description" content="The standing note was &quot;reassess a real lexer/CST if edge cases increase&quot;. They have. Seven remaining compat-corpus failures reduce to ~6 bugs, essentially all…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/PLAN/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"TJS Roadmap","description":"The standing note was \"reassess a real lexer/CST if edge cases increase\". They have. Seven remaining compat-corpus failures reduce to ~6 bugs, essentially all…","url":"https://tjs.tosijs.net/PLAN/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"pin": "bottom", "order": 2}--><h1>TJS Roadmap</h1>
+<h2>Parser architecture — reassessment triggered (2026-09-02)</h2>
+<p>The standing note was &quot;reassess a real lexer/CST if edge cases increase&quot;. They have. Seven
+remaining compat-corpus failures reduce to ~6 bugs, essentially all one class: a scanner that
+knows characters but not grammar. The proposal is NOT a rewrite — see
+<a href="docs/parser-primitives.md"><code>docs/parser-primitives.md</code></a> for the evidence, the two primitives
+that cover most of it, and the sequencing.</p>
+<h2>Philosophy</h2>
+<p>TJS is a practical language that targets multiple runtimes. The type system is <em>descriptive</em> rather than <em>prescriptive</em> - types explain what they are, validate at runtime, and degrade gracefully. No TypeScript gymnastics.</p>
+<p>The runtime is JavaScript today, but it&#39;s <em>our</em> JavaScript - the sandboxed expression evaluator, the fuel-metered VM. Because the AST (not arbitrary JS) is the source of truth, other emission targets are <em>possible</em>; but the strategic center of gravity is the <strong>type system</strong>, not the backend — see &quot;The North Star&quot; below.</p>
+<hr>
+<h2>Executive Summary</h2>
+<p>TJS delivers <strong>runtime type safety with near-zero overhead</strong>. The key insight: single structured arguments enable inline validation that&#39;s 20x faster than schema interpretation.</p>
+<h3>The Performance Story</h3>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Overhead</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>safety none</code></td>
+<td><strong>1.0x</strong></td>
+<td>Production - metadata only, no wrappers</td>
+</tr>
+<tr>
+<td><code>safety inputs</code></td>
+<td><strong>~1.15-1.3x</strong></td>
+<td>Production with validation</td>
+</tr>
+<tr>
+<td><code>safety all</code></td>
+<td>~14x</td>
+<td>Debug - validates inputs and outputs</td>
+</tr>
+<tr>
+<td><code>(!) unsafe</code></td>
+<td><strong>1.0x</strong></td>
+<td>Hot paths - explicit opt-out</td>
+</tr>
+<tr>
+<td>WASM blocks</td>
+<td><strong>&lt;1.0x</strong></td>
+<td>Heavy computation - faster than JS</td>
+</tr>
+</tbody></table>
+<p>Inline validation = <strong>~1.15x overhead</strong> on real-world functions with full runtime type checking. Trivial functions (e.g. <code>x * 2</code>) show ~1.3x because the <code>typeof</code>/<code>instanceof</code> checks dominate.</p>
+<h3>Why Inline Validation Wins</h3>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// TJS: pleasant syntax, fast validation (1.5x)</span>
+<span class="token keyword">function</span> <span class="token function">createUser</span><span class="token punctuation">(</span>input<span class="token operator">:</span> <span class="token punctuation">{</span> name<span class="token operator">:</span> <span class="token string">'Alice'</span><span class="token punctuation">;</span> email<span class="token operator">:</span> <span class="token string">'a@b.com'</span><span class="token punctuation">;</span> age<span class="token operator">:</span> <span class="token number">30</span> <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token function">save</span><span class="token punctuation">(</span>input<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// TypeScript: painful syntax, no runtime safety (1.0x but unsafe)</span>
+<span class="token keyword">function</span> <span class="token function">createUser</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+  name<span class="token punctuation">,</span>
+  email<span class="token punctuation">,</span>
+  age<span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token operator">:</span> <span class="token punctuation">{</span>
+  name<span class="token operator">:</span> <span class="token builtin">string</span>
+  email<span class="token operator">:</span> <span class="token builtin">string</span>
+  age<span class="token operator">:</span> <span class="token builtin">number</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token function">save</span><span class="token punctuation">(</span><span class="token punctuation">{</span> name<span class="token punctuation">,</span> email<span class="token punctuation">,</span> age <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>TJS generates inline type checks at transpile time:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">if</span> <span class="token punctuation">(</span>
+  <span class="token keyword">typeof</span> input <span class="token operator">!==</span> <span class="token string">'object'</span> <span class="token operator">||</span>
+  input <span class="token operator">===</span> <span class="token keyword">null</span> <span class="token operator">||</span>
+  <span class="token keyword">typeof</span> input<span class="token punctuation">.</span>name <span class="token operator">!==</span> <span class="token string">'string'</span> <span class="token operator">||</span>
+  <span class="token keyword">typeof</span> input<span class="token punctuation">.</span>email <span class="token operator">!==</span> <span class="token string">'string'</span> <span class="token operator">||</span>
+  <span class="token keyword">typeof</span> input<span class="token punctuation">.</span>age <span class="token operator">!==</span> <span class="token string">'number'</span>
+<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">$error</span><span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span> <span class="token literal-property property">message</span><span class="token operator">:</span> <span class="token string">'Invalid input'</span><span class="token punctuation">,</span> <span class="token literal-property property">path</span><span class="token operator">:</span> <span class="token string">'createUser.input'</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>No schema interpretation. JIT-friendly. <strong>20x faster</strong> than Zod/io-ts style validation.</p>
+<h3>What You Get</h3>
+<ul>
+<li><strong>Runtime safety in production</strong> - ~1.15x overhead on real functions</li>
+<li><strong>Autocomplete always works</strong> - <code>__tjs</code> metadata attached regardless of safety</li>
+<li><strong>Monadic errors</strong> - type failures return error objects, not exceptions</li>
+<li><strong>Escape hatches</strong> - <code>(!)</code> for hot functions, <code>unsafe {}</code> for hot blocks</li>
+<li><strong>WASM acceleration</strong> - <code>wasm {}</code> blocks for compute-heavy code</li>
+</ul>
+<h3>The Design Alignment</h3>
+<p>The idiomatic way to write TJS (single structured argument) is also the fastest way. Language design and performance goals are aligned - you don&#39;t have to choose between clean code and fast code.</p>
+<h3>The North Star: predicates as JSON-Schema&#39;s missing computational half</h3>
+<p>The strategic direction is <strong>JSON-Schema + <code>$predicate</code> as the single source of truth
+for TJS types.</strong> A TJS type is example-driven and validates at runtime; the deeper insight
+is that a <em>verified predicate</em> — a pure, fuel-bounded, composable function — is the
+computational half JSON-Schema lacks. Structure for naive validators, <code>$predicate</code> for
+aware ones (progressive enhancement). Shipped toward it:</p>
+<ul>
+<li><strong>Predicate-safety verifier</strong> (<code>src/lang/predicate.ts</code>, 0.8.4) — certifies a cluster of
+pure predicates and compiles them to native JS. This is where <strong>&quot;safe is fast&quot;</strong> comes from.</li>
+<li><strong>The <code>$predicate</code> JSON-Schema keyword</strong> (0.9.0) — makes computational types serializable;
+<code>tjs-lang/schema</code> wires it into tosijs-schema, batteries-included.</li>
+<li><strong><code>tjs-lang/css</code></strong> (0.9.0) — real CSS validators built from verified predicates: the thesis
+made concrete.</li>
+<li><strong>A portable predicate representation</strong> (serialized AST, not source) is the cross-language
+unlock — the same predicate runs in any host with a small predicate-VM.</li>
+</ul>
+<p>The active campaign is <strong>&quot;safe is fast&quot;</strong>: measure the overhead, then propagate
+verified→native compilation so the safe path <em>is</em> the fast path. See
+<code>docs/type-system-north-star.md</code> and <code>PRINCIPLES.md</code>.</p>
+<h3>Beyond the north star: multi-target native emission (speculative)</h3>
+<p>The AST is the source of truth, so emitting something other than JS (LLVM IR, Swift, Kotlin)
+is <em>possible</em> — but it&#39;s <strong>not clearly a win yet</strong>. The performance case over &quot;our JS +
+<code>wasm {}</code> for hot paths&quot; is unproven, and it&#39;s a large investment. Parked as a
+someday-maybe, explicitly <em>beyond</em> the north star — not a near-term goal.</p>
+<hr>
+<h2>Technical Aspects</h2>
+<h3>Performance</h3>
+<p><strong>Runtime Validation Overhead:</strong></p>
+<pre><code>Plain function call:     1.2ms / 1M calls (baseline)
+safety: &#39;none&#39;:          1.2ms / 1M calls (~1.0x) - no wrapper
+safety: &#39;inputs&#39;:        1.4ms / 1M calls (~1.15x) - inline validation*
+safety: &#39;all&#39;:           ~14x / 1M calls - validates args + return
+
+* Inline typeof/instanceof checks, no try/finally, no schema interpretation
+  ~1.15x for functions with real work, ~1.3x for trivial functions
+</code></pre>
+<p><strong>Why inline validation is fast:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// The happy path - single structured argument</span>
+<span class="token keyword">function</span> <span class="token function">process</span><span class="token punctuation">(</span>input<span class="token operator">:</span> <span class="token punctuation">{</span> x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">;</span> y<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">;</span> name<span class="token operator">:</span> <span class="token string">'default'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> input<span class="token punctuation">.</span>x <span class="token operator">+</span> input<span class="token punctuation">.</span>y
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Generates inline type checks (20x faster than schema interpretation):</span>
+<span class="token keyword">if</span> <span class="token punctuation">(</span>
+  <span class="token keyword">typeof</span> input <span class="token operator">!==</span> <span class="token string">'object'</span> <span class="token operator">||</span>
+  input <span class="token operator">===</span> <span class="token keyword">null</span> <span class="token operator">||</span>
+  <span class="token keyword">typeof</span> input<span class="token punctuation">.</span>x <span class="token operator">!==</span> <span class="token string">'number'</span> <span class="token operator">||</span>
+  <span class="token keyword">typeof</span> input<span class="token punctuation">.</span>y <span class="token operator">!==</span> <span class="token string">'number'</span> <span class="token operator">||</span>
+  <span class="token keyword">typeof</span> input<span class="token punctuation">.</span>name <span class="token operator">!==</span> <span class="token string">'string'</span>
+<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> $error<span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span> message<span class="token operator">:</span> <span class="token string">'Invalid input'</span><span class="token punctuation">,</span> path<span class="token operator">:</span> <span class="token string">'process.input'</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>This makes <code>safety: &#39;inputs&#39;</code> viable for <strong>production</strong>.</p>
+<p><strong>Why <code>safety: &#39;none&#39;</code> is free:</strong></p>
+<ul>
+<li><code>wrap()</code> attaches <code>__tjs</code> metadata but returns original function</li>
+<li>No wrapper function, no <code>fn.apply()</code>, no argument spreading</li>
+<li>Introspection/autocomplete still works - metadata is always there</li>
+</ul>
+<p><strong>The <code>(!) unsafe</code> marker:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">function</span> <span class="token function">hot</span><span class="token punctuation">(</span><span class="token operator">!</span> x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> x <span class="token operator">*</span> <span class="token number">2</span> <span class="token punctuation">}</span>
+</code></pre>
+<ul>
+<li>Returns original function even with <code>safety: inputs</code></li>
+<li>Use for hot paths where validation cost matters</li>
+<li>Autocomplete still works (metadata attached)</li>
+</ul>
+<p><strong>WASM blocks:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">function</span> <span class="token function">compute</span><span class="token punctuation">(</span>x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">,</span> y<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> scale <span class="token operator">=</span> <span class="token number">2</span>
+  <span class="token keyword">return</span> wasm <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> x <span class="token operator">*</span> y <span class="token operator">*</span> scale  <span class="token comment">// Compiles to WebAssembly</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+<span class="token comment">// Variables (x, y, scale) captured automatically from scope</span>
+<span class="token comment">// Same code runs as JS fallback if WASM unavailable</span>
+</code></pre>
+<p>With explicit fallback (when WASM and JS need different code):</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">function</span> <span class="token function">transform</span><span class="token punctuation">(</span>arr<span class="token operator">:</span> <span class="token punctuation">[</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  wasm <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> arr<span class="token punctuation">.</span>length<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">*=</span> <span class="token number">2</span> <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> arr<span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span>x <span class="token operator">=></span> x <span class="token operator">*</span> <span class="token number">2</span><span class="token punctuation">)</span>  <span class="token comment">// Different JS implementation</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>WASM compilation is fully implemented:</p>
+<ul>
+<li>Parser extracts <code>wasm { }</code> blocks with automatic variable capture</li>
+<li>Compiler generates valid WebAssembly binary embedded as base64 in output</li>
+<li>SIMD intrinsics (<code>f32x4_*</code>) for 4x float throughput</li>
+<li><code>wasmBuffer()</code> for zero-copy typed array sharing between JS and WASM</li>
+<li><code>fallback { }</code> provides JS path when WASM unavailable</li>
+<li>See the <a href="https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md">WASM Quick Start</a> for details</li>
+</ul>
+<h3>Debugging</h3>
+<p><strong>Source locations in errors:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token punctuation">{</span>
+  $error<span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
+  message<span class="token operator">:</span> <span class="token string">'Expected string but got number'</span><span class="token punctuation">,</span>
+  path<span class="token operator">:</span> <span class="token string">'greet.name'</span><span class="token punctuation">,</span>           <span class="token comment">// which parameter</span>
+  loc<span class="token operator">:</span> <span class="token punctuation">{</span> start<span class="token operator">:</span> <span class="token number">15</span><span class="token punctuation">,</span> end<span class="token operator">:</span> <span class="token number">29</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>  <span class="token comment">// source position</span>
+  stack<span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">'main'</span><span class="token punctuation">,</span> <span class="token string">'processUser'</span><span class="token punctuation">,</span> <span class="token string">'greet.name'</span><span class="token punctuation">]</span>  <span class="token comment">// call chain (debug mode)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>Debug mode:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token function">configure</span><span class="token punctuation">(</span><span class="token punctuation">{</span> debug<span class="token operator">:</span> <span class="token boolean">true</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token comment">// Errors now include full call stacks</span>
+</code></pre>
+<p><strong>The <code>--debug</code> flag (planned):</strong></p>
+<ul>
+<li>Functions know where they&#39;re defined</li>
+<li>Errors include source file and line</li>
+<li>No source maps needed - metadata is inline</li>
+</ul>
+<h3>For Human Coding</h3>
+<p><strong>Intuitive syntax:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Types ARE examples - self-documenting</span>
+<span class="token keyword">function</span> <span class="token function">greet</span><span class="token punctuation">(</span>name<span class="token operator">:</span> <span class="token string">'World'</span><span class="token punctuation">,</span> times<span class="token operator">:</span> <span class="token number">3</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token string">''</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">(</span>name <span class="token operator">+</span> <span class="token string">'!'</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">repeat</span><span class="token punctuation">(</span>times<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Autocomplete shows: greet(name: string, times: number): string</span>
+<span class="token comment">// With examples: greet('World', 3)</span>
+</code></pre>
+<p><strong>Module-level safety:</strong></p>
+<pre><code class="language-typescript" data-highlighted>safety none  <span class="token comment">// This module skips validation</span>
+
+<span class="token keyword">function</span> <span class="token function">hot</span><span class="token punctuation">(</span>x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> x <span class="token operator">*</span> <span class="token number">2</span>  <span class="token comment">// No wrapper, but autocomplete still works</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>Escape hatches:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Per-function: skip validation for this function</span>
+<span class="token keyword">function</span> <span class="token function">critical</span><span class="token punctuation">(</span><span class="token operator">!</span> data<span class="token operator">:</span> object<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span>
+
+<span class="token comment">// Per-block: skip validation for calls inside</span>
+unsafe <span class="token punctuation">{</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> <span class="token number">1000000</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token function">hot</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span>  <span class="token comment">// No validation overhead</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>For Agent Coding</h3>
+<p><strong>Introspectable functions:</strong></p>
+<pre><code class="language-typescript" data-highlighted>greet<span class="token punctuation">.</span>__tjs <span class="token operator">=</span> <span class="token punctuation">{</span>
+  params<span class="token operator">:</span> <span class="token punctuation">{</span> name<span class="token operator">:</span> <span class="token punctuation">{</span> type<span class="token operator">:</span> <span class="token string">'string'</span><span class="token punctuation">,</span> required<span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span> example<span class="token operator">:</span> <span class="token string">'World'</span> <span class="token punctuation">}</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  returns<span class="token operator">:</span> <span class="token punctuation">{</span> type<span class="token operator">:</span> <span class="token string">'string'</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Agents can read this to understand function signatures</span>
+<span class="token comment">// LLMs can generate function call schemas automatically</span>
+</code></pre>
+<p><strong>Monadic errors:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token function">riskyOperation</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token function">isMonadicError</span><span class="token punctuation">(</span>result<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Error is a value, not an exception</span>
+  <span class="token comment">// Agent can inspect and handle gracefully</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>Fuel metering:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Agents run with fuel limits - can't run forever</span>
+vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agentCode<span class="token punctuation">,</span> <span class="token punctuation">{</span> fuel<span class="token operator">:</span> <span class="token number">10000</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<hr>
+<h2>1. Type() Builtin</h2>
+<p>A new builtin for defining types with descriptions and runtime validation.</p>
+<h3>Forms</h3>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Full form: description + predicate</span>
+<span class="token keyword">const</span> ZipCode <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span><span class="token string">'5-digit US zip code'</span><span class="token punctuation">,</span> <span class="token punctuation">(</span>s<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token regex"><span class="token regex-delimiter">/</span><span class="token regex-source language-regex">^\d{5}$</span><span class="token regex-delimiter">/</span></span><span class="token punctuation">.</span><span class="token function">test</span><span class="token punctuation">(</span>s<span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> PositiveInt <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span>
+  <span class="token string">'positive integer'</span><span class="token punctuation">,</span>
+  <span class="token punctuation">(</span>n<span class="token punctuation">)</span> <span class="token operator">=></span> Number<span class="token punctuation">.</span><span class="token function">isInteger</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> n <span class="token operator">></span> <span class="token number">0</span>
+<span class="token punctuation">)</span>
+<span class="token keyword">const</span> MatchingPasswords <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span>
+  <span class="token string">'passwords must match'</span><span class="token punctuation">,</span>
+  <span class="token punctuation">(</span>o<span class="token punctuation">)</span> <span class="token operator">=></span> o<span class="token punctuation">.</span>password <span class="token operator">===</span> o<span class="token punctuation">.</span>confirmPassword
+<span class="token punctuation">)</span>
+
+<span class="token comment">// Schema shorthand (common case)</span>
+<span class="token keyword">const</span> Email <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span><span class="token string">'valid email'</span><span class="token punctuation">,</span> s<span class="token punctuation">.</span><span class="token builtin">string</span><span class="token punctuation">.</span>email<span class="token punctuation">)</span>
+<span class="token keyword">const</span> Age <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token builtin">number</span><span class="token punctuation">.</span><span class="token function">min</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token number">150</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Description optional when schema is self-explanatory</span>
+<span class="token keyword">const</span> UserId <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token builtin">string</span><span class="token punctuation">.</span>uuid<span class="token punctuation">)</span>
+</code></pre>
+<h3>Why</h3>
+<ul>
+<li><strong>Self-documenting</strong>: description IS the type for humans and LLMs</li>
+<li><strong>Runtime-checkable</strong>: predicate runs when needed</li>
+<li><strong>Composable</strong>: union/intersection combine predicates</li>
+<li><strong>Replaces regex-as-type</strong>: more expressive, leaves regexes for actual patterns</li>
+<li><strong>Escapes TypeScript corner cases</strong>: no <code>Pick&lt;Omit&lt;Partial&lt;Required&lt;...&gt;&gt;&gt;&gt;</code></li>
+</ul>
+<h3>Predicates</h3>
+<p>Predicates are sync JS functions that run in our runtime:</p>
+<ul>
+<li>Pure expression evaluation (same <code>$expr</code> nodes we have)</li>
+<li>No async, no IO - type checks are in the hot path</li>
+<li>Sandboxed: no prototype access, no globals</li>
+<li>Portable: can be translated to any target</li>
+</ul>
+<h3>Simple Syntax Sugar Remains</h3>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// These still work - Type() is the escape hatch, not the default</span>
+<span class="token keyword">function</span> <span class="token function">greet</span><span class="token punctuation">(</span>name<span class="token operator">:</span> <span class="token string">'World'</span><span class="token punctuation">,</span> times <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span>
+<span class="token keyword">function</span> <span class="token function">delay</span><span class="token punctuation">(</span>ms <span class="token operator">=</span> <span class="token number">1000</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span>
+<span class="token keyword">function</span> <span class="token function">fetch</span><span class="token punctuation">(</span>url<span class="token operator">:</span> <span class="token string">''</span><span class="token punctuation">,</span> timeout <span class="token operator">=</span> <span class="token operator">+</span><span class="token number">5000</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span>
+</code></pre>
+<h2>2. Conditional Compilation with target()</h2>
+<p>Explicit target blocks for platform-specific code.</p>
+<pre><code class="language-typescript" data-highlighted><span class="token function">target</span><span class="token punctuation">(</span>browser<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  document<span class="token punctuation">.</span>body<span class="token punctuation">.</span><span class="token function">appendChild</span><span class="token punctuation">(</span>el<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token function">target</span><span class="token punctuation">(</span>node<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  process<span class="token punctuation">.</span>stdout<span class="token punctuation">.</span><span class="token function">write</span><span class="token punctuation">(</span>str<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token function">target</span><span class="token punctuation">(</span>browser <span class="token operator">&amp;</span> debug<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token builtin">console</span><span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token string">'Debug mode in browser'</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token function">target</span><span class="token punctuation">(</span>browser <span class="token operator">|</span> node<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Runs in either</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Targets</h3>
+<p><strong>Current:</strong></p>
+<ul>
+<li><code>browser</code></li>
+<li><code>node</code></li>
+<li><code>bun</code></li>
+<li><code>debug</code></li>
+<li><code>production</code></li>
+</ul>
+<p><strong>Future:</strong></p>
+<ul>
+<li><code>swiftui</code></li>
+<li><code>android</code></li>
+<li><code>ios</code></li>
+<li><code>win64</code></li>
+<li><code>llvm</code></li>
+</ul>
+<h3>Composition</h3>
+<ul>
+<li><code>&amp;</code> - both must match</li>
+<li><code>|</code> - either matches</li>
+<li><code>target(production)</code> strips <code>test {}</code> blocks and debug code</li>
+</ul>
+<h2>3. Monadic Errors and Debug Mode</h2>
+<h3>try {} Without catch</h3>
+<p>Bare <code>try</code> blocks convert to monadic error returns:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">try</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> data <span class="token operator">=</span> <span class="token function">riskyOperation</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token function">process</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+<span class="token comment">// No catch - transforms to:</span>
+<span class="token comment">// if error, return { $error: true, message, op, cause }</span>
+</code></pre>
+<p>Errors become values, not exceptions. Subsequent code is skipped (monadic flow).</p>
+<h3>AgentError Introspection</h3>
+<p>Errors carry full context:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token punctuation">{</span>
+  $error<span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
+  message<span class="token operator">:</span> <span class="token string">'Connection refused'</span><span class="token punctuation">,</span>
+  op<span class="token operator">:</span> <span class="token string">'httpFetch'</span><span class="token punctuation">,</span>              <span class="token comment">// which atom failed</span>
+  cause<span class="token operator">:</span> <span class="token operator">&lt;</span>original exception<span class="token operator">></span><span class="token punctuation">,</span>  <span class="token comment">// for debugging</span>
+  <span class="token comment">// With --debug:</span>
+  source<span class="token operator">:</span> <span class="token string">'orders.tjs:47:3'</span><span class="token punctuation">,</span>    <span class="token comment">// exact location</span>
+  callStack<span class="token operator">:</span> <span class="token punctuation">[</span>                  <span class="token comment">// how we got here</span>
+    <span class="token string">'ship() at orders.tjs:47:3'</span><span class="token punctuation">,</span>
+    <span class="token string">'processOrder() at checkout.tjs:123:5'</span><span class="token punctuation">,</span>
+    <span class="token string">'handleSubmit() at form.tjs:89:12'</span>
+  <span class="token punctuation">]</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>--debug Flag</h3>
+<p>When transpiled with <code>--debug</code>:</p>
+<ul>
+<li>Functions know what they were called and where they came from</li>
+<li>Errors include source locations and call stacks</li>
+<li>Runtime can reconstruct the full path to failure</li>
+</ul>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// With --debug, errors show:</span>
+<span class="token comment">// Error: Invalid ZipCode at ship() (orders.tjs:47:3)</span>
+<span class="token comment">//   called from processOrder() (checkout.tjs:123:5)</span>
+<span class="token comment">//   called from handleSubmit() (form.tjs:89:12)</span>
+</code></pre>
+<h3>Current State</h3>
+<ul>
+<li>✅ Monadic errors (AgentError class)</li>
+<li>✅ try {} without catch transforms</li>
+<li>✅ Error introspection — the flight recorder (<code>__tjs.records()/record()</code>, source+severity, VM/wasm capture; shipped 0.10.0)</li>
+<li>✅ Call stack in errors — opt-in via <code>configure({ callStacks: true })</code></li>
+<li>❌ --debug source mapping (still open)</li>
+</ul>
+<h2>4. test(&#39;description&#39;) {} Blocks</h2>
+<p>Inline tests that hoist to bottom of file for execution.</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> ZipCode <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span><span class="token string">'5-digit US zip code'</span><span class="token punctuation">,</span> <span class="token punctuation">(</span>s<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token regex"><span class="token regex-delimiter">/</span><span class="token regex-source language-regex">^\d{5}$</span><span class="token regex-delimiter">/</span></span><span class="token punctuation">.</span><span class="token function">test</span><span class="token punctuation">(</span>s<span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+<span class="token function">test</span><span class="token punctuation">(</span><span class="token string">'ZipCode validates correctly'</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span>ZipCode<span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token string">'12345'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>ZipCode<span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token string">'1234'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>ZipCode<span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token string">'123456'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+  <span class="token function">assert</span><span class="token punctuation">(</span><span class="token operator">!</span>ZipCode<span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token string">'abcde'</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token string">'letters should fail'</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">function</span> <span class="token function">ship</span><span class="token punctuation">(</span>to<span class="token operator">:</span> ZipCode<span class="token punctuation">,</span> quantity<span class="token operator">:</span> PositiveInt<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// ...</span>
+<span class="token punctuation">}</span>
+
+<span class="token function">test</span><span class="token punctuation">(</span><span class="token string">'ship requires valid zip and quantity'</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token function">ship</span><span class="token punctuation">(</span><span class="token string">'12345'</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span>  <span class="token comment">// ok</span>
+  <span class="token function">assertThrows</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token function">ship</span><span class="token punctuation">(</span><span class="token string">'bad'</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Failure Output</h3>
+<pre><code>FAIL: ZipCode validates correctly
+  assert(!ZipCode.check(&#39;1234&#39;))  ← auto-generated from source
+
+FAIL: ship requires valid zip and quantity
+  letters should fail  ← custom message when provided
+  assert(!ZipCode.check(&#39;abcde&#39;), &#39;letters should fail&#39;)
+</code></pre>
+<h3>Rules</h3>
+<ul>
+<li><code>test(&#39;description&#39;)</code> - description required, explains what&#39;s being tested</li>
+<li><code>assert(expr)</code> - auto-describes from source code on failure</li>
+<li><code>assert(expr, &#39;reason&#39;)</code> - custom message overrides auto-description</li>
+<li>Tests live next to the code they test</li>
+<li>Hoisted to bottom for execution order</li>
+<li>Stripped in <code>target(production)</code></li>
+<li>Like Rust&#39;s <code>#[test]</code> but inline</li>
+</ul>
+<h2>5. Pragmatic Native Types</h2>
+<p>Trust constructor names for platform types:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Instead of shipping 50KB of DOM type definitions:</span>
+<span class="token comment">// - el instanceof HTMLElement checks constructor.name</span>
+<span class="token comment">// - If someone lies about their constructor, that's on them</span>
+</code></pre>
+<p>This applies to:</p>
+<ul>
+<li>DOM types (HTMLElement, Event, etc.)</li>
+<li>Node types (Buffer, Stream, etc.)</li>
+<li>Platform types (SwiftUI views, Android widgets)</li>
+</ul>
+<h2>6. Future: Multi-Target Emission</h2>
+<p>The same TJS source compiles to:</p>
+<ul>
+<li>JavaScript (current)</li>
+<li>LLVM IR (native binaries)</li>
+<li>Swift (iOS/macOS)</li>
+<li>Kotlin (Android)</li>
+</ul>
+<p>Platform builtins vary by target:</p>
+<ul>
+<li><code>browser</code>: <code>document</code>, <code>window</code>, <code>fetch</code></li>
+<li><code>swiftui</code>: <code>VStack</code>, <code>HStack</code>, <code>Text</code>, <code>Button</code></li>
+<li><code>android</code>: <code>View</code>, <code>TextView</code>, <code>LinearLayout</code></li>
+</ul>
+<p>The AST is the source of truth. Targets are just emission strategies.</p>
+<hr>
+<h2>Implementation Status</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Feature</th>
+<th>Status</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Type()</td>
+<td>✅</td>
+<td>Full form with description + predicate, Union, Generic, Enum</td>
+</tr>
+<tr>
+<td>2</td>
+<td>target()</td>
+<td>❌</td>
+<td>Conditional compilation</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Monadic Errors</td>
+<td>✅</td>
+<td>MonadicError with path, expected, actual, callStack</td>
+</tr>
+<tr>
+<td>4</td>
+<td>test() blocks</td>
+<td>✅</td>
+<td>extractTests, assert/expect, mock blocks, CLI</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Pragmatic natives</td>
+<td>⏳</td>
+<td>Some constructor checks exist</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Multi-target</td>
+<td>❌</td>
+<td>Future - JS only for now</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Safety levels</td>
+<td>✅</td>
+<td>none/inputs/all + (!)/(?) + unsafe {}</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Module-level safety</td>
+<td>✅</td>
+<td><code>safety none</code> directive parsed and passed</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Single-pass</td>
+<td>✅</td>
+<td>Bun plugin: direct <code>bun file.tjs</code> execution</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Module system</td>
+<td>✅</td>
+<td>IndexedDB store, esm.sh CDN, pinned versions</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Autocomplete</td>
+<td>✅</td>
+<td>CodeMirror integration, globals, introspection</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Eval() / SafeFunction</td>
+<td>✅</td>
+<td>Both exported and tested in runtime</td>
+</tr>
+<tr>
+<td>13</td>
+<td>Function introspection</td>
+<td>✅</td>
+<td>__tjs metadata with params, returns, examples</td>
+</tr>
+<tr>
+<td>14</td>
+<td>Generic()</td>
+<td>✅</td>
+<td>Runtime-checkable generics with TPair, TRecord</td>
+</tr>
+<tr>
+<td>15</td>
+<td>Asymmetric get/set</td>
+<td>✅</td>
+<td>JS native get/set captures asymmetric types</td>
+</tr>
+<tr>
+<td>16</td>
+<td><code>==</code> that works</td>
+<td>✅</td>
+<td>Eq/NotEq + Is/IsNot, on by default in native TJS, honest typeof</td>
+</tr>
+<tr>
+<td>17</td>
+<td>WASM blocks</td>
+<td>✅</td>
+<td>Full: SIMD intrinsics, wasmBuffer, fallback, base64 embed</td>
+</tr>
+<tr>
+<td>17a</td>
+<td>WASM libraries</td>
+<td>✅</td>
+<td>v0.8.0: <code>wasm function</code> declarations, cross-file composition, wasm-to-wasm calls, <code>tjs-lang/linalg</code> MVP, module consolidation (one <code>WebAssembly.Module</code> per file), tree-shaking + transitive walk. See <code>wasm-library-plan.md</code>.</td>
+</tr>
+<tr>
+<td>18</td>
+<td>Death to <code>new</code></td>
+<td>✅</td>
+<td>wrapClass + no-explicit-new lint rule</td>
+</tr>
+<tr>
+<td>19</td>
+<td>Linter</td>
+<td>✅</td>
+<td>unused vars, unreachable code, no-explicit-new</td>
+</tr>
+<tr>
+<td>20</td>
+<td>TS→TJS converter</td>
+<td>✅</td>
+<td><code>tjs convert</code> — proven on Zod, Effect, Radash, etc.</td>
+</tr>
+<tr>
+<td>21</td>
+<td>Docs generation</td>
+<td>✅</td>
+<td>Auto-generated with emit, --no-docs, --docs-dir</td>
+</tr>
+<tr>
+<td>22</td>
+<td>Class support</td>
+<td>✅</td>
+<td>TS→TJS class conversion, private→#, Proxy wrap</td>
+</tr>
+<tr>
+<td>23</td>
+<td>JSON Schema</td>
+<td>✅</td>
+<td>Type.toJSONSchema(), Type.strip(), fn.__tjs.schema()</td>
+</tr>
+<tr>
+<td>24</td>
+<td>Error history</td>
+<td>✅</td>
+<td>Ring buffer of recent MonadicErrors, on by default</td>
+</tr>
+<tr>
+<td>25</td>
+<td>Polymorphic functions</td>
+<td>✅</td>
+<td>Multiple same-name declarations merge into dispatcher</td>
+</tr>
+<tr>
+<td>26</td>
+<td>Local class extensions</td>
+<td>✅</td>
+<td><code>extend String { }</code> without prototype pollution</td>
+</tr>
+<tr>
+<td>27</td>
+<td><code>const!</code></td>
+<td>✅</td>
+<td>Compile-time immutability, zero runtime cost</td>
+</tr>
+<tr>
+<td>28</td>
+<td>FunctionPredicate</td>
+<td>✅</td>
+<td>First-class function types with params/returns/contract</td>
+</tr>
+<tr>
+<td>29</td>
+<td><code>.d.ts</code> generation</td>
+<td>✅</td>
+<td><code>generateDTS()</code> from TJS transpilation results</td>
+</tr>
+<tr>
+<td>30</td>
+<td><code>@tjs</code> annotations</td>
+<td>✅</td>
+<td><code>/* @tjs ... */</code> comments enrich TS→TJS output</td>
+</tr>
+</tbody></table>
+<h3>fromTS Transpiler Compatibility</h3>
+<p>Proven against real-world TypeScript libraries (zero test regressions):</p>
+<table>
+<thead>
+<tr>
+<th>Library</th>
+<th>Files</th>
+<th>LOC</th>
+<th>Tests</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Radash</td>
+<td>10</td>
+<td>~3K</td>
+<td>340/340</td>
+<td>✅ 100%</td>
+</tr>
+<tr>
+<td>Superstruct</td>
+<td>8</td>
+<td>1.8K</td>
+<td>225/225</td>
+<td>✅ 100%</td>
+</tr>
+<tr>
+<td>ts-pattern</td>
+<td>17</td>
+<td>5.5K</td>
+<td>453/453</td>
+<td>✅ 100%</td>
+</tr>
+<tr>
+<td>Zod</td>
+<td>114</td>
+<td>~30K</td>
+<td>1842/1842</td>
+<td>✅ 100%</td>
+</tr>
+<tr>
+<td>Kysely</td>
+<td>279</td>
+<td>~20K</td>
+<td>(DB req&#39;d)</td>
+<td>✅ transpiles</td>
+</tr>
+<tr>
+<td>Effect</td>
+<td>363</td>
+<td>120K</td>
+<td>(not run)</td>
+<td>✅ transpiles</td>
+</tr>
+</tbody></table>
+<p>Scripts: <code>bun scripts/compat-radash.ts</code>, <code>compat-superstruct.ts</code>, <code>compat-ts-pattern.ts</code>, <code>compat-zod.ts</code>, <code>compat-kysely.ts</code>, <code>compat-effect.ts</code></p>
+<h2>Next Up</h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Feature</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>&quot;Safe is fast&quot; campaign</strong></td>
+<td>Measure overhead → propagate verified-predicate → native. The north star.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Per-mode <code>off</code> directive</strong></td>
+<td>Mode control is add-only (#7); made acute by dict-defaults/security in 0.12.0</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Curated predicate completions</strong></td>
+<td><code>suggest()</code> gains per-value descriptions + cursor-placement templates, discoverable both in editors AND by an AI via introspection (<code>__tjs</code>/<code>.d.ts</code>). 0.13.0 candidate; TODO §Predicate types #4b/#4c.</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong><code>target()</code></strong></td>
+<td>Conditional compilation for build flags</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Tacit proxies</strong></td>
+<td>Transpiler-assisted implicit namespaces (see Ideas)</td>
+</tr>
+<tr>
+<td>—</td>
+<td><del>JSON Schema from types</del></td>
+<td>Mostly shipped (<code>Type.toJSONSchema()</code>/<code>strip()</code>, <code>$predicate</code>, <code>functionMetaToJSONSchema</code>); only OpenAPI gen + a <code>tjs schema</code> CLI remain</td>
+</tr>
+<tr>
+<td>—</td>
+<td><del>Multi-target emission</del></td>
+<td>Beyond the north star, speculative (see Philosophy) — not near-term</td>
+</tr>
+</tbody></table>
+<h2>7. Safety Levels and Flags</h2>
+<h3>Defaults: Safe and Correct</h3>
+<p>By default, TJS is strict:</p>
+<ul>
+<li>All type contracts enforced</li>
+<li>Lint errors block compilation</li>
+<li>Unknown types are errors</li>
+</ul>
+<h3>Escape Hatches</h3>
+<pre><code class="language-bash" data-highlighted>tjs build app.tjs                    <span class="token comment"># strict, safe defaults</span>
+tjs build app.tjs --allow-unsafe     <span class="token comment"># let nasty TS libs pass through</span>
+tjs build app.tjs <span class="token parameter variable">--yolo</span>             <span class="token comment"># bypass all safeguards (--just-fucking-doit)</span>
+</code></pre>
+<ul>
+<li><code>--allow-unsafe</code>: Complex/unknown types become best-effort runtime checks, warnings not errors</li>
+<li><code>--yolo</code>: Skip all validation, emit anyway (for when you know what you&#39;re doing)</li>
+</ul>
+<h3>Lint Integration</h3>
+<p>Lint errors block safe builds. Not warnings - errors. If you want to ship broken code, use <code>--yolo</code>.</p>
+<h2>8. Single-Pass Pipeline</h2>
+<p>One command does everything:</p>
+<pre><code class="language-bash" data-highlighted>tjs build app.tjs
+</code></pre>
+<p>In a single pass:</p>
+<ol>
+<li><strong>Lint</strong> - catch errors early</li>
+<li><strong>Transpile</strong> - emit target code</li>
+<li><strong>Test</strong> - run inline tests (unless <code>--no-test</code>)</li>
+<li><strong>Docs</strong> - extract documentation from types and descriptions</li>
+</ol>
+<p>No separate <code>tjs lint &amp;&amp; tjs build &amp;&amp; tjs test &amp;&amp; tjs docs</code>. One pass, all the information is right there.</p>
+<h2>9. Module System ✅</h2>
+<h3>Local Module Store (IndexedDB)</h3>
+<p>The playground provides persistent module storage:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Save a module</span>
+<span class="token keyword">await</span> store<span class="token punctuation">.</span><span class="token function">save</span><span class="token punctuation">(</span><span class="token punctuation">{</span> name<span class="token operator">:</span> <span class="token string">'my-utils'</span><span class="token punctuation">,</span> type<span class="token operator">:</span> <span class="token string">'tjs'</span><span class="token punctuation">,</span> code<span class="token operator">:</span> source <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Import it in another module</span>
+<span class="token keyword">import</span> <span class="token punctuation">{</span> helper <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'my-utils'</span>
+</code></pre>
+<ul>
+<li>Modules stored in IndexedDB (persistent across sessions)</li>
+<li>Validation on save (transpilation + inline tests)</li>
+<li>Version tracking and timestamps</li>
+<li>Local modules resolved first, then CDN</li>
+</ul>
+<h3>CDN Integration (esm.sh)</h3>
+<p>npm packages resolve via esm.sh with pinned versions:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> debounce <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'lodash'</span> <span class="token comment">// -> https://esm.sh/lodash@4.17.21</span>
+<span class="token keyword">import</span> <span class="token punctuation">{</span> z <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'zod'</span> <span class="token comment">// -> https://esm.sh/zod@3.22.0</span>
+</code></pre>
+<ul>
+<li>Common packages have pinned versions for stability</li>
+<li>Service Worker caches fetched modules</li>
+<li>Import maps generated at runtime for browser</li>
+</ul>
+<h3>Bundler Compatibility</h3>
+<p>TJS also works inside conventional bundlers:</p>
+<ul>
+<li>Emits standard ES modules</li>
+<li>Bun plugin for direct <code>.tjs</code> execution</li>
+<li>Or use playground&#39;s zero-build approach</li>
+</ul>
+<p>Your choice. We don&#39;t force either approach.</p>
+<h2>10. Autocomplete by Introspection</h2>
+<p>IDE support via runtime introspection, not static <code>.d.ts</code> files.</p>
+<h3>Heuristic Levels (Progressive Fallback)</h3>
+<p><strong>Level 0: Local symbols</strong> (instant, always)</p>
+<ul>
+<li>Scan current file for identifiers</li>
+<li>Function names, variable names, parameter names</li>
+<li>Known atoms</li>
+<li>Like BBEdit - fast, useful, no dependencies</li>
+</ul>
+<p><strong>Level 1: Type-aware</strong> (fast, from syntax)</p>
+<ul>
+<li>Parameter <code>name: &#39;Sarah&#39;</code> → string, offer string methods</li>
+<li>Variable <code>x: 17</code> → number</li>
+<li>No runtime needed, just syntax analysis</li>
+</ul>
+<p><strong>Level 2: Runtime introspection</strong> (when idle)</p>
+<ul>
+<li>Actually run code with mocks up to cursor</li>
+<li>Get real shapes from execution</li>
+<li>Nice to have, not blocking</li>
+</ul>
+<h3>Strategy</h3>
+<ul>
+<li>Start fast (Level 0+1), upgrade async in background</li>
+<li>Typing rapidly? Stay at Level 0</li>
+<li>Paused 200ms? Try Level 1</li>
+<li>Paused 500ms? Try Level 2</li>
+<li>Cache aggressively - same signature = same completions</li>
+</ul>
+<h3>CSS: Use the Browser</h3>
+<p>CSS autocomplete is pathological to implement manually - hundreds of properties, thousands of values, vendor prefixes. The browser already knows all of this.</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Let the browser do the work</span>
+<span class="token keyword">const</span> style <span class="token operator">=</span> document<span class="token punctuation">.</span><span class="token function">createElement</span><span class="token punctuation">(</span><span class="token string">'div'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>style
+Object<span class="token punctuation">.</span><span class="token function">keys</span><span class="token punctuation">(</span>style<span class="token punctuation">)</span> <span class="token comment">// Every CSS property</span>
+<span class="token constant">CSS</span><span class="token punctuation">.</span><span class="token function">supports</span><span class="token punctuation">(</span><span class="token string">'display'</span><span class="token punctuation">,</span> <span class="token string">'grid'</span><span class="token punctuation">)</span> <span class="token comment">// Validate values</span>
+</code></pre>
+<p>Don&#39;t ship CSS type definitions. Query the browser at runtime for:</p>
+<ul>
+<li>Property names</li>
+<li>Valid values for each property</li>
+<li>Vendor prefix variants</li>
+</ul>
+<h3>Versioned Imports Make This Insane</h3>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> ship <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'https://pkg.example.com/shipping@2.0.0/mod.tjs'</span>
+</code></pre>
+<ul>
+<li>Module already transpiled (cached by URL+version)</li>
+<li>Already introspected (we know its exports)</li>
+<li>Immutable (version pinned, never changes)</li>
+<li>Autocomplete for <code>ship.</code> is instant forever</li>
+</ul>
+<p>No node_modules crawling. No LSP server eating 4GB RAM. One file, one unit, instant knowledge.</p>
+<h3>Non-Goals</h3>
+<ul>
+<li>External LSP dependencies</li>
+<li>TypeScript language server</li>
+<li>Crawling dependency graphs</li>
+</ul>
+<h2>11. Eval() - Safe Expression Evaluation</h2>
+<p>A builtin for evaluating expressions with fuel limits:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Low default fuel - won't run away</span>
+<span class="token function">Eval</span><span class="token punctuation">(</span><span class="token string">'2 + 2'</span><span class="token punctuation">)</span> <span class="token comment">// ~100 fuel default</span>
+
+<span class="token comment">// Explicitly allow more for complex work</span>
+<span class="token function">Eval</span><span class="token punctuation">(</span><span class="token string">'fibonacci(20)'</span><span class="token punctuation">,</span> <span class="token punctuation">{</span> fuel<span class="token operator">:</span> <span class="token number">1000</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Restrict for untrusted input</span>
+<span class="token function">Eval</span><span class="token punctuation">(</span>userInput<span class="token punctuation">,</span> <span class="token punctuation">{</span> fuel<span class="token operator">:</span> <span class="token number">10</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h3>Why</h3>
+<ul>
+<li>Same sandboxed evaluator we already have, exposed as builtin</li>
+<li>Safe by default - low fuel limit prevents runaway computation</li>
+<li>No <code>eval()</code> - this is AST evaluation, not string execution</li>
+<li>Fuel exhaustion returns error, doesn&#39;t throw</li>
+</ul>
+<h3>Options</h3>
+<pre><code class="language-typescript" data-highlighted><span class="token function">Eval</span><span class="token punctuation">(</span>expression<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  fuel<span class="token operator">:</span> <span class="token number">100</span><span class="token punctuation">,</span> <span class="token comment">// max fuel (default: 100)</span>
+  context<span class="token operator">:</span> <span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token comment">// variables available to expression</span>
+  timeout<span class="token operator">:</span> <span class="token number">1000</span><span class="token punctuation">,</span> <span class="token comment">// ms timeout (default: fuel * 10)</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>Ideas Parking Lot</h2>
+<h3>Type Flow Optimization (Compile-Time)</h3>
+<p>Skip redundant type checks when types are already proven. The transpiler tracks type information through the call graph:</p>
+<p><strong>Scenario 1: Chained Functions</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">function</span> <span class="token function">validate</span><span class="token punctuation">(</span>x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> x <span class="token operator">*</span> <span class="token number">2</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">function</span> <span class="token function">process</span><span class="token punctuation">(</span>x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> x <span class="token operator">+</span> <span class="token number">1</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Source</span>
+<span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token function">process</span><span class="token punctuation">(</span><span class="token function">validate</span><span class="token punctuation">(</span>input<span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Naive: validate checks input, process checks validate's output</span>
+<span class="token comment">// Optimized: validate's return type matches process's input - skip second check</span>
+
+<span class="token comment">// Transpiled (optimized)</span>
+<span class="token keyword">const</span> _v <span class="token operator">=</span> <span class="token function">validate</span><span class="token punctuation">(</span>input<span class="token punctuation">)</span> <span class="token comment">// validates input once</span>
+<span class="token keyword">const</span> result <span class="token operator">=</span> process<span class="token punctuation">.</span><span class="token function">__unchecked</span><span class="token punctuation">(</span>_v<span class="token punctuation">)</span> <span class="token comment">// skips redundant check</span>
+</code></pre>
+<p><strong>Scenario 2: Loop Bodies</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">function</span> <span class="token function">double</span><span class="token punctuation">(</span>x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> x <span class="token operator">*</span> <span class="token number">2</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">const</span> nums <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span>
+
+<span class="token comment">// Source</span>
+nums<span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span>double<span class="token punctuation">)</span>
+
+<span class="token comment">// Naive: double validates x on every iteration (3 checks)</span>
+<span class="token comment">// Optimized: nums is number[], so each element is number - skip all checks</span>
+
+<span class="token comment">// Transpiled (optimized)</span>
+nums<span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span>double<span class="token punctuation">.</span>__unchecked<span class="token punctuation">)</span> <span class="token comment">// zero validation overhead in loop</span>
+</code></pre>
+<p><strong>Scenario 3: Subtype Relationships</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> PositiveInt <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span>
+  <span class="token string">'positive integer'</span><span class="token punctuation">,</span>
+  <span class="token punctuation">(</span>n<span class="token punctuation">)</span> <span class="token operator">=></span> Number<span class="token punctuation">.</span><span class="token function">isInteger</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> n <span class="token operator">></span> <span class="token number">0</span>
+<span class="token punctuation">)</span>
+<span class="token keyword">function</span> <span class="token function">increment</span><span class="token punctuation">(</span>x<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> x <span class="token operator">+</span> <span class="token number">1</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">const</span> val<span class="token operator">:</span> PositiveInt <span class="token operator">=</span> <span class="token number">5</span>
+<span class="token function">increment</span><span class="token punctuation">(</span>val<span class="token punctuation">)</span> <span class="token comment">// PositiveInt is subtype of number - skip check</span>
+</code></pre>
+<p><strong>Implementation:</strong></p>
+<ol>
+<li>Track return types through call graph</li>
+<li>Generate <code>fn.__unchecked</code> variants that skip input validation</li>
+<li>Emit unchecked calls when input type is proven</li>
+<li>Array/iterable element types flow into loop bodies</li>
+<li>Subtype relationships allow broader → narrower without checks</li>
+</ol>
+<p><strong>Performance Target:</strong></p>
+<ul>
+<li>Current inline validation: ~1.15-1.3x overhead</li>
+<li>With type flow: ~1.0x overhead (skip checks when types proven)</li>
+<li>Hot loops: 0x overhead (unchecked path)</li>
+</ul>
+<h3>JIT-Compiled Type Predicates</h3>
+<p>We own the language, so we can optimize hot type checks:</p>
+<ol>
+<li><strong>Interpreted mode</strong> (default): Predicate runs as-is</li>
+<li><strong>Compiled mode</strong> (hot path): If a Type validates thousands of times, JIT-compile it</li>
+</ol>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> ZipCode <span class="token operator">=</span> <span class="token function">Type</span><span class="token punctuation">(</span><span class="token string">'5-digit zip'</span><span class="token punctuation">,</span> <span class="token punctuation">(</span>s<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token regex"><span class="token regex-delimiter">/</span><span class="token regex-source language-regex">^\d{5}$</span><span class="token regex-delimiter">/</span></span><span class="token punctuation">.</span><span class="token function">test</span><span class="token punctuation">(</span>s<span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+<span class="token comment">// First N calls: interpreted, collecting stats</span>
+<span class="token comment">// Call N+1: "this is hot, compile it"</span>
+<span class="token comment">// Now it's TypeBox-fast without ahead-of-time compilation</span>
+</code></pre>
+<p>For <code>target(production)</code>, we could inline validators entirely:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Source</span>
+<span class="token keyword">function</span> <span class="token function">ship</span><span class="token punctuation">(</span>to<span class="token operator">:</span> ZipCode<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span>
+
+<span class="token comment">// Transpiled (production)</span>
+<span class="token keyword">function</span> <span class="token function">ship</span><span class="token punctuation">(</span>to<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token keyword">typeof</span> to <span class="token operator">!==</span> <span class="token string">'string'</span> <span class="token operator">||</span> <span class="token operator">!</span><span class="token regex"><span class="token regex-delimiter">/</span><span class="token regex-source language-regex">^\d{5}$</span><span class="token regex-delimiter">/</span></span><span class="token punctuation">.</span><span class="token function">test</span><span class="token punctuation">(</span>to<span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token keyword">throw</span> <span class="token keyword">new</span> <span class="token class-name">TypeError</span><span class="token punctuation">(</span><span class="token string">'expected 5-digit zip'</span><span class="token punctuation">)</span>
+  <span class="token operator">...</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>No runtime Type object, no .check() call - just inlined validation.</p>
+<p>Unlike TypeBox (which precompiles via eval and can&#39;t handle dynamic types), we can do both interpreted and compiled because we control the compiler.</p>
+<hr>
+<h2>12. Function Introspection</h2>
+<p>Functions are self-describing. A single signature provides types, examples, and tests:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">function</span> <span class="token function">checkAge</span><span class="token punctuation">(</span>name<span class="token operator">:</span> <span class="token string">'Anne'</span><span class="token punctuation">,</span> age <span class="token operator">=</span> <span class="token number">17</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token punctuation">{</span> canDrink<span class="token operator">:</span> <span class="token boolean">false</span> <span class="token punctuation">}</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> canDrink<span class="token operator">:</span> age <span class="token operator">>=</span> <span class="token number">21</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>From this you get:</p>
+<table>
+<thead>
+<tr>
+<th>Extracted</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Types</strong></td>
+<td><code>name: string</code>, <code>age: number</code>, returns <code>{ canDrink: boolean }</code></td>
+</tr>
+<tr>
+<td><strong>Examples</strong></td>
+<td><code>name = &#39;Anne&#39;</code>, <code>age = 17</code>, output <code>{ canDrink: false }</code></td>
+</tr>
+<tr>
+<td><strong>Implicit test</strong></td>
+<td><code>checkAge(&#39;Anne&#39;, 17)</code> should return <code>{ canDrink: false }</code></td>
+</tr>
+<tr>
+<td><strong>Docs</strong></td>
+<td>The signature IS the documentation</td>
+</tr>
+</tbody></table>
+<h3>Runtime Metadata</h3>
+<p>Every function carries introspectable metadata:</p>
+<pre><code class="language-typescript" data-highlighted>checkAge<span class="token punctuation">.</span>__tjs
+<span class="token comment">// {</span>
+<span class="token comment">//   params: {</span>
+<span class="token comment">//     name: { type: { kind: 'string' }, required: true },</span>
+<span class="token comment">//     age: { type: { kind: 'integer' }, required: false, default: 17 }</span>
+<span class="token comment">//   },</span>
+<span class="token comment">//   returns: { type: { kind: 'object' } },</span>
+<span class="token comment">//   source: 'users.tjs:42'</span>
+<span class="token comment">// }</span>
+</code></pre>
+<h3>Debug Builds</h3>
+<p>With <code>--debug</code>, functions know where they are and where they were called from:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Error output includes full trace:</span>
+<span class="token comment">// Error: Invalid ZipCode at ship() (orders.tjs:47:3)</span>
+<span class="token comment">//   called from processOrder() (checkout.tjs:123:5)</span>
+<span class="token comment">//   called from handleSubmit() (form.tjs:89:12)</span>
+</code></pre>
+<h3>No Source Maps</h3>
+<p>Source maps are a hack - external files that get out of sync, break in large builds, and require tooling support. TJS replaces them entirely:</p>
+<ul>
+<li>The function <em>knows</em> where it&#39;s from (<code>fn.__tjs.source</code>)</li>
+<li>Can&#39;t get out of sync (it&#39;s part of the function)</li>
+<li>No external files, no tooling required</li>
+<li>Works in production without <code>.map</code> files</li>
+</ul>
+<h3>Why This Matters</h3>
+<ul>
+<li><strong>Auto-generated tests</strong>: Run with examples, expect example output</li>
+<li><strong>API documentation</strong>: Always accurate, extracted from source</li>
+<li><strong>LLM tool schemas</strong>: Generate OpenAI function calling format automatically</li>
+<li><strong>Debug traces</strong>: Full path to failure with source locations</li>
+<li><strong>Zero extra effort</strong>: You write the function, you get all of this</li>
+</ul>
+<h2>13. Generic() Builtin</h2>
+<p>Turing completeness by design, not by accident. TypeScript&#39;s generics grew into an unreadable type-level programming language. TJS assumes Turing completeness from the start - the predicate is just code:</p>
+<p>Following the <code>Type()</code> pattern, generics are runtime-inspectable and predicate-validated:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> List <span class="token operator">=</span> <span class="token function">Generic</span><span class="token punctuation">(</span>
+  <span class="token string">'homogeneous list of items'</span><span class="token punctuation">,</span>
+  <span class="token punctuation">[</span><span class="token constant">T</span><span class="token punctuation">]</span><span class="token punctuation">,</span>
+  <span class="token punctuation">(</span>x<span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token constant">T</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token builtin">Array</span><span class="token punctuation">.</span><span class="token function">isArray</span><span class="token punctuation">(</span>x<span class="token punctuation">)</span> <span class="token operator">&amp;&amp;</span> x<span class="token punctuation">.</span><span class="token function">every</span><span class="token punctuation">(</span>item <span class="token operator">=></span> <span class="token constant">T</span><span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span>item<span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token punctuation">)</span>
+
+<span class="token keyword">const</span> Map <span class="token operator">=</span> <span class="token function">Generic</span><span class="token punctuation">(</span>
+  <span class="token string">'key-value mapping'</span><span class="token punctuation">,</span>
+  <span class="token punctuation">[</span><span class="token constant">K</span><span class="token punctuation">,</span> <span class="token constant">V</span> <span class="token operator">=</span> <span class="token builtin">any</span><span class="token punctuation">]</span><span class="token punctuation">,</span>
+  <span class="token punctuation">(</span>x<span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token constant">K</span><span class="token punctuation">,</span> <span class="token constant">V</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token operator">=></span> x <span class="token keyword">instanceof</span> <span class="token class-name">Map</span> <span class="token operator">&amp;&amp;</span> <span class="token punctuation">[</span><span class="token operator">...</span>x<span class="token punctuation">.</span><span class="token function">keys</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">]</span><span class="token punctuation">.</span><span class="token function">every</span><span class="token punctuation">(</span>k <span class="token operator">=></span> <span class="token constant">K</span><span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span>k<span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token punctuation">)</span>
+
+<span class="token comment">// Usage</span>
+<span class="token keyword">const</span> strings<span class="token operator">:</span> <span class="token function">List</span><span class="token punctuation">(</span><span class="token builtin">string</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token string">'a'</span><span class="token punctuation">,</span> <span class="token string">'b'</span><span class="token punctuation">,</span> <span class="token string">'c'</span><span class="token punctuation">]</span>
+<span class="token keyword">const</span> lookup<span class="token operator">:</span> <span class="token function">Map</span><span class="token punctuation">(</span><span class="token builtin">string</span><span class="token punctuation">,</span> <span class="token builtin">number</span><span class="token punctuation">)</span> <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Map</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token punctuation">[</span><span class="token string">'age'</span><span class="token punctuation">,</span> <span class="token number">42</span><span class="token punctuation">]</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+</code></pre>
+<h3>Why</h3>
+<ul>
+<li><strong>Runtime-checkable</strong>: Not erased like TypeScript generics</li>
+<li><strong>Self-documenting</strong>: Description for humans and LLMs</li>
+<li><strong>Composable</strong>: Predicates can do real validation</li>
+<li><strong>Practical</strong>: Makes complex generics achievable without gymnastics</li>
+</ul>
+<p>Converting convoluted TypeScript generics (<code>Pick&lt;Omit&lt;Partial&lt;...&gt;&gt;&gt;</code>) is nice-to-have, not a priority.</p>
+<h2>14. Asymmetric Get/Set ✅</h2>
+<p>Properties that accept a broader type on write but return a narrower type on read. TJS uses JavaScript&#39;s native getter/setter syntax which naturally captures asymmetric types:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">class</span> <span class="token class-name">Timestamp</span> <span class="token punctuation">{</span>
+  #value
+
+  <span class="token function">constructor</span><span class="token punctuation">(</span>initial<span class="token operator">:</span> <span class="token string">''</span> <span class="token operator">|</span> <span class="token number">0</span> <span class="token operator">|</span> <span class="token keyword">null</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">this</span><span class="token punctuation">.</span>#value <span class="token operator">=</span> initial <span class="token operator">===</span> <span class="token keyword">null</span> <span class="token operator">?</span> <span class="token keyword">new</span> <span class="token class-name">Date</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token keyword">new</span> <span class="token class-name">Date</span><span class="token punctuation">(</span>initial<span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Setter accepts string, number, or null</span>
+  <span class="token keyword">set</span> <span class="token function">value</span><span class="token punctuation">(</span>v<span class="token operator">:</span> <span class="token string">''</span> <span class="token operator">|</span> <span class="token number">0</span> <span class="token operator">|</span> <span class="token keyword">null</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">this</span><span class="token punctuation">.</span>#value <span class="token operator">=</span> v <span class="token operator">===</span> <span class="token keyword">null</span> <span class="token operator">?</span> <span class="token keyword">new</span> <span class="token class-name">Date</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token keyword">new</span> <span class="token class-name">Date</span><span class="token punctuation">(</span>v<span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Getter always returns Date</span>
+  <span class="token keyword">get</span> <span class="token function">value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token punctuation">.</span>#value
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">const</span> ts <span class="token operator">=</span> <span class="token function">Timestamp</span><span class="token punctuation">(</span><span class="token string">'2024-01-15'</span><span class="token punctuation">)</span>
+ts<span class="token punctuation">.</span>value <span class="token operator">=</span> <span class="token number">0</span> <span class="token comment">// SET accepts: string | number | null</span>
+ts<span class="token punctuation">.</span>value <span class="token comment">// GET returns: Date (always normalized)</span>
+</code></pre>
+<p>The type metadata captures the asymmetry:</p>
+<ul>
+<li>Setter param type: <code>&#39;&#39; | 0 | null</code> (union of string, number, null)</li>
+<li>Getter return type: <code>Date</code> (inferred from implementation)</li>
+</ul>
+<p>This matches real-world APIs (DOM, dates, etc.) without TypeScript&#39;s painful workarounds.</p>
+<h2>15. <code>==</code> That Works</h2>
+<p>JavaScript&#39;s <code>==</code> is broken (type coercion chaos). In native TJS, <code>==</code>/<code>!=</code> use honest equality by default (no coercion, unwraps boxed primitives). TS-originated code retains JS semantics unless the file is native <code>.tjs</code> or <code>TjsStrict</code> sets the dialect. <code>Is</code>/<code>IsNot</code> provide explicit deep structural comparison:</p>
+<table>
+<thead>
+<tr>
+<th>Operator</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Is</code></td>
+<td><strong>Value equality</strong> - structural comparison for arrays/objects, calls <code>.Equals</code> if defined</td>
+</tr>
+<tr>
+<td><code>IsNot</code></td>
+<td><strong>Value inequality</strong> - negation of Is</td>
+</tr>
+<tr>
+<td><code>===</code></td>
+<td><strong>Identity</strong> - same object reference (rarely needed)</td>
+</tr>
+</tbody></table>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Infix syntax - clean and readable</span>
+<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span> Is <span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span>       <span class="token comment">// true (structural)</span>
+<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span> IsNot <span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span> <span class="token comment">// true (different length)</span>
+<span class="token number">5</span> Is <span class="token string">"5"</span>               <span class="token comment">// false (no coercion - different types)</span>
+
+<span class="token comment">// Custom equality via .Equals hook</span>
+<span class="token keyword">const</span> p1 <span class="token operator">=</span> <span class="token punctuation">{</span>
+  x<span class="token operator">:</span> <span class="token number">1</span><span class="token punctuation">,</span>
+  <span class="token function">Equals</span><span class="token punctuation">(</span>o<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token punctuation">.</span>x <span class="token operator">===</span> o<span class="token punctuation">.</span>x
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">const</span> p2 <span class="token operator">=</span> <span class="token punctuation">{</span> x<span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span>
+p1 Is p2   <span class="token comment">// true (via .Equals hook)</span>
+p1 <span class="token operator">===</span> p2  <span class="token comment">// false (different objects)</span>
+</code></pre>
+<h3>Rules</h3>
+<ol>
+<li>If left has <code>.Equals</code>, call <code>left.Equals(right)</code></li>
+<li>If right has <code>.Equals</code>, call <code>right.Equals(left)</code></li>
+<li>Arrays/objects: recursive structural comparison</li>
+<li>Primitives: strict equality (no coercion)</li>
+</ol>
+<h3>Implementation Status</h3>
+<ul>
+<li>✅ <code>Eq()</code>/<code>NotEq()</code> honest equality (== and != — enabled by default in native TJS)</li>
+<li>✅ <code>Is()</code>/<code>IsNot()</code> deep structural comparison</li>
+<li>✅ Infix syntax transformation (<code>a Is b</code> → <code>Is(a, b)</code>)</li>
+<li>✅ Custom equality protocol (<code>[tjsEquals]</code> symbol and <code>.Equals</code> method)</li>
+<li>✅ Honest <code>typeof</code> (<code>typeof null</code> → <code>&#39;null&#39;</code> — enabled by default in native TJS)</li>
+<li>✅ TS-originated code retains JS semantics unless the dialect says otherwise (<code>TjsStrict</code>)</li>
+</ul>
+<h2>16. Death to Semicolons</h2>
+<p>In native TJS newlines are meaningful — unconditionally, because the file extension is the gate. TS-originated code retains JS semantics unless <code>TjsStrict</code> sets the dialect. This:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token function">foo</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Is <strong>two statements</strong> (<code>foo</code> and <code>()</code>), not a function call <code>foo()</code>.</p>
+<p>This eliminates:</p>
+<ul>
+<li>Defensive semicolons</li>
+<li>ASI gotchas</li>
+<li>The entire &quot;semicolon debate&quot;</li>
+</ul>
+<p>The only code this breaks is pathological formatting that nobody writes intentionally.</p>
+<h2>17. Polyglot Blocks (WASM, Shaders, etc.)</h2>
+<p>Target-specific code blocks with automatic variable capture and fallback:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// WASM for performance-critical path - variables captured automatically</span>
+<span class="token keyword">function</span> <span class="token function">matmul</span><span class="token punctuation">(</span>vertices<span class="token operator">:</span> Float32Array<span class="token punctuation">,</span> matrix<span class="token operator">:</span> Float32Array<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  wasm <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> vertices<span class="token punctuation">.</span>length<span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">3</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token comment">// matrix multiply using vertices and matrix from scope</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token comment">// Body runs as JS if WASM unavailable</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// With explicit fallback when implementations differ:</span>
+<span class="token keyword">function</span> <span class="token function">transform</span><span class="token punctuation">(</span>data<span class="token operator">:</span> Float32Array<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  wasm <span class="token punctuation">{</span>
+    <span class="token comment">// WASM-optimized in-place mutation</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> data<span class="token punctuation">.</span>length<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> data<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">*=</span> <span class="token number">2</span> <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token comment">// JS uses different approach</span>
+    <span class="token keyword">return</span> data<span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span>x <span class="token operator">=></span> x <span class="token operator">*</span> <span class="token number">2</span><span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// GPU shader (future)</span>
+glShader <span class="token punctuation">{</span>
+  gl_Position <span class="token operator">=</span> projection <span class="token operator">*</span> view <span class="token operator">*</span> <span class="token function">vec4</span><span class="token punctuation">(</span>position<span class="token punctuation">,</span> <span class="token number">1.0</span><span class="token punctuation">)</span>
+  fragColor <span class="token operator">=</span> color
+<span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+  <span class="token comment">// CPU fallback</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Debug-only code (stripped in production)</span>
+debug <span class="token punctuation">{</span>
+  <span class="token builtin">console</span><span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token string">'state:'</span><span class="token punctuation">,</span> state<span class="token punctuation">)</span>
+  <span class="token function">validateInvariants</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+<span class="token comment">// No fallback needed - just doesn't run in production</span>
+</code></pre>
+<h3>Pattern</h3>
+<pre><code>target(args?) {
+  // target-specific code (compiled/translated)
+} fallback? {
+  // universal TJS fallback (optional for some targets)
+}
+</code></pre>
+<h3>Targets</h3>
+<table>
+<thead>
+<tr>
+<th>Target</th>
+<th>Compiles to</th>
+<th>Fallback</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>wasm</code></td>
+<td>WebAssembly</td>
+<td>Required</td>
+<td>CPU-intensive computation</td>
+</tr>
+<tr>
+<td><code>glShader</code></td>
+<td>GLSL</td>
+<td>Required</td>
+<td>GPU graphics</td>
+</tr>
+<tr>
+<td><code>metal</code></td>
+<td>Metal Shading Language</td>
+<td>Required</td>
+<td>Apple GPU</td>
+</tr>
+<tr>
+<td><code>debug</code></td>
+<td>TJS (stripped in prod)</td>
+<td>None</td>
+<td>Debugging, invariants</td>
+</tr>
+</tbody></table>
+<h3>Why</h3>
+<ul>
+<li><strong>Performance</strong>: WASM/GPU where it matters, TJS everywhere else</li>
+<li><strong>Graceful degradation</strong>: Fallback ensures code always runs</li>
+<li><strong>Single source</strong>: Don&#39;t maintain separate WASM/shader files</li>
+<li><strong>Type-safe boundary</strong>: Args translated automatically at the boundary</li>
+</ul>
+<h3>WASM Libraries (cross-file, composable)</h3>
+<p><strong>✅ Shipped in 0.8.0.</strong> tjs source files can declare reusable <code>wasm function</code>s that other
+files import, with module composition at transpile time so intra-library calls stay inside the
+wasm module (no JS↔wasm boundary). First stdlib target <code>tjs-lang/linalg</code> shipped. Full design:
+<a href="./wasm-library-plan.md"><code>wasm-library-plan.md</code></a> (all phases complete). Deferred follow-ups
+(linalg expansion, i32/f32/v128 return types) live in <code>TODO.md</code>.</p>
+<h2>18. Classes and Components</h2>
+<p>TJS embraces classes, but eliminates JS footguns and enables cross-platform UI components.</p>
+<h3>Death to <code>new</code> ✅</h3>
+<p>The <code>new</code> keyword is redundant ceremony. TJS handles it automatically:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">class</span> <span class="token class-name">User</span> <span class="token punctuation">{</span>
+  <span class="token function">constructor</span><span class="token punctuation">(</span><span class="token keyword">public</span> name<span class="token operator">:</span> <span class="token builtin">string</span><span class="token punctuation">)</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Both work identically in TJS:</span>
+<span class="token keyword">const</span> u1 <span class="token operator">=</span> <span class="token function">User</span><span class="token punctuation">(</span><span class="token string">'Alice'</span><span class="token punctuation">)</span> <span class="token comment">// TJS way - clean</span>
+<span class="token keyword">const</span> u2 <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">User</span><span class="token punctuation">(</span><span class="token string">'Alice'</span><span class="token punctuation">)</span> <span class="token comment">// Lint warning: "use User() instead of new User()"</span>
+</code></pre>
+<p>If you call <code>Foo()</code> and <code>Foo</code> is a class, TJS calls it with <code>new</code> internally. No more &quot;Cannot call a class as a function&quot; errors.</p>
+<p><strong>Implementation:</strong></p>
+<ul>
+<li><code>wrapClass()</code> in <code>src/lang/runtime.ts</code> - wraps classes with Proxy for callable behavior</li>
+<li><code>emitClassWrapper()</code> generates wrapper code for transpiled classes</li>
+<li><code>no-explicit-new</code> lint rule warns about unnecessary <code>new</code> keyword usage</li>
+</ul>
+<h3>Component Base Class</h3>
+<p><code>Component</code> is the platform-agnostic UI primitive:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">class</span> <span class="token class-name">MyDropdown</span> <span class="token keyword">extends</span> <span class="token class-name">Component</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Shared logic - runs everywhere</span>
+  items<span class="token operator">:</span> <span class="token builtin">string</span><span class="token punctuation">[</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token punctuation">]</span>
+  selectedIndex<span class="token operator">:</span> <span class="token builtin">number</span> <span class="token operator">=</span> <span class="token number">0</span>
+
+  <span class="token function">select</span><span class="token punctuation">(</span>index<span class="token operator">:</span> <span class="token builtin">number</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">this</span><span class="token punctuation">.</span>selectedIndex <span class="token operator">=</span> index
+    <span class="token keyword">this</span><span class="token punctuation">.</span><span class="token function">emit</span><span class="token punctuation">(</span><span class="token string">'change'</span><span class="token punctuation">,</span> <span class="token keyword">this</span><span class="token punctuation">.</span>items<span class="token punctuation">[</span>index<span class="token punctuation">]</span><span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token comment">// Platform-specific blocks</span>
+  <span class="token function">web</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// CSS, DOM events, ARIA attributes</span>
+    <span class="token keyword">this</span><span class="token punctuation">.</span>style <span class="token operator">=</span> <span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">
+      .dropdown { position: relative; }
+      .dropdown-menu { position: absolute; }
+    </span><span class="token template-punctuation string">`</span></span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">swift</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// SwiftUI modifiers, gestures</span>
+    Menu <span class="token punctuation">{</span>
+      <span class="token function">ForEach</span><span class="token punctuation">(</span>items<span class="token punctuation">)</span> <span class="token punctuation">{</span> item <span class="token keyword">in</span>
+        <span class="token function">Button</span><span class="token punctuation">(</span>item<span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token function">select</span><span class="token punctuation">(</span>items<span class="token punctuation">.</span><span class="token function">indexOf</span><span class="token punctuation">(</span>item<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token function">android</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Jetpack Compose</span>
+    <span class="token function">DropdownMenu</span><span class="token punctuation">(</span>expanded <span class="token operator">=</span> expanded<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      items<span class="token punctuation">.</span>forEach <span class="token punctuation">{</span> item <span class="token operator">-</span><span class="token operator">></span>
+        <span class="token function">DropdownMenuItem</span><span class="token punctuation">(</span>onClick <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token function">select</span><span class="token punctuation">(</span>items<span class="token punctuation">.</span><span class="token function">indexOf</span><span class="token punctuation">(</span>item<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+          <span class="token function">Text</span><span class="token punctuation">(</span>item<span class="token punctuation">)</span>
+        <span class="token punctuation">}</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Web Components (HTMLElement)</h3>
+<p>For web, <code>extends HTMLElement</code> auto-registers custom elements:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">class</span> <span class="token class-name">MyDropdown</span> <span class="token keyword">extends</span> <span class="token class-name">HTMLElement</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Automatically registers &lt;my-dropdown></span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">class</span> <span class="token class-name">UserCard</span> <span class="token keyword">extends</span> <span class="token class-name">HTMLElement</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Automatically registers &lt;user-card></span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Error: can't infer tag name</span>
+<span class="token keyword">class</span> <span class="token class-name">Thang</span> <span class="token keyword">extends</span> <span class="token class-name">HTMLElement</span> <span class="token punctuation">{</span><span class="token punctuation">}</span> <span class="token comment">// "can't infer tag-name from 'Thang'"</span>
+
+<span class="token comment">// OK: modest names work</span>
+<span class="token keyword">class</span> <span class="token class-name">MyThang</span> <span class="token keyword">extends</span> <span class="token class-name">HTMLElement</span> <span class="token punctuation">{</span><span class="token punctuation">}</span> <span class="token comment">// &lt;my-thang></span>
+</code></pre>
+<p><strong>Key features:</strong></p>
+<ol>
+<li><strong>Auto-registration</strong>: Class name → tag name (<code>MyDropdown</code> → <code>my-dropdown</code>)</li>
+<li><strong>Inferrable names required</strong>: Must be PascalCase with multiple words</li>
+<li><strong>Hot-reloadable</strong>: Components are hollow shells - redefining rebuilds all instances</li>
+<li><strong>Smart inheritance</strong>: ARIA roles and behaviors wired automatically</li>
+</ol>
+<h3>Why Hollow Components?</h3>
+<p>The web component registry is a source of pain - you can&#39;t redefine elements. TJS sidesteps this:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// First definition</span>
+<span class="token keyword">class</span> <span class="token class-name">MyButton</span> <span class="token keyword">extends</span> <span class="token class-name">HTMLElement</span> <span class="token punctuation">{</span>
+  <span class="token function">render</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token string">'&lt;button>v1&lt;/button>'</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Later redefinition (hot reload, live coding)</span>
+<span class="token keyword">class</span> <span class="token class-name">MyButton</span> <span class="token keyword">extends</span> <span class="token class-name">HTMLElement</span> <span class="token punctuation">{</span>
+  <span class="token function">render</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token string">'&lt;button>v2&lt;/button>'</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+<span class="token comment">// All existing &lt;my-button> elements rebuild with new implementation</span>
+</code></pre>
+<p>The registered element is a hollow proxy that delegates to the current class definition.</p>
+<h3>Platform Adapters</h3>
+<p>The <code>Component</code> class compiles to platform-native code:</p>
+<table>
+<thead>
+<tr>
+<th>TJS Source</th>
+<th>Web Output</th>
+<th>SwiftUI Output</th>
+<th>Compose Output</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>class Foo extends Component</code></td>
+<td>Custom Element</td>
+<td><code>struct Foo: View</code></td>
+<td><code>@Composable fun Foo()</code></td>
+</tr>
+<tr>
+<td><code>this.state = x</code></td>
+<td>Reactive update</td>
+<td><code>@State var state</code></td>
+<td><code>mutableStateOf()</code></td>
+</tr>
+<tr>
+<td><code>this.emit(&#39;click&#39;)</code></td>
+<td><code>dispatchEvent()</code></td>
+<td>Callback closure</td>
+<td>Lambda</td>
+</tr>
+<tr>
+<td><code>web { }</code></td>
+<td>Compiled</td>
+<td>Stripped</td>
+<td>Stripped</td>
+</tr>
+<tr>
+<td><code>swift { }</code></td>
+<td>Stripped</td>
+<td>Compiled</td>
+<td>Stripped</td>
+</tr>
+</tbody></table>
+<p>The class definition is the source of truth. Platform blocks contain native code for each target - no CSS-in-JS gymnastics trying to map everywhere.</p>
+<h3>Tacit Proxies — Implicit Namespaces</h3>
+<p>A <code>tacit</code> directive that tells the transpiler: &quot;unresolved identifiers matching this pattern should be looked up on this object at runtime.&quot; No Proxy needed at runtime — pure transpile-time rewriting.</p>
+<pre><code class="language-typescript" data-highlighted>tacit elements <span class="token keyword">as</span> <span class="token constant">UPPERCASE</span>
+
+<span class="token comment">// LABEL is undefined, but matches the UPPERCASE pattern</span>
+<span class="token comment">// Transpiler rewrites to: elements.label(...)</span>
+<span class="token constant">LABEL</span><span class="token punctuation">(</span><span class="token string">'Edit me'</span><span class="token punctuation">,</span> <span class="token constant">INPUT</span><span class="token punctuation">(</span><span class="token punctuation">{</span> placeholder<span class="token operator">:</span> <span class="token string">'foo'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p>This gives you JSX-like ergonomics without special syntax, without build magic, and it&#39;s general-purpose — DOM elements, SQL builders, test DSLs, anything where you want a namespace of functions without explicit imports.</p>
+<p><strong>Key design constraints:</strong></p>
+<ul>
+<li>Pattern matching (e.g., UPPERCASE) provides visual signal — you see <code>LABEL</code> and know it&#39;s tacit</li>
+<li>File-scoped only — no cross-module leaking (same as <code>extend</code> blocks)</li>
+<li>Zero runtime cost — transpiler rewrites to property access at compile time</li>
+<li>Falls back to normal resolution — if an identifier IS defined, it takes precedence</li>
+</ul>
+<p><strong>Related prior art:</strong> Python&#39;s <code>from module import *</code>, Ruby&#39;s <code>method_missing</code>, Kotlin&#39;s scope functions. TJS version is explicit (you declare the pattern) and compile-time (no runtime dispatch).</p>
+<h3>JSON Schema Deepening</h3>
+<p>Current: <code>Type.toJSONSchema()</code>, <code>fn.__tjs.schema()</code>, <code>functionMetaToJSONSchema()</code>.</p>
+<p>Next steps:</p>
+<ul>
+<li>CLI command: <code>tjs schema &lt;file&gt;</code> dumps JSON Schema for all exported types and functions</li>
+<li>OpenAPI generation from function signatures</li>
+<li>Schema validation at API boundaries (request/response matching)</li>
+<li>Round-trip: JSON Schema → TJS Type (for consuming external schemas)</li>
+</ul>
+<h2>Non-Goals</h2>
+<ul>
+<li><del>Full JS semantics (we&#39;re a subset that&#39;s portable)</del> — <strong>superseded:</strong> TJS is now a
+<em>superset</em> of JS (TJS ⊇ JS, PRINCIPLES.md). The <code>dialect: &#39;js&#39;</code> mode preserves plain-JS
+semantics; native <code>.tjs</code> adds modes on top. JS is a subset of TJS, not the reverse.</li>
+<li>Convoluted TS type gymnastics (maximum effort - best-effort conversion, ignore what we can&#39;t handle)</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link current" href="../PLAN/" aria-current="page">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

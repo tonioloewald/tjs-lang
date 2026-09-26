@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Type identity: who answers "does this value satisfy this type?" — tjs-lang</title>
+  <meta name="description" content="TJS answers that question in several places. This page names them, says which one is authoritative, and records where they currently disagree — with a link to…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/type-identity/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Type identity: who answers &quot;does this value satisfy this type?&quot; — tjs-lang" />
+  <meta property="og:description" content="TJS answers that question in several places. This page names them, says which one is authoritative, and records where they currently disagree — with a link to…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/type-identity/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Type identity: who answers \"does this value satisfy this type?\"","description":"TJS answers that question in several places. This page names them, says which one is authoritative, and records where they currently disagree — with a link to…","url":"https://tjs.tosijs.net/type-identity/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "internals", "order": 6, "navTitle": "Type identity", "parent": "the-tjs-language.md"}--><h1>Type identity: who answers &quot;does this value satisfy this type?&quot;</h1>
+<p>TJS answers that question in several places. This page names them, says which one is
+authoritative, and records where they currently disagree — with a link to the test that
+measures it, because a page like this is exactly where a stale claim survives longest.</p>
+<p>Measured by <a href="../src/lang/type-identity.test.ts"><code>src/lang/type-identity.test.ts</code></a>, which
+runs one corpus through every mechanism on each test run.</p>
+<h2>The mechanisms</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Mechanism</th>
+<th>Where</th>
+<th>Answers with</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><code>Type(name, …, example).check(v)</code></td>
+<td><code>src/lang/runtime.ts</code></td>
+<td>example-inference over tosijs-schema</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>the inline stub</strong> — <code>__match(v, ex)</code></td>
+<td>emitted into every standalone <code>.js</code> (<code>src/lang/emitters/js.ts</code>)</td>
+<td>a ~400-byte re-implementation of #1</td>
+</tr>
+<tr>
+<td>3</td>
+<td>a direct predicate</td>
+<td>emitted for a bare <code>n: int</code> parameter</td>
+<td><code>Number.isInteger</code> and friends</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>checkType(v, kind)</code></td>
+<td><code>src/lang/runtime.ts</code></td>
+<td>string kind names, returns an error</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>checkType(v, descriptor)</code></td>
+<td><code>src/lang/inference.ts</code></td>
+<td><code>TypeDescriptor</code>, returns a boolean</td>
+</tr>
+</tbody></table>
+<p>Several implementations of one question is not by itself a problem — #3 exists because a
+bare <code>int</code> needs no allocated type object, and #2 exists so an emitted file has no runtime
+dependency. Them <strong>disagreeing</strong> is the problem.</p>
+<h3>The unwrap contract, and proxy-shaped boxed values</h3>
+<p>Every mechanism above sits downstream of one shared question — <em>what primitive does this
+value stand for?</em> — answered by <code>unwrapBoxed</code> (<code>src/unwrap-boxed.ts</code>) and, above it, by
+<code>asCompared</code> (see <code>type-system-north-star.md</code>). Two properties of that contract are worth
+stating here, because &quot;it&#39;s a <code>Number</code>, and <code>instanceof</code> agrees&quot; is a reasonable thing to
+believe right up until it isn&#39;t:</p>
+<ul>
+<li><strong>The value is read from the internal slot, never by calling <code>valueOf</code>.</strong> A subclass can
+override <code>valueOf</code> and lie; a slot read cannot be intercepted.</li>
+<li><strong>A <code>Proxy</code> has no internal slot, and slots are not forwarded to its target.</strong> So a proxy
+over <code>new Number(0)</code> passes <code>instanceof Number</code> and then makes the slot read <em>throw</em>. That
+is why the unwrap is fail-soft: a value that will not yield a primitive slot simply is not
+a boxed primitive, and is returned unchanged rather than throwing out of a comparison.</li>
+</ul>
+<p>A proxy-shaped boxed value therefore cannot participate through the slot, and cannot be
+reached through a <code>constructor.name</code>-keyed registry either (it reports its target&#39;s name).
+It participates by <strong>declaring <code>asCompared()</code></strong>, which a <code>get</code> trap can serve — the layer
+added in 0.13.6 for exactly this shape (#33).</p>
+<h2>The inline stub is not a fallback</h2>
+<p>The one thing to know before reading further, because it inverts the obvious reading:</p>
+<blockquote>
+<p>Emitted JS declares its own <code>Type</code>/<code>Generic</code>/<code>Enum</code>/<code>Union</code>/<code>FunctionPredicate</code> inside a
+per-file <code>__tjs_rt</code> object and calls them <strong>through it</strong>, so the inline stub always wins —
+even when a full runtime is installed.</p>
+</blockquote>
+<p>So #2 is not a degraded path taken when <code>globalThis.__tjs</code> is missing. <strong>It is the shipped
+semantics of every emitted file</strong>, and #1&#39;s stricter answer is unreachable from emitted
+code. <code>CLAUDE.md</code> states this under &quot;The inline runtime is NOT the real runtime&quot;; it is
+repeated here because it is the fact that makes the disagreements below matter.</p>
+<p>The namespace changed when the preamble moved into <code>__tjs_rt</code> (#39); the property did not. These were module-scope
+declarations called by bare name, which made them collide with any identically-named import
+the author wrote (#39, <code>src/lang/rt-namespace.ts</code>). They are now scoped to the file&#39;s own
+runtime object — which is deliberately NOT <code>__tjs</code>, since <code>__tjs</code> resolves to the shared
+runtime when one is installed and routing through it is precisely the &quot;improvement&quot; that
+would swap the semantics this page exists to document.</p>
+<p>It also makes them easy to mis-measure. Probing an emitted function with and without
+<code>globalThis.__tjs</code> returns the same answer both times — which reads as agreement and is
+actually the stub answering twice.</p>
+<h2>Where they disagree today</h2>
+<p><strong>Nowhere in the corpus.</strong> The list is empty, and the harness stays.</p>
+<p><em>On decisions</em> — which is what this page is about, and what the harness measures. Surface
+disagreements are a separate, shorter list; see &quot;Surface, not decisions&quot; below.</p>
+<p>Four cases used to live here:</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Value</th>
+<th>was</th>
+<th>cause</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Type Int { example: 1 }</code></td>
+<td><code>1.5</code></td>
+<td>stub accepted</td>
+<td>narrowing lost at the source→value boundary</td>
+</tr>
+<tr>
+<td><code>Type Price = 0.0</code> (and nested)</td>
+<td><code>9.99</code></td>
+<td>BOTH rejected</td>
+<td>float lost at the source→value boundary (fixed 2026-09-25)</td>
+</tr>
+<tr>
+<td><code>Type Pt { example: { x: 1, y: 1 } }</code></td>
+<td><code>{ x: 1.5, y: 1 }</code></td>
+<td>stub accepted</td>
+<td>narrowing lost through a shape</td>
+</tr>
+<tr>
+<td><code>Type Nums { example: [1] }</code></td>
+<td><code>[1.5]</code></td>
+<td>stub accepted</td>
+<td>narrowing lost through an array</td>
+</tr>
+<tr>
+<td><code>Type Pt { example: { x: 1, y: 1 } }</code></td>
+<td><code>{ x: 1, y: 1, z: 9 }</code></td>
+<td>stub accepted</td>
+<td>shape left open</td>
+</tr>
+</tbody></table>
+<p>They closed in two moves, and the split is the useful part:</p>
+<ol>
+<li><strong>Source-level facts</strong> — <code>+0</code> means non-negative, and <code>+0 === 0</code>, so nothing downstream
+can recover it. The emitter writes the check into the emitted code as a predicate.
+This is the only case that genuinely needed the source.</li>
+<li><strong>Value-derivable facts</strong> — the numeric-narrowing rows. <code>Number.isInteger(example)</code> is
+readable from the value the stub already holds, so <code>__match</code> enforces it directly. No
+source information required, and no second mechanism.</li>
+</ol>
+<p>The FOURTH row resolved in the opposite direction (2026-08-14). It was first closed by
+making the stub reject the excess key — and then the policy itself was reversed: <strong>excess
+keys are fine, everywhere</strong>. TypeScript&#39;s excess-property check is a freshness lint on
+object literals, not a property of the type (route the same object through a variable and
+it passes), and there is no <code>Exact&lt;T&gt;</code> — so a runtime check that closes the shape is
+stricter than anything the type system it mirrors can express. Both checkers now ACCEPT
+<code>{ x: 1, y: 1, z: 9 }</code> against <code>example: { x: 1, y: 1 }</code>; missing keys and wrong member
+types are still errors. The stub stays open by construction, and the real runtime re-opens
+what <code>s.infer</code> closes (<code>openInferredShapes</code> — tosijs-schema 1.5.0 began enforcing the
+<code>additionalProperties: false</code> it emits). Agreement was the invariant worth keeping; which
+way they agree was a language decision, made toward JavaScript.</p>
+<p>The first attempt at (2) was a structural walk over the example AST, on the assumption
+that narrowing through a shape needed the source the way <code>+0</code> did. It does not: an integer
+example is still an integer when it arrives as a value. The walk was written and then
+deleted in favour of six clauses in <code>__match</code>.</p>
+<p><strong>Making the stub stricter broke nothing</strong> — full suite, examples included. That is worth
+recording, because it was the risk that justified treating this as a ratchet rather than a
+fix: emitted code that starts rejecting values is a subset violation, and the reason it
+was safe here is that every value newly rejected was one the real runtime already refused.</p>
+<h3>Why the harness stays</h3>
+<p>An empty list is the goal state, not a reason to delete the apparatus. What it buys now is
+that the NEXT divergence fails on the commit that introduces it, rather than being
+discovered later by someone probing one case at a time. Both directions are still
+enforced: an unlisted disagreement fails, and a listed one that stops happening also fails,
+asking to be deleted — so a fix cannot rot into slack a regression could occupy.</p>
+<h3>The gap, closed — and the half of it nobody had measured (2026-09-25)</h3>
+<p>This section used to record that <code>+0</code> NESTED in a shape (<code>{ count: +0 }</code>) was still lost,
+and that the structural walk had been deleted because &quot;an integer example is still an
+integer when it arrives as a value&quot;. That sentence is true, and it is the whole reason the
+other half went unseen: <strong>a FLOAT example does not arrive as a float.</strong> <code>0.0 === 0</code>, so
+<code>Type Price = 0.0</code> narrowed to integer and rejected 9.99 — in both runtimes, at every
+emission site, nested or not. The corpus had <code>Frac</code> (<code>1.5</code>), whose value is non-integral
+and therefore survives; it had no integer-valued float, which is the only kind that
+doesn&#39;t.</p>
+<p>It mattered because <code>fromTS</code> maps every TypeScript <code>number</code> to <code>0.0</code>. Every converted
+interface with a number field rejected every non-integer the moment validation was on —
+found when <code>TjsStrict</code> was fixed to turn validation on, and a converted example rejected
+its own valid order.</p>
+<p>The walk now exists (<code>markExampleKinds</code>, <code>parser-transforms.ts</code>): it reads the example&#39;s
+AST with the same rules as <code>inferTypeFromValue</code> and wraps only what the value cannot say as
+<code>__tjs_rt.__k(kind, …)</code> markers — <code>float</code>, <code>nonneg</code>, <code>undef</code>, <code>any</code>, <code>pred</code> (a sound type
+name), <code>set</code> (an all-literal union), <code>union</code>, and <code>ref</code> (another type, read when CHECKED, and
+checked coinductively so cyclic data terminates). An example with none of these emits
+byte-identical code.
+<code>Price</code>, <code>Cart</code> and <code>Tally</code> are in the corpus; the spec is pinned site by site in
+<code>src/lang/example-kinds.test.ts</code>.</p>
+<h3>Recursive types — what <code>.check</code> does, and what the schema does not (yet)</h3>
+<p>A <code>ref</code> (another Type named in an example) is checked coinductively — cyclic data is
+accepted when every node satisfies its type — by iterative refinement: inside a check every
+nested match is a lookup of a (value, subexample) pair, assumed true until its own shape
+fails, with failures propagated to the pairs that consulted it. There is no recursion into the
+data, so any depth works (a 50,000-deep list, on Node as on Bun), in time linear in the data.
+Checked against a brute-force oracle on wide random cyclic, shared graphs
+(<code>example-kinds-oracle.test.ts</code>).</p>
+<p><code>toJSONSchema()</code> of a recursive type is NOT yet faithful: it truncates to <code>{}</code> at the
+recursion point, so a JSON-Schema validator accepts values <code>.check</code> rejects. <code>$defs</code> + <code>$ref</code>
+is the fix (TODO).</p>
+<h2>Surface, not decisions</h2>
+<p>The list above is about <strong>verdicts</strong> — does <code>v</code> satisfy <code>T</code>. The two implementations can also
+differ in what a type <em>exposes</em>, which no decision test can see. That list is short and, unlike
+the verdict list, not empty:</p>
+<table>
+<thead>
+<tr>
+<th>fact</th>
+<th>real runtime</th>
+<th>inline stub</th>
+<th>consequence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>a <code>Type</code>&#39;s witness</td>
+<td><code>example</code></td>
+<td><code>__ex</code></td>
+<td><code>Age.example</code> is <code>undefined</code> in emitted code — and emitted code is the shipped semantics</td>
+</tr>
+<tr>
+<td>the <code>Predicate</code> brand</td>
+<td><code>instanceof Predicate</code> is <code>true</code></td>
+<td><code>false</code> — the stub builds its own callables and never reads the <code>__tjs_Predicate_1</code> slot</td>
+<td>a check like <code>x instanceof Predicate</code> sees library types and misses every type declared in a <code>.tjs</code> file</td>
+</tr>
+</tbody></table>
+<p>Same information under two names, so nothing is <em>lost</em>; it is simply not where the documented
+surface says it is. Unifying them changes the serialised shape of every emitted type, so it is
+tracked in <code>TODO.md</code> as a deliberate change rather than made in passing. Pinned by
+<code>predicate-callable.test.ts</code>, which asserts the divergence in both directions — the stub has no
+<code>example</code>, the real runtime has no <code>__ex</code> — so closing it fails a test rather than drifting.</p>
+<p>Two surface gaps have already closed this way and are worth naming, because both were found
+the same way: by asking what the stub omits rather than what it decides.</p>
+<ul>
+<li><code>Enum.members</code> / <code>names</code> / <code>keys</code> — the real <code>Enum</code> documents <code>Color.members.Red</code> as <strong>the</strong>
+way to reference a member, and the stub carried only <code>values</code>, so the documented access
+returned <code>undefined</code> in every emitted file.</li>
+<li><code>toJSON</code> — the real runtime got it and the stub did not, so <code>JSON.stringify(EmittedType)</code>
+returned <code>undefined</code> and the key silently vanished from any object containing one. The 0.14.0
+review caught it; the stub now serialises to byte-identically the pre-0.14.0 shape.</li>
+</ul>
+<p>The general lesson is the page&#39;s own thesis applied one level up: <strong>a field the stub omits is a
+field the language does not have.</strong> Adding one to <code>src/types/Type.ts</code> alone adds it to the
+library only.</p>
+<h2>What this blocks</h2>
+<p>Nothing, now. <code>Box&lt;int&gt;</code> — type arguments in an annotation — was the last <strong>proposed</strong>
+row in <a href="./tjs-vs-typescript.md">TJS vs TypeScript</a>, and it shipped once the disagreements
+above were closed. The blocker really was on this page rather than in the parser: the
+inline <code>Generic</code> stub coerced a type argument with <code>v =&gt; typeof v === typeof a</code>, so
+<code>Box&lt;int&gt;</code> accepted a float. It goes through <code>__match</code> now.</p>
+<p>The other half was that <code>int</code> has no runtime binding at all — it compiles to an inline
+check, so <code>Box(int)</code> would reference nothing. The answer generalises past this case: <strong>a
+type that cannot be represented as a value can be represented as a predicate over values</strong>,
+and the runtime was already predicate-shaped, so it needed no new mechanism. Predicates
+compose, which is what makes them sufficient rather than a special case for primitives —
+<code>Box&lt;Box&lt;int&gt;&gt;</code> works because a parameterized type is itself a valid type argument.</p>
+<p>Measured by <code>src/lang/type-argument.test.ts</code>, which also pins <code>Box&lt;int&gt;</code> against <code>n: int</code>
+on a shared corpus — two hand-rolled answers to &quot;is this an int&quot; being exactly how this
+page&#39;s defect class starts.</p>
+<h2>One name, two implementations</h2>
+<p><code>checkType</code> is exported twice from <code>src/lang/index.ts</code> — once via <code>export * from &#39;./inference&#39;</code> and once explicitly from <code>./runtime</code>. An explicit re-export wins, so <strong>#5 is
+unreachable from <code>tjs-lang/lang</code></strong>. The two have incompatible signatures (<code>boolean</code> over a
+<code>TypeDescriptor</code>, versus an error-returning string matcher), so if the shadowing ever
+flipped, every caller would break at runtime rather than at the type level.</p>
+<p>This is asserted by the test rather than fixed: removing either is a breaking change to a
+public surface. The assertion is what makes the collision impossible to forget when that
+call is made.</p>
+<h2>Adding a mechanism</h2>
+<p>Don&#39;t, if an existing one will do. If you must, add it to the corpus in
+<code>type-identity.test.ts</code> in the same commit — a mechanism that answers this question without
+being in that harness is one that can drift from the other four without anything going red.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link current" href="../type-identity/" aria-current="page">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

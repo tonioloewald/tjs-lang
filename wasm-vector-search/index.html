@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Vector Search Benchmark — tjs-lang</title>
+  <meta name="description" content="WASM SIMD vs scalar JavaScript cosine similarity" />
+  <link rel="canonical" href="https://tjs.tosijs.net/wasm-vector-search/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Vector Search Benchmark — tjs-lang" />
+  <meta property="og:description" content="WASM SIMD vs scalar JavaScript cosine similarity" />
+  <meta property="og:url" content="https://tjs.tosijs.net/wasm-vector-search/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Vector Search Benchmark","description":"WASM SIMD vs scalar JavaScript cosine similarity","url":"https://tjs.tosijs.net/wasm-vector-search/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "tjs", "type": "example", "group": "featured", "order": 2, "parent": "tjs-featured.md"}--><h1>Vector Search Benchmark</h1>
+<blockquote>
+<p>New to WASM in TJS? Start with the <strong><a href="https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md">WASM Quick Start</a></strong>.</p>
+</blockquote>
+<p>WASM SIMD vs scalar JavaScript cosine similarity</p>
+<pre><code class="language-tjs">/#
+# WASM SIMD Vector Search Benchmark
+
+Compares **WASM SIMD** (f32x4) cosine similarity against **scalar JavaScript**
+for vector search workloads. This is the core operation behind semantic search,
+RAG pipelines, and embedding-based retrieval.
+
+The corpus is packed into a single `wasmBuffer` — zero-copy shared memory
+between JS and WASM. The SIMD search kernel processes 4 vector dimensions
+per instruction and loops over the entire corpus in one WASM call.
+
+Click **Run Benchmark** to generate random vectors and measure throughput.
+
+**Cross-file equivalent:** today this example computes `dot`, `magA`, and `magB`
+inline inside one `wasm {}` block. The same workload can also be expressed by
+importing `tjs-lang/linalg` and using `dot` + `norm_sq` from a JS outer loop —
+proven correct in `src/linalg/vector-search.bench.test.ts` (same `bestIdx`
+across configs, composed-not-imported module shape verified).
+
+**The honest perf tradeoff:** in the composed form the outer loop is JS, so
+each corpus row costs 2 JS↔wasm boundary crossings (`dot` + `norm_sq`). The
+inline form does the whole workload in one wasm call. So composed runs
+roughly 1.5–10× slower for fine-grained kernel usage, even though the wasm
+module shape is identical. For maximum throughput on hot inner loops, keep
+this example&#39;s inline form; for modularity / reuse / correctness, the
+imported form works fine. A `cosine_search` kernel in `tjs-lang/linalg` would
+combine both wins — that&#39;s the natural next step. See
+[`wasm-library-plan.md`](https://github.com/tonioloewald/tjs-lang/blob/main/wasm-library-plan.md)
+§ &quot;Canonical end-to-end demo&quot; for the full story.
+#/
+
+// SIMD corpus search — single WASM call over entire corpus
+// corpus is a flat Float32Array of count*dim elements
+// Returns the index of the most similar vector
+function simdSearch(corpus: Float32Array, query: Float32Array, count: 0, dim: 0) {
+  return wasm {
+    let bestIdx = 0
+    let bestScore = -1.0
+
+    for (let v = 0; v &lt; count; v++) {
+      let dotAcc = f32x4_splat(0.0)
+      let magAAcc = f32x4_splat(0.0)
+      let magBAcc = f32x4_splat(0.0)
+
+      for (let j = 0; j &lt; dim; j += 4) {
+        let qOff = j * 4
+        let cOff = (v * dim + j) * 4
+        let a = f32x4_load(query, qOff)
+        let b = f32x4_load(corpus, cOff)
+        dotAcc = f32x4_add(dotAcc, f32x4_mul(a, b))
+        magAAcc = f32x4_add(magAAcc, f32x4_mul(a, a))
+        magBAcc = f32x4_add(magBAcc, f32x4_mul(b, b))
+      }
+
+      let dot = f32x4_extract_lane(dotAcc, 0) + f32x4_extract_lane(dotAcc, 1)
+              + f32x4_extract_lane(dotAcc, 2) + f32x4_extract_lane(dotAcc, 3)
+      let magA = f32x4_extract_lane(magAAcc, 0) + f32x4_extract_lane(magAAcc, 1)
+               + f32x4_extract_lane(magAAcc, 2) + f32x4_extract_lane(magAAcc, 3)
+      let magB = f32x4_extract_lane(magBAcc, 0) + f32x4_extract_lane(magBAcc, 1)
+               + f32x4_extract_lane(magBAcc, 2) + f32x4_extract_lane(magBAcc, 3)
+
+      let mA = Math.sqrt(magA)
+      let mB = Math.sqrt(magB)
+      if (mA &gt; 0.000001) {
+        if (mB &gt; 0.000001) {
+          let score = dot / (mA * mB)
+          if (score &gt; bestScore) {
+            bestScore = score
+            bestIdx = v
+          }
+        }
+      }
+    }
+    return bestIdx
+  } fallback {
+    let bestIdx = 0
+    let bestScore = -1
+    for (let v = 0; v &lt; count; v++) {
+      let dot = 0, magA = 0, magB = 0
+      for (let j = 0; j &lt; dim; j++) {
+        let ci = v * dim + j
+        dot += query[j] * corpus[ci]
+        magA += query[j] * query[j]
+        magB += corpus[ci] * corpus[ci]
+      }
+      magA = Math.sqrt(magA)
+      magB = Math.sqrt(magB)
+      if (magA &gt; 0 &amp;&amp; magB &gt; 0) {
+        let score = dot / (magA * magB)
+        if (score &gt; bestScore) { bestScore = score; bestIdx = v }
+      }
+    }
+    return bestIdx
+  }
+}
+
+// Scalar JS search (baseline)
+function jsSearch(corpus, query, count, dim) {
+  let bestIdx = 0, bestScore = -1
+  for (let v = 0; v &lt; count; v++) {
+    let dot = 0, magA = 0, magB = 0
+    for (let j = 0; j &lt; dim; j++) {
+      const ci = v * dim + j
+      dot += query[j] * corpus[ci]
+      magA += query[j] * query[j]
+      magB += corpus[ci] * corpus[ci]
+    }
+    magA = Math.sqrt(magA)
+    magB = Math.sqrt(magB)
+    if (magA &gt; 0 &amp;&amp; magB &gt; 0) {
+      const score = dot / (magA * magB)
+      if (score &gt; bestScore) { bestScore = score; bestIdx = v }
+    }
+  }
+  return bestIdx
+}
+
+// UI setup
+const container = document.createElement(&#39;div&#39;)
+container.style.cssText = &#39;font-family:monospace;color:#c0d8ff;background:#0a0a14;padding:24px;position:absolute;inset:0;overflow:auto&#39;
+document.body.appendChild(container)
+
+const title = document.createElement(&#39;h2&#39;)
+title.textContent = &#39;Vector Search: WASM SIMD vs JS Scalar&#39;
+title.style.cssText = &#39;margin:0 0 4px 0;font-size:18px&#39;
+container.appendChild(title)
+
+const subtitle = document.createElement(&#39;div&#39;)
+subtitle.textContent = &#39;Cosine similarity over Float32Array embeddings (wasmBuffer = zero-copy)&#39;
+subtitle.style.cssText = &#39;color:#6090c0;font-size:12px;margin-bottom:16px&#39;
+container.appendChild(subtitle)
+
+const btn = document.createElement(&#39;button&#39;)
+btn.textContent = &#39;Run Benchmark&#39;
+btn.style.cssText = &#39;background:#2060a0;color:#fff;border:none;padding:8px 20px;font:bold 14px monospace;cursor:pointer;margin-bottom:16px&#39;
+container.appendChild(btn)
+
+const status = document.createElement(&#39;div&#39;)
+status.style.cssText = &#39;color:#6090c0;margin-bottom:12px;font-size:13px&#39;
+container.appendChild(status)
+
+const table = document.createElement(&#39;table&#39;)
+table.style.cssText = &#39;border-collapse:collapse;width:100%;max-width:700px&#39;
+container.appendChild(table)
+
+const configs = [
+  { dim: 128, count: 10000, label: &#39;10K x 128d&#39; },
+  { dim: 256, count: 10000, label: &#39;10K x 256d&#39; },
+  { dim: 512, count: 10000, label: &#39;10K x 512d&#39; },
+  { dim: 128, count: 50000, label: &#39;50K x 128d&#39; },
+]
+
+// Pre-allocate max-sized buffers once (bump allocator never frees)
+// Largest config: 50K x 128d = 6.4M floats = 25.6MB
+const MAX_CORPUS = 50000 * 128
+const MAX_DIM = 512
+const corpus = wasmBuffer(Float32Array, MAX_CORPUS)
+const query = wasmBuffer(Float32Array, MAX_DIM)
+
+function renderTable(results) {
+  const cellStyle = &#39;padding:8px 12px;border-bottom:1px solid #1a2a3a;text-align:right&#39;
+  const headerStyle = cellStyle + &#39;;color:#6090c0;text-align:right;font-weight:bold&#39;
+  const labelStyle = cellStyle + &#39;;text-align:left;color:#c0d8ff&#39;
+
+  let html = &#39;&lt;tr&gt;&#39;
+  html += `&lt;th style=&quot;${headerStyle};text-align:left&quot;&gt;Config&lt;/th&gt;`
+  html += `&lt;th style=&quot;${headerStyle}&quot;&gt;SIMD (ms)&lt;/th&gt;`
+  html += `&lt;th style=&quot;${headerStyle}&quot;&gt;JS (ms)&lt;/th&gt;`
+  html += `&lt;th style=&quot;${headerStyle}&quot;&gt;Speedup&lt;/th&gt;`
+  html += `&lt;th style=&quot;${headerStyle}&quot;&gt;Match&lt;/th&gt;`
+  html += &#39;&lt;/tr&gt;&#39;
+
+  for (const r of results) {
+    const color = r.speedup &gt;= 1 ? &#39;#40d080&#39; : &#39;#d04040&#39;
+    html += &#39;&lt;tr&gt;&#39;
+    html += `&lt;td style=&quot;${labelStyle}&quot;&gt;${r.label}&lt;/td&gt;`
+    html += `&lt;td style=&quot;${cellStyle};color:#80b0e0&quot;&gt;${r.simdTime.toFixed(1)}&lt;/td&gt;`
+    html += `&lt;td style=&quot;${cellStyle};color:#e0a060&quot;&gt;${r.jsTime.toFixed(1)}&lt;/td&gt;`
+    html += `&lt;td style=&quot;${cellStyle};color:${color};font-weight:bold&quot;&gt;${r.speedup.toFixed(2)}x&lt;/td&gt;`
+    html += `&lt;td style=&quot;${cellStyle};color:${r.match ? &#39;#40d080&#39; : &#39;#d04040&#39;}&quot;&gt;${r.match ? &#39;yes&#39; : &#39;no&#39;}&lt;/td&gt;`
+    html += &#39;&lt;/tr&gt;&#39;
+  }
+
+  if (results.length === configs.length) {
+    const avg = results.reduce((s, r) =&gt; s + r.speedup, 0) / results.length
+    const color = avg &gt;= 1 ? &#39;#40d080&#39; : &#39;#d04040&#39;
+    html += &#39;&lt;tr&gt;&#39;
+    html += `&lt;td style=&quot;${labelStyle};font-weight:bold&quot;&gt;Average&lt;/td&gt;`
+    html += `&lt;td style=&quot;${cellStyle}&quot;&gt;&lt;/td&gt;&lt;td style=&quot;${cellStyle}&quot;&gt;&lt;/td&gt;`
+    html += `&lt;td style=&quot;${cellStyle};color:${color};font-weight:bold&quot;&gt;${avg.toFixed(2)}x&lt;/td&gt;`
+    html += `&lt;td style=&quot;${cellStyle}&quot;&gt;&lt;/td&gt;`
+    html += &#39;&lt;/tr&gt;&#39;
+  }
+
+  table.innerHTML = html
+}
+
+// Measure per-call time robustly: run until at least minMs of wall-clock has
+// elapsed, then divide by the iteration count. A single sub-millisecond pass
+// can&#39;t be timed where performance.now() is coarse (Firefox clamps to ~1ms),
+// which would make a fast SIMD result read as 0ms and the speedup Infinity.
+function timePerOp(fn, minMs = 25) {
+  let iters = 0
+  let result
+  const start = performance.now()
+  do {
+    result = fn()
+    iters++
+  } while (performance.now() - start &lt; minMs)
+  return { perOp: (performance.now() - start) / iters, result }
+}
+
+async function runConfig(cfg) {
+  const size = cfg.count * cfg.dim
+
+  // Also create regular JS arrays for the scalar baseline
+  const jsCorpus = new Float32Array(size)
+  const jsQuery = new Float32Array(cfg.dim)
+
+  // Fill pre-allocated wasmBuffer corpus + JS copy with same random data
+  for (let i = 0; i &lt; size; i++) {
+    const v = Math.random() * 2 - 1
+    corpus[i] = v
+    jsCorpus[i] = v
+  }
+  for (let i = 0; i &lt; cfg.dim; i++) {
+    const v = Math.random() * 2 - 1
+    query[i] = v
+    jsQuery[i] = v
+  }
+
+  // Warm up (ensures WASM JIT is hot before timing)
+  for (let w = 0; w &lt; 3; w++) {
+    simdSearch(corpus, query, Math.min(500, cfg.count), cfg.dim)
+    jsSearch(jsCorpus, jsQuery, Math.min(500, cfg.count), cfg.dim)
+  }
+
+  // Time SIMD (pre-allocated wasmBuffer — zero copy) and JS, each averaged over
+  // enough iterations to exceed coarse timer resolution (see timePerOp above).
+  const simd = timePerOp(() =&gt; simdSearch(corpus, query, cfg.count, cfg.dim))
+  const js = timePerOp(() =&gt; jsSearch(jsCorpus, jsQuery, cfg.count, cfg.dim))
+
+  return {
+    label: cfg.label,
+    simdTime: simd.perOp,
+    jsTime: js.perOp,
+    speedup: simd.perOp &gt; 0 ? js.perOp / simd.perOp : Infinity,
+    match: simd.result === js.result,
+  }
+}
+
+let running = false
+
+btn.addEventListener(&#39;click&#39;, async () =&gt; {
+  if (running) return
+  running = true
+  btn.textContent = &#39;Running...&#39;
+  btn.style.background = &#39;#334&#39;
+  const results = []
+
+  for (let i = 0; i &lt; configs.length; i++) {
+    status.textContent = `Running ${configs[i].label}...`
+    await new Promise(r =&gt; setTimeout(r, 50))
+    results.push(await runConfig(configs[i]))
+    renderTable(results)
+  }
+
+  status.textContent = &#39;Done.&#39;
+  btn.textContent = &#39;Run Benchmark&#39;
+  btn.style.background = &#39;#2060a0&#39;
+  running = false
+})
+
+status.textContent = &#39;Click &quot;Run Benchmark&quot; to start.&#39;
+</code></pre>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details open><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details open><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link current" href="../wasm-vector-search/" aria-current="page">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

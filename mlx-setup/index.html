@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>MLX as the local-AI harness — tjs-lang</title>
+  <meta name="description" content="Tjs-lang&#39;s batteries talk to any OpenAI-compatible local server over HTTP, so the backend is a config choice, not a code change." />
+  <link rel="canonical" href="https://tjs.tosijs.net/mlx-setup/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="MLX as the local-AI harness — tjs-lang" />
+  <meta property="og:description" content="Tjs-lang&#39;s batteries talk to any OpenAI-compatible local server over HTTP, so the backend is a config choice, not a code change." />
+  <meta property="og:url" content="https://tjs.tosijs.net/mlx-setup/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"MLX as the local-AI harness","description":"Tjs-lang's batteries talk to any OpenAI-compatible local server over HTTP, so the backend is a config choice, not a code change.","url":"https://tjs.tosijs.net/mlx-setup/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "ajs.md", "order": 8}--><h1>MLX as the local-AI harness</h1>
+<p>tjs-lang&#39;s batteries talk to any <strong>OpenAI-compatible</strong> local server over HTTP, so the
+backend is a config choice, not a code change. Going forward the intended backend is
+<strong>MLX</strong> (Apple-silicon native, open source) rather than LM Studio (closed source) or
+llama.cpp.</p>
+<p>Point the batteries at your server with one env var:</p>
+<pre><code class="language-bash" data-highlighted><span class="token builtin class-name">export</span> <span class="token assign-left variable">TJS_LLM_BASE_URL</span><span class="token operator">=</span>http://localhost:10240/v1   <span class="token comment"># mlx-omni-server</span>
+</code></pre>
+<p>Nothing else is backend-specific: models are auto-discovered from <code>/v1/models</code>, and the
+audit classifies each into LLM / embedding / vision / structured-output capable.</p>
+<h2>Which MLX server</h2>
+<table>
+<thead>
+<tr>
+<th>Server</th>
+<th>Endpoints</th>
+<th>Use it for</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>mlx-omni-server</code></td>
+<td>chat, embeddings, <strong>audio/speech (TTS)</strong>, images, STT</td>
+<td>the full harness (recommended)</td>
+</tr>
+<tr>
+<td><code>mlx_lm.server</code></td>
+<td>chat, (limited) completions</td>
+<td>text-only, minimal</td>
+</tr>
+</tbody></table>
+<p><code>mlx-omni-server</code> is the better fit because it covers the harness&#39;s whole surface —
+including the TTS endpoint the narrative/voice work (ariosto) needs — behind the same
+OpenAI-compatible API the batteries already speak.</p>
+<h2>Vision on mlx-omni-server: possible in principle, blocked in practice (v0.5.3, 2026-08-02)</h2>
+<blockquote>
+<p><strong>Filed upstream</strong> (gates 1 and 2 below): <a href="https://github.com/madroidmaq/mlx-omni-server/issues/128">mlx-omni-server#128</a>
+(schema rejects the standard <code>image_url</code> block) and
+<a href="https://github.com/madroidmaq/mlx-omni-server/issues/129">#129</a> (<code>MLX_VLM_ONLY_MODELS</code> gates
+vision to one architecture). Gate 3 is model-side, not a server bug. Tracked in <code>UPSTREAM.md</code>.</p>
+</blockquote>
+<p>Investigated properly, because the first answer (&quot;the server can&#39;t do vision&quot;) was wrong and
+the real picture is more useful. Three separate gates, in order:</p>
+<p><strong>1. The request schema.</strong> <code>/v1/chat/completions</code> types <code>content</code> as
+<code>string | Array&lt;{[k: string]: string}&gt; | null</code>. The array form therefore accepts
+<code>{type:&#39;text&#39;, text:&#39;…&#39;}</code> — all values are strings — but <strong>rejects the standard OpenAI
+image block</strong> <code>{type:&#39;image_url&#39;, image_url:{url:&#39;…&#39;}}</code>, because <code>image_url</code> is a nested
+object. Pydantic refuses it before any model is consulted:</p>
+<pre><code>&quot;Input should be a valid string&quot; … loc: [&quot;body&quot;,&quot;messages&quot;,0,&quot;content&quot;,&quot;str&quot;]
+</code></pre>
+<p>A <strong>flattened</strong> <code>{type:&#39;image_url&#39;, image_url:&#39;&lt;data-uri&gt;&#39;}</code> does satisfy the schema and gets
+through to the handler. So our batteries would need a non-standard request shape.</p>
+<p><strong>2. Architecture routing.</strong> The server sends a model to <code>mlx_vlm</code> only if it matches:</p>
+<pre><code class="language-python" data-highlighted>MLX_VLM_ONLY_MODELS <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token string">"gemma4"</span><span class="token punctuation">}</span>      <span class="token comment"># chat/mlx/model_types.py</span>
+</code></pre>
+<p><strong>One architecture.</strong> Everything else falls through to <code>mlx_lm</code>, which has no vision
+support, and fails with <code>Model type &lt;arch&gt; not supported</code> — verified with
+<code>SmolVLM-Instruct-bf16</code> (<code>idefics3</code>), which mlx_vlm itself supports perfectly well. So the
+choice of VLM is not free: it must be gemma4.</p>
+<p><strong>3. Weight compatibility.</strong> <code>mlx-community/gemma-4-e2b-it-4bit</code> routes correctly to
+<code>mlx_vlm</code> and then fails loading:</p>
+<pre><code>Received 2 parameters not in model:
+  language_model.model.per_layer_model_projection.biases, …scales
+</code></pre>
+<p>— a build/mlx_vlm-version skew, not a routing problem. Another gemma4 build may work; each
+attempt is a multi-gigabyte download, so it is not worth doing speculatively.</p>
+<p><strong>Practical answer:</strong> run the vision lane against LM Studio, which speaks the standard
+OpenAI multimodal format. Chat, embeddings and the full <code>bun test</code> gate all work on MLX. The
+vision examples self-skip, which is expected rather than a failure.</p>
+<h3>Tried and failed, 2026-08-03 — three servers, three different breakages</h3>
+<p>Recorded so nobody repeats it. <strong>Every attempt failed for a DIFFERENT reason</strong>, which is
+the useful signal: MLX vision on this stack is currently a moving target of version skew,
+not one fixable bug.</p>
+<table>
+<thead>
+<tr>
+<th>attempt</th>
+<th>failure</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>mlx-omni-server</code> + SmolVLM (<code>idefics3</code>)</td>
+<td><code>Model type idefics3 not supported</code> — routed to <code>mlx_lm</code>, because only <code>gemma4</code> reaches <code>mlx_vlm</code></td>
+</tr>
+<tr>
+<td><code>mlx-omni-server</code> + <code>gemma-4-e2b-it-4bit</code></td>
+<td>routed correctly, then <code>Received 2 parameters not in model: …per_layer_model_projection.biases/scales</code> — build/mlx_vlm skew</td>
+</tr>
+<tr>
+<td><code>mlx-openai-server --model-type multimodal</code> + SmolVLM</td>
+<td>server starts and lists the model, then <code>BatchGenerator.__init__() got an unexpected keyword argument &#39;kv_bits&#39;</code> — the server&#39;s own dependency skew</td>
+</tr>
+<tr>
+<td><code>mlx-openai-server</code> + <code>gemma-4-e2b-it-4bit</code></td>
+<td><strong>identical</strong> weight error to omni — so that failure is model-side, not server-side</td>
+</tr>
+</tbody></table>
+<p>A fourth attempt closed the matrix: <strong>gemma-4-e2b-it-4bit on <code>mlx-openai-server</code></strong> failed
+with the <em>identical</em> <code>per_layer_model_projection.biases/scales</code> error it produced on omni.
+Reproducing byte-for-byte on two independent servers proves that one is <strong>model-side, not
+server-side</strong> — the 4-bit build&#39;s weights do not match what mlx_vlm 0.4.4 expects.</p>
+<p>That is a useful narrowing, because the two failing parameter names are <strong>quantization
+artifacts</strong> (<code>.scales</code>, <code>.biases</code>). An <strong>unquantized</strong> gemma-4 build (bf16) has neither, so
+it is the obvious next thing to try — and the only attempt worth another download.</p>
+<p>Worth noting <code>mlx-openai-server</code> got furthest overall: it accepts the <strong>standard</strong> OpenAI
+image block (no flattening needed) and its <code>/v1/models</code> actually lists the model, unlike
+omni. Its <code>kv_bits</code> skew is the other thing to watch upstream — filed as
+<a href="https://github.com/cubist38/mlx-openai-server/issues/320">mlx-openai-server#320</a>.</p>
+<p><strong>Cost so far:</strong> ~6.6GB of model downloads, none usable. Do not retry speculatively.</p>
+<p><strong>Current answer: use LM Studio for the vision lane.</strong> Chat, embeddings and the full
+<code>bun test</code> gate all work on MLX today.</p>
+<h3>The likely right answer: run <code>mlx_vlm.server</code> for the vision lane</h3>
+<p><code>mlx-vlm</code> and <code>mlx-omni-server</code> are <strong>different things</strong>, and advice about one does not
+transfer. mlx-vlm ships its own OpenAI-compatible server (<code>python -m mlx_vlm.server</code>) whose
+whole purpose is VLMs — no <code>MLX_VLM_ONLY_MODELS</code> gate, so <code>Qwen2-VL</code>, <code>gemma-3n</code> and the
+rest work there. mlx-omni-server is a multi-modality <em>aggregator</em> that happens to bundle
+mlx_vlm and only routes <code>gemma4</code> to it.</p>
+<p>So the cheap path is two servers: mlx-omni-server for chat/embeddings, <code>mlx_vlm.server</code> on
+another port for vision, with <code>TJS_VISION_MODEL</code> pointed at the second. Untested here —
+recorded because it is the first thing to try, not because it is known to work.</p>
+<p><strong>Whichever route</strong>, <code>src/batteries/llm.ts</code> may still need the flattened image shape; check
+the target server&#39;s schema before assuming the standard OpenAI block is accepted.</p>
+<h2>Setup</h2>
+<p>Verified end-to-end on macOS 26.5 / Apple silicon, 2026-07-30.</p>
+<pre><code class="language-bash" data-highlighted><span class="token comment"># 1. install. Use uv — it manages its own Python; the system python3 here is</span>
+<span class="token comment">#    Xcode's 3.9, too old for MLX, and shouldn't be polluted anyway.</span>
+brew <span class="token function">install</span> uv
+uv tool <span class="token function">install</span> mlx-omni-server      <span class="token comment"># binary lands in ~/.local/bin</span>
+
+<span class="token comment"># 2. PRE-DOWNLOAD the models you want (see "on-demand loading" below — the server</span>
+<span class="token comment">#    will NOT fetch them for you). Small, capable, non-Meta defaults:</span>
+hf download mlx-community/Qwen2.5-1.5B-Instruct-4bit   <span class="token comment"># chat  (~840MB)</span>
+hf download mlx-community/bge-small-en-v1.5-bf16       <span class="token comment"># embed (~65MB)</span>
+
+<span class="token comment"># 3. run the server (default port 10240)</span>
+mlx-omni-server <span class="token parameter variable">--port</span> <span class="token number">10240</span>
+
+<span class="token comment"># 4. point tjs-lang at it, naming the models</span>
+<span class="token builtin class-name">export</span> <span class="token assign-left variable">TJS_LLM_BASE_URL</span><span class="token operator">=</span>http://localhost:10240/v1
+<span class="token builtin class-name">export</span> <span class="token assign-left variable">TJS_LLM_MODEL</span><span class="token operator">=</span>mlx-community/Qwen2.5-1.5B-Instruct-4bit
+<span class="token builtin class-name">export</span> <span class="token assign-left variable">TJS_EMBEDDING_MODEL</span><span class="token operator">=</span>mlx-community/bge-small-en-v1.5-bf16
+
+<span class="token comment"># 5. verify</span>
+bun run test:llm                     <span class="token comment"># live smoke: audit + predict + embed</span>
+</code></pre>
+<h3>Two gotchas that will bite you (both cost real time here)</h3>
+<p><strong>1. <code>/v1/models</code> returns an empty list — you must name your models.</strong> (Filed upstream:
+<a href="https://github.com/madroidmaq/mlx-omni-server/issues/130">mlx-omni-server#130</a>.) LM Studio lists
+the models it has loaded, so the batteries could <em>discover</em> and classify them. mlx-omni-server
+loads a model on demand from the id in each request, so it has nothing to enumerate and
+returns <code>{&quot;data&quot;: []}</code> — discovery finds nothing and every call fails with &quot;No LLM available&quot;
+even though the server works perfectly. Hence <code>TJS_LLM_MODEL</code> / <code>TJS_EMBEDDING_MODEL</code>: name
+them and the audit is skipped (a capability probe would load a whole model just to ask about
+it). A declared model is trusted, not probed — so its embedding <code>dimension</code> is unknown until
+first use, which is expected, not a failure.</p>
+<p><strong>2. The server does not download models; it serves what&#39;s cached.</strong> It passes
+<code>local_files_only=True</code> to HuggingFace, so an unknown model id fails with a confusing
+&quot;outgoing traffic has been disabled&quot; (even with a working connection). Pre-download with
+<code>hf download &lt;id&gt;</code> — the <code>hf</code> CLI ships inside the uv tool env
+(<code>~/.local/share/uv/tools/mlx-omni-server/bin</code>).</p>
+<p><strong>A third, environment-specific one:</strong> if <code>pyenv</code> is on the PATH with no usable <code>python</code>
+shim, the server dies at startup with <code>Failed to inspect Python interpreter … pyenv: python: command not found</code>. Put a real Python first on the PATH (the tool&#39;s own env works:
+<code>export PATH=&quot;$HOME/.local/share/uv/tools/mlx-omni-server/bin:$PATH&quot;</code>).</p>
+<h2>How this maps onto the three test lanes</h2>
+<p>The <a href="../CLAUDE.md">three-lane discipline</a> is unchanged by the backend switch — that&#39;s the
+point of having it:</p>
+<ol>
+<li><strong>Deterministic plumbing</strong> (<code>llm-transport.test.ts</code>, always runs) — the HTTP client is
+tested against an in-process fixture server. <strong>No backend required</strong>, so a laptop with
+no MLX installed still runs the whole fast suite.</li>
+<li><strong>Live smoke</strong> (<code>models.integration.test.ts</code>, gated by <code>SKIP_LLM_TESTS</code>) — the
+irreducible &quot;our client still works against a real server&quot;. Now satisfied by MLX.</li>
+<li><strong>AJS grokkability</strong> (<code>bun run test:grok</code>, advisory) — needs a small pinned model;
+set <code>GROK_MODEL</code> to an MLX model id.</li>
+</ol>
+<h2>TTS / voice: spike findings (2026-07-30)</h2>
+<p>For the narrative/voice use-case (ariosto: &quot;specific voices with acting directions&quot;), the
+server&#39;s <code>/v1/audio/speech</code> is backed by <code>mlx_audio</code>, which ships ~40 TTS families. Two things
+make it workable as a harness target:</p>
+<ul>
+<li><strong>The request schema is <code>extra = &quot;allow&quot;</code></strong> and forwards unknown fields straight to
+<code>mlx_audio</code>&#39;s <code>generate_audio(**extra)</code>. So model-specific params (<code>exaggeration</code>,
+<code>instruct</code>, …) pass through the standard OpenAI-shaped endpoint. That&#39;s the escape hatch a
+<code>speak()</code> capability needs — no forked endpoint required.</li>
+<li>Models are <strong>pre-downloaded, not fetched on demand</strong> (same as chat — see gotcha 2 above).</li>
+</ul>
+<h3>Chatterbox: good voice cloning, but the emotion control is intensity, not emotion</h3>
+<p><strong>Verified working</strong> (<code>mlx-community/chatterbox-fp16</code>, MIT) — 24kHz WAV, ~1.5–2.6s per short
+line. Caveat: Chatterbox is a <strong>pure voice-cloning model with no built-in voices</strong>; the
+<code>Chatterbox-TTS-*</code> repos omit <code>conds.safetensors</code> and fail outright with &quot;No conditionals
+available&quot;. Use <code>chatterbox-fp16</code> (ships default conditionals) or supply <code>audio_prompt</code>.</p>
+<p>Its only emotion control is an <code>exaggeration</code> scalar (0–~1.5, saturates above that).
+<strong>Measured across six presets</strong> (sad/happy/nervous/hesitant/sly/angry, same line, mapped to
+exaggeration+cfg_weight), acoustic analysis says the scalar does <strong>not</strong> encode emotion:</p>
+<table>
+<thead>
+<tr>
+<th>preset</th>
+<th>dur</th>
+<th>loudness</th>
+<th>pitch</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>sly</td>
+<td>2.00s</td>
+<td>0.095</td>
+<td>131 Hz</td>
+</tr>
+<tr>
+<td>sad</td>
+<td>2.12s</td>
+<td>0.088</td>
+<td>121 Hz</td>
+</tr>
+<tr>
+<td>hesitant</td>
+<td>2.12s</td>
+<td>0.091</td>
+<td>133 Hz</td>
+</tr>
+<tr>
+<td>nervous</td>
+<td>2.16s</td>
+<td>0.089</td>
+<td>163 Hz</td>
+</tr>
+<tr>
+<td>happy</td>
+<td>2.88s</td>
+<td>0.083</td>
+<td>138 Hz</td>
+</tr>
+<tr>
+<td>angry</td>
+<td>3.96s</td>
+<td>0.098</td>
+<td>144 Hz</td>
+</tr>
+</tbody></table>
+<p>Loudness is flat (±15%) and pitch nearly so; <strong>duration is the only thing that really moves</strong>.
+In normalized feature distance the closest pairs are sad↔hesitant (1.59) and sly↔hesitant
+(1.75) — and damningly, <strong>sad↔happy (2.25) is barely more distinct than sad↔hesitant</strong>. A single
+intensity scalar cannot encode <em>valence</em>, so &quot;sad&quot; and &quot;happy&quot; are not separable this way.</p>
+<p><strong>Conclusion:</strong> parameter-mapping a direction onto <code>exaggeration</code> is a dead end. With
+Chatterbox, distinct emotions must come from <strong>reference audio</strong> — a voice bank per character
+per emotion (<code>narrator-sad.wav</code>, <code>narrator-sly.wav</code>), with <code>exaggeration</code> as an intensity trim.</p>
+<h3>The better fit: models that take a text instruction</h3>
+<p><code>mlx_audio</code> includes families with a natural-language style/instruction interface —
+<code>qwen3_tts</code>, <code>moss_tts</code>, <code>higgs_audio_v3</code>, <code>omnivoice</code>, <code>voxcpm2</code>, <code>zonos2</code>, <code>bailingmm</code>,
+<code>irodori_tts</code>, <code>tada</code>. Most promising: <strong><code>qwen3_tts</code></strong> (Alibaba), whose API is exactly the
+shape the use-case wants:</p>
+<pre><code class="language-python" data-highlighted>generate<span class="token punctuation">(</span>text<span class="token punctuation">,</span> voice<span class="token operator">=</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">,</span> instruct<span class="token operator">=</span><span class="token string">"Instruction text for voice style"</span><span class="token punctuation">,</span>
+         ref_audio<span class="token operator">=</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">,</span> speed<span class="token operator">=</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">,</span> <span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">)</span>
+</code></pre>
+<p>That is a real acting-direction interface (direction as <em>text</em>), plus <code>voice</code> and <code>ref_audio</code>
+cloning. <strong>Not yet auditioned</strong> — quality/direction-following is unverified and needs ears.</p>
+<p><strong>Open question for the <code>speak()</code> API:</strong> if an instruct-model follows directions well, the
+capability is <code>speak(text, {voice, direction})</code> passed straight through. If not, it falls back
+to the voice-bank design, and the LLM&#39;s job becomes <em>selecting a clip + intensity</em> rather than
+writing a direction string. Audition before designing.</p>
+<h2>Status</h2>
+<p><strong>Use-case 1 (agent-flow testing) works on MLX today</strong> — the live smoke (audit + predict +
+embed) is green against <code>mlx-omni-server</code> with no LM Studio involved. Backend-agnostic config</p>
+<ul>
+<li>explicit model naming landed (<code>src/batteries/config.ts</code>).</li>
+</ul>
+<p>Still ahead for the broader &quot;shared LLM harness&quot; direction: a <code>speak()</code> capability for TTS
+with voice + acting directions (ariosto — <code>mlx-omni-server</code> exposes <code>/v1/audio/speech</code>, and
+its install pulled <code>vocos-mlx</code>, so the plumbing is there; the open question is which model
+actually follows <em>acting directions</em>), offline/self-hosted coding, and the cross-project
+consumption shape. See <code>TODO.md</code>.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link current" href="../mlx-setup/" aria-current="page">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Small scoped parsers, not a rewrite — tjs-lang</title>
+  <meta name="description" content="The preprocess stage rewrites TJS-specific syntax into JavaScript before acorn ever sees it. It does this with roughly seventeen transforms built from regexes…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/parser-primitives/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Small scoped parsers, not a rewrite — tjs-lang" />
+  <meta property="og:description" content="The preprocess stage rewrites TJS-specific syntax into JavaScript before acorn ever sees it. It does this with roughly seventeen transforms built from regexes…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/parser-primitives/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Small scoped parsers, not a rewrite","description":"The preprocess stage rewrites TJS-specific syntax into JavaScript before acorn ever sees it. It does this with roughly seventeen transforms built from regexes…","url":"https://tjs.tosijs.net/parser-primitives/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "the-tjs-language.md", "order": 11}--><h1>Small scoped parsers, not a rewrite</h1>
+<h2>The diagnosis</h2>
+<p>The <code>preprocess</code> stage rewrites TJS-specific syntax into JavaScript before acorn ever sees
+it. It does this with roughly seventeen transforms built from regexes and character scans.
+That worked while the rewrites were local. It has stopped working, and the evidence is not a
+hunch — it is the bug list from a single day (2026-09-02):</p>
+<table>
+<thead>
+<tr>
+<th>bug</th>
+<th>the mechanism that failed</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>new E({x:1})</code> in a class field read as a method head</td>
+<td>regex plus a <strong>single-character</strong> look-back</td>
+</tr>
+<tr>
+<td>a destructuring rename rewritten as a dictionary member</td>
+<td><code>^(\w+)\s*:\s*(.+)$</code> — cannot tell a rename from an example</td>
+</tr>
+<tr>
+<td>the polymorphic merge grouping across scopes</td>
+<td>a regex sweep over the whole file with <strong>no notion of scope</strong></td>
+</tr>
+<tr>
+<td>a generic type-param list split inside its own braces</td>
+<td><code>.split(&#39;,&#39;)</code>, not depth-aware</td>
+</tr>
+<tr>
+<td>a generic default containing <code>=&gt;</code> silently dropped</td>
+<td><code>.split(&#39;=&#39;)</code>, not depth-aware</td>
+</tr>
+<tr>
+<td><code>&lt;T = () =&gt; 0&gt;</code> unparseable</td>
+<td>the <code>&lt;…&gt;</code> scan reads <code>=&gt;</code>&#39;s <code>&gt;</code> as the closing bracket</td>
+</tr>
+<tr>
+<td>a ternary&#39;s <code>:</code> consumed as an annotation</td>
+<td>no way to know which kind of <code>:</code> this is</td>
+</tr>
+<tr>
+<td><code>:!</code> return example runs into the body</td>
+<td>no way to know where an expression ends</td>
+</tr>
+</tbody></table>
+<p>Every one is the same shape: <strong>a scanner that knows characters but not grammar.</strong> And they
+reduce to two questions that no amount of masking can answer:</p>
+<ol>
+<li><strong>Where does this expression end?</strong></li>
+<li><strong>What does this <code>:</code> mean here?</strong></li>
+</ol>
+<h2>The layer that is missing</h2>
+<p>The repo already has a <strong>lexical</strong> layer, and it works. <code>src/strip-comments.ts</code> owns literals,
+comments, balanced braces (<code>matchingBrace</code>) and depth-aware splitting (<code>splitTopLevel</code>).
+Consolidating on it closed the whole literal-blindness family — six live bugs across eight
+files at <code>0.13.0-beta.1</code> — and <code>src/lang/literal-blindness.test.ts</code> keeps it closed.</p>
+<p>What is missing is the layer above: <strong>syntactic primitives</strong>, built on the lexical ones and
+consumed by the transforms.</p>
+<pre><code>  transforms          (exist)  — the ~17 preprocess rewrites
+  syntactic primitives (NEW)   — expression extent, colon disambiguation
+  lexical primitives  (exist)  — strip-comments.ts
+</code></pre>
+<p>This is not a rewrite. TS → TJS already runs on the TypeScript AST; TJS → JS already ends at
+acorn. Only the middle is hand-rolled, and only the middle needs to change.</p>
+<h2>Two primitives cover most of it</h2>
+<h3>1. Expression extent</h3>
+<blockquote>
+<p>Given a start offset, where does this expression end?</p>
+</blockquote>
+<p>Respecting literals, nesting, and — the case that keeps biting — <code>=&gt;</code>. It resolves:</p>
+<ul>
+<li><code>&lt;T = () =&gt; 0&gt;</code>: the extractor counts brackets where it should consume an expression.</li>
+<li><code>function Array$(value):! { value: null } {</code>: where the return example ends and the body
+begins.</li>
+<li><code>topLevelDefaultEq</code> in <code>parser-transforms.ts</code>, written by hand on 2026-09-02, which is a
+degenerate case of this and should be deleted when the primitive lands.</li>
+</ul>
+<h3>2. Colon disambiguation</h3>
+<blockquote>
+<p>Is this <code>:</code> a ternary&#39;s, a type annotation&#39;s, or an object key&#39;s?</p>
+</blockquote>
+<p>It needs little more than &quot;have I seen an unmatched <code>?</code> at this depth&quot;. It resolves the
+ternary/arrow mangling in <code>RpcServer.ts</code> and <code>commandExecutor.ts</code> — and it is the same
+question behind the destructuring-rename bug, which was fixed by <em>guessing from the shape of
+the value</em> because nothing could answer it directly.</p>
+<p>Both are a few dozen lines, independently testable, and <strong>not throwaway</strong>: an expression-extent
+scanner is a Pratt-parser fragment, and a CST builder needs exactly these. The incremental
+work is a down payment on the rewrite, not scaffolding for it.</p>
+<h2>The discipline that decides whether this works</h2>
+<p>The failure mode is proliferation — several half-parsers that disagree. This is not
+hypothetical. It is how the current situation arose, recorded in
+<code>literal-blindness.test.ts</code>: <em>&quot;each pass had hand-rolled its own partial tracking.&quot;</em></p>
+<p>And it nearly recurred twice on the day this note was written:</p>
+<ul>
+<li><code>topLevelDefaultEq</code> is a private depth scanner, written instead of extending the shared one.</li>
+<li>The <code>messageText</code> fix landed in <code>batteries/</code> and left six copies untouched in
+<code>demo/src/capabilities.ts</code>, which is what broke four LLM examples.</li>
+</ul>
+<p><code>splitTopLevel</code>&#39;s own docstring records the subtler version: it was extracted to stop a fourth
+copy of a scan, and then two callers immediately wrote byte-identical wrappers around it — <em>&quot;a
+consolidation that goes three-to-one and grows two wrappers has gone three-to-three.&quot;</em></p>
+<p>So the rule is not &quot;write small parsers&quot;. It is:</p>
+<blockquote>
+<p><strong>One implementation per concept, in a shared leaf, in the shape callers actually reach for,
+with a guardrail test that fails when a second copy appears.</strong></p>
+</blockquote>
+<p>That is what made the lexical layer succeed, and it is the only thing that will make this
+layer succeed.</p>
+<h2>The measurable payoff</h2>
+<p><code>preprocess</code> is quadratic in file size — a clean 4× per doubling, measured: 16KB 182ms, 32KB
+642ms, 64KB 2.5s, 128KB 10.2s, 256KB 39.4s. Four files in the compat corpus are skipped
+because of it, the largest extrapolating to ~37 minutes. It has never been localised to any
+single transform, and the seventeen <code>source = transform(source)</code> steps sum to ~15ms — which is
+what you would expect when the cost is <strong>the shape</strong> rather than one pass.</p>
+<p>Seventeen transforms each re-scanning the source is the shape. Shared primitives that compute
+positions once are the natural place for that cost to collapse. That makes this the first
+parser work in this repo with a benchmark attached rather than only a cleaner design — and it
+should be measured, not assumed.</p>
+<h2>Sequencing</h2>
+<ol>
+<li><strong><code>convert</code> validates its own output.</strong> Orthogonal — reporting, not parsing — and it turns
+every remaining parse failure from a silent bad artifact into a named error. Today
+<code>tjs convert --emit-tjs</code> exits 0 and writes a <code>.tjs</code> that <code>tjs check</code> then rejects. The
+converter owns both halves and can check itself for free.</li>
+<li><strong>Expression extent</strong>, taking <code>&lt;T = () =&gt; 0&gt;</code> and <code>Schema.ts</code> with it — two of the seven
+remaining corpus failures, and the proof the approach pays.</li>
+<li><strong>Colon disambiguation</strong>, taking <code>RpcServer.ts</code> and <code>commandExecutor.ts</code>.</li>
+<li>Reassess. If the remaining failures still reduce to grammar questions, the primitives have
+earned a CST; if they do not, they were cheap and the transforms are cleaner anyway.</li>
+</ol>
+<h2>Status</h2>
+<p>Proposed, not started. Trigger condition met: <code>PLAN.md</code>&#39;s parser reassessment says revisit
+<em>if edge cases increase</em>, and the seven remaining compat-corpus failures reduce to roughly six
+bugs, essentially all of this class.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link current" href="../parser-primitives/" aria-current="page">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

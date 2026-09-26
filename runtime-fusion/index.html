@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Runtime fusion: what may be shared between TJS modules, and what may not — tjs-lang</title>
+  <meta name="description" content="Every emitted .js file carries its own inline runtime — a self-contained prelude so the output works with no setup." />
+  <link rel="canonical" href="https://tjs.tosijs.net/runtime-fusion/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Runtime fusion: what may be shared between TJS modules, and what may not — tjs-lang" />
+  <meta property="og:description" content="Every emitted .js file carries its own inline runtime — a self-contained prelude so the output works with no setup." />
+  <meta property="og:url" content="https://tjs.tosijs.net/runtime-fusion/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Runtime fusion: what may be shared between TJS modules, and what may not","description":"Every emitted .js file carries its own inline runtime — a self-contained prelude so the output works with no setup.","url":"https://tjs.tosijs.net/runtime-fusion/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "the-tjs-language.md", "order": 7}--><h1>Runtime fusion: what may be shared between TJS modules, and what may not</h1>
+<p>Every emitted <code>.js</code> file carries its own inline runtime — a self-contained prelude so the
+output works with no setup. That is the right default and this note does not propose changing
+it. It proposes a narrow exception, and more importantly it writes down the <strong>rule</strong> that
+decides which parts of the runtime may ever be shared.</p>
+<h2>1. The measurement</h2>
+<p>Two libraries, each emitted from TJS, loaded together in Node:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>bytes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>one module alone</td>
+<td>3,504</td>
+</tr>
+<tr>
+<td>two bundled with esbuild</td>
+<td>8,806</td>
+</tr>
+</tbody></table>
+<p>The bundler emits <code>MonadicError</code> <strong>and</strong> <code>MonadicError2</code>, and declares <code>typeError</code> twice. A
+bundler cannot dedupe these: they are textually separate top-level declarations in different
+modules, so scope-hoisting renames them rather than merging them. Ten TJS-derived packages
+means ten copies of an identical prelude, and ten distinct error classes.</p>
+<pre><code>  bundled + ran            : true
+  same class after bundling: false
+</code></pre>
+<p>Nothing is broken by this — <code>isMonadicError</code> is duck-typed (<code>name === &#39;MonadicError&#39;</code> plus
+<code>&#39;path&#39; in v</code>) precisely so identity survives a module boundary. It is why an <code>instanceof</code>
+check would be silently false for an error that crossed one, and why that failure would look
+like &quot;the error vanished&quot; rather than like a type-identity problem.</p>
+<h2>2. The rule: code fuses, data unions</h2>
+<p>The distinction that decides every case:</p>
+<ul>
+<li><strong>Code is fungible.</strong> Two versions of <code>MonadicError</code> implement the same shape, so it does
+not matter which one wins. Fusing by version — newest wins — is safe.</li>
+<li><strong>Data is not.</strong> A module&#39;s types, and any id-to-shape map, belong to that module. &quot;Newest
+wins&quot; applied to data silently <em>drops</em> a library&#39;s types. Data must merge by <strong>union</strong>, or
+not merge at all.</li>
+</ul>
+<p><code>installRuntime()</code> already implements newest-wins for the runtime object, with a
+major-version compatibility gate (<code>compareVersions</code> / <code>versionsCompatible</code>). This note extends
+that same policy one level down, to the inline prelude — and states the limit: it stops at
+code.</p>
+<p>That limit is the reason a future id-based declaration table (<code>TODO.md</code>) must derive ids from
+content rather than a counter. Content-derived ids let two modules&#39; tables union with no
+collisions; counter-derived ids both start at 1, so they can only be merged by discarding one.</p>
+<h2>3. Which prelude members qualify</h2>
+<p>Only members whose inline and canonical implementations are <strong>observationally identical</strong>.
+This is a real constraint, not a formality — <code>CLAUDE.md</code>&#39;s &quot;the inline runtime is NOT the real
+runtime&quot; warning exists because most of them are not:</p>
+<table>
+<thead>
+<tr>
+<th>member</th>
+<th>identical?</th>
+<th>may fuse?</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>MonadicError</code></td>
+<td>yes — same six constructor params, same order, same fields, same <code>name</code></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr>
+<td><code>Type</code></td>
+<td>no — the real one throws where the stub is permissive</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>FunctionPredicate</code></td>
+<td>no — real <code>.check()</code> returns a reason string, the stub returns <code>false</code></td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>typeError</code></td>
+<td>no — reads config and the recorder off the global at call time</td>
+<td>no</td>
+</tr>
+</tbody></table>
+<p>So the exception is exactly one member. <code>MonadicError</code> is a plain data class: it carries
+fields and does nothing else. That is what makes swapping it free of behaviour change, and it
+is the only member of which that is true today.</p>
+<h2>4. Mechanism</h2>
+<p>A <strong>shape-versioned</strong> global slot, claimed with <code>??=</code>:</p>
+<pre><code class="language-js">const MonadicError = (globalThis.__tjs_MonadicError_1 ??= class MonadicError extends Error {
+  /* … */
+})
+</code></pre>
+<p>Properties that matter:</p>
+<ul>
+<li><strong>Standalone output is preserved.</strong> No runtime need be installed; the first module to load
+defines the class and the rest reuse it. An emitted file on its own still works.</li>
+<li><strong>Load order is irrelevant.</strong> Every candidate is identical, so whoever wins is correct.</li>
+<li><strong>The canonical runtime participates.</strong> <code>runtime.ts</code> resolves through the same slot rather
+than always using its own class — otherwise a module that loaded before the runtime would
+still hold a different class, and <code>instanceof</code> would still be false.</li>
+</ul>
+<h3>Why the key is a SHAPE version, not the package version</h3>
+<p><code>__tjs_MonadicError_1</code> is versioned by the class&#39;s shape, and the number changes only if the
+shape changes incompatibly. Keying on the package version would defeat the point — every
+release would mint a new slot and nothing would ever be shared.</p>
+<p>Fields have only ever been added, so a module built against an older tjs-lang reading a newer
+class is fine: it reads the fields it knows and ignores the rest. If a field is ever <em>removed
+or repurposed</em>, the slot number is bumped, and old and new libraries get separate slots
+instead of the newer silently winning over code that cannot cope with it. That is the same
+&quot;compatible ⇒ fuse, incompatible ⇒ isolate&quot; shape as <code>versionsCompatible</code>, expressed in a key.</p>
+<h2>5. What this buys, honestly</h2>
+<ul>
+<li><code>instanceof MonadicError</code> becomes true across module boundaries. <code>isMonadicError</code> already
+worked, so this is an ergonomic gain for consumers who reach for <code>instanceof</code> first, not a
+correctness fix.</li>
+<li>One class in a debugger instead of N.</li>
+<li>A small size win, bounded by one class declaration per module.</li>
+</ul>
+<p>It does <strong>not</strong> dedupe the rest of the prelude — <code>typeError</code>, <code>__arrKinds</code>, the call-stack
+ring — because those are not identical to their canonical versions. Sharing them would be a
+behaviour change disguised as a size optimisation, which is the thing <code>CLAUDE.md</code> warns
+against.</p>
+<h2>6. Keeping the two copies honest</h2>
+<p>The same way <code>unwrap-boxed.ts</code> does it: a <strong>differential test</strong>. The inline class and the
+canonical class are constructed with identical arguments and compared field by field, so the
+two cannot drift apart silently. Two copies of anything stay in sync because a test says so,
+never because someone remembered.</p>
+<h2>7. The trust model of a global slot — and the <code>Predicate</code> sign-off it is waiting on</h2>
+<p>A shape-versioned slot is first-writer-wins: <code>globalThis.__tjs_X_1 ??= X</code>. So <strong>any script that
+runs earlier can pre-seed it</strong>, and every TJS module loaded afterward adopts the impostor.</p>
+<p>For <code>MonadicError</code> that was accepted when the slot was introduced: a pre-seeded class can make
+<code>instanceof MonadicError</code> lie, but a script with that much reach can already monkey-patch far
+more than one class, so the slot adds no capability an attacker in that position lacks.</p>
+<p><code>Predicate</code> (0.14.0) uses the same mechanism, and the 0.14.0 re-review (gap 4) asked the right
+question: <strong>nobody has signed off on it for a brand that type dispatch reads.</strong> The difference
+worth weighing:</p>
+<ul>
+<li>A pre-seeded <code>Predicate</code> decides <code>instanceof Predicate</code> program-wide, and — because
+<code>brandPredicate</code> does <code>Object.setPrototypeOf(fn, Predicate.prototype)</code> — it decides the
+prototype <strong>every branded predicate inherits</strong>, getters included. An accessor on that prototype
+runs on property reads of <code>isColor</code>, <code>Type(…)</code> and the rest.</li>
+<li>It does <strong>not</strong> decide the verdict. <code>check</code> is an own property (the function itself), and
+<code>checkType</code> dispatches on <code>&#39;check&#39; in expected</code> and calls it. A poisoned prototype can observe
+and interfere through inherited members, but the decision path reads own properties.</li>
+<li>The same-reach argument still mostly holds: code that can run before TJS loads can already
+replace <code>Function.prototype.call</code>, <code>JSON.stringify</code>, or <code>globalThis.__tjs</code> itself.</li>
+</ul>
+<p><strong>Status: DECIDED 2026-09-25 (maintainer) — option 1, the MonadicError trust model.</strong></p>
+<p>The deciding observation was the maintainer&#39;s: option 2 is option 1 plus robustness against
+<em>honest</em> conflicts, not against an attacker. Code that runs before tjs-lang can build a class
+that passes any structural check — so validating the slot&#39;s contents defends against nobody
+hostile (&quot;anything beyond that is just security theater&quot;). And its failure mode is worse than
+the thing it guards: a rejected slot splits the brand per bundle, which silently reinstates the
+cross-bundle <code>instanceof</code> failure (B2). The shape-versioned key already absorbs most honest
+conflicts — a different shape claims <code>_2</code>, not <code>_1</code>.</p>
+<p>What remains is one guard, for the only honest accident left: a value under our exact key that
+<strong>cannot be a constructor at all</strong> (a number, a plain object, an arrow). That is not adopted —
+adopting it would break every predicate at the first <code>brandPredicate</code> — and is recorded in the
+flight recorder (<code>source: &#39;type&#39;</code>, <code>severity: &#39;warning&#39;</code>). <strong>Any</strong> constructor is adopted, with
+no check of what it is. Pinned both ways by <code>src/types/predicate-slot.test.ts</code>.</p>
+<p>The options as they were weighed:</p>
+<ol>
+<li><strong>Accept</strong> the MonadicError trust model for <code>Predicate</code>, recorded here with the reasoning above.</li>
+<li><strong>Harden the slot</strong>: validate what is found there before adopting it (e.g. require a
+frozen class with an empty prototype chain up to <code>Function.prototype</code>, else ignore the slot
+and use the local class — losing fusion only in the hostile case).</li>
+<li><strong>Drop fusion for the brand</strong> and accept per-bundle <code>Predicate</code> classes, which is the B2
+cross-bundle <code>instanceof</code> failure, now pinned by <code>src/predicate-bundles.test.ts</code>.</li>
+</ol>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link current" href="../runtime-fusion/" aria-current="page">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Dictionary Defaults (Merge-on-Partial Object Arguments) — tjs-lang</title>
+  <meta name="description" content="Status: Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the = merge behaviour; its mode directive was abolished 2026-08-02…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/dictionary-defaults/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Dictionary Defaults (Merge-on-Partial Object Arguments) — tjs-lang" />
+  <meta property="og:description" content="Status: Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the = merge behaviour; its mode directive was abolished 2026-08-02…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/dictionary-defaults/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Dictionary Defaults (Merge-on-Partial Object Arguments)","description":"Status: Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the = merge behaviour; its mode directive was abolished 2026-08-02…","url":"https://tjs.tosijs.net/dictionary-defaults/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "the-tjs-language.md", "order": 5}--><h1>Dictionary Defaults (Merge-on-Partial Object Arguments)</h1>
+<p><strong>Status:</strong> Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the <code>=</code> merge behaviour; its mode directive was abolished 2026-08-02 and it is now unconditional in <code>.tjs</code>), and Stage 3 (deep-partial <code>.d.ts</code>) all shipped, plus the <code>dict-default-excess-key</code> lint. Stage 4 (dogfood in tosijs-3d) is the remaining follow-up.
+<strong>Feature class:</strong> Language semantics + runtime — <strong>a gated native-TJS mode</strong>
+<strong>Characterization:</strong> JS footgun pave</p>
+<blockquote>
+<p>Provenance: drafted 2026-07-17 (without the syntax docs at hand), revised
+2026-07-18 against empirical findings from the codebase. Claims in the
+original draft that contradicted existing grammar or measured behavior have
+been corrected rather than argued with; the corrections are marked.</p>
+</blockquote>
+<hr>
+<h2>⚠️ Where we diverge from WebIDL — read this before using the spec as a reference</h2>
+<p>This design borrows WebIDL&#39;s <strong>dictionary</strong> semantics, and the section numbers below
+(§5.x) refer to that spec. <strong>One rule is deliberately different, and it is the one most
+likely to surprise you if you know WebIDL.</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>WebIDL §5.4</th>
+<th><strong>TJS</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Excess keys in the payload</td>
+<td><strong>stripped</strong></td>
+<td><strong>passed through</strong></td>
+</tr>
+<tr>
+<td>Missing members</td>
+<td>filled from the default</td>
+<td>filled from the default (same)</td>
+</tr>
+<tr>
+<td>Wrong member type</td>
+<td>rejected</td>
+<td>rejected (same)</td>
+</tr>
+<tr>
+<td><code>__proto__</code> / <code>constructor</code> / <code>prototype</code></td>
+<td>n/a</td>
+<td>rejected outright</td>
+</tr>
+</tbody></table>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">function</span> <span class="token function">place</span><span class="token punctuation">(</span><span class="token parameter">args <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token literal-property property">x</span><span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token literal-property property">y</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> args <span class="token punctuation">}</span>
+
+<span class="token function">place</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">x</span><span class="token operator">:</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token literal-property property">z</span><span class="token operator">:</span> <span class="token number">9</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token comment">//  WebIDL:  { x: 5, y: 0 }          ← z is gone</span>
+<span class="token comment">//  TJS:     { x: 5, y: 0, z: 9 }    ← z survives</span>
+</code></pre>
+<p><strong>Why WebIDL strips, and why we should not.</strong> A WebIDL dictionary is a <strong>wire format</strong>.
+Its job is to normalise an untrusted bag into exactly the declared shape before it crosses
+a boundary into browser internals, so anything undeclared is noise by definition. A TJS
+<code>= {…}</code> parameter is not a boundary — it is an <strong>options bag inside one program</strong>, and
+options bags in JavaScript routinely carry more than the callee declares. A caller
+forwards its own options; one object is passed to two functions; a component spreads
+props. Deleting the caller&#39;s data in that situation is not normalisation, it is loss.</p>
+<p>TJS shipped the WebIDL behaviour in 0.12.0, with a once-per-site flight-recorder notice so
+the loss was at least visible in a log. <strong>Changed 2026-08-14</strong> (0.13.0) for three reasons:</p>
+<ol>
+<li><strong>It is silent where it matters.</strong> The notice appears in a recorder ring, not at the
+call site, and once per site — so the second call that loses data says nothing.</li>
+<li><strong>It contradicted the rest of the language.</strong> Nothing else in TJS removes or rejects an
+excess key. Both structural checkers were opened in the same release, after they were
+found to disagree with each other (<code>docs/type-identity.md</code>).</li>
+<li><strong>TypeScript cannot express the closed type this was enforcing.</strong> TS&#39;s excess-property
+check is a <em>freshness lint on object literals</em>, not a property of the type — assign
+through a variable and the same object is accepted — and there is no <code>Exact&lt;T&gt;</code> to opt
+into. A runtime rule stricter than anything the type system it mirrors can state is a
+rule users cannot reason about.</li>
+</ol>
+<p><strong>What you lose:</strong> if you were relying on a dictionary default to sanitise an untrusted
+payload, it no longer does. That was never a security boundary — the VM&#39;s capability
+membrane is — but if you want the WebIDL behaviour, strip explicitly:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> <span class="token function-variable function">clean</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> x<span class="token punctuation">,</span> y <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">(</span><span class="token punctuation">{</span> x<span class="token punctuation">,</span> y <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>What did NOT change:</strong> members are still validated, missing members still fill from the
+default (recursively), and the prototype-pollution keys are still rejected outright — that
+one is a security guard, not a normalisation policy.</p>
+<p>A performance note, since it cuts the friendly way: passing keys through means a
+<strong>complete</strong> payload carrying extra keys no longer needs a rebuild at all. It falls through
+on the untouched-identity path (invariant I3), where it used to be copied in order to be
+stripped.</p>
+<hr>
+<h2>1. Problem statement</h2>
+<p>JavaScript default parameters are atomic: <code>(args = {x: 0, y: 0})</code> means
+<em>default or payload, wholesale</em>. A partial payload <code>{x: 5}</code> silently discards
+the default for <code>y</code>, yielding <code>y === undefined</code>. Nobody passing a partial
+options object intends this.</p>
+<p>The consequences in the wild:</p>
+<ul>
+<li>Every options-bag function hand-rolls a merge, and the hand-rolls are where
+bugs live:<ul>
+<li><code>Object.assign(defaults, payload)</code> mutates the shared default object in
+place, corrupting all future calls.</li>
+<li>Spread (<code>{...defaults, ...payload}</code>) merges one level only; nested
+defaults silently vanish.</li>
+<li><code>structuredClone(defaults)</code> per call is safe but pays full clone cost on
+every invocation, including complete payloads.</li>
+</ul>
+</li>
+<li>The declaration side is equally painful: expressing &quot;each property
+individually optional with its own default&quot; in TypeScript requires a
+<code>Partial&lt;T&gt;</code> parameter type plus a separate defaults constant plus merge
+logic — three artifacts for one idea.</li>
+</ul>
+<p>This is a pattern that is universally wanted, universally reimplemented, and
+reliably botched. That is the definition of a pave target.</p>
+<h3>The platform precedent</h3>
+<p>The DOM already has the correct semantics. Every options-bag Web API is a
+WebIDL dictionary, and WebIDL dictionaries default <em>per member</em>:</p>
+<ul>
+<li><code>addEventListener(type, fn, {once: true})</code> — <code>capture</code> and <code>passive</code> retain
+their defaults.</li>
+<li><code>new IntersectionObserver(cb, {threshold: 0.5})</code> — <code>rootMargin</code> stays
+<code>&#39;0px&#39;</code>.</li>
+<li><code>fetch(url, {method: &#39;POST&#39;})</code> — every other <code>RequestInit</code> member keeps its
+default.</li>
+</ul>
+<p>JS developers already have merge-semantics intuition drilled in by the entire
+platform API surface. Only <em>userland</em> functions exhibit atomic
+default-or-nothing, because JS function defaults cannot express what WebIDL
+dictionaries do. <strong>The JS behavior is the anomaly. tjs adopts the platform&#39;s
+model.</strong></p>
+<hr>
+<h2>2. What current tjs actually does (measured 2026-07-18)</h2>
+<p>The original draft assumed partial payloads &quot;in current tjs produce type
+errors.&quot; <strong>Measured, they do not</strong> — and the finding reshapes both the framing
+and the implementation plan:</p>
+<pre><code class="language-js">// = form
+function place(args = { x: 0, y: 0 }) {
+  return args
+}
+place({ x: 5 }) // → {x: 5}         (y === undefined — plain JS semantics)
+place() // → {x: 0, y: 0}   (JS evaluates the literal per call)
+
+// colon form (required param, example)
+function placeB(args: { x: 0, y: 0 }) {
+  return args
+}
+placeB({ x: 5 }) // → {x: 5}         (no missing-member error)
+placeB({ x: &#39;s&#39;, y: 1 }) // → passes through (no member type check!)
+placeB({ x: 5, y: 1, z: 9 }) // → passes through (no excess-key handling)
+placeB(5) // → MonadicError    (the ONLY check that fires)
+</code></pre>
+<p>The emitted validation for an object param is, in its entirety,
+<code>typeof args !== &#39;object&#39; || args === null || Array.isArray(args)</code>. The full
+member shape <strong>is</strong> emitted into <code>fn.__tjs.params</code> metadata
+(<code>kind: &#39;object&#39;, shape: {…}</code>) — the check just never consumes it.</p>
+<p>Two consequences:</p>
+<ol>
+<li><strong>This feature is a semantics change to valid native-TJS programs</strong>, not an
+occupation of free space. Partial payloads work today, with JS semantics.
+That is fine — it is exactly what native-TJS rules are <em>for</em> (honest equality
+changed <code>==</code> itself; raw <code>new Date()</code> is not allowed) — but it must be framed
+and gated as a mode (§3).</li>
+<li><strong>Member-level object validation must be built regardless</strong> (Stage 0). The
+merge is a phase of a validator that does not yet validate members. Bonus:
+as of 0.10.1, the inline <code>Type(...).check()</code> stub IS strict-structural
+(fixed under #21-adjacent work), so <code>Type</code> checks and param checks of the
+same shape currently disagree — Stage 0 resolves that inconsistency.</li>
+</ol>
+<hr>
+<h2>3. Mode gating (the missing section, now load-bearing)</h2>
+<p>Dictionary defaults are <strong>native-TJS behaviour</strong>, unconditional in <code>.tjs</code>
+(the mode directive was abolished 2026-08-02), and OFF under
+<code>dialect: &#39;js&#39;</code> and for <code>fromTS</code>-originated code, and disabled by <code>TjsCompat</code>.</p>
+<p>This is required by PRINCIPLES.md: <code>dialect: &#39;js&#39;</code> must preserve plain-JS
+semantics, and merge-on-partial observably changes them (<code>y === undefined</code> →
+<code>y === 0</code>). The subset invariant is satisfied the same way <code>==</code> satisfies it —
+choosing <code>.tjs</code> is the opt-in.</p>
+<p>The §6.1 purity restriction (compile error on impure default literals) is
+likewise native-only; raw <code>new Date()</code> not being allowed is the precedent for
+a mode making a JS-legal construct a compile error.</p>
+<hr>
+<h2>4. Design principles</h2>
+<ol>
+<li><strong>No new syntax.</strong> The existing declaration <code>(args = {x: 0, y: 0})</code> already
+contains the shape, the types, and the defaults. The feature changes what
+the runtime does with it, not how it is written.</li>
+<li><strong>A mode, honestly labeled.</strong> Changes the meaning of partial-payload calls
+in native tjs only (§3). Ship with a CHANGELOG &quot;Changed&quot; entry, not buried
+in &quot;Added&quot;.</li>
+<li><strong>Defaults are data, not effects.</strong> Default objects are restricted to
+structurally clonable literals (§6.1). This is what makes hoisting sound.</li>
+<li><strong>Zero cost on the happy path.</strong> A complete payload passes through
+untouched: validation scan only, no allocation, no clone.</li>
+<li><strong>The default object is inviolate.</strong> Neither the runtime nor user code can
+corrupt it. Dev builds enforce this mechanically (§7.2).</li>
+</ol>
+<hr>
+<h2>5. Semantics</h2>
+<h3>5.1 Member states — resolved: required-ness lives at the PARAM level</h3>
+<p><strong><code>:</code> is the required marker; <code>=</code> is the defaulted marker. tjs already has
+both, at the level where required-ness actually belongs</strong> (Tonio, 2026-07-18 —
+resolving OQ1). No member-level marker exists or is needed:</p>
+<table>
+<thead>
+<tr>
+<th>Declaration</th>
+<th>The param</th>
+<th>Its members</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>(args: {x: 0})</code></td>
+<td>required</td>
+<td>ALL required + type-checked (Stage 0, shipped)</td>
+</tr>
+<tr>
+<td><code>(args = {x: 0})</code></td>
+<td>defaulted</td>
+<td>ALL defaulted — merge-on-partial (the mode, this spec)</td>
+</tr>
+</tbody></table>
+<p>A &quot;required member inside a <em>defaults</em> object&quot; is a contradiction in terms —
+if the caller must supply it, it is not a default. The mixed case (a required
+id plus defaulted options) uses <strong>separate parameters</strong> —
+<code>(id: &#39;&#39;, opts = {...})</code> — which is the platform convention this spec is built
+on (<code>addEventListener(type, listener, options)</code>: required positionals, then a
+dictionary of defaults). The draft&#39;s WebIDL-keeps-required argument is
+answered, not rejected: required things live in the colon form; the error
+still fires at the call site, just from the declaration level that already
+expresses it.</p>
+<blockquote>
+<p>The draft also had an &quot;Unchecked&quot; member state marked <code>x!</code>. Dropped: <code>!</code>
+does not parse inside object literals (verified), and it is the param/access
+safety marker. Spike A&#39;s <code>required(example)</code> wrapper is likewise <strong>cut</strong> —
+retained in the spike only as evidence the mechanism works if ever needed.</p>
+</blockquote>
+<h3>5.2 Trigger condition</h3>
+<p>A member&#39;s default fires <strong>only when the key is absent</strong> from the payload.</p>
+<ul>
+<li><strong>Absent key</strong> → fill with default.</li>
+<li><strong>Present, <code>undefined</code></strong> → treated as absent (fills). Matches both JS
+default-parameter and WebIDL dictionary behavior; JSON payloads cannot
+express <code>undefined</code> anyway.</li>
+<li><strong>Present, <code>null</code></strong> → real value. Type-checked: passes iff the member type
+admits null. In types-by-example terms the natural rule (adopted by Spike A,
+confirm at Stage 1): <strong>a member admits null iff its default example is
+<code>null</code></strong>. Never silently replaced — replacement would mask caller bugs.</li>
+</ul>
+<h3>5.3 Recursion</h3>
+<p>Nested object literals in the default merge recursively, per-key, per-level:</p>
+<pre><code class="language-js">const place = (args = { pos: { x: 0, y: 0 }, label: &#39;&#39; }) =&gt; {}
+place({ pos: { x: 5 } })
+// → {pos: {x: 5, y: 0}, label: &#39;&#39;}
+</code></pre>
+<p><strong>Arrays are values, not merge targets.</strong> A payload array replaces the default
+array wholesale (element types still checked against the example element, per
+existing inference convention). Index-wise merging is explicitly rejected.</p>
+<h3>5.4 Excess keys</h3>
+<p>Keys present in the payload but absent from the default literal. The draft
+proposed &quot;error in dev, strip in prod&quot;; <strong>revised recommendation</strong> (pending
+Spike A evidence, OQ2): no dev/prod behavior split — this repo deliberately
+avoids behavior matrices. Instead:</p>
+<ul>
+<li><strong>Strip always</strong> (merged result has exactly the declared shape;
+<code>additionalProperties: false</code> is already tjs&#39;s emitted-schema posture, and
+<code>Type().strip()</code> is precedent), <strong>and</strong></li>
+<li><strong>record a flight-recorder notice, once per site</strong> (<code>source: &#39;type&#39;</code>,
+<code>severity: &#39;notice&#39;</code>) — the recorder&#39;s documented job is exactly this class
+of &quot;not an error, but you&#39;ll want it after the fact&quot;, <strong>and</strong></li>
+<li><strong>transpile-time lint error when the call-site payload is an object
+literal</strong> — catches the classic <code>{treshold: 0.5}</code> typo statically, where it
+is actually detectable.</li>
+</ul>
+<h3>5.5 Top-level absence</h3>
+<p>Calling with no argument: the function receives a <strong>fresh clone</strong> of the full
+default. (JS already produces a fresh object per no-arg call — the literal is
+evaluated per call — so hoist-plus-clone is observably identical. Verified.)</p>
+<h3>5.6 Prototype safety</h3>
+<p>Only own enumerable string keys participate. <code>__proto__</code>, <code>constructor</code>, and
+<code>prototype</code> in a payload are rejected outright — deriving the check from the
+canonical <code>FORBIDDEN_KEYS</code> list (<code>src/forbidden-keys.ts</code>), the single source
+shared by the VM guards, the linter, and this emitter, not a new list. Merge is
+exactly where prototype pollution lives; this closes the class cheaply.</p>
+<hr>
+<h2>6. Restrictions</h2>
+<h3>6.1 Default expressions must be pure literals</h3>
+<p>The default must be an object literal composed of structurally clonable
+literals: primitives, object literals, array literals. Compile-time error
+otherwise (function calls, identifiers referencing live objects, <code>new</code>,
+<code>Date.now()</code>, getters/setters, computed keys). Native-mode-only (§3).</p>
+<p>Rationale: JS evaluates default expressions per call; tjs hoists them (§7.1).
+For pure literals the two are observationally identical; for effectful
+expressions they diverge silently. The restriction closes the divergence at
+compile time.</p>
+<p><em>(Escape valve if per-call computed defaults prove necessary: an explicit
+thunk form. Out of scope for v1.)</em></p>
+<hr>
+<h2>7. Runtime design</h2>
+<h3>7.1 Hoisted template + shape descriptor</h3>
+<p>At transpile time, each qualifying default literal is hoisted to a
+module-level <strong>template</strong> (evaluated once — sound because §6.1 guarantees
+purity) plus a compact <strong>shape descriptor</strong> (member names, states, types,
+nested descriptors). <strong>The descriptor largely exists already</strong>: it is the
+<code>fn.__tjs.params[…].type</code> metadata the emitter produces today — Stage 0&#39;s job
+is making the emitted check consume it.</p>
+<h3>7.2 Template integrity</h3>
+<p>Dev builds: template deep-frozen at creation — any attempted write throws at
+the write site instead of corrupting call N+1. Production: freeze elided;
+§7.4&#39;s invariants and §7.3 guarantee the runtime never writes it and user code
+never receives it.</p>
+<h3>7.3 No-arg calls clone</h3>
+<p>A no-payload call receives a <strong>structural clone of the template</strong>, never the
+template itself — otherwise a function mutating its own args poisons every
+future call (the exact bug this paves, reintroduced through the back door).</p>
+<h3>7.4 Check-then-fill</h3>
+<p>Per call with a payload:</p>
+<ol>
+<li><strong>Scan</strong> payload against the descriptor: validate present members&#39; types,
+note absent defaulted members, error on absent required members, apply the
+excess-key policy (see the divergence note at the top — TJS passes them
+through). Recurse into nested dictionaries.</li>
+<li><strong>Complete payload</strong> → return the payload as-is. Zero allocation. This is
+the hot path and must stay a pure read-only scan.</li>
+<li><strong>Members absent</strong> → build ONE fresh output object: present members from
+the payload, absent members cloned from the template (never aliasing
+mutable template substructure into the result).</li>
+</ol>
+<p>Invariants (encoded as tests in Spike A):</p>
+<ul>
+<li><strong>I1:</strong> Runtime never writes into the template or the caller&#39;s payload.</li>
+<li><strong>I2:</strong> No output object aliases a mutable substructure of the template.</li>
+<li><strong>I3:</strong> Complete payload ⇒ no allocation (payload returned by reference).</li>
+</ul>
+<h3>7.5 Failure mode</h3>
+<p>All violations (missing required, null-where-not-nullable, member type
+mismatch, excess key under a strict policy) surface through the existing
+runtime type-error channel (<code>__tjs.typeError</code> → <code>MonadicError</code>) with a path
+(<code>args.pos.y</code>). No new error machinery.</p>
+<hr>
+<h2>8. Interactions</h2>
+<ul>
+<li><strong>Signature-test defaults merge.</strong> <code>js-tests.ts</code> already contains a
+<em>shallow</em> defaults-merge for return examples (<code>__defaults</code> +
+<code>Object.assign</code>). It must be subsumed by (or reconciled with) this
+machinery, or it becomes another divergent copy — the disease #20/#21 just
+spent a week killing.</li>
+<li><strong><code>.d.ts</code> emission.</strong> <code>generateDTS</code> must emit <strong>deep-partial</strong> caller-facing
+parameter types for dictionary-default params while the body-facing type
+stays complete. (Draft gap, now tracked.)</li>
+<li><strong>Implicit test generation.</strong> Defaults are ready-made fixtures: no-arg call,
+complete-payload call, one-member-absent per defaulted member,
+absent-required (expect error), null-injection per member. The descriptor
+drives generation directly.</li>
+<li><strong>JSON Schema.</strong> The descriptor maps onto schema <code>default</code> / <code>required</code>
+keywords; declared defaults surface in emitted schemas. The literal remains
+the single source of truth.</li>
+<li><strong>WASM blocks.</strong> Merged args crossing into inline WASM are guaranteed
+complete — no <code>undefined</code> members to trap on.</li>
+<li><strong>tosijs consumption.</strong> Options-bag-heavy tosijs/tosijs-3d APIs are the
+first-order beneficiary; migration is deleting merge boilerplate.</li>
+</ul>
+<hr>
+<h2>9. Open questions</h2>
+<ol>
+<li><strong>Required marker (OQ1). RESOLVED 2026-07-18 — no marker.</strong> <code>:</code> vs <code>=</code> at
+the param level IS the required/defaulted distinction (§5.1); members of a
+default object are defaults by construction. Mixed shapes use separate
+params (platform convention). The spike&#39;s <code>required(example)</code> wrapper is
+cut from v1 (kept in the spike as evidence the mechanism works).</li>
+<li><strong>Excess-key policy (OQ2).</strong> §5.4 carries the recommendation
+(strip + record + literal-call-site lint); Spike A implements all three
+candidate policies behind a switch to generate comparative evidence.</li>
+<li><strong>Null admission (OQ3).</strong> §5.2 adopts &quot;example is null ⇒ admits null&quot; for
+the spike; confirm against real tosijs option shapes at Stage 4.</li>
+<li><strong>Non-dictionary defaults (OQ4).</strong> <code>(x = 0)</code>, <code>(list = [])</code> keep unchanged
+JS semantics — the feature triggers only on object-literal defaults.
+Encoded in Spike A.</li>
+</ol>
+<hr>
+<h2>10. Implementation plan</h2>
+<p>Spike-first; each stage lands independently.</p>
+<ul>
+<li><p><strong>Spike A — semantics harness</strong> (<code>experiments/dictionary-defaults/</code>,
+no transpiler changes). Standalone <code>merge(descriptor, template, payload)</code> +
+exhaustive table-driven suite encoding §5 in full: absence/undefined/null
+matrix, recursion, arrays-as-values, excess keys under each candidate
+policy, prototype-pollution attempts, invariants I1–I3, and the js-dialect
+gate (JS semantics preserved when the mode is off). The suite is the spec&#39;s
+executable form and survives into the final implementation.</p>
+</li>
+<li><p><strong>Spike B — perf validation.</strong> Check-then-fill benchmarked <strong>against a
+canonical CORRECT implementation</strong> — the careful hand-written per-shape
+merge (<code>{...D, ...p, pos: {...D.pos, ...p.pos}}</code>) and a correct generic
+recursive merge — on realistic tosijs-3d option shapes: complete payload
+(must be ≈ validation-only, zero output allocation), one-absent, no-arg.
+The broken idioms (shallow spread, mutating assign) may appear as reference
+rows only, clearly labeled incorrect: <strong>benchmarking against code that
+doesn&#39;t do the job is meaningless</strong> — a baseline must produce the same
+result to be a baseline. <code>structuredClone</code>-then-fill is the safe-but-slow
+correct variant and stays in the comparison.</p>
+<p>Per direction, the benchmark reports a <strong>three-tier cost story</strong> (now also a
+shared practice — <code>tosijs-coding-practices/practices/performance.md</code>,
+&quot;Benchmarking a footgun-pave&quot;): tier 1 = the status-quo footguns, timed but
+labeled incorrect with their breakage demonstrated by test (shallow spread
+loses nested defaults; mutating assign corrupts the shared defaults object);
+tier 2 = the clean correct hand-roll (the honest bar); tier 3 = the feature.
+<strong>The sentence the numbers support: dictionary defaults cost ~531 ns/op vs
+the footguns&#39; ~85 and the careful hand-roll&#39;s ~276 — and buy member
+validation, merged nested defaults, and incorruptible shared defaults.</strong></p>
+<p><strong>Results (2026-07-18, M1 Pro, bun 1.3.14, 8-member/3-nested shape, 200k
+iterations):</strong> the descriptor-driven walker WITH full member validation runs
+~543 ns/op on a complete payload vs ~284 for the canonical per-shape spread
+(which validates nothing) and ~1990 for structuredClone-then-fill; no-arg
+clone beats <code>structuredClone</code> 7× (241 vs 1773); I3 holds (complete payload
+returned by identity — zero output allocation). <strong>Design conclusion:</strong> the
+~2× premium over hand-written merge is the price of the generic walk, not of
+validation per se — so Stage 1 should emit <strong>shape-specialized
+merge+validate code</strong> per signature (exact precedent:
+<code>generateTypeCheckExpr</code> already emits per-shape validation), with the
+descriptor-driven walker as the generic/runtime fallback. Two bonus
+findings from the agreement check the directive forced: all correct
+implementations must agree before timing — and making them agree exposed a
+real semantics hole (payload keys named after <code>Object.prototype</code> members,
+e.g. <code>toString</code>, matched the descriptor&#39;s prototype chain via <code>in</code> and
+dodged both validation and the excess policy; fixed with null-prototype
+descriptor maps + a regression test).</p>
+</li>
+<li><p><strong>Stage 0 — member-level param validation. DONE 2026-07-18</strong> (<code>generateMemberCheckLines</code>
+in <code>emitters/js.ts</code>; suite: <code>src/lang/member-validation.test.ts</code>). Colon-form (required)
+object params — positional and destructured — get recursive member checks with precise
+paths, derived from the same shape metadata that was already emitted. Excess members
+ignored (OQ2 is mode territory). Scope-guarded by tests: the <code>=</code> form keeps plain-JS
+semantics. One suite update: the TS-chain test that apologetically documented
+&quot;missing properties pass&quot; now asserts the error (real TS rejects that call statically).
+Resolves the <code>Type.check</code> ↔ param-check inconsistency.</p>
+</li>
+<li><p><strong>Stage 1 — transpiler. CORE DONE 2026-07-19</strong> (dictionary-default emit +
+shape-specialized merge codegen; suite: <code>src/lang/dict-defaults.test.ts</code>).
+What shipped: the mode (native-on, off for dialect &#39;js&#39;/fromTS/VM/TjsCompat,
+<code>TjsStrict</code> enables it for TS-originated source); the §6.1 purity
+compile-error; merge-on-partial emitted as specialized code per signature —
+inlined literal fills (fresh by construction, so the hoisted-template +
+deep-freeze machinery proved unnecessary: no shared template exists to
+corrupt); §5.2 undefined⇒fill and example-null⇒nullable-any; recursion;
+arrays-as-values with element checks; excess-strip with a once-per-site
+flight-recorder notice naming the stripped keys (<strong>as shipped in 0.12.0 —
+reversed in 0.13.0, see the divergence note at the top; this list is the
+historical record of the spike</strong>); prototype-pollution rejection; identity
+return on complete clean payloads.
+<strong>Measured (same shape/harness as Spike B): complete 91 ns/op, partial 73,
+no-arg 134 — 3× faster than the careful hand-roll (276) and faster than the
+INCORRECT shallow spread (107), while validating every member.</strong> The cost
+story inverts: the paved path beats both doing it right by hand and doing it
+wrong. Deferred from Stage 1: the excess-key literal-call-site lint;
+destructured-param dictionary defaults. Note: <code>!</code>-unsafe functions skip the
+merge along with all validation (consistent with <code>!</code>). (No required-marker
+grammar: OQ1 resolved as no-marker, §5.1.)</p>
+</li>
+<li><p><strong>Stage 2 — runtime integration. RESOLVED 2026-07-19 — subsumed by Stage 1,
+with one finding.</strong> The specialized codegen IS the runtime integration (no
+separate walker phase to wire). The js-tests <code>__defaults</code> shallow
+<code>Object.assign</code> turned out NOT to be a divergent copy of this merge: the
+return-example default grammar (<code>{a: 1, b = 2}</code>) is <strong>top-level-only by
+construction</strong> (<code>parseReturnExample</code> transforms <code>=</code> at depth 1 only), so the
+shallow merge exactly matches what the grammar can express. Documented here;
+extending return-example defaults to nesting is a separate feature nobody
+has asked for.</p>
+</li>
+<li><p><strong>Stage 3 — dts DONE 2026-07-19; fixture generation deliberately dropped.</strong>
+<code>generateDTS</code> now emits <strong>deep-partial</strong> caller-facing types for
+dictionary-default params (<code>args?: { pos?: { x?: number; y?: number } }</code>) —
+<code>place({pos: {x: 5}})</code> is valid tjs and must be valid TS for callers. Gated
+on the mode via <code>result.tjsModes</code> (now carried on the transpile result);
+dialect-js output keeps required members (partials genuinely aren&#39;t valid
+there). Arrays are not partialized (values, replaced wholesale). The §8
+auto-generated fixture set (one-member-absent per member, etc.) is
+<strong>dropped, not deferred</strong>: those fixtures re-test the LANGUAGE&#39;s merge —
+covered once, centrally, by <code>dict-defaults.test.ts</code> — not the user&#39;s code.
+The existing no-arg signature test already exercises user logic under full
+defaults, which is the per-function value.</p>
+</li>
+<li><p><strong>Stage 4 — dogfood.</strong> Convert tosijs-3d options-heavy entry points; delete
+their hand-rolled merges; diff under existing suites.</p>
+</li>
+</ul>
+<p>Out of scope for v1: computed/thunked defaults, call-site default overrides,
+array merge strategies (rejected, not deferred).</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link current" href="../dictionary-defaults/" aria-current="page">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

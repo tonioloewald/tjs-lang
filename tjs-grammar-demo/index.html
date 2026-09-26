@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>TJS Grammar Reference — tjs-lang</title>
+  <meta name="description" content="Comprehensive reference covering all major TJS syntax features." />
+  <link rel="canonical" href="https://tjs.tosijs.net/tjs-grammar-demo/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="TJS Grammar Reference — tjs-lang" />
+  <meta property="og:description" content="Comprehensive reference covering all major TJS syntax features." />
+  <meta property="og:url" content="https://tjs.tosijs.net/tjs-grammar-demo/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"TJS Grammar Reference","description":"Comprehensive reference covering all major TJS syntax features.","url":"https://tjs.tosijs.net/tjs-grammar-demo/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "tjs", "type": "example", "group": "featured", "order": 1, "parent": "tjs-featured.md"}--><h1>TJS Grammar Reference</h1>
+<p>Comprehensive reference covering all major TJS syntax features.</p>
+<p><strong>Type declarations</strong> (require full <code>tjs-lang</code> runtime — shown here for reference):</p>
+<pre><code>Type Name = &#39;Alice&#39;
+
+Type Age &#39;a non-negative age&#39; {
+  example: 25
+  predicate(x) { return typeof x === &#39;number&#39; &amp;&amp; x &gt;= 0 }
+}
+
+Generic Pair&lt;A, B&gt; {
+  description: &#39;a pair of values&#39;
+  predicate(obj, A, B) { ... }
+}
+
+Enum Direction &#39;cardinal direction&#39; { North, East, South, West }
+Enum Color &#39;CSS color&#39; { Red = &#39;red&#39;, Green = &#39;green&#39;, Blue = &#39;blue&#39; }
+Union Status &#39;task status&#39; &#39;pending&#39; | &#39;active&#39; | &#39;done&#39;
+</code></pre>
+<p>All other features are exercised in the runnable code below:</p>
+<pre><code class="language-tjs">// ═══════════════════════════════════════════════════════════
+// 1. SAFETY DIRECTIVE
+// Must appear before any other code.
+// ═══════════════════════════════════════════════════════════
+
+safety inputs
+
+// Honest equality, callable-without-new classes and the `var` ban are simply how
+// `.tjs` behaves — there are no mode directives to enable them.
+
+/#
+# TJS Grammar Reference
+
+A runnable reference for TJS syntax. Each section demonstrates a
+feature with a test proving it works.
+
+## Quick Index
+| Feature | Section |
+|---------|---------|
+| Safety directive | `safety` |
+| Parameters | Colon `:`, optional `=`, destructured `{}` |
+| Numeric narrowing | `42` int, `3.14` float, `+0` non-negative |
+| Return types | `:`, `:?`, `:!` |
+| Safety markers | `(! ...)` unsafe, `(? ...)` safe |
+| Type/Generic/Enum/Union | See above (requires full runtime) |
+| Bare assignments | `Uppercase = ...` |
+| Classes | Callable without `new` |
+| Polymorphic functions | Same name, different signatures |
+| Polymorphic constructors | Multiple `constructor()` |
+| Local extensions | `extend String { ... }` |
+| Equality | `==` honest, `===` identity, `Is`/`IsNot` |
+| Try without catch | Monadic error conversion |
+| Inline tests | Test blocks |
+| TDoc comments | Slash-star-hash markdown blocks |
+#/
+
+// ═══════════════════════════════════════════════════════════
+// 2. PARAMETER SYNTAX
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Parameters
+
+Colon `:` = required (example value infers type).
+Equals `=` = optional (default value).
+Question mark `?:` = optional (TS-style).
+#/
+
+// Required params (colon shorthand)
+function greet(name: &#39;Alice&#39;): &#39;Hello, Alice&#39; {
+  return &#39;Hello, &#39; + name
+}
+
+// Optional params (equals = default)
+function greetOpt(name = &#39;World&#39;): &#39;Hello, World&#39; {
+  return &#39;Hello, &#39; + name
+}
+
+// Destructured object params (colon = required, equals = optional)
+function createUser({ name: &#39;Anon&#39;, role = &#39;user&#39; }): { name: &#39;Anon&#39;, role: &#39;user&#39; } {
+  return { name, role }
+}
+
+// Numeric type narrowing: 42 = integer, 3.14 = float, +0 = non-negative int
+function calc(count: 42, rate: 3.14, index: +0): 131.88 {
+  return (count + index) * rate
+}
+
+test &#39;parameter syntax&#39; {
+  expect(greet(&#39;Bob&#39;)).toBe(&#39;Hello, Bob&#39;)
+  expect(greetOpt()).toBe(&#39;Hello, World&#39;)
+  expect(createUser({ name: &#39;Eve&#39; })).toEqual({ name: &#39;Eve&#39;, role: &#39;user&#39; })
+  expect(calc(10, 1.5, 2)).toBe(18)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 3. RETURN TYPES
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Return Types
+
+`:` signature test at transpile time.
+`:?` signature test + runtime output validation.
+`:!` skip signature test entirely.
+#/
+
+// : transpile-time check (double(5) must equal 10)
+function double(x: 5): 10 {
+  return x * 2
+}
+
+// :! skip test (useful when return shape varies)
+function safeDivide(a: 10, b: 2):! 5 {
+  if (b === 0) return { error: &#39;div by zero&#39; }
+  return a / b
+}
+
+test &#39;return types&#39; {
+  expect(double(7)).toBe(14)
+  expect(safeDivide(10, 0)).toEqual({ error: &#39;div by zero&#39; })
+}
+
+// ═══════════════════════════════════════════════════════════
+// 4. SAFETY MARKERS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Safety Markers
+
+`!` = unsafe (skip input validation). Fast path for trusted callers.
+`?` = safe (force validation even inside `unsafe` blocks).
+#/
+
+function fastAdd(! a: 0, b: 0): 0 {
+  return a + b
+}
+
+function safeAdd(? a: 0, b: 0): 0 {
+  return a + b
+}
+
+test &#39;safety markers&#39; {
+  expect(fastAdd(3, 4)).toBe(7)
+  expect(safeAdd(3, 4)).toBe(7)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 5. BARE ASSIGNMENTS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Bare Assignments
+
+Uppercase identifiers auto-get `const` — a native-TJS convenience (off for plain
+JS / TS / VM). It fires only on the **first** assignment of an undeclared name;
+a reassignment of an already-declared binding (`let B = null; B = 2`) is left
+alone. Since the first assignment becomes `const`, use `let` if you need it to
+change later.
+#/
+
+Greeting = &#39;Hello&#39;
+MaxRetries = 3
+
+test &#39;bare assignments&#39; {
+  expect(Greeting).toBe(&#39;Hello&#39;)
+  expect(MaxRetries).toBe(3)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 7. CLASSES (callable without new)
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Classes
+
+Classes are callable without `new` by default in native TJS.
+#/
+
+class Point {
+  constructor(x: 0.0, y: 0.0) {
+    this.x = x
+    this.y = y
+  }
+
+  magnitude() {
+    return Math.sqrt(this.x * this.x + this.y * this.y)
+  }
+}
+
+test &#39;classes callable without new&#39; {
+  const p = Point(3, 4)
+  expect(p instanceof Point).toBe(true)
+  expect(p.magnitude()).toBe(5)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 8. POLYMORPHIC FUNCTIONS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Polymorphic Functions
+
+Same name, different signatures. Dispatched by arity/type.
+See the **Polymorphic Functions** example for more.
+#/
+
+function describe(value: 0) {
+  return &#39;number: &#39; + value
+}
+
+function describe(first: &#39;&#39;, last: &#39;&#39;) {
+  return first + &#39; &#39; + last
+}
+
+test &#39;polymorphic dispatch by arity&#39; {
+  expect(describe(42)).toBe(&#39;number: 42&#39;)
+  expect(describe(&#39;Jane&#39;, &#39;Doe&#39;)).toBe(&#39;Jane Doe&#39;)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 9. POLYMORPHIC CONSTRUCTORS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Polymorphic Constructors
+
+Multiple `constructor()` declarations in a class.
+See the **Polymorphic Constructors** example for more.
+#/
+
+class Vec2 {
+  constructor(x: 0.0, y: 0.0) {
+    this.x = x
+    this.y = y
+  }
+
+  constructor(obj: { x: 0.0, y: 0.0 }) {
+    this.x = obj.x
+    this.y = obj.y
+  }
+}
+
+test &#39;polymorphic constructors&#39; {
+  const a = Vec2(1, 2)
+  const b = Vec2({ x: 1, y: 2 })
+  expect(a.x).toBe(b.x)
+  expect(a.y).toBe(b.y)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 10. LOCAL EXTENSIONS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Local Extensions
+
+Add methods to built-in types without prototype pollution.
+Rewritten to `.call()` at transpile time for known types.
+See the **Local Extensions** example for a runnable demo.
+
+    extend String {
+      capitalize() { return this[0].toUpperCase() + this.slice(1) }
+    }
+
+    extend Array {
+      last() { return this[this.length - 1] }
+    }
+
+    &#39;hello&#39;.capitalize()  // &#39;Hello&#39;
+    [1, 2, 3].last()      // 3
+#/
+
+// ═══════════════════════════════════════════════════════════
+// 11. EQUALITY OPERATORS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Equality
+
+Honest equality is on by default in native TJS:
+- `==` / `!=` use honest equality (no coercion, unwraps boxed primitives)
+- `===` / `!==` are identity checks (same reference)
+- `Is` / `IsNot` are explicit structural operators (deep comparison)
+
+    const a = { x: 1, y: [2, 3] }
+    const b = { x: 1, y: [2, 3] }
+    a == b       // true  (structural: same shape)
+    a === b      // false (identity: different objects)
+    a Is b       // true  (explicit structural)
+    a IsNot b    // false
+#/
+
+// ═══════════════════════════════════════════════════════════
+// 12. TRY WITHOUT CATCH
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Try Without Catch
+
+A bare `try` block auto-converts exceptions to monadic errors.
+#/
+
+function parseJSON(s: &#39;{&quot;a&quot;:1}&#39;):! { a: 1 } {
+  try {
+    return JSON.parse(s)
+  }
+}
+
+test &#39;try without catch&#39; {
+  expect(parseJSON(&#39;{&quot;ok&quot;:true}&#39;)).toEqual({ ok: true })
+  const bad = parseJSON(&#39;not json&#39;)
+  expect(bad instanceof Error).toBe(true)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 13. INLINE TESTS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Inline Tests
+
+Test blocks run at transpile time and are stripped from
+output. They have full access to the module scope, so you
+can test private functions without exporting them.
+#/
+
+function _private(x: 0): 0 {
+  return x * x
+}
+
+test &#39;inline tests can reach private functions&#39; {
+  expect(_private(5)).toBe(25)
+}
+
+// ═══════════════════════════════════════════════════════════
+// 14. MODULE EXPORTS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## Module Exports
+
+Standard ES module syntax works. Functions and values
+can be exported for use by other modules.
+#/
+
+export function publicHelper(x: 0): 1 {
+  return x + 1
+}
+
+// ═══════════════════════════════════════════════════════════
+// 15. TDOC COMMENTS
+// ═══════════════════════════════════════════════════════════
+
+/#
+## TDoc Comments
+
+These comment blocks (opened with slash-star-hash) contain
+markdown that becomes rich documentation in the playground
+and API docs. Every such block you&#39;ve seen above is a TDoc.
+#/
+
+// ═══════════════════════════════════════════════════════════
+// OUTPUT
+// ═══════════════════════════════════════════════════════════
+
+console.log(&#39;TJS Grammar Reference — all tests passed!&#39;)
+console.log(&#39;Features demonstrated:&#39;, [
+  &#39;safety directive&#39;, &#39;colon params&#39;, &#39;optional params&#39;,
+  &#39;destructured params&#39;, &#39;numeric narrowing&#39;,
+  &#39;return types (: :? :!)&#39;, &#39;safety markers (! ?)&#39;,
+  &#39;Type&#39;, &#39;Generic&#39;, &#39;Enum&#39;, &#39;Union&#39;, &#39;bare assignments&#39;,
+  &#39;classes&#39;, &#39;polymorphic functions&#39;, &#39;polymorphic constructors&#39;,
+  &#39;local extensions&#39;, &#39;structural equality&#39;, &#39;Is/IsNot&#39;,
+  &#39;try without catch&#39;, &#39;inline tests&#39;, &#39;module exports&#39;, &#39;TDoc&#39;
+].join(&#39;, &#39;))
+</code></pre>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details open><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details open><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link current" href="../tjs-grammar-demo/" aria-current="page">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

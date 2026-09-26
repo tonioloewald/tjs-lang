@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>FunctionPredicate: Design Notes — tjs-lang</title>
+  <meta name="description" content="_First-class function types in TJS, using the same pattern as Type/Generic._" />
+  <link rel="canonical" href="https://tjs.tosijs.net/function-predicate-design/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="FunctionPredicate: Design Notes — tjs-lang" />
+  <meta property="og:description" content="_First-class function types in TJS, using the same pattern as Type/Generic._" />
+  <meta property="og:url" content="https://tjs.tosijs.net/function-predicate-design/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"FunctionPredicate: Design Notes","description":"_First-class function types in TJS, using the same pattern as Type/Generic._","url":"https://tjs.tosijs.net/function-predicate-design/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "the-tjs-language.md", "order": 9}--><h1>FunctionPredicate: Design Notes</h1>
+<p><em>First-class function types in TJS, using the same pattern as Type/Generic.</em></p>
+<hr>
+<h2>The Problem</h2>
+<p>TJS has no way to express &quot;this parameter must be a function with this
+signature.&quot; Currently:</p>
+<ul>
+<li><code>() =&gt; void</code> in TypeScript becomes <code>undefined</code> in fromTS output</li>
+<li>There&#39;s no TJS syntax for function-typed parameters</li>
+<li>Callbacks, event handlers, and higher-order functions lose their
+type information at the boundary</li>
+</ul>
+<h2>Design Principles</h2>
+<ol>
+<li><strong>Functions are values</strong> — a function should be usable as a type example,
+just like <code>0</code> means &quot;integer&quot; and <code>&#39;&#39;</code> means &quot;string&quot;</li>
+<li><strong>FunctionPredicate should work like Type/Generic</strong> — same pattern of
+predicate-based checking, introspection via metadata</li>
+<li><strong>The return contract is part of the type</strong> — <code>:</code>, <code>:?</code>, and <code>:!</code> are
+meaningful distinctions in the function&#39;s contract</li>
+</ol>
+<h2>The Three Return Contracts</h2>
+<table>
+<thead>
+<tr>
+<th>Marker</th>
+<th>Name</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>:</code></td>
+<td><code>returns</code></td>
+<td>Verified at transpile time (signature test)</td>
+</tr>
+<tr>
+<td><code>:?</code></td>
+<td><code>checkedReturns</code></td>
+<td>Verified at transpile time AND runtime</td>
+</tr>
+<tr>
+<td><code>:!</code></td>
+<td><code>assertReturns</code></td>
+<td>Declared but not verified (metadata only)</td>
+</tr>
+</tbody></table>
+<p>These are not just build options — they describe the <strong>trust level</strong> of
+the function&#39;s return type. A function with <code>:?</code> makes a stronger promise
+than one with <code>:!</code>.</p>
+<h2>Syntax: Function as Type Example</h2>
+<p>The most TJS-idiomatic approach — a function IS its own type:</p>
+<pre><code class="language-tjs">// This function&#39;s signature IS a type
+function formatter(input: &#39;&#39;, options: { locale: &#39;en&#39; }):? &#39;&#39; {
+  return input
+}
+
+// fn must match formatter&#39;s contract
+function process(fn: formatter) {
+  const result = fn(&#39;hello&#39;, { locale: &#39;fr&#39; })
+}
+</code></pre>
+<p>The runtime check for <code>fn: formatter</code>:</p>
+<ol>
+<li><code>typeof fn === &#39;function&#39;</code></li>
+<li><code>fn.__tjs</code> exists (it&#39;s a TJS-typed function)</li>
+<li><code>fn.__tjs.params</code> shape-matches <code>formatter.__tjs.params</code></li>
+<li><code>fn.__tjs.returns</code> matches <code>formatter.__tjs.returns</code></li>
+</ol>
+<p>Untyped functions (no <code>__tjs</code>) would fail the check — they don&#39;t have
+the metadata to verify against. Use <code>!</code> (unsafe) to skip the check for
+interop with plain JS callbacks.</p>
+<h2>Syntax: Explicit FunctionPredicate</h2>
+<p>For cases where you want to declare a function type without writing an
+example function:</p>
+<pre><code class="language-tjs">FunctionPredicate Formatter {
+  description: &#39;formats a string with locale options&#39;
+  params: { input: &#39;&#39;, options: { locale: &#39;en&#39; } }
+  returns: &#39;&#39;
+}
+
+// Or with checked returns:
+FunctionPredicate Validator {
+  params: { value: null }
+  checkedReturns: false
+}
+
+// Or declared-only returns:
+FunctionPredicate Callback {
+  params: { event: { type: &#39;&#39;, target: null } }
+  assertReturns: undefined
+}
+</code></pre>
+<h2>Syntax: FunctionPredicate from Function</h2>
+<p>Create a type from an existing function&#39;s metadata:</p>
+<pre><code class="language-tjs">function myFormatter(input: &#39;&#39;, options: { locale: &#39;en&#39; }):? &#39;&#39; {
+  return input
+}
+
+// Extract the type from the function
+FunctionPredicate Formatter(myFormatter, &#39;string formatter with locale&#39;)
+</code></pre>
+<p>This is analogous to <code>Type Name &#39;example&#39;</code> — the function itself is the
+example value, and its <code>__tjs</code> metadata defines the type.</p>
+<h2>Runtime Representation</h2>
+<p>A FunctionPredicate at runtime would be an object with:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token punctuation">{</span>
+  <span class="token function">check</span><span class="token punctuation">(</span><span class="token parameter">fn</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>      <span class="token comment">// returns boolean</span>
+  <span class="token literal-property property">params</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>         <span class="token comment">// param descriptors</span>
+  <span class="token literal-property property">returns</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>        <span class="token comment">// return type descriptor</span>
+  <span class="token literal-property property">returnContract</span><span class="token operator">:</span> <span class="token string">'checked'</span> <span class="token operator">|</span> <span class="token string">'returns'</span> <span class="token operator">|</span> <span class="token string">'assert'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">description</span><span class="token operator">:</span> <span class="token string">'...'</span><span class="token punctuation">,</span>
+  <span class="token keyword">default</span><span class="token operator">:</span> exampleFn<span class="token punctuation">,</span>      <span class="token comment">// the example function, if provided</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>This matches the shape of <code>Type()</code> — <code>check</code>, <code>default</code>, <code>description</code>.</p>
+<h2>Validation Levels</h2>
+<p>When checking <code>fn: SomeType</code> where SomeType is a FunctionPredicate:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>What it verifies</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>typeof fn === &#39;function&#39;</code></td>
+<td>It&#39;s callable</td>
+</tr>
+<tr>
+<td><code>fn.__tjs</code> exists</td>
+<td>It&#39;s a TJS-typed function</td>
+</tr>
+<tr>
+<td>Param count matches</td>
+<td>Same arity (or compatible)</td>
+</tr>
+<tr>
+<td>Param types match</td>
+<td>Each param&#39;s type descriptor matches</td>
+</tr>
+<tr>
+<td>Return type matches</td>
+<td>Return type descriptor matches</td>
+</tr>
+<tr>
+<td>Return contract</td>
+<td>At least as strict as required</td>
+</tr>
+</tbody></table>
+<p>Return contract strictness: <code>checkedReturns</code> (-?) &gt; <code>returns</code> (-&gt;) &gt; <code>assertReturns</code> (-!).
+A <code>checkedReturns</code> function satisfies any requirement.
+A <code>returns</code> function satisfies <code>returns</code> or <code>assertReturns</code>.
+An <code>assertReturns</code> function only satisfies <code>assertReturns</code>.</p>
+<h2>Compatibility with Untyped Functions</h2>
+<p>Plain JS functions have no <code>__tjs</code> metadata. Options:</p>
+<ol>
+<li><strong>Strict</strong>: Reject untyped functions (safe but hostile to JS interop)</li>
+<li><strong>Lenient</strong>: Accept any function, only validate if <code>__tjs</code> exists</li>
+<li><strong>Unsafe marker</strong>: Use <code>!</code> to skip the check for known-untyped callbacks</li>
+</ol>
+<p>Option 3 is most consistent with TJS&#39;s existing patterns:</p>
+<pre><code class="language-tjs">// Strict — fn must have matching __tjs metadata
+function process(fn: formatter) { ... }
+
+// Lenient — fn just needs to be callable
+function process(! fn: formatter) { ... }
+</code></pre>
+<h2>Relationship to Existing Features</h2>
+<ul>
+<li><strong>Type</strong>: FunctionPredicate IS a Type — just one that checks function
+signatures specifically. Could be implemented as a special case of Type
+with a built-in predicate that introspects <code>__tjs</code>.</li>
+<li><strong>Generic</strong>: FunctionPredicate could be generic too —
+<code>FunctionPredicate Mapper&lt;T, U&gt; { params: { value: T }, returns: U }</code></li>
+<li><strong>declaration block</strong>: FunctionPredicates would benefit from declaration
+blocks for <code>.d.ts</code> emission, same as Generic.</li>
+</ul>
+<h2>Implementation Path</h2>
+<ol>
+<li><strong>Runtime</strong>: Add <code>FunctionPredicate()</code> to the TJS runtime alongside
+<code>Type()</code> and <code>Generic()</code>. Returns a type guard that checks <code>__tjs</code>
+metadata on functions.</li>
+<li><strong>Parser</strong>: Recognize <code>FunctionPredicate</code> as a declaration keyword
+(same as <code>Type</code>, <code>Generic</code>). Parse the block or function-argument form.</li>
+<li><strong>Metadata</strong>: The <code>__tjs</code> metadata for the return type already includes
+<code>type</code> — add a <code>contract</code> field for the marker.</li>
+<li><strong>fromTS</strong>: When converting <code>(x: number) =&gt; string</code> types, emit a
+FunctionPredicate instead of <code>undefined</code>.</li>
+<li><strong>Inference</strong>: When a function is used as a <code>:</code> param type, check if
+it has <code>__tjs</code> metadata and validate the caller&#39;s function against it.</li>
+</ol>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link current" href="../function-predicate-design/" aria-current="page">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

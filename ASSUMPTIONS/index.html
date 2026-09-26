@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Assumptions ledger — tjs-lang</title>
+  <meta name="description" content="Every design decision here rests on a belief about how code, models, or attackers behave. Most such beliefs are never checked." />
+  <link rel="canonical" href="https://tjs.tosijs.net/ASSUMPTIONS/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Assumptions ledger — tjs-lang" />
+  <meta property="og:description" content="Every design decision here rests on a belief about how code, models, or attackers behave. Most such beliefs are never checked." />
+  <meta property="og:url" content="https://tjs.tosijs.net/ASSUMPTIONS/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Assumptions ledger","description":"Every design decision here rests on a belief about how code, models, or attackers behave. Most such beliefs are never checked.","url":"https://tjs.tosijs.net/ASSUMPTIONS/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "home", "order": 3, "navTitle": "Assumptions", "pin": "bottom"}--><h1>Assumptions ledger</h1>
+<p>Every design decision here rests on a belief about how code, models, or attackers behave.
+Most such beliefs are never checked. This is the list of ours, each with a <strong>verdict</strong> and a
+link to the evidence.</p>
+<p><strong>The point is the verdict column.</strong> Detail lives in linked documents; this page exists so
+the current state of what we actually know is readable in thirty seconds, and so a refuted
+assumption is impossible to miss.</p>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>✅ <strong>supported</strong></td>
+<td>tested, held up</td>
+</tr>
+<tr>
+<td>❌ <strong>refuted</strong></td>
+<td>tested, was wrong — and what we changed</td>
+</tr>
+<tr>
+<td>⚠️ <strong>nuanced</strong></td>
+<td>true only under conditions worth knowing</td>
+</tr>
+<tr>
+<td>🔍 <strong>untested</strong></td>
+<td>believed, not yet measured</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Security &amp; cost model</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Assumption</th>
+<th>Verdict</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>S1</td>
+<td>Fuel bounds the work a program can do</td>
+<td>❌→✅ <strong>was refuted, now fixed</strong> — size-proportional atoms charged a flat cost; <code>jsonStringify</code> serialized <strong>2,000,000 elements for 1.2 fuel</strong> under a 10-fuel budget. Fixed with <code>chargeForSize</code>; fuel now scales linearly.</td>
+<td><a href="src/vm/cost-invariant.test.ts"><code>cost-invariant.test.ts</code></a></td>
+</tr>
+<tr>
+<td>S2</td>
+<td>Fuel also bounds memory</td>
+<td>❌→✅ <strong>was refuted, now fixed</strong> — fuel is a <em>time</em> budget; at ~10KB/fuel a legitimate 100k budget bought ~1GB of live string. Added <code>maxHeapBytes</code> (64MB default).</td>
+<td><a href="src/vm/cost-invariant.test.ts"><code>cost-invariant.test.ts</code></a></td>
+</tr>
+<tr>
+<td>S3</td>
+<td>A capability can&#39;t hand the guest a live host reference</td>
+<td>❌→✅ <strong>was refuted in SCOPE on 2026-08-26 (#38), now fixed</strong> — enforced by the structured-clone membrane at one choke point; adversarially tested. Hardened 2026-08-03: the pre-walk used to read <code>v[k]</code>, <strong>invoking getters</strong> — so the boundary ran host code while inspecting it. Accessors are now rejected via descriptors. <strong>The caveat:</strong> <code>membraneValue</code> has exactly one call site, inside <code>if (atom.effects === &#39;io&#39;)</code>, and <code>defineAtom</code> defaulted to <code>&#39;pure&#39;</code> — so an embedder atom that did not opt in bypassed the choke point entirely, getters intact. Not a weaker guarantee for that population: <strong>no guarantee at all</strong>, and silently. Fixed in 0.13.6 by inverting the default to <code>&#39;io&#39;</code> (BREAKING); core atoms are swept back to <code>&#39;pure&#39;</code> explicitly. The row now holds for the VM, not for a subset.</td>
+<td><a href="src/use-cases/malicious-actor.test.ts"><code>malicious-actor.test.ts</code></a></td>
+</tr>
+<tr>
+<td>S4</td>
+<td>Termination is guaranteed</td>
+<td>✅ <strong>supported by construction</strong> — fuel makes bounded execution a precondition; the halting question never arises. Not <em>formally proven</em> — see the honest scope note in the README.</td>
+<td><a href="README.md#safe-eval">README</a></td>
+</tr>
+<tr>
+<td>S5</td>
+<td>Recursive agent calls can&#39;t amplify across an open graph</td>
+<td>⚠️ <strong>nuanced, and inherently so (re-framed 2026-08-03)</strong> — the <code>X-Agent-Depth</code> guard is <strong>cooperative</strong> and cannot be otherwise: budget does not cross a system boundary, only tokens and data do, and the other side takes care of itself. So the honest guarantee is over what we control — a <strong>time box</strong> on every run, <strong>abort on every exit path</strong> so we never leave outbound work alive, and <strong>per-atom quotas</strong> on what we summon. Chasing a carried fuel envelope was the wrong goal.</td>
+<td><a href="README.md#safe-eval">README</a></td>
+</tr>
+<tr>
+<td>S6</td>
+<td>Our sandbox resists a determined attacker</td>
+<td>🔍 <strong>untested</strong> — layered and adversarially reviewed, never externally red-teamed. An escape-attempt corpus (vm2 CVEs, SES challenges) is the open item.</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<h2>Agent legibility</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Assumption</th>
+<th>Verdict</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A1</td>
+<td>Our error messages help a model fix its code</td>
+<td>❌ <strong>refuted</strong> — shipped diagnostics produced a <strong>0%</strong> repair rate, identical to saying nothing. Worked examples: 80%. <strong>Fixed</strong>: remedies now show code, locked by a deterministic test.</td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a> · <a href="src/lang/diagnostic-remedy.test.ts"><code>diagnostic-remedy.test.ts</code></a></td>
+</tr>
+<tr>
+<td>A2</td>
+<td>More documentation helps small models</td>
+<td>❌ <strong>refuted</strong> — a 0.6k cheat sheet beat our 7.6k guide <strong>2×</strong>; adding the missing prose rule changed nothing. Guidance matters enormously (no guidance = 0%) but is <strong>not monotonic</strong>.</td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a></td>
+</tr>
+<tr>
+<td>A3</td>
+<td>Models learn our rules from prose</td>
+<td>❌ <strong>refuted, three times independently</strong> — prose rule added to the guide: no change. Prose remedy in a diagnostic: 50% vs 80% for the same remedy shown as code. <strong>Models repair from examples, not rules.</strong></td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a></td>
+</tr>
+<tr>
+<td>A4</td>
+<td>Syntax choice (braces/indentation/parens) drives model comprehension</td>
+<td>❌ <strong>refuted</strong> — it&#39;s the <strong>paradigm</strong>, not the surface. Explicit state-threading scored 80% and mutation 20% <em>regardless of syntax</em>; s-expressions and braces tied once the paradigm was held constant.</td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a></td>
+</tr>
+<tr>
+<td>A5</td>
+<td>Newline-terminated statements (<code>TjsStandard</code>) don&#39;t hurt comprehension</td>
+<td>⚠️ <strong>weakly supported</strong> — braces-with-semicolons and braces-without were indistinguishable (same rate, same error mode). N=5; suggestive only.</td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a></td>
+</tr>
+<tr>
+<td>A6</td>
+<td>AJS is easy for small models to write</td>
+<td>⚠️ <strong>nuanced</strong> — achievable (67% with a good cheat sheet) but sensitive to guidance; the dominant failure is reaching for <code>for</code> loops.</td>
+<td><a href="src/use-cases/ajs-grokkability.test.ts"><code>ajs-grokkability.test.ts</code></a></td>
+</tr>
+<tr>
+<td>A7</td>
+<td>Small models can write TJS</td>
+<td>❌ <strong>refuted, and not expected to hold</strong> — a 1.5B model reverts to TypeScript syntax even when told otherwise, and emits <strong>hybrids</strong> (<code>nums: [number]</code>) that TJS quietly accepts. TJS targets larger models; AJS is the small-model surface.</td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a></td>
+</tr>
+<tr>
+<td>A8</td>
+<td>Executed verdicts repair better than type errors</td>
+<td>🔍 <strong>untested</strong> — the obvious experiment is confounded by training-data asymmetry. The clean version is <strong>within-TJS</strong>: same language, vary only the feedback string.</td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a></td>
+</tr>
+<tr>
+<td>A11</td>
+<td>Leaning on TS convention costs us the autocomplete work</td>
+<td>⚠️ <strong>nuanced — mostly not.</strong> Measured 2026-07-31: the completion engine is driven by the <strong>type descriptor</strong>, not by example values (<code>.type</code> 35×, <code>.kind</code> 13×, <code>.params</code> 11×, <code>.example</code> only 3×) — and <code>: string</code> yields the same descriptor as <code>: &#39;&#39;</code>, so the engine is indifferent to spelling. The three example sites are a menu that becomes <em>additive</em> (offer <code>string</code>/<code>int</code> alongside <code>&#39;&#39;</code>/<code>5</code>) plus hover detail. The differentiating work is untouched: predicate-mined <strong>value</strong> completion (<code>suggest()</code>, guaranteed-valid because candidates are run through the compiled predicate) and introspection-driven member completion — neither references examples, and neither is expressible in TypeScript. Net: lose ~one completion list, gain tsserver/<code>.d.ts</code>/TS-tooling leverage.</td>
+<td><a href="src/lang/predicate.ts"><code>predicate.ts</code></a> · <a href="editors/codemirror/ajs-language.ts"><code>ajs-language.ts</code></a></td>
+</tr>
+<tr>
+<td>A15</td>
+<td>A <code>.tjs</code> file&#39;s EXTENSION tells a reader which semantics apply</td>
+<td>❌ <strong>refuted (2026-08-27)</strong> — it carries <strong>nothing</strong>. Shown one <code>switch</code> as <code>.js</code> a model traced C fallthrough 5/5 and explicit <code>break</code> 5/5; shown the identical text as <code>.tjs</code> it scored <strong>0/5</strong>, applying C fallthrough every time — the worst possible result, and not from uncertainty. Its own reasoning: <em>&quot;there is a language &#39;TJS&#39;… maybe&quot;</em>. There is no prior for the extension. <strong>A one-line comment stating the RULE restored it to 5/5</strong> — but only on a 27B; a 4B model is unmoved by anything in the file (0/5 every arm), extending A7 to reading. Naming the language WITHOUT the rule is worse than silence: 5 no-answers, the model speculating about what tjs is rather than concluding. So the affordance must be IN THE CODE and must be a rule, not a pointer. Probe every <code>.tjs</code>-only semantic change before shipping it.</td>
+<td><a href="experiments/agent-legibility/FINDINGS.md">FINDINGS</a> · <a href="experiments/agent-legibility/switch-probe.ts"><code>switch-probe.ts</code></a></td>
+</tr>
+<tr>
+<td>A9</td>
+<td>Autocomplete meaningfully helps</td>
+<td>🔍 <strong>untested</strong> — and testable <em>without a model</em>: truncate valid programs and measure hit@k of <code>suggest()</code> against the real next token.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>A10</td>
+<td>Types-by-example is the right <strong>identity</strong> for TJS</td>
+<td>⚠️ <strong>nuanced — resolved 2026-07-31 as a decision, not a measurement: it is neither/both.</strong> TJS accepts <strong>TS type names OR examples</strong>, equal standing, with examples buying <strong>finer grain than TS can express</strong> (<code>int</code>, <code>unsigned</code>, and pattern-constrained strings). So the on-ramp is &quot;keep writing TypeScript&quot; — which needs no teaching, satisfying A3/A7 — and examples are a <strong>feature you graduate into</strong>, not a concept you must learn first. The ladder: TS name → example → <code>Predicate(…)</code>. Asymmetric get/set is explicitly <strong>not</strong> a pillar of this (see A12).</td>
+<td><a href="src/lang/ts-type-names.test.ts"><code>ts-type-names.test.ts</code></a></td>
+</tr>
+<tr>
+<td>A12</td>
+<td>Asymmetric get/set types are a core language need</td>
+<td>❌ <strong>refuted (by scope, 2026-07-31)</strong> — the general case is already covered: <strong>computed properties work</strong>, and <strong>proxy behaviour is effectively computed types</strong>. Asymmetry is chiefly needed for (a) <strong>autocomplete</strong> quality and (b) <strong>describing external/ambient types</strong> — a tooling and contracts concern, not a missing language primitive. Re-scoped to <a href="docs/ambient-contracts.md"><code>ambient-contracts</code></a>; no longer gates positioning.</td>
+<td><a href="docs/ambient-contracts.md">ambient contracts</a></td>
+</tr>
+<tr>
+<td>A13</td>
+<td>Developers (and models) would ADOPT TJS after using it</td>
+<td>🔍 <strong>untested — never measured, and it is the actual product question.</strong> The legibility harness measures whether a model can <em>write</em> TJS; nobody has asked whether, after converting real code and reading real errors, it would <em>switch</em>. Two bars, scored separately: <strong>(1) DX alone</strong> — inline tests, docs, flight recorder, observe mode — which requires no belief in runtime types and is likely the easier win; <strong>(2) capabilities</strong> — runtime safety, inline WASM, safe eval. Needs a plain-TS control and forced comparisons rather than direct approval questions, which measure agreeableness.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>A14</td>
+<td>You can adopt TJS without changing program behavior</td>
+<td>❌ <strong>refuted (2026-08-01)</strong> — there is no observe mode. All three configured behaviors (return / log / throw) change what a function returns, so validating a legacy codebase necessarily alters it. The zero-risk bottom rung of the migration ladder does not exist.</td>
+<td><a href="src/lang/runtime.ts"><code>runtime.ts</code></a></td>
+</tr>
+</tbody></table>
+<h2>Language &amp; platform</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Assumption</th>
+<th>Verdict</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>L1</td>
+<td>TJS is a superset of JS (<code>dialect: &#39;js&#39;</code> preserves JS semantics)</td>
+<td>✅ <strong>supported</strong> — enforced as a guardrail; a subset violation is a bug.</td>
+<td><a href="src/lang/subset-invariant.test.ts"><code>subset-invariant.test.ts</code></a></td>
+</tr>
+<tr>
+<td>L2</td>
+<td>A verified predicate can serve as cache key, pushdown payload and auth object</td>
+<td>✅ <strong>supported</strong> — canonical form collapses formatting/naming, distinguishes meaning and cluster helpers; demonstrated end-to-end. ⚠️ <em>structural</em>: refactoring into a local mints a new identity.</td>
+<td><a href="src/lang/predicate-canonical.test.ts"><code>predicate-canonical.test.ts</code></a> · <a href="src/use-cases/predicate-pushdown.test.ts"><code>predicate-pushdown.test.ts</code></a></td>
+</tr>
+<tr>
+<td>L3</td>
+<td>Verified predicates compile to fast native JS (&quot;safe is fast&quot;)</td>
+<td>⚠️ <strong>nuanced</strong> — measured on one workload (~0.5ms to validate a whole theme); the systematic overhead campaign that would generalise it is unfinished.</td>
+<td><a href="src/css/perf.bench.test.ts"><code>css/perf.bench.test.ts</code></a></td>
+</tr>
+<tr>
+<td>L4</td>
+<td>Published bundle-size claims are accurate</td>
+<td>❌→✅ <strong>was refuted, now guarded</strong> — every row of the README table was stale (VM 66→74KB gz). Corrected, dated, and pinned by a test that fails on drift.</td>
+<td><a href="src/bundle-size.test.ts"><code>bundle-size.test.ts</code></a></td>
+</tr>
+<tr>
+<td>L5</td>
+<td>Emitted code runs standalone without a runtime</td>
+<td>❌→✅ <strong>was refuted, now fixed (2026-08-06)</strong> — held until parameter annotations began routing through declared <code>Type</code>s, at which point the <code>Type(…)</code> schema gate optional-chained to a <code>globalThis.__tjs.validate</code> the inline stub does not have, went falsy, and made every declared type reject <strong>every value</strong>: <code>double(4)</code> errored standalone while returning 8 under the full runtime. The gate now fails OPEN — unchecked-but-working is the correct degradation (TJS ⊇ JS); turning a working program into a broken one based on whether a runtime happens to be loaded is not. Nothing else in the suite exercises the inline stub, which is why it shipped.</td>
+<td><a href="src/lang/codegen.test.ts"><code>codegen.test.ts</code></a> · <a href="src/lang/declared-type-annotation.test.ts"><code>declared-type-annotation.test.ts</code></a></td>
+</tr>
+</tbody></table>
+<p>| L6 | Block syntax is self-evident — nobody assumes an implicit last-expression return | ❌ <strong>refuted (2026-08-06)</strong> — <strong>five</strong> functions in shipped teaching material ended a <code>wasm { }</code> block with a bare expression and returned <code>undefined</code>: <code>dot</code>, <code>addInts</code>, <code>factorial</code>, <code>lerp</code>, <code>sumArray</code>. The tell is that every <code>fallback { }</code> twin has an explicit <code>return</code> — the authors knew the JS rule and assumed the block was expression-oriented. Silent: it compiles, and <code>:!</code> returns mean no signature test. <strong>Decision it feeds:</strong> a block declaring a non-void return with no reachable <code>return</code> should be an ERROR; <code>predicate { … }</code> requires <code>return</code>, <code>predicate =&gt; …</code> is the one-liner (the arrow-function rule, so nothing new to learn). | <a href="demo/src/examples.test.ts"><code>examples.test.ts</code></a> |</p>
+<hr>
+<h2>Engineering practice</h2>
+<p>Assumptions about <strong>our own process</strong> rather than about models, users or the language.
+These had no home before 2026-08-06, which is why the scanner-consolidation bet went
+unrecorded through the release that made it.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Assumption</th>
+<th>Verdict</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>E1</td>
+<td>Consolidating onto one shared scanner ends literal blindness</td>
+<td>❌ <strong>refuted (2026-08-16), and the test was pre-registered</strong> — <code>0.13.0</code> routed fifteen call sites through <code>scanLiterals()</code>, and issue #25 stated the deciding evidence in advance: &quot;how many NEW literal-blindness defects appear now that one scanner exists&quot;. Answer within 24 hours: <strong>two</strong> — <code>splitParameters</code> (parser-params) and <code>splitParams</code> (js-tests), both evading the sweep by splitting on <strong>commas</strong> rather than scanning quotes, so neither <em>looked</em> like a literal scanner. <strong>Answer by 2026-08-16: at least FOURTEEN.</strong> Six more found by review (<code>transformConstBang</code>&#39;s raw <code>.replace</code> rewriting the contents of user strings; all five declaration scanners detecting on raw source, where the single-quoted form injected unescaped quotes and REJECTED legal JavaScript — a JS ⊆ TJS breach; <code>/* unsafe */</code> read out of a parameter default, turning validation OFF for the whole function; two <code>dts.ts</code> scanners emitting a phantom exported type into consumers&#39; <code>.d.ts</code>), plus <strong>nine revealed at once</strong> when the dogfood conversion ratchet finally ran — six of them labelled &quot;undiagnosed&quot; for weeks and all nine the same defect, invisible because both ratchets gate on <code>SKIP_BENCHMARKS</code>, which <code>test:fast</code> sets and CI inherits. Consolidation removes duplication; it does not remove the class, because the class is &quot;a pass that reads source without understanding it&quot; and that has more shapes than one. Two refinements from the later batch: a comment can be <strong>accurate about the wrong implementation</strong>, and the obvious fix is sometimes <strong>wrong in a way that looks right</strong> (<code>maskLiterals</code> blanks comments too, so using it to find <code>/* unsafe */</code> erases the marker and passes every hostile test while deleting the feature).</td>
+<td><a href="src/lang/literal-blindness.test.ts"><code>literal-blindness.test.ts</code></a> · <a href="https://github.com/tonioloewald/tjs-lang/issues/25">#25</a></td>
+</tr>
+<tr>
+<td>E2</td>
+<td>A gate that compiles an artifact proves the artifact works</td>
+<td>❌ <strong>refuted (2026-08-06)</strong> — the playground examples were compile-checked and their inline tests run, but their <strong>bodies never executed</strong>, so an example with no inline tests was never run at all. Adding execution found five functions printing <code>undefined</code> against their own comments. Compiling is a claim about syntax; running is a claim about meaning, and only the second is what a reader experiences.</td>
+<td><a href="demo/src/examples.test.ts"><code>examples.test.ts</code></a></td>
+</tr>
+<tr>
+<td>E3</td>
+<td>A benchmark with a fixed iteration count stays valid</td>
+<td>❌ <strong>refuted twice (2026-08-06)</strong> — a count is tuned to the hardware of the day and rots silently as hardware improves. <code>wasm-memory</code> timed a single pass at 0.17ms and printed <strong>&quot;0.00ms&quot;</strong> under Firefox&#39;s 1ms clock clamp; the vector benchmark&#39;s ratio swung ~20×–80× on an M5 Max because its <strong>denominator</strong> went sub-millisecond. Size by duration, and calibrate against the FASTEST path, since that is the term that vanishes first.</td>
+<td><a href="src/linalg/vector-search.bench.test.ts"><code>vector-search.bench.test.ts</code></a></td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Decisions and their outcomes</h2>
+<p>The ledger above records what we <em>believe</em>. This records what we <em>did</em>, and what
+happened — including when the outcome was worse than expected, which is the only
+entry type that changes future behaviour.</p>
+<table>
+<thead>
+<tr>
+<th>Date</th>
+<th>Decision</th>
+<th>Why</th>
+<th>Outcome</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>2026-08-06</td>
+<td><code>:</code> in a destructuring pattern means <strong>required</strong>, not defaulted</td>
+<td>the colon value is a type and a worked example; conflating it with a default made <code>:</code> mean nothing</td>
+<td>✅ <strong>clean</strong> — <strong>no pre-existing test depended on the old behaviour.</strong> The only failures were three repro cases written an hour earlier. For a semantic change, that is about as strong a safety signal as exists.</td>
+</tr>
+<tr>
+<td>2026-08-06</td>
+<td><code>Type X&lt;T&gt;</code> subsumes <code>Generic X&lt;T&gt;</code>; <code>Generic</code> becomes an alias</td>
+<td>two keywords made <code>type</code> → <code>Type</code> non-mechanical in both directions (disposal tax)</td>
+<td>✅ <strong>clean</strong> — no regressions; both spellings pinned byte-identical so they cannot drift into two implementations.</td>
+</tr>
+<tr>
+<td>2026-08-06</td>
+<td>Route parameter annotations through declared <code>Type</code>s</td>
+<td>the other half of 0.13.0&#39;s sound-type-names work; prerequisite for <code>type</code> → <code>Type</code></td>
+<td>⚠️ <strong>caused a regression</strong> — standalone emitted code then rejected <strong>every</strong> value, because the schema gate optional-chains to a <code>validate</code> the inline stub lacks and so failed CLOSED. Fixed same day by failing open. Refutes L5 as previously written.</td>
+</tr>
+<tr>
+<td>2026-08-06</td>
+<td><strong>Revert</strong> type arguments (<code>Box&lt;int&gt;</code>) rather than ship them</td>
+<td>parsing worked, but <code>Box&lt;0&gt;</code> accepted <code>1.5</code> standalone — the inline stub&#39;s <code>Generic</code> does <code>typeof</code> where the real one infers structure</td>
+<td>✅ <strong>right call</strong> — shipping would have been a knowing silent under-check, the exact class the release spent a week removing. Blocker is now a stated design question rather than a latent defect.</td>
+</tr>
+<tr>
+<td>2026-08-06</td>
+<td>Calibrate benchmarks by <strong>duration</strong>, in two passes</td>
+<td>fixed counts rot; one pass measures a cold loop and under-scales</td>
+<td>✅ <strong>better than expected</strong> — run-to-run spread fell from 14–21% to ~6.5%, <strong>and</strong> revealed the old numbers were biased <em>low</em>: 500×128 reported ~8.5× for something that is ~12.7×.</td>
+</tr>
+<tr>
+<td>2026-08-06</td>
+<td>Add a run gate for playground examples</td>
+<td>compiling is not running</td>
+<td>✅ <strong>found five broken functions immediately</strong>, all shipped in the npm package and the live playground.</td>
+</tr>
+<tr>
+<td>2026-08-07</td>
+<td><strong>Do not</strong> convert <code>===</code> → <code>==</code> in <code>fromTS</code> output; comment only where it would SIMPLIFY</td>
+<td><code>===</code> is already safe; TJS&#39;s <code>==</code> is safer than JS&#39;s but strictly more work</td>
+<td>✅ <strong>decided against, on a measurement that was not in the original framing</strong> — <code>Eq</code> costs <strong>1.23×</strong> a raw <code>===</code> on a comparison-dominated loop, so the rewrite is a pessimization paid for nothing whenever operands cannot be boxed or null. It is also not semantics-preserving: <code>x === null</code> discriminates null from undefined and TJS <code>==</code> does not, so the rewrite would need to skip exactly the comparisons TS authors write deliberately under <code>strictNullChecks</code>. And a TS reader seeing <code>==</code> in converted output distrusts the converter, which is the conversion&#39;s whole value. Narrowed to a <strong>comment</strong> where the source manually reimplements <code>==</code> (<code>x === null || x === undefined</code>, <code>a.valueOf() === b</code>) — teaching where there is something to teach, silent otherwise.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>How to add to this ledger</h2>
+<ol>
+<li><strong>State the assumption as something that could be false.</strong> &quot;Our errors are helpful&quot; is
+checkable; &quot;our errors are good&quot; is not.</li>
+<li><strong>Build the cheapest probe that could refute it.</strong> <code>experiments/agent-legibility/</code> has
+runnable examples. Comprehension probes need no parser; autocomplete probes need no model.</li>
+<li><strong>Record the verdict here in one line</strong>, with the number that decides it. Detail goes in
+the linked document — this page must stay skimmable.</li>
+<li><strong>Act on refutations</strong>, then encode the fix as a <em>deterministic</em> test where possible. The
+experiment justifies the invariant; the invariant then holds without rerunning the
+experiment. (A1 → <code>diagnostic-remedy.test.ts</code> is the worked example.)</li>
+<li><strong>Re-check the entries a change touches.</strong> L5 read &quot;✅ supported&quot; for three days after the
+work that broke it — because nobody looked. A ledger nobody revisits records the moment it
+was written, not the state of the project.</li>
+</ol>
+<h2>How to add a decision</h2>
+<p>The assumptions table records what we <em>believe</em>. The decisions table records what we <em>did</em>
+and what followed, which is the half that changes future behaviour.</p>
+<ol>
+<li><strong>Log it when the outcome is known</strong>, not when the decision is made — an entry with no
+outcome is a TODO wearing a ledger&#39;s clothes.</li>
+<li><strong>Say what would have made it wrong</strong>, in the &quot;Why&quot; column. &quot;Because it seemed better&quot; is
+not reviewable a year later.</li>
+<li><strong>Record bad outcomes in the same table as good ones.</strong> A decisions log with no ⚠️ rows is
+a marketing document. Routing annotations through declared types is in there precisely
+because it caused a same-day regression; that row is worth more than the four clean ones.</li>
+<li><strong>Prefer the surprising result to the confirming one.</strong> &quot;No pre-existing test depended on
+the old behaviour&quot; and &quot;the old benchmark numbers were biased <em>low</em>, not merely noisy&quot; are
+both facts nobody predicted, and both change how the next change gets made.</li>
+</ol>
+<p><strong>Pre-registration works and is nearly free.</strong> Issue #25 stated its own deciding evidence
+(&quot;how many NEW literal-blindness defects appear now that one scanner exists&quot;) before any had
+appeared. Two arrived within 24 hours, and because the question was written down first, the
+answer was unambiguous instead of arguable. Where a decision has an observable consequence,
+say what would count as evidence <em>at the time you decide</em> (E1).</p>
+<p><strong>Methodological lessons paid for in this repo</strong>, worth reading before designing a probe:
+an apparatus that fails closed looks exactly like a strong negative result (a harness bug
+scored 0/8 while the model was correct); an instrument saturated at its floor discriminates
+nothing; and changing two things at once will hand you a confident, wrong conclusion — a
+&quot;Lisp wins&quot; result evaporated once syntax and paradigm were separated.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link current" href="../ASSUMPTIONS/" aria-current="page">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

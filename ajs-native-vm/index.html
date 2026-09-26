@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>AJS Native VM (Rust → wasm) — post-1.0 direction — tjs-lang</title>
+  <meta name="description" content="Status: design note, not critical path. Nothing here blocks the 1.0 language release. Purpose: a long-term answer to VM robustness and safety." />
+  <link rel="canonical" href="https://tjs.tosijs.net/ajs-native-vm/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="AJS Native VM (Rust → wasm) — post-1.0 direction — tjs-lang" />
+  <meta property="og:description" content="Status: design note, not critical path. Nothing here blocks the 1.0 language release. Purpose: a long-term answer to VM robustness and safety." />
+  <meta property="og:url" content="https://tjs.tosijs.net/ajs-native-vm/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"AJS Native VM (Rust → wasm) — post-1.0 direction","description":"Status: design note, not critical path. Nothing here blocks the 1.0 language release. Purpose: a long-term answer to VM robustness and safety.","url":"https://tjs.tosijs.net/ajs-native-vm/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "ajs.md", "order": 6}--><h1>AJS Native VM (Rust → wasm) — post-1.0 direction</h1>
+<p><strong>Status:</strong> design note, not critical path. Nothing here blocks the 1.0 language release.
+<strong>Purpose:</strong> a long-term answer to VM robustness and safety. Revisit when a trigger (below) fires.
+<strong>Decided against:</strong> a native TJS runtime (forking V8/JSC). TJS works within the JS ecosystem and
+influences it; it does not replace it. AJS is different — it is the untrusted-code path, and that
+is where a second implementation earns its keep.</p>
+<h2>Thesis</h2>
+<p>Executing the AST natively, with no JavaScript invoked at all, removes whole classes of sandbox
+risk rather than mitigating them. A Rust VM compiled to wasm can run in the browser, Bun, Node,
+wasmtime and Postgres, and can serve as the client-side <code>Eval</code>/<code>SafeFunction</code> engine — so the end
+state is <strong>one VM</strong>, not two.</p>
+<h2>What changes categorically</h2>
+<ul>
+<li><strong>No JS object model in the guest.</strong> Guest values live in an arena the host never shares: no
+prototype chain, no getters, no <code>__proto__</code>/<code>constructor</code>/<code>prototype</code> blocklist. The membrane
+becomes byte-copying by construction instead of descriptor-walking.</li>
+<li><strong>Parser leaves the trust path.</strong> The VM accepts only ASTs. The 0.13.4 class of bug
+(transpile-time execution of untrusted source) cannot recur; attack surface = AST validator +
+interpreter.</li>
+<li><strong>ReDoS is gone as a category</strong> with a linear-time regex engine (Rust <code>regex</code>/<code>regex-lite</code>),
+replacing pattern-rejection heuristics.</li>
+<li><strong>JS-engine JIT bugs</strong> (currently declared out of scope) no longer apply to guest execution.</li>
+</ul>
+<h2>What merely moves</h2>
+<ul>
+<li>Capabilities still cross into a JS host; the boundary shrinks to a byte buffer but remains.</li>
+<li>Timing side channels: still shared-process. Only process isolation addresses these.</li>
+<li><strong>Memory safety is the trade to watch.</strong> JS gave it for free. The VM must be Rust with <code>unsafe</code>
+forbidden, compiled to wasm so the wasm sandbox catches what the Rust misses. C/C++ would swap
+JIT bugs for buffer overflows — worse.</li>
+</ul>
+<h2>Known regression: CSP</h2>
+<p><code>WebAssembly.instantiate</code> is blocked under strict <code>script-src</code> unless <code>&#39;wasm-unsafe-eval&#39;</code> (or
+<code>&#39;unsafe-eval&#39;</code>) is granted. This is a milder version of the problem <code>Eval</code> exists to avoid.
+Decide deliberately: either document the requirement, or keep the JS VM as a fallback for
+locked-down contexts (which is two VMs again, with everything that implies below).</p>
+<h2>Architecture sketch</h2>
+<ul>
+<li><strong>Input:</strong> versioned JSON AST only. No source. Validation before execution.</li>
+<li><strong>Execution:</strong> resumable step machine. On a capability call the VM returns
+<code>{ suspended, atom, args }</code>; the host awaits and calls <code>resume</code>. No JSPI/asyncify dependence,
+identical behaviour on every host, and a suspended VM is serializable — checkpoint, migrate,
+replay. Fits the flight-recorder design.</li>
+<li><strong>Fuel / quotas / heap ceiling / depth cap / trace:</strong> ported as-is; semantics must match the JS
+VM exactly (see conformance).</li>
+<li><strong>Atoms:</strong> core atoms remain host capabilities behind schemas. Custom atoms are opaque to the
+guest — nothing may assume a shared heap.</li>
+<li><strong>tosijs-schema:</strong> atom I/O validation moves into Rust. Schemas embed AJS predicates, so the VM
+hosts the validator which hosts the VM. Natural in Rust, but it means a Rust implementation of
+tosijs-schema&#39;s core comes along. Scope this before starting; it is the largest hidden chunk.</li>
+<li><strong>String semantics:</strong> with one VM we define them. UTF-16 <code>.length</code> quirks need not survive.</li>
+</ul>
+<h2>Estimates</h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Rust lines</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AST deserializer + validator</td>
+<td>1–2k</td>
+</tr>
+<tr>
+<td>Value model, arena, per-key heap accounting</td>
+<td>2–3k</td>
+</tr>
+<tr>
+<td>Interpreter core, expressions, operator semantics</td>
+<td>2–4k</td>
+</tr>
+<tr>
+<td>Fuel, quotas, depth cap, tracing, suspend/resume</td>
+<td>1–2k</td>
+</tr>
+<tr>
+<td>Builtins (Array/Object/String/Number/Math/JSON/Set/Schema)</td>
+<td>3–5k</td>
+</tr>
+<tr>
+<td>Date subset</td>
+<td>1–2k</td>
+</tr>
+<tr>
+<td>tosijs-schema core</td>
+<td>3–6k</td>
+</tr>
+<tr>
+<td>Host boundary, membrane, atom registry</td>
+<td>1–2k</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>~15–30k + tests</strong></td>
+</tr>
+</tbody></table>
+<p>Reference: QuickJS is ~55k lines of C for full ES2020. AJS forbids most of what makes engines
+large.</p>
+<p><strong>Binary:</strong> 150–300 KB gzipped realistic (today: 32 KB eval, 66 KB VM). Floor ~120 KB with
+<code>opt-level = &quot;z&quot;</code>, <code>panic = &quot;abort&quot;</code>, LTO, <code>wasm-opt</code>, <code>regex-lite</code>, hand-rolled Date subset,
+ASCII-fast-path Unicode. Careless choices (full <code>regex</code>, <code>chrono</code>, ICU-style tables) land at 500+.</p>
+<p><strong>Effort:</strong> interpreter core is weeks. Builtins, schema validator and conformance are the long
+tail — months, and mostly specification work.</p>
+<h2>The two-VM hazard</h2>
+<p>While both VMs exist, semantic divergence is a <strong>security bug</strong>, not a compatibility bug: a
+predicate accepted by one and enforced by the other is a hole. Fuel costs, error shapes, monadic
+error values, heap accounting and membrane behaviour must agree exactly. Once the Rust VM reaches
+parity it becomes the reference; the JS VM is either held to the conformance suite or retired
+from the untrusted path.</p>
+<h2>Constraints on 1.0 (cheap now, expensive later)</h2>
+<p>These are the only things the initial release must do to keep this option open.</p>
+<p><strong>Audited 2026-09-19 against the current tree</strong> — two are already satisfied, two are not, and the
+ordering of that matters more than the list:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>constraint</th>
+<th>status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Do not document JS builtin behaviour as AJS behaviour</td>
+<td><strong>largely satisfied.</strong> <code>DOCS-AJS.md</code> promises almost nothing about builtins — the only <code>.length</code> is inside an example, and regex is described by intent (&quot;suspicious patterns are rejected&quot;) rather than by flavour. Keep it that way; anything promised about <code>.length</code>, Date formatting, regex flavour or number-to-string becomes a conformance obligation.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Version the AST</strong></td>
+<td>✅ <strong>done 0.14.0.</strong> Root is <code>{&quot;$ajs&quot;:1,&quot;op&quot;:&quot;seq&quot;,…}</code>; <code>src/vm/ast-version.ts</code> is the single source and the VM refuses a version it cannot read. Enforced at both ends: <strong>every producer stamps</strong> (<code>ast-version-producers.test.ts</code> — the builder was found unstamped, which would have kept the unversioned population growing) and <strong>every boundary refuses</strong> (<code>ast-version-boundaries.test.ts</code>). See the correction below on when this would have become expensive.</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Keep custom atoms opaque to the guest</td>
+<td><strong>satisfied structurally.</strong> Every <code>effects: &#39;io&#39;</code> return crosses <code>structuredClone</code> and the pre-walk rejects functions and accessors, so nothing can leak a reference that assumes a shared heap. This is a membrane property, not a convention, so it cannot rot.</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Accumulate golden fixtures</td>
+<td>❌ <strong>not started.</strong> <code>test-data/</code> holds only vision-test JPEGs. Every #52-class fix should get an AST-in / expected-out fixture there rather than a JS-only test; that <strong>is</strong> the conformance suite, built for free.</td>
+</tr>
+</tbody></table>
+<p><strong>When #2 actually becomes expensive — corrected 2026-09-19.</strong> This note first argued that a
+retrofit &quot;can only say absent means 1, which is exactly the ambiguity a version field exists to
+prevent&quot;. That was wrong, and the correction matters because it relocates the deadline.</p>
+<p><strong>&quot;Absent means 1&quot; is a total, unambiguous rule.</strong> It maps every AST to exactly one version and
+is no worse than an explicit field. Adding the field late is perfectly sound — <em>provided the
+format has not changed in the meantime.</em></p>
+<p>The real hazard is narrow: ship a v2 format <strong>without</strong> having introduced the field, and ASTs
+written under v2 also lack it. Only then is absent genuinely ambiguous — v1 or v2, unknowable —
+and only then is it permanent.</p>
+<p>So the window is <strong>before the format first changes</strong>, not before the first AST is stored, and
+<code>$ajs: 1</code> landed comfortably inside it (0.14.0). Cheap insurance bought early, not a catastrophe
+narrowly averted. The obligation this leaves is simply: <em>never change the AST format without
+bumping the version.</em></p>
+<h2>Phases</h2>
+<ol start="0">
+<li><strong>Now (no cost):</strong> constraints above; a short AST spec note as the format stabilises.</li>
+<li><strong>Spike:</strong> Rust interpreter for the core atoms + expressions, no builtins, driven by the golden
+fixtures. Measure wasm size and suspend/resume ergonomics. Kill or continue.</li>
+<li><strong>Parity:</strong> builtins, Date subset, regex, tosijs-schema core. Full conformance against the JS
+VM. Resolve string semantics.</li>
+<li><strong>Swap:</strong> Rust VM becomes the <code>Eval</code>/<code>SafeFunction</code> engine on the client and the VM on the
+server. JS VM retired from the untrusted path (or kept strictly as CSP fallback under
+conformance).</li>
+<li><strong>Hosts:</strong> wasmtime binary; Postgres via pgrx (logic travels to data, literally); anything else
+that appears.</li>
+</ol>
+<h2>Triggers for making this critical path</h2>
+<ul>
+<li>Universal endpoints want predicates executed inside Postgres.</li>
+<li>A sandbox issue that is structural to JS-in-JS rather than a bug.</li>
+<li>A consumer needing AJS without a JS host (embedded, edge runtime without JS, agent-local
+execution).</li>
+</ul>
+<h2>Open questions</h2>
+<ul>
+<li>CSP: document <code>&#39;wasm-unsafe-eval&#39;</code> as a requirement, or keep a JS fallback?</li>
+<li>Regex engine: <code>regex-lite</code> (small, linear) vs full <code>regex</code> (Unicode classes, larger)?</li>
+<li>Date: which subset is actually promised?</li>
+<li>String semantics: code points, UTF-8 bytes, or JS-compatible UTF-16 units?</li>
+<li>How much of tosijs-schema must be in Rust for atom I/O — all of it, or a core subset with the
+rest host-side?</li>
+</ul>
+<h2>Relationship to <code>tjs-lang/vm-ast</code></h2>
+<p>Shipped in 0.14.0 and worth noting here, because it is the first step of this plan taken for
+independent reasons: the AST-only VM (no parser, no acorn, 56 KB against 221 KB) already
+establishes <strong>&quot;the VM accepts an AST, not source&quot;</strong> as a supported contract with real consumers.
+The Rust VM would implement that same contract rather than a new one, which removes the
+riskiest part of a swap — persuading callers to change how they invoke it.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link current" href="../ajs-native-vm/" aria-current="page">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

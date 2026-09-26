@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Why TJS — tjs-lang</title>
+  <meta name="description" content="JavaScript has been getting fixed for twenty years. The attempts were good, most of them worked, and every one of them stopped somewhere short — usually at the…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/why-tjs/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Why TJS — tjs-lang" />
+  <meta property="og:description" content="JavaScript has been getting fixed for twenty years. The attempts were good, most of them worked, and every one of them stopped somewhere short — usually at the…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/why-tjs/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Why TJS","description":"JavaScript has been getting fixed for twenty years. The attempts were good, most of them worked, and every one of them stopped somewhere short — usually at the…","url":"https://tjs.tosijs.net/why-tjs/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "tjs", "group": "docs", "order": 1, "navTitle": "Why TJS", "parent": "the-tjs-language.md"}--><h1>Why TJS</h1>
+<h2>Everyone has tried to fix JavaScript. This is what they left on the table.</h2>
+<p>JavaScript has been getting fixed for twenty years. The attempts were good, most of them
+worked, and every one of them stopped somewhere short — usually at the same place, for the
+same reason. TJS is an attempt to finish the job in the space they left.</p>
+<p>The short version: <strong>the fixes that worked were the ones inside the language, and they were
+rationed.</strong> The fixes that were unlimited were the ones outside it, and being outside is what
+cost them.</p>
+<hr>
+<h2>What each attempt got right, and where it stopped</h2>
+<h3>The doctrine: <em>JavaScript: The Good Parts</em> (2008)</h3>
+<p>The foundational insight, and it still holds: <strong>there is a good language inside JavaScript,
+and you get to it by subtraction.</strong> Crockford named the parts that produce bugs — <code>==</code>, <code>with</code>,
+implied globals, <code>new</code> without <code>new</code>, semicolon insertion, <code>typeof null</code> — and said: use the
+rest.</p>
+<p>That was a genuinely radical claim. Not &quot;JavaScript is bad&quot; and not &quot;JavaScript is fine&quot;, but
+that the language contains a smaller, coherent, better language, and that a disciplined
+programmer can simply decline the rest. Every attempt since, including this one, is a variation
+on that sentence.</p>
+<p><strong>What it could not do is be anywhere except in your head.</strong> A doctrine is enforced by memory
+and code review, and it has to be re-transmitted to every newcomer on every team, forever. The
+book sold well and the bad parts remained in the language, remained legal, and remained what
+you got by default.</p>
+<h3>The enforcement: JSLint (2002)</h3>
+<p>Making the doctrine executable was the real contribution — and note the date, because it is
+the more interesting fact: <strong>the enforcer shipped six years before the book explained it.</strong>
+JSLint encoded a doctrine that had not yet been written down, which is part of why it landed
+as it did. Crockford&#39;s own framing — &quot;JSLint will hurt your feelings&quot; — is the tell. It was
+right, and it had no room to say why.</p>
+<p>That is the structural limit of the whole category: <strong>a linter can only scold.</strong> It cannot
+change what <code>==</code> does; it can only object, every time, forever, in a tone nobody enjoys. So
+the rules became a config file, the config file became a per-project argument, and the
+knowledge ended up living in <code>.eslintrc</code> and team convention rather than in the language. Turn
+a rule off and the footgun is simply back.</p>
+<p><strong>Left on the table:</strong> the bad parts themselves. Being told <code>==</code> is wrong, forever, in every
+project, by a tool that cannot fix it, is worse than <code>==</code> being right.</p>
+<h3><code>use strict</code> (ES5, 2009)</h3>
+<p>The proof that <strong>the language could fix itself.</strong> Opt-in, file-scoped, and it removed things
+JSLint could only complain about: implied globals became errors, <code>with</code> was gone, duplicate
+parameters were gone, silent assignment failures started throwing.</p>
+<p>It worked. It is the single most successful &quot;fix JavaScript&quot; project, and almost nobody
+thinks about it any more — which is what success looks like.</p>
+<p>And then it stopped. The list is short and it never grew. <code>==</code> survived. <code>typeof null</code> survived.
+<code>NaN !== NaN</code> survived. There was no mechanism for &quot;the next twenty things&quot;, because each
+one would have needed its own committee cycle and its own compatibility argument.</p>
+<p><strong>Left on the table:</strong> everything after the first list. The mechanism was right and was used
+once.</p>
+<h3>Flow (2014) and TypeScript (2012)</h3>
+<p>Both understood that <strong>types are the missing information</strong>, and TypeScript in particular
+understood the thing Flow did not: adoption has to be gradual, and tooling has to be
+excellent. TypeScript won, deservedly, and it is genuinely better than what came before.</p>
+<p>But look at what they are. Flow was written in OCaml — a type system from a different
+tradition, bolted to a language that does not share its assumptions. TypeScript is written in
+JavaScript, but it <strong>describes a different language</strong>: a static one, erased before anything
+runs.</p>
+<p><strong>TypeScript treats JavaScript as a dumb CPU.</strong> The types are the real program; JavaScript is
+the target it compiles down to, and the relationship is the one a compiler has with assembly.
+It is a superset of JavaScript in exactly the sense that <strong>C is a superset of assembler</strong> —
+which is to say, only because it supports the inline form. You <em>can</em> drop to the underlying
+thing, and when you do, the abstraction stops helping and mostly stops watching.</p>
+<p>Push that comparison one step further and it stops flattering. <strong>Ask what C buys for its
+leakiness:</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>C over assembler</th>
+<th>TypeScript over JavaScript</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>more <strong>expressive</strong>?</td>
+<td>yes — structured control, types</td>
+<td>no — the runtime semantics are identical, because they <em>are</em> JavaScript&#39;s</td>
+</tr>
+<tr>
+<td>more <strong>portable</strong>?</td>
+<td>yes — one source, many targets</td>
+<td>no — it targets JavaScript, which is where you already were</td>
+</tr>
+<tr>
+<td>more <strong>compact</strong>?</td>
+<td>yes — dramatically</td>
+<td><strong>no — strictly longer.</strong> Annotations are added text</td>
+</tr>
+</tbody></table>
+<p>C earns its leaks. It abstracts over a real machine and hands back expressiveness,
+portability and concision so large that inline assembly is a rare escape most programmers
+never write. TypeScript leaks in the same places — <code>any</code>, <code>as</code>, <code>@ts-ignore</code>, ambient
+declarations, <code>.d.ts</code> files that drift from the code they describe — and the ledger on the
+other side is comparatively thin, because it is not abstracting over anything. <strong>It is
+annotating.</strong></p>
+<p>(The one portability claim TypeScript can make — downlevelling to older JavaScript — belongs
+to the transpiler, not to the type system. Babel does it without types.)</p>
+<p>None of which makes TypeScript a bad tool. Its value is real and it is <strong>developer-experience</strong>
+value: editor intelligence, safe refactoring, errors caught before you run. What it is not is
+an <em>abstraction layer</em>, and calling it one invites the comparison above, which it cannot win.</p>
+<p>That would all be a reasonable trade if JavaScript were a dumb CPU. It is not, and here is the
+part that gets missed:</p>
+<blockquote>
+<p><strong>JavaScript is genuinely type-safe. TypeScript is not.</strong></p>
+</blockquote>
+<p>Every JavaScript value carries its type at runtime, operations check it, and nothing lets you
+reinterpret a string&#39;s bits as a number. That is real, enforced, and always present. A
+TypeScript type is a <em>claim</em>, unsound by design and erased before execution — <code>as</code> lets you
+assert something false, and nothing at compile time or runtime will contradict you. One of
+these systems can be lied to. It is not the one without a type checker.</p>
+<p>So JavaScript already has the thing TypeScript is emulating. Its problem is not the absence
+of runtime types, it is that <strong>a few of them behave bizarrely</strong>:</p>
+<pre><code>typeof null                 // &#39;object&#39;          — a bug from 1995, never fixed
+typeof NaN                  // &#39;number&#39;          — a Number that is Not a Number
+new Boolean(false)          // truthy!           — an object, and objects are truthy
+new String(&#39;&#39;)              // truthy!           — likewise
+</code></pre>
+<p>The set is also thin: <code>number</code> covers integers, floats and <code>NaN</code> alike, and there is no way to
+say &quot;a non-negative integer&quot; or &quot;a valid CSS colour&quot; in it.</p>
+<p>Which reframes the whole problem. The job is not to bolt a second, static, erasable type
+system on top. It is to <strong>fix the handful of broken runtime types and widen the vocabulary</strong> —
+staying in the system that actually enforces something. In TJS, <code>TypeOf(null)</code> is <code>&#39;null&#39;</code>,
+and <code>new Boolean(false) == false</code> is <code>true</code>.</p>
+<p><strong>Left on the table:</strong> the runtime — and the recognition that the runtime already had a type
+system worth repairing.</p>
+<h3>ESM (ES6, 2015)</h3>
+<p>The other great inside-the-language success, and the closest precedent for what TJS is doing.
+Modules had been a community problem with community answers — AMD, CommonJS, UMD, bundler
+conventions — and the fix was not a better convention. It was <strong>new syntax with different
+semantics</strong>, living beside the old one.</p>
+<p><code>import</code> is not <code>require</code> with nicer spelling. It is static, hoisted, live-bound, and
+strict-by-default. The old form still works; nobody&#39;s code broke; the new form is simply
+better, and it won by being better.</p>
+<p><strong>That is the model.</strong> Not a lint rule, not a superset that erases, not a committee-sized
+list of removals — a real alternative inside the language, chosen file by file.</p>
+<h4>And <code>.mjs</code> is the mechanism we borrowed outright</h4>
+<p>Node had to run two incompatible module systems in one toolchain, and the answer was not a
+pragma. It was <strong>the file extension</strong>: <code>.mjs</code> means ESM, <code>.cjs</code> means CommonJS, and
+<code>&quot;type&quot;: &quot;module&quot;</code> flips what a bare <code>.js</code> means. The unit of choice is the file, and the
+switch lives in its name.</p>
+<p>That looks like a packaging detail and is actually a deep constraint. <strong>You cannot put &quot;this
+is a module&quot; inside the file, because you have to know it before you can parse the file.</strong>
+<code>import</code> hoists, bindings are live, the whole body is strict — all decided before the first
+token is read. A directive like <code>&#39;use strict&#39;</code> can sit in the source precisely because it
+changes so little; module-ness changes too much to be announced from within.</p>
+<p>TJS has exactly that constraint, for exactly that reason: the dialect changes what the parser
+does, so it cannot be discovered inside the parse. Hence <code>.tjs</code>, and hence the fact that this
+project <strong>abolished all nine of its mode directives</strong> in favour of the extension. That was not
+a style preference — it was arriving, later and the hard way, at the answer Node had already
+found. Per-construct opt-outs (<code>LegacyDate</code>, <code>DangerousLegacyEquals</code>) remain, because those
+are local and do not change how the file is read.</p>
+<hr>
+<h2>Where that leaves the gap</h2>
+<p>Line them up and the pattern is hard to miss:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>inside JS?</th>
+<th>survives to runtime?</th>
+<th>unlimited scope?</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><em>The Good Parts</em></td>
+<td>doctrine only — lives in your head</td>
+<td>n/a</td>
+<td>yes, but unenforced</td>
+</tr>
+<tr>
+<td>JSLint</td>
+<td>no — a scold</td>
+<td>n/a</td>
+<td>yes, but advisory only</td>
+</tr>
+<tr>
+<td><code>use strict</code></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td>no — one fixed list</td>
+</tr>
+<tr>
+<td>Flow</td>
+<td>no — OCaml, other tradition</td>
+<td>no</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>TypeScript</td>
+<td>treats JS as a compile target</td>
+<td><strong>no</strong> — erased</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>ESM</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td>no — one problem</td>
+</tr>
+<tr>
+<td><strong>TJS</strong></td>
+<td><strong>yes</strong> — repairs JS&#39;s own types</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+</tbody></table>
+<p>Nobody has occupied the bottom row, and it is not because it is a bad idea. It is because
+each project had a good reason to stop: a committee cannot ship twenty semantic changes, a
+type checker that runs is a performance argument, and a linter that changes your program is
+frightening.</p>
+<p>TJS&#39;s bet is that those reasons have weakened. Transpilation is universal and boring.
+Validation at the boundary turned out to be something people do anyway, by hand, worse. And
+the number of footguns that have been a lint rule for fifteen years — flagged, argued about,
+never removed — is the size of the opportunity.</p>
+<hr>
+<h2>What &quot;inside JavaScript&quot; actually means here</h2>
+<p>Three commitments, and they are testable rather than aspirational.</p>
+<p><strong>1. TJS ⊇ JS.</strong> Any JavaScript file is a legal TJS file with plain JavaScript semantics.
+<strong>The extension is the gate</strong>, borrowed from <code>.mjs</code>: a <code>.js</code> file gets JS semantics, a <code>.tjs</code>
+file opts into the better language, and nothing inside the file has to be remembered or
+configured. This is a guarded invariant rather than a promise —
+<code>src/lang/subset-invariant.test.ts</code> fails if a richer layer ever makes subset-legal code
+illegal.</p>
+<p><strong>2. Types are examples that survive.</strong> Instead of a separate type language that is erased,
+a type is a <strong>value</strong>:</p>
+<pre><code>function greet(name: &#39;Alice&#39;) { … }
+</code></pre>
+<p><code>&#39;Alice&#39;</code> is not a string-literal type. It is an example, and it widens to &quot;a string&quot; — while
+staying a real value, so it can be documentation, a runtime contract, a test fixture, and a
+JSON Schema at the same time. One artifact rather than four that drift.</p>
+<p><strong>3. The escape hatches are named and ugly.</strong> Every fix can be opted out of — but through
+something greppable and deliberately unattractive: <code>LegacyDate(x)</code>, <code>DangerousLegacyEquals(a, b)</code>,
+<code>LegacyDefault(…)</code>. A confession, not a suppression. There is an on-ramp and an off-ramp, and
+deliberately no comfortable middle.</p>
+<hr>
+<h2>The honest part</h2>
+<p>The previous attempts are why this is possible, not competition for it. Crockford&#39;s list is
+still the list. <code>use strict</code> and ESM proved the inside-the-language route works and is
+survivable. TypeScript did the adoption research the hard way and established that a superset
+with gradual typing is something working programmers will accept.</p>
+<p>TJS is what you get by taking those lessons seriously at the same time: fix the bad parts
+rather than flagging them, keep the fixes in the language rather than in a config file, and
+let the types live long enough to be useful.</p>
+<p>If you want the specifics of what is fixed and how, <strong><a href="../TJS-FOR-JS.md">TJS for JavaScript
+Programmers</a></strong> is the practical tour, <strong><a href="../TJS-FOR-TS.md">TJS for TypeScript
+Programmers</a></strong> covers migration and interop, and
+<strong><a href="../docs/tjs-vs-typescript.md">the difference table</a></strong> lists every divergence — generated
+from executable rows, so each claim on it is run against <code>tsc --strict</code> and TJS on every
+build rather than asserted here.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link current" href="../why-tjs/" aria-current="page">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

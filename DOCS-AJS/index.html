@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>AJS: The Agent Language — tjs-lang</title>
+  <meta name="description" content="_Code as Data. Safe. Async. Sandboxed._" />
+  <link rel="canonical" href="https://tjs.tosijs.net/DOCS-AJS/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="AJS: The Agent Language — tjs-lang" />
+  <meta property="og:description" content="_Code as Data. Safe. Async. Sandboxed._" />
+  <meta property="og:url" content="https://tjs.tosijs.net/DOCS-AJS/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"AJS: The Agent Language","description":"_Code as Data. Safe. Async. Sandboxed._","url":"https://tjs.tosijs.net/DOCS-AJS/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "ajs", "group": "docs", "order": 1, "navTitle": "Documentation", "parent": "ajs.md"}--><h1>AJS: The Agent Language</h1>
+<p><em>Code as Data. Safe. Async. Sandboxed.</em></p>
+<hr>
+<h2>What is AJS?</h2>
+<p>AJS (AsyncJS) is a JavaScript subset that compiles to a <strong>JSON AST</strong>. It&#39;s designed for untrusted code—user scripts, LLM-generated agents, remote logic.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">function</span> <span class="token function">searchAndSummarize</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> query <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> results <span class="token operator">=</span> <span class="token function">httpFetch</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">url</span><span class="token operator">:</span> <span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">https://api.example.com/search?q=</span><span class="token interpolation"><span class="token interpolation-punctuation punctuation">${</span>query<span class="token interpolation-punctuation punctuation">}</span></span><span class="token template-punctuation string">`</span></span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+  <span class="token keyword">let</span> summary <span class="token operator">=</span> <span class="token function">llmPredict</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">prompt</span><span class="token operator">:</span> <span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">Summarize: </span><span class="token interpolation"><span class="token interpolation-punctuation punctuation">${</span><span class="token constant">JSON</span><span class="token punctuation">.</span><span class="token function">stringify</span><span class="token punctuation">(</span>results<span class="token punctuation">)</span><span class="token interpolation-punctuation punctuation">}</span></span><span class="token template-punctuation string">`</span></span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> query<span class="token punctuation">,</span> summary <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>This compiles to JSON that can be:</p>
+<ul>
+<li>Stored in a database</li>
+<li>Sent over the network</li>
+<li>Executed in a sandboxed VM</li>
+<li>Audited before running</li>
+</ul>
+<hr>
+<h2>The VM</h2>
+<p>AJS runs in a gas-limited, isolated VM with strict resource controls.</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> ajs<span class="token punctuation">,</span> AgentVM <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+
+<span class="token keyword">const</span> agent <span class="token operator">=</span> ajs<span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">
+  function process({ url }) {
+    let data = httpFetch({ url })
+    return { fetched: data }
+  }
+</span><span class="token template-punctuation string">`</span></span>
+
+<span class="token keyword">const</span> vm <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AgentVM</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>
+  agent<span class="token punctuation">,</span>
+  <span class="token punctuation">{</span> url<span class="token operator">:</span> <span class="token string">'https://api.example.com'</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token punctuation">{</span>
+    fuel<span class="token operator">:</span> <span class="token number">1000</span><span class="token punctuation">,</span> <span class="token comment">// CPU budget</span>
+    timeoutMs<span class="token operator">:</span> <span class="token number">5000</span><span class="token punctuation">,</span> <span class="token comment">// Wall-clock limit</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">)</span>
+</code></pre>
+<h3>Fuel Metering</h3>
+<p>Every operation costs fuel:</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Cost</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Expression evaluation</td>
+<td>0.01</td>
+</tr>
+<tr>
+<td>Variable set/get</td>
+<td>0.1</td>
+</tr>
+<tr>
+<td>Control flow (if, while)</td>
+<td>0.5</td>
+</tr>
+<tr>
+<td>HTTP fetch</td>
+<td>10</td>
+</tr>
+<tr>
+<td>LLM predict</td>
+<td>100</td>
+</tr>
+</tbody></table>
+<p>When fuel runs out, execution stops safely:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">if</span> <span class="token punctuation">(</span>result<span class="token punctuation">.</span>fuelExhausted<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token comment">// Agent tried to run forever - stopped safely</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Timeout Enforcement</h3>
+<p>Fuel protects against CPU abuse. Timeouts protect against I/O abuse:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  fuel<span class="token operator">:</span> <span class="token number">1000</span><span class="token punctuation">,</span>
+  timeoutMs<span class="token operator">:</span> <span class="token number">5000</span><span class="token punctuation">,</span> <span class="token comment">// Hard 5-second limit</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Slow network calls can&#39;t hang your servers.</p>
+<h3>Capability Injection</h3>
+<p>The VM starts with <strong>zero capabilities</strong>. You grant what each agent needs:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> capabilities <span class="token operator">=</span> <span class="token punctuation">{</span>
+  fetch<span class="token operator">:</span> <span class="token function">createFetchCapability</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+    allowedHosts<span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">'api.example.com'</span><span class="token punctuation">]</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  store<span class="token operator">:</span> <span class="token function">createReadOnlyStore</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  <span class="token comment">// No llm - this agent can't call AI</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> capabilities <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>Capabilities must return structured-cloneable plain data.</strong> Every value a capability
+returns crosses a <code>structuredClone</code> membrane before it reaches guest state, so it must not
+carry functions or live host references — a <code>fetch</code> capability returning a live <code>Response</code>
+(with <code>.json()</code>/<code>.text()</code>) is <strong>rejected</strong> at the boundary; return the fields the guest reads
+as a plain object (<code>{ ok, status, body }</code>). Oversized returns are also rejected before the
+copy allocates; the cap is the <code>membraneMaxBytes</code> run option (default 4 MB), which you may
+need to raise for large-JSON or base64 <code>dataUrl</code> payloads.</p>
+<p><strong>Accessor properties are rejected too (0.13.0 — breaking).</strong> A getter is host code, and a
+membrane that ran one while inspecting a payload would be executing the very thing it exists
+to keep out. The pre-walk reads own property <em>descriptors</em> and never invokes an accessor, so
+it rejects rather than silently evaluating:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Rejected: `status` is a getter — code wearing a data costume.</span>
+<span class="token keyword">return</span> <span class="token punctuation">{</span> ok<span class="token operator">:</span> res<span class="token punctuation">.</span>ok<span class="token punctuation">,</span> <span class="token keyword">get</span> <span class="token function">status</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> res<span class="token punctuation">.</span>status <span class="token punctuation">}</span><span class="token punctuation">,</span> body <span class="token punctuation">}</span>
+
+<span class="token comment">// Fine: read it once, hand over the value.</span>
+<span class="token keyword">return</span> <span class="token punctuation">{</span> ok<span class="token operator">:</span> res<span class="token punctuation">.</span>ok<span class="token punctuation">,</span> status<span class="token operator">:</span> res<span class="token punctuation">.</span>status<span class="token punctuation">,</span> body <span class="token punctuation">}</span>
+</code></pre>
+<p>Spreading is not the fix and fails <strong>silently</strong>: a <code>Response</code> keeps <code>ok</code>/<code>status</code>/<code>headers</code>
+on its prototype, so <code>{ ...res }</code> is <code>{}</code> — it crosses the boundary cleanly and delivers
+nothing. Build the object literally, naming each field.</p>
+<h3>Live-Heap Ceiling</h3>
+<p>Fuel meters <em>work</em>, so it is a <strong>time</strong> budget. It bounds how much a program allocates over
+its lifetime but says nothing about how much it holds <strong>at once</strong>: <code>x = x + x</code> charges
+honestly, yet a legitimate 100,000-fuel budget still buys roughly a gigabyte of live string.
+A run that exhausts host memory has taken the process down however honestly it paid.</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  fuel<span class="token operator">:</span> <span class="token number">100_000</span><span class="token punctuation">,</span>
+  maxHeapBytes<span class="token operator">:</span> <span class="token number">64</span> <span class="token operator">*</span> <span class="token number">1024</span> <span class="token operator">*</span> <span class="token number">1024</span><span class="token punctuation">,</span> <span class="token comment">// default 64 MB — the SPACE budget</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Accounting is <strong>per key</strong>, so overwriting a variable frees its budget and ordinary loops
+don&#39;t false-positive.</p>
+<h3>Per-Atom Call Quotas</h3>
+<p>Fuel is denominated in VM work, so it cannot express &quot;at most 3 model calls&quot; — an
+<code>llmPredict</code> costing 50 fuel might cost real money, and a <code>httpFetch</code> costing 10 might
+hammer someone else&#39;s service. Quotas cap <strong>calls</strong>, not work:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  fuel<span class="token operator">:</span> <span class="token number">10_000</span><span class="token punctuation">,</span>
+  quotas<span class="token operator">:</span> <span class="token punctuation">{</span> llmPredict<span class="token operator">:</span> <span class="token number">3</span><span class="token punctuation">,</span> httpFetch<span class="token operator">:</span> <span class="token number">10</span> <span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token comment">// an op you don't list is unlimited</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>Scope — read this before treating a quota as a spend cap.</strong> A quota counts calls within
+<strong>one run</strong>. A capability that starts a <em>new</em> <code>vm.run</code> gets a fresh counter, so an agent able
+to trigger re-entrancy can multiply its allowance. Inline sub-agents share the parent&#39;s
+context and therefore its counter; a capability calling back into the VM does not.</p>
+<p>To enforce a cap across nested runs, pass the <strong>same <code>quotaUsed</code> object</strong> to each:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> quotaUsed <span class="token operator">=</span> <span class="token punctuation">{</span><span class="token punctuation">}</span> <span class="token comment">// one shared ledger</span>
+<span class="token keyword">const</span> opts <span class="token operator">=</span> <span class="token punctuation">{</span> quotas<span class="token operator">:</span> <span class="token punctuation">{</span> llmPredict<span class="token operator">:</span> <span class="token number">3</span> <span class="token punctuation">}</span><span class="token punctuation">,</span> quotaUsed <span class="token punctuation">}</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>outerAgent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token operator">...</span>opts<span class="token punctuation">,</span> capabilities <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>innerAgent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token operator">...</span>opts<span class="token punctuation">,</span> capabilities <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token comment">// draws from the same 3</span>
+</code></pre>
+<p>Across a process or network boundary no such enforcement is possible: budget does not
+travel, only tokens and data do. The honest guarantee is over what we control — a time box
+on every run, abort on every exit path, and quotas on what we summon.</p>
+<hr>
+<h2>Input/Output Contract</h2>
+<p>AJS agents are composable — one agent&#39;s output feeds into another&#39;s input. To ensure this works reliably:</p>
+<ul>
+<li><strong>Functions take a single destructured object parameter:</strong> <code>function process({ input })</code></li>
+<li><strong>Functions must return a plain object:</strong> <code>return { result }</code>, <code>return { summary, count }</code></li>
+<li><strong>Non-object returns produce an AgentError:</strong> <code>return 42</code> or <code>return &#39;hello&#39;</code> will fail</li>
+<li><strong>Bare <code>return</code> is allowed</strong> for void functions (no output)</li>
+</ul>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// CORRECT — object in, object out</span>
+<span class="token keyword">function</span> <span class="token function">add</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> a<span class="token punctuation">,</span> b <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">sum</span><span class="token operator">:</span> a <span class="token operator">+</span> b <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// WRONG — non-object returns are errors</span>
+<span class="token keyword">function</span> <span class="token function">add</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> a<span class="token punctuation">,</span> b <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> a <span class="token operator">+</span> b <span class="token comment">// AgentError: must return an object</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<hr>
+<h2>Syntax</h2>
+<p>AJS is a JavaScript subset. Familiar syntax, restricted features.</p>
+<h3>What&#39;s Allowed</h3>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Functions</span>
+<span class="token keyword">function</span> <span class="token function">process</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> input <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">output</span><span class="token operator">:</span> input <span class="token operator">*</span> <span class="token number">2</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Variables</span>
+<span class="token keyword">let</span> x <span class="token operator">=</span> <span class="token number">10</span>
+<span class="token keyword">const</span> y <span class="token operator">=</span> <span class="token string">'hello'</span>
+
+<span class="token comment">// Conditionals</span>
+<span class="token keyword">if</span> <span class="token punctuation">(</span>x <span class="token operator">></span> <span class="token number">5</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">size</span><span class="token operator">:</span> <span class="token string">'big'</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">size</span><span class="token operator">:</span> <span class="token string">'small'</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Loops — `for...of` and `while`. There is NO C-style `for (;;)`.</span>
+<span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> item <span class="token keyword">of</span> items<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  results<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>item<span class="token punctuation">.</span>name<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">while</span> <span class="token punctuation">(</span>count <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  count <span class="token operator">=</span> count <span class="token operator">-</span> <span class="token number">1</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Try/catch</span>
+<span class="token keyword">try</span> <span class="token punctuation">{</span>
+  <span class="token function">riskyOperation</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>e<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">error</span><span class="token operator">:</span> e<span class="token punctuation">.</span>message <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Template literals</span>
+<span class="token keyword">let</span> message <span class="token operator">=</span> <span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">Hello, </span><span class="token interpolation"><span class="token interpolation-punctuation punctuation">${</span>name<span class="token interpolation-punctuation punctuation">}</span></span><span class="token string">!</span><span class="token template-punctuation string">`</span></span>
+
+<span class="token comment">// Object/array literals</span>
+<span class="token keyword">let</span> obj <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token literal-property property">b</span><span class="token operator">:</span> <span class="token number">2</span> <span class="token punctuation">}</span>
+<span class="token keyword">let</span> arr <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span>
+
+<span class="token comment">// Spread</span>
+<span class="token keyword">let</span> merged <span class="token operator">=</span> <span class="token punctuation">{</span> <span class="token operator">...</span>defaults<span class="token punctuation">,</span> <span class="token operator">...</span>overrides <span class="token punctuation">}</span>
+<span class="token keyword">let</span> combined <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token operator">...</span>arr1<span class="token punctuation">,</span> <span class="token operator">...</span>arr2<span class="token punctuation">]</span>
+
+<span class="token comment">// Ternary</span>
+<span class="token keyword">let</span> result <span class="token operator">=</span> x <span class="token operator">></span> <span class="token number">0</span> <span class="token operator">?</span> <span class="token string">'positive'</span> <span class="token operator">:</span> <span class="token string">'non-positive'</span>
+
+<span class="token comment">// Logical operators</span>
+<span class="token keyword">let</span> value <span class="token operator">=</span> a <span class="token operator">&amp;&amp;</span> b
+<span class="token keyword">let</span> fallback <span class="token operator">=</span> a <span class="token operator">||</span> defaultValue
+<span class="token keyword">let</span> nullish <span class="token operator">=</span> a <span class="token operator">??</span> defaultValue
+</code></pre>
+<h3>Local helper functions</h3>
+<p>An agent source file may declare <strong>multiple</strong> top-level functions. The <strong>last</strong>
+declaration is the entry point; the ones before it are <strong>helpers</strong> the entry (or
+other helpers) can call by name:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">function</span> <span class="token function">double</span><span class="token punctuation">(</span><span class="token parameter">x</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> x <span class="token operator">*</span> <span class="token number">2</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">function</span> <span class="token function">addOne</span><span class="token punctuation">(</span><span class="token parameter">x</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> d <span class="token operator">=</span> <span class="token function">double</span><span class="token punctuation">(</span>x<span class="token punctuation">)</span> <span class="token comment">// helpers can call earlier helpers</span>
+  <span class="token keyword">return</span> d <span class="token operator">+</span> <span class="token number">1</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">function</span> <span class="token function">main</span><span class="token punctuation">(</span><span class="token parameter">n</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> a <span class="token operator">=</span> <span class="token function">double</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span>
+  <span class="token keyword">const</span> b <span class="token operator">=</span> <span class="token function">addOne</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> a<span class="token punctuation">,</span> b <span class="token punctuation">}</span> <span class="token comment">// only the entry must return an object</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>Helpers behave like ordinary functions, with a few deliberate rules:</p>
+<ul>
+<li><p><strong>Top-level siblings, not closures.</strong> A helper sees only its own parameters —
+never the caller&#39;s locals. This keeps them predictable and reusable.</p>
+</li>
+<li><p><strong>They may return any value</strong> (number, string, array, object). Only the
+<em>entry</em> function is held to the object-return contract.</p>
+</li>
+<li><p><strong>Recursion is allowed.</strong> Helpers may call themselves or each other. Runaway
+recursion is bounded by fuel/timeout, with a hard call-depth cap (256) that
+surfaces as a normal monadic error — never a host crash.</p>
+</li>
+<li><p><strong>Call them at statement level.</strong> Like template literals, a helper call cannot
+be nested inside a larger expression — lift it to a variable first:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Fails at transpile time:</span>
+<span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">v</span><span class="token operator">:</span> <span class="token function">double</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token number">1</span> <span class="token punctuation">}</span>
+
+<span class="token comment">// Do this instead:</span>
+<span class="token keyword">const</span> d <span class="token operator">=</span> <span class="token function">double</span><span class="token punctuation">(</span>n<span class="token punctuation">)</span>
+<span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">v</span><span class="token operator">:</span> d <span class="token operator">+</span> <span class="token number">1</span> <span class="token punctuation">}</span>
+</code></pre>
+</li>
+</ul>
+<p>Helper bodies are compiled once and dispatched by name, so calling a helper many
+times (or in a loop) doesn&#39;t bloat the agent&#39;s AST.</p>
+<h3>What&#39;s Forbidden</h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Why Forbidden</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>C-style <code>for (;;)</code></td>
+<td>Use <code>for...of</code>, or <code>while</code> with a counter</td>
+</tr>
+<tr>
+<td>Destructuring <em>declarations</em></td>
+<td><code>let { a } = o</code> / <code>let [a] = xs</code>. Read members instead (<code>const a = o.a</code>). Destructured <strong>parameters</strong> — <code>function agent({ apiKey })</code> — are fine and are the documented entry shape</td>
+</tr>
+<tr>
+<td><code>class</code></td>
+<td>Too complex for LLMs, enables prototype pollution</td>
+</tr>
+<tr>
+<td><code>new</code></td>
+<td>Arbitrary object construction</td>
+</tr>
+<tr>
+<td><code>this</code></td>
+<td>Implicit context, hard to sandbox</td>
+</tr>
+<tr>
+<td>Closures</td>
+<td>State escapes the sandbox</td>
+</tr>
+<tr>
+<td><code>async</code>/<code>await</code></td>
+<td>VM handles async internally</td>
+</tr>
+<tr>
+<td><code>eval</code>, <code>Function</code></td>
+<td>Code injection</td>
+</tr>
+<tr>
+<td><code>__proto__</code>, <code>constructor</code></td>
+<td>Prototype pollution</td>
+</tr>
+<tr>
+<td><code>import</code>/<code>export</code></td>
+<td>Module system handled by host</td>
+</tr>
+</tbody></table>
+<p>AJS is intentionally simple—simple enough for 4B parameter LLMs to generate correctly.</p>
+<h3>Differences from JavaScript</h3>
+<p>AJS expressions differ from standard JavaScript in a few important ways:</p>
+<p><strong>Null-safe member access.</strong> All member access uses optional chaining internally. Accessing a property on <code>null</code> or <code>undefined</code> returns <code>undefined</code> instead of throwing <code>TypeError</code>:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">let</span> x <span class="token operator">=</span> <span class="token keyword">null</span>
+<span class="token keyword">let</span> y <span class="token operator">=</span> x<span class="token punctuation">.</span>foo<span class="token punctuation">.</span>bar <span class="token comment">// undefined (no error)</span>
+</code></pre>
+<p>This is a deliberate safety choice — agents shouldn&#39;t crash on missing data.</p>
+<p><strong>No computed member access with variables.</strong> You can use literal indices (<code>items[0]</code>, <code>obj[&quot;key&quot;]</code>) but not variable indices (<code>items[i]</code>). This is rejected at transpile time:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Works</span>
+<span class="token keyword">let</span> first <span class="token operator">=</span> items<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span>
+<span class="token keyword">let</span> name <span class="token operator">=</span> user<span class="token punctuation">[</span><span class="token string">'name'</span><span class="token punctuation">]</span>
+
+<span class="token comment">// Fails: "Computed member access with variables not yet supported"</span>
+<span class="token keyword">let</span> item <span class="token operator">=</span> items<span class="token punctuation">[</span>i<span class="token punctuation">]</span>
+</code></pre>
+<p>Workaround: use array atoms like <code>map</code>, <code>reduce</code>, or <code>for...of</code> loops instead of index-based access.</p>
+<p><strong>Footgun-free equality.</strong> <code>==</code> and <code>!=</code> are footgun-free <code>===</code> (matching TJS) — no type coercion, but NOT structural. They unwrap boxed primitives and treat <code>null</code>/<code>undefined</code> (and <code>NaN</code>) as equal; distinct objects/arrays are distinct. Use <code>===</code>/<code>!==</code> for strict identity:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token string">'1'</span> <span class="token operator">==</span> <span class="token number">1</span>                 <span class="token comment">// false (no coercion, unlike JS)</span>
+<span class="token keyword">null</span> <span class="token operator">==</span> <span class="token keyword">undefined</span>        <span class="token comment">// true (nullish equality)</span>
+<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span> <span class="token operator">==</span> <span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span>        <span class="token comment">// false (distinct objects — NOT structural)</span>
+<span class="token punctuation">{</span> <span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span> <span class="token operator">==</span> <span class="token punctuation">{</span> <span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span>    <span class="token comment">// false (distinct objects)</span>
+<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span> <span class="token operator">===</span> <span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span>       <span class="token comment">// false (strict identity)</span>
+</code></pre>
+<p>Structural (deep) comparison is an explicit operation, never <code>==</code>. In TJS that operation is the <code>Is</code>/<code>IsNot</code> function; <strong>AJS does not have it</strong> — it is one of the TJS constructs the AJS parser rejects. Compare the fields you care about, or do the comparison in the host.</p>
+<p><code>a Is b</code> used to parse on the AJS path, because AJS and TJS shared one parser and the <code>Is</code> transform never checked which language it was compiling. It transformed to a call to a function AJS has no atom for, so it never worked; it merely failed later and less clearly. AJS now has its own parser and says so up front. See <code>src/lang/parser-agent.ts</code>.</p>
+<hr>
+<h2>Atoms</h2>
+<p>Atoms are the built-in operations. Each atom has a defined cost, input schema, and output schema.</p>
+<h3>Flow Control</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>seq</code></td>
+<td>Execute operations in sequence</td>
+</tr>
+<tr>
+<td><code>if</code></td>
+<td>Conditional branching</td>
+</tr>
+<tr>
+<td><code>while</code></td>
+<td>Loop with condition</td>
+</tr>
+<tr>
+<td><code>return</code></td>
+<td>Return a value</td>
+</tr>
+<tr>
+<td><code>try</code></td>
+<td>Error handling</td>
+</tr>
+</tbody></table>
+<h3>State Management</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>varSet</code></td>
+<td>Set a variable</td>
+</tr>
+<tr>
+<td><code>varGet</code></td>
+<td>Get a variable</td>
+</tr>
+<tr>
+<td><code>varsLet</code></td>
+<td>Batch variable declaration</td>
+</tr>
+<tr>
+<td><code>varsImport</code></td>
+<td>Import from arguments</td>
+</tr>
+<tr>
+<td><code>varsExport</code></td>
+<td>Export as result</td>
+</tr>
+<tr>
+<td><code>scope</code></td>
+<td>Create a local scope</td>
+</tr>
+</tbody></table>
+<h3>I/O</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>httpFetch</code></td>
+<td>HTTP requests (requires <code>fetch</code> capability)</td>
+</tr>
+</tbody></table>
+<h3>Storage (Core)</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>storeGet</code></td>
+<td>Get from key-value store</td>
+</tr>
+<tr>
+<td><code>storeSet</code></td>
+<td>Set in key-value store</td>
+</tr>
+<tr>
+<td><code>storeSearch</code></td>
+<td>Vector similarity search</td>
+</tr>
+</tbody></table>
+<h3>Storage (Battery)</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>storeVectorize</code></td>
+<td>Generate embeddings from text</td>
+</tr>
+<tr>
+<td><code>storeCreateCollection</code></td>
+<td>Create a vector store collection</td>
+</tr>
+<tr>
+<td><code>storeVectorAdd</code></td>
+<td>Add a document to a vector collection</td>
+</tr>
+</tbody></table>
+<h3>AI (Core)</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>llmPredict</code></td>
+<td>Simple LLM inference (<code>prompt</code> → <code>string</code>)</td>
+</tr>
+<tr>
+<td><code>agentRun</code></td>
+<td>Run a sub-agent</td>
+</tr>
+</tbody></table>
+<h3>AI (Battery)</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>llmPredictBattery</code></td>
+<td>Chat completion (system/user → message object)</td>
+</tr>
+<tr>
+<td><code>llmVision</code></td>
+<td>Analyze images using a vision-capable model</td>
+</tr>
+</tbody></table>
+<h3>Procedures</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>storeProcedure</code></td>
+<td>Store an AST as callable token</td>
+</tr>
+<tr>
+<td><code>releaseProcedure</code></td>
+<td>Delete a stored procedure</td>
+</tr>
+<tr>
+<td><code>clearExpiredProcedures</code></td>
+<td>Clean up expired tokens</td>
+</tr>
+</tbody></table>
+<h3>Utilities</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>random</code></td>
+<td>Random number generation</td>
+</tr>
+<tr>
+<td><code>uuid</code></td>
+<td>Generate UUIDs</td>
+</tr>
+<tr>
+<td><code>hash</code></td>
+<td>Compute hashes</td>
+</tr>
+<tr>
+<td><code>memoize</code></td>
+<td>In-memory memoization</td>
+</tr>
+<tr>
+<td><code>cache</code></td>
+<td>Persistent caching</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Battery Atoms Reference</h2>
+<p>Battery atoms provide LLM, embedding, and vector store capabilities. They
+require a separate import and capability setup.</p>
+<h3>Setup</h3>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> AgentVM <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+<span class="token keyword">import</span> <span class="token punctuation">{</span> batteryAtoms<span class="token punctuation">,</span> getBatteries <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+
+<span class="token keyword">const</span> vm <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AgentVM</span><span class="token punctuation">(</span>batteryAtoms<span class="token punctuation">)</span>
+<span class="token keyword">const</span> batteries <span class="token operator">=</span> <span class="token keyword">await</span> <span class="token function">getBatteries</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token comment">// auto-detects LM Studio models</span>
+
+<span class="token keyword">const</span> <span class="token punctuation">{</span> result <span class="token punctuation">}</span> <span class="token operator">=</span> <span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  <span class="token literal-property property">fuel</span><span class="token operator">:</span> <span class="token number">1000</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">capabilities</span><span class="token operator">:</span> batteries<span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>The <code>getBatteries()</code> function auto-detects LM Studio and returns:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token punctuation">{</span>
+  <span class="token literal-property property">vector</span><span class="token operator">:</span> <span class="token punctuation">{</span> embed <span class="token punctuation">}</span><span class="token punctuation">,</span>       <span class="token comment">// embedding function (undefined if no LM Studio)</span>
+  <span class="token literal-property property">store</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>          <span class="token comment">// key-value + vector store (always present)</span>
+  <span class="token literal-property property">llmBattery</span><span class="token operator">:</span> <span class="token punctuation">{</span> predict<span class="token punctuation">,</span> embed <span class="token punctuation">}</span><span class="token punctuation">,</span>  <span class="token comment">// LLM chat + embeddings (null if no LM Studio)</span>
+  <span class="token literal-property property">models</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>         <span class="token comment">// detected model info (null if no LM Studio)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>Important:</strong> <code>vector</code> and <code>llmBattery</code> will be <code>undefined</code>/<code>null</code> if LM Studio
+isn&#39;t running or the connection is made over HTTPS (local LLM calls are blocked
+from HTTPS contexts for security). Always check for availability or handle
+the atom&#39;s &quot;missing capability&quot; error.</p>
+<h3>Capability Keys</h3>
+<p>Battery atoms look up capabilities by specific keys that differ from the base
+<code>Capabilities</code> interface:</p>
+<table>
+<thead>
+<tr>
+<th>Capability key</th>
+<th>Used by atoms</th>
+<th>Contains</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>llmBattery</code></td>
+<td><code>llmPredictBattery</code>, <code>llmVision</code></td>
+<td><code>{ predict, embed }</code> (full LLM)</td>
+</tr>
+<tr>
+<td><code>vector</code></td>
+<td><code>storeVectorize</code></td>
+<td><code>{ embed }</code> only</td>
+</tr>
+<tr>
+<td><code>store</code></td>
+<td><code>storeSearch</code>, <code>storeCreateCollection</code>, <code>storeVectorAdd</code></td>
+<td>KV + vector store operations</td>
+</tr>
+<tr>
+<td><code>llm</code></td>
+<td><code>llmPredict</code> (core atom)</td>
+<td><code>{ predict }</code> (simple)</td>
+</tr>
+<tr>
+<td><code>fetch</code></td>
+<td><code>httpFetch</code> (core atom)</td>
+<td>fetch function</td>
+</tr>
+</tbody></table>
+<p>The split exists because <code>storeVectorize</code> only needs the embedding function,
+while <code>llmPredictBattery</code> needs the full chat API. If you&#39;re providing your own
+capabilities (not using <code>getBatteries()</code>), wire the keys accordingly.</p>
+<h3><code>llmPredict</code> vs <code>llmPredictBattery</code></h3>
+<p>There are two LLM atoms with different interfaces:</p>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Input</th>
+<th>Output</th>
+<th>Capability</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>llmPredict</code></td>
+<td><code>{ prompt }</code></td>
+<td><code>string</code></td>
+<td><code>capabilities.llm</code></td>
+</tr>
+<tr>
+<td><code>llmPredictBattery</code></td>
+<td><code>{ system, user, ... }</code></td>
+<td>message object</td>
+<td><code>capabilities.llmBattery</code></td>
+</tr>
+</tbody></table>
+<p>Use <code>llmPredict</code> for simple prompts. Use <code>llmPredictBattery</code> when you need
+system prompts, tool calling, or structured output.</p>
+<h3><code>llmPredictBattery</code></h3>
+<p>Chat completion with system prompt, tool calling, and structured output support.</p>
+<p><strong>Input:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>system</code></td>
+<td><code>string</code></td>
+<td>No</td>
+<td>System prompt (defaults to helpful assistant)</td>
+</tr>
+<tr>
+<td><code>user</code></td>
+<td><code>string</code></td>
+<td>Yes</td>
+<td>User message</td>
+</tr>
+<tr>
+<td><code>tools</code></td>
+<td><code>any[]</code></td>
+<td>No</td>
+<td>Tool definitions (OpenAI format)</td>
+</tr>
+<tr>
+<td><code>responseFormat</code></td>
+<td><code>any</code></td>
+<td>No</td>
+<td>Structured output format</td>
+</tr>
+</tbody></table>
+<p><strong>Output:</strong> OpenAI chat message object:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token punctuation">{</span>
+  <span class="token literal-property property">role</span><span class="token operator">:</span> <span class="token string">'assistant'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">content</span><span class="token operator">:</span> <span class="token string">'The answer is 42.'</span><span class="token punctuation">,</span>    <span class="token comment">// null when using tool calls</span>
+  <span class="token literal-property property">tool_calls</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token operator">...</span><span class="token punctuation">]</span>                <span class="token comment">// present when tools are invoked</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>Example:</strong></p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">let</span> response <span class="token operator">=</span> <span class="token function">llmPredictBattery</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+  <span class="token literal-property property">system</span><span class="token operator">:</span> <span class="token string">'You are a helpful assistant.'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">user</span><span class="token operator">:</span> <span class="token string">'What is the capital of France?'</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token comment">// response.content === 'Paris is the capital of France.'</span>
+</code></pre>
+<p><strong>Cost:</strong> 100 fuel</p>
+<h3><code>llmVision</code></h3>
+<p>Analyze images using a vision-capable model.</p>
+<p><strong>Input:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>system</code></td>
+<td><code>string</code></td>
+<td>No</td>
+<td>System prompt</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td><code>string</code></td>
+<td>Yes</td>
+<td>Text prompt describing what to analyze</td>
+</tr>
+<tr>
+<td><code>images</code></td>
+<td><code>string[]</code></td>
+<td>Yes</td>
+<td>URLs or data URIs (<code>data:image/...;base64,...</code>)</td>
+</tr>
+<tr>
+<td><code>responseFormat</code></td>
+<td><code>any</code></td>
+<td>No</td>
+<td>Structured output format</td>
+</tr>
+</tbody></table>
+<p><strong>Output:</strong> Same as <code>llmPredictBattery</code> (message object with <code>role</code>, <code>content</code>, <code>tool_calls</code>).</p>
+<p><strong>Example:</strong></p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">let</span> analysis <span class="token operator">=</span> <span class="token function">llmVision</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+  <span class="token literal-property property">prompt</span><span class="token operator">:</span> <span class="token string">'Describe what you see in this image.'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">images</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">'https://example.com/photo.jpg'</span><span class="token punctuation">]</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token comment">// analysis.content === 'The image shows a sunset over the ocean...'</span>
+</code></pre>
+<p><strong>Cost:</strong> 150 fuel | <strong>Timeout:</strong> 120 seconds</p>
+<h3><code>storeVectorize</code></h3>
+<p>Generate embeddings from text using the vector battery.</p>
+<p><strong>Input:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>text</code></td>
+<td><code>string</code></td>
+<td>Yes</td>
+<td>Text to embed</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td><code>string</code></td>
+<td>No</td>
+<td>Embedding model to use</td>
+</tr>
+</tbody></table>
+<p><strong>Output:</strong> <code>number[]</code> — the embedding vector.</p>
+<p><strong>Example:</strong></p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">let</span> embedding <span class="token operator">=</span> <span class="token function">storeVectorize</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">text</span><span class="token operator">:</span> <span class="token string">'TJS is a typed JavaScript'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token comment">// embedding === [0.023, -0.412, 0.891, ...]</span>
+</code></pre>
+<p><strong>Cost:</strong> 20 fuel | <strong>Capability:</strong> <code>vector</code></p>
+<h3><code>storeCreateCollection</code></h3>
+<p>Create a vector store collection for similarity search.</p>
+<p><strong>Input:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>collection</code></td>
+<td><code>string</code></td>
+<td>Yes</td>
+<td>Collection name</td>
+</tr>
+<tr>
+<td><code>dimension</code></td>
+<td><code>number</code></td>
+<td>No</td>
+<td>Vector dimension (auto-detected)</td>
+</tr>
+</tbody></table>
+<p><strong>Output:</strong> None.</p>
+<p><strong>Cost:</strong> 5 fuel | <strong>Capability:</strong> <code>store</code></p>
+<h3><code>storeVectorAdd</code></h3>
+<p>Add a document to a vector store collection. The document is automatically
+embedded and indexed.</p>
+<p><strong>Input:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>collection</code></td>
+<td><code>string</code></td>
+<td>Yes</td>
+<td>Collection name</td>
+</tr>
+<tr>
+<td><code>doc</code></td>
+<td><code>any</code></td>
+<td>Yes</td>
+<td>Document to store</td>
+</tr>
+</tbody></table>
+<p><strong>Output:</strong> None.</p>
+<p><strong>Example:</strong></p>
+<pre><code class="language-javascript" data-highlighted><span class="token function">storeVectorAdd</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+  <span class="token literal-property property">collection</span><span class="token operator">:</span> <span class="token string">'articles'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">doc</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token literal-property property">title</span><span class="token operator">:</span> <span class="token string">'Intro to TJS'</span><span class="token punctuation">,</span> <span class="token literal-property property">content</span><span class="token operator">:</span> <span class="token string">'TJS is...'</span><span class="token punctuation">,</span> <span class="token literal-property property">embedding</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token operator">...</span><span class="token punctuation">]</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>Cost:</strong> 5 fuel | <strong>Capability:</strong> <code>store</code></p>
+<h3><code>storeSearch</code></h3>
+<p>Search a vector store collection by similarity.</p>
+<p><strong>Input:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>collection</code></td>
+<td><code>string</code></td>
+<td>Yes</td>
+<td>Collection name</td>
+</tr>
+<tr>
+<td><code>queryVector</code></td>
+<td><code>number[]</code></td>
+<td>Yes</td>
+<td>Query embedding vector</td>
+</tr>
+<tr>
+<td><code>k</code></td>
+<td><code>number</code></td>
+<td>No</td>
+<td>Number of results (default: 5)</td>
+</tr>
+<tr>
+<td><code>filter</code></td>
+<td><code>object</code></td>
+<td>No</td>
+<td>Metadata filter</td>
+</tr>
+</tbody></table>
+<p><strong>Output:</strong> <code>any[]</code> — array of matching documents, sorted by similarity.</p>
+<p><strong>Example:</strong></p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">let</span> query <span class="token operator">=</span> <span class="token function">storeVectorize</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">text</span><span class="token operator">:</span> <span class="token string">'How does type checking work?'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">let</span> results <span class="token operator">=</span> <span class="token function">storeSearch</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+  <span class="token literal-property property">collection</span><span class="token operator">:</span> <span class="token string">'articles'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">queryVector</span><span class="token operator">:</span> query<span class="token punctuation">,</span>
+  <span class="token literal-property property">k</span><span class="token operator">:</span> <span class="token number">3</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token comment">// results === [{ title: 'Type System', content: '...' }, ...]</span>
+</code></pre>
+<p><strong>Cost:</strong> 5 + k fuel (dynamic) | <strong>Capability:</strong> <code>store</code></p>
+<hr>
+<h2>Expression Builtins</h2>
+<p>AJS expressions have access to safe built-in objects:</p>
+<h3>Math</h3>
+<p>All standard math functions:</p>
+<pre><code class="language-javascript" data-highlighted>Math<span class="token punctuation">.</span><span class="token function">abs</span><span class="token punctuation">(</span><span class="token operator">-</span><span class="token number">5</span><span class="token punctuation">)</span> <span class="token comment">// 5</span>
+Math<span class="token punctuation">.</span><span class="token function">floor</span><span class="token punctuation">(</span><span class="token number">3.7</span><span class="token punctuation">)</span> <span class="token comment">// 3</span>
+Math<span class="token punctuation">.</span><span class="token function">sqrt</span><span class="token punctuation">(</span><span class="token number">16</span><span class="token punctuation">)</span> <span class="token comment">// 4</span>
+Math<span class="token punctuation">.</span><span class="token function">sin</span><span class="token punctuation">(</span>Math<span class="token punctuation">.</span><span class="token constant">PI</span><span class="token punctuation">)</span> <span class="token comment">// ~0</span>
+Math<span class="token punctuation">.</span><span class="token function">random</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token comment">// 0-1</span>
+Math<span class="token punctuation">.</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">)</span> <span class="token comment">// 3</span>
+Math<span class="token punctuation">.</span><span class="token function">min</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">)</span> <span class="token comment">// 1</span>
+</code></pre>
+<h3>JSON</h3>
+<p>Parse and stringify:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token constant">JSON</span><span class="token punctuation">.</span><span class="token function">parse</span><span class="token punctuation">(</span><span class="token string">'{"a": 1}'</span><span class="token punctuation">)</span> <span class="token comment">// { a: 1 }</span>
+<span class="token constant">JSON</span><span class="token punctuation">.</span><span class="token function">stringify</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token comment">// '{"a": 1}'</span>
+</code></pre>
+<h3>Array</h3>
+<p>Static methods:</p>
+<pre><code class="language-javascript" data-highlighted>Array<span class="token punctuation">.</span><span class="token function">isArray</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token comment">// true</span>
+Array<span class="token punctuation">.</span><span class="token function">from</span><span class="token punctuation">(</span><span class="token string">'abc'</span><span class="token punctuation">)</span> <span class="token comment">// ['a', 'b', 'c']</span>
+Array<span class="token punctuation">.</span><span class="token function">of</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">)</span> <span class="token comment">// [1, 2, 3]</span>
+</code></pre>
+<h3>Object</h3>
+<p>Static methods:</p>
+<pre><code class="language-javascript" data-highlighted>Object<span class="token punctuation">.</span><span class="token function">keys</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token comment">// ['a']</span>
+Object<span class="token punctuation">.</span><span class="token function">values</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token comment">// [1]</span>
+Object<span class="token punctuation">.</span><span class="token function">entries</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span><span class="token punctuation">)</span> <span class="token comment">// [['a', 1]]</span>
+Object<span class="token punctuation">.</span><span class="token function">fromEntries</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token punctuation">[</span><span class="token string">'a'</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token comment">// { a: 1 }</span>
+Object<span class="token punctuation">.</span><span class="token function">assign</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">,</span> a<span class="token punctuation">,</span> b<span class="token punctuation">)</span> <span class="token comment">// merged object</span>
+</code></pre>
+<h3>String</h3>
+<p>Static methods:</p>
+<pre><code class="language-javascript" data-highlighted>String<span class="token punctuation">.</span><span class="token function">fromCharCode</span><span class="token punctuation">(</span><span class="token number">65</span><span class="token punctuation">)</span> <span class="token comment">// 'A'</span>
+String<span class="token punctuation">.</span><span class="token function">fromCodePoint</span><span class="token punctuation">(</span><span class="token number">128512</span><span class="token punctuation">)</span> <span class="token comment">// emoji</span>
+</code></pre>
+<h3>Number</h3>
+<p>Constants and checks:</p>
+<pre><code class="language-javascript" data-highlighted>Number<span class="token punctuation">.</span><span class="token constant">MAX_VALUE</span>
+Number<span class="token punctuation">.</span><span class="token function">isNaN</span><span class="token punctuation">(</span><span class="token number">NaN</span><span class="token punctuation">)</span> <span class="token comment">// true</span>
+Number<span class="token punctuation">.</span><span class="token function">isFinite</span><span class="token punctuation">(</span><span class="token number">100</span><span class="token punctuation">)</span> <span class="token comment">// true</span>
+Number<span class="token punctuation">.</span><span class="token function">parseInt</span><span class="token punctuation">(</span><span class="token string">'42'</span><span class="token punctuation">)</span> <span class="token comment">// 42</span>
+Number<span class="token punctuation">.</span><span class="token function">parseFloat</span><span class="token punctuation">(</span><span class="token string">'3.14'</span><span class="token punctuation">)</span> <span class="token comment">// 3.14</span>
+</code></pre>
+<h3>Set Operations</h3>
+<p>Set-like operations:</p>
+<pre><code class="language-javascript" data-highlighted>Set<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">)</span> <span class="token comment">// [1, 2, 3]</span>
+Set<span class="token punctuation">.</span><span class="token function">remove</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">)</span> <span class="token comment">// [1, 3]</span>
+Set<span class="token punctuation">.</span><span class="token function">union</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token comment">// [1, 2, 3]</span>
+Set<span class="token punctuation">.</span><span class="token function">intersection</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token comment">// [2]</span>
+Set<span class="token punctuation">.</span><span class="token function">diff</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">)</span> <span class="token comment">// [1, 3]</span>
+</code></pre>
+<h3>Date</h3>
+<p>Date factory with arithmetic:</p>
+<pre><code class="language-javascript" data-highlighted>Date<span class="token punctuation">.</span><span class="token function">now</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token comment">// timestamp</span>
+Date<span class="token punctuation">.</span><span class="token function">create</span><span class="token punctuation">(</span><span class="token string">'2024-01-15'</span><span class="token punctuation">)</span> <span class="token comment">// Date object</span>
+Date<span class="token punctuation">.</span><span class="token function">add</span><span class="token punctuation">(</span>date<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token string">'day'</span><span class="token punctuation">)</span> <span class="token comment">// new Date</span>
+Date<span class="token punctuation">.</span><span class="token function">format</span><span class="token punctuation">(</span>date<span class="token punctuation">,</span> <span class="token string">'YYYY-MM-DD'</span><span class="token punctuation">)</span>
+</code></pre>
+<h3>Schema</h3>
+<p>Build JSON schemas for structured LLM outputs:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// From example</span>
+<span class="token keyword">let</span> schema <span class="token operator">=</span> Schema<span class="token punctuation">.</span><span class="token function">response</span><span class="token punctuation">(</span><span class="token string">'person'</span><span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token literal-property property">name</span><span class="token operator">:</span> <span class="token string">''</span><span class="token punctuation">,</span> <span class="token literal-property property">age</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// With constraints</span>
+<span class="token keyword">let</span> schema <span class="token operator">=</span> Schema<span class="token punctuation">.</span><span class="token function">response</span><span class="token punctuation">(</span>
+  <span class="token string">'user'</span><span class="token punctuation">,</span>
+  Schema<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+    <span class="token literal-property property">email</span><span class="token operator">:</span> Schema<span class="token punctuation">.</span>string<span class="token punctuation">.</span>email<span class="token punctuation">,</span>
+    <span class="token literal-property property">age</span><span class="token operator">:</span> Schema<span class="token punctuation">.</span>number<span class="token punctuation">.</span>int<span class="token punctuation">.</span><span class="token function">min</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">max</span><span class="token punctuation">(</span><span class="token number">150</span><span class="token punctuation">)</span><span class="token punctuation">.</span>optional<span class="token punctuation">,</span>
+    <span class="token literal-property property">role</span><span class="token operator">:</span> Schema<span class="token punctuation">.</span><span class="token function">enum</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token string">'admin'</span><span class="token punctuation">,</span> <span class="token string">'user'</span><span class="token punctuation">,</span> <span class="token string">'guest'</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token punctuation">)</span>
+</code></pre>
+<hr>
+<h2>JSON AST Format</h2>
+<p>AJS compiles to a JSON AST. Here&#39;s what it looks like:</p>
+<h3>Sequence</h3>
+<pre><code class="language-json" data-highlighted><span class="token punctuation">{</span>
+  <span class="token property">"$seq"</span><span class="token operator">:</span> <span class="token punctuation">[</span>
+    <span class="token punctuation">{</span> <span class="token property">"$op"</span><span class="token operator">:</span> <span class="token string">"varSet"</span><span class="token punctuation">,</span> <span class="token property">"key"</span><span class="token operator">:</span> <span class="token string">"x"</span><span class="token punctuation">,</span> <span class="token property">"value"</span><span class="token operator">:</span> <span class="token number">10</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token punctuation">{</span> <span class="token property">"$op"</span><span class="token operator">:</span> <span class="token string">"varSet"</span><span class="token punctuation">,</span> <span class="token property">"key"</span><span class="token operator">:</span> <span class="token string">"y"</span><span class="token punctuation">,</span> <span class="token property">"value"</span><span class="token operator">:</span> <span class="token number">20</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token punctuation">{</span>
+      <span class="token property">"$op"</span><span class="token operator">:</span> <span class="token string">"return"</span><span class="token punctuation">,</span>
+      <span class="token property">"value"</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"binary"</span><span class="token punctuation">,</span> <span class="token property">"op"</span><span class="token operator">:</span> <span class="token string">"+"</span><span class="token punctuation">,</span> <span class="token property">"left"</span><span class="token operator">:</span> <span class="token string">"x"</span><span class="token punctuation">,</span> <span class="token property">"right"</span><span class="token operator">:</span> <span class="token string">"y"</span> <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">]</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Expressions</h3>
+<pre><code class="language-json" data-highlighted><span class="token comment">// Literal</span>
+<span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"literal"</span><span class="token punctuation">,</span> <span class="token property">"value"</span><span class="token operator">:</span> <span class="token number">42</span> <span class="token punctuation">}</span>
+
+<span class="token comment">// Identifier</span>
+<span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"ident"</span><span class="token punctuation">,</span> <span class="token property">"name"</span><span class="token operator">:</span> <span class="token string">"varName"</span> <span class="token punctuation">}</span>
+
+<span class="token comment">// Binary operation</span>
+<span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"binary"</span><span class="token punctuation">,</span> <span class="token property">"op"</span><span class="token operator">:</span> <span class="token string">"+"</span><span class="token punctuation">,</span> <span class="token property">"left"</span><span class="token operator">:</span> <span class="token punctuation">{</span>...<span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token property">"right"</span><span class="token operator">:</span> <span class="token punctuation">{</span>...<span class="token punctuation">}</span> <span class="token punctuation">}</span>
+
+<span class="token comment">// Member access</span>
+<span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"member"</span><span class="token punctuation">,</span> <span class="token property">"object"</span><span class="token operator">:</span> <span class="token punctuation">{</span>...<span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token property">"property"</span><span class="token operator">:</span> <span class="token string">"foo"</span> <span class="token punctuation">}</span>
+
+<span class="token comment">// Template literal</span>
+<span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"template"</span><span class="token punctuation">,</span> <span class="token property">"tmpl"</span><span class="token operator">:</span> <span class="token string">"Hello, ${name}!"</span> <span class="token punctuation">}</span>
+</code></pre>
+<h3>Conditionals</h3>
+<pre><code class="language-json" data-highlighted><span class="token punctuation">{</span>
+  <span class="token property">"$op"</span><span class="token operator">:</span> <span class="token string">"if"</span><span class="token punctuation">,</span>
+  <span class="token property">"cond"</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"binary"</span><span class="token punctuation">,</span> <span class="token property">"op"</span><span class="token operator">:</span> <span class="token string">">"</span><span class="token punctuation">,</span> <span class="token property">"left"</span><span class="token operator">:</span> <span class="token string">"x"</span><span class="token punctuation">,</span> <span class="token property">"right"</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token property">"then"</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token property">"$seq"</span><span class="token operator">:</span> <span class="token punctuation">[</span>...<span class="token punctuation">]</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token property">"else"</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token property">"$seq"</span><span class="token operator">:</span> <span class="token punctuation">[</span>...<span class="token punctuation">]</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Loops</h3>
+<pre><code class="language-json" data-highlighted><span class="token punctuation">{</span>
+  <span class="token property">"$op"</span><span class="token operator">:</span> <span class="token string">"while"</span><span class="token punctuation">,</span>
+  <span class="token property">"cond"</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token property">"$expr"</span><span class="token operator">:</span> <span class="token string">"binary"</span><span class="token punctuation">,</span> <span class="token property">"op"</span><span class="token operator">:</span> <span class="token string">">"</span><span class="token punctuation">,</span> <span class="token property">"left"</span><span class="token operator">:</span> <span class="token string">"count"</span><span class="token punctuation">,</span> <span class="token property">"right"</span><span class="token operator">:</span> <span class="token number">0</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token property">"body"</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token property">"$seq"</span><span class="token operator">:</span> <span class="token punctuation">[</span>...<span class="token punctuation">]</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<hr>
+<h2>Security Model</h2>
+<h3>Zero Capabilities by Default</h3>
+<p>The VM can&#39;t do anything unless you allow it:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// This agent can only compute - no I/O</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> capabilities<span class="token operator">:</span> <span class="token punctuation">{</span><span class="token punctuation">}</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// This agent can fetch from one domain</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  capabilities<span class="token operator">:</span> <span class="token punctuation">{</span>
+    fetch<span class="token operator">:</span> <span class="token function">createFetchCapability</span><span class="token punctuation">(</span><span class="token punctuation">{</span> allowedHosts<span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">'api.example.com'</span><span class="token punctuation">]</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h3>Forbidden Properties</h3>
+<p>These property names are blocked to prevent prototype pollution:</p>
+<ul>
+<li><code>__proto__</code></li>
+<li><code>constructor</code></li>
+<li><code>prototype</code></li>
+</ul>
+<h3>SSRF Protection</h3>
+<p>The <code>httpFetch</code> atom can be configured with:</p>
+<ul>
+<li>Allowlisted hosts only</li>
+<li>Blocked private IP ranges</li>
+<li>Request signing requirements</li>
+</ul>
+<h3>ReDoS Protection</h3>
+<p>Suspicious regex patterns are rejected before execution.</p>
+<h3>Execution Tracing</h3>
+<p>Every agent run can produce an audit trail:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> <span class="token punctuation">{</span> result<span class="token punctuation">,</span> trace <span class="token punctuation">}</span> <span class="token operator">=</span> <span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> trace<span class="token operator">:</span> <span class="token boolean">true</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// trace: [</span>
+<span class="token comment">//   { op: 'varSet', key: 'x', fuelBefore: 1000, fuelAfter: 999.9 },</span>
+<span class="token comment">//   { op: 'httpFetch', url: '...', fuelBefore: 999.9, fuelAfter: 989.9 },</span>
+<span class="token comment">//   ...</span>
+<span class="token comment">// ]</span>
+</code></pre>
+<hr>
+<h2>Use Cases</h2>
+<h3>AI Agents</h3>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">function</span> <span class="token function">researchAgent</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> topic <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> searchResults <span class="token operator">=</span> <span class="token function">httpFetch</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+    <span class="token literal-property property">url</span><span class="token operator">:</span> <span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">https://api.search.com?q=</span><span class="token interpolation"><span class="token interpolation-punctuation punctuation">${</span>topic<span class="token interpolation-punctuation punctuation">}</span></span><span class="token template-punctuation string">`</span></span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+  <span class="token keyword">let</span> summary <span class="token operator">=</span> <span class="token function">llmPredict</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+    <span class="token literal-property property">system</span><span class="token operator">:</span> <span class="token string">'You are a research assistant.'</span><span class="token punctuation">,</span>
+    <span class="token literal-property property">user</span><span class="token operator">:</span> <span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">Summarize these results about </span><span class="token interpolation"><span class="token interpolation-punctuation punctuation">${</span>topic<span class="token interpolation-punctuation punctuation">}</span></span><span class="token string">: </span><span class="token interpolation"><span class="token interpolation-punctuation punctuation">${</span>searchResults<span class="token interpolation-punctuation punctuation">}</span></span><span class="token template-punctuation string">`</span></span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> topic<span class="token punctuation">,</span> summary <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Rule Engines</h3>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">function</span> <span class="token function">applyDiscounts</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> cart<span class="token punctuation">,</span> userTier <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> discount <span class="token operator">=</span> <span class="token number">0</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>userTier <span class="token operator">===</span> <span class="token string">'gold'</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    discount <span class="token operator">=</span> <span class="token number">0.2</span>
+  <span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token keyword">if</span> <span class="token punctuation">(</span>userTier <span class="token operator">===</span> <span class="token string">'silver'</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    discount <span class="token operator">=</span> <span class="token number">0.1</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">if</span> <span class="token punctuation">(</span>cart<span class="token punctuation">.</span>total <span class="token operator">></span> <span class="token number">100</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    discount <span class="token operator">=</span> discount <span class="token operator">+</span> <span class="token number">0.05</span>
+  <span class="token punctuation">}</span>
+
+  <span class="token keyword">return</span> <span class="token punctuation">{</span>
+    <span class="token literal-property property">originalTotal</span><span class="token operator">:</span> cart<span class="token punctuation">.</span>total<span class="token punctuation">,</span>
+    <span class="token literal-property property">discount</span><span class="token operator">:</span> discount<span class="token punctuation">,</span>
+    <span class="token literal-property property">finalTotal</span><span class="token operator">:</span> cart<span class="token punctuation">.</span>total <span class="token operator">*</span> <span class="token punctuation">(</span><span class="token number">1</span> <span class="token operator">-</span> discount<span class="token punctuation">)</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Smart Configuration</h3>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">function</span> <span class="token function">routeRequest</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> request<span class="token punctuation">,</span> config <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> rule <span class="token keyword">of</span> config<span class="token punctuation">.</span>rules<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>request<span class="token punctuation">.</span>path<span class="token punctuation">.</span><span class="token function">startsWith</span><span class="token punctuation">(</span>rule<span class="token punctuation">.</span>prefix<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">backend</span><span class="token operator">:</span> rule<span class="token punctuation">.</span>backend<span class="token punctuation">,</span> <span class="token literal-property property">timeout</span><span class="token operator">:</span> rule<span class="token punctuation">.</span>timeout <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">backend</span><span class="token operator">:</span> config<span class="token punctuation">.</span>defaultBackend<span class="token punctuation">,</span> <span class="token literal-property property">timeout</span><span class="token operator">:</span> <span class="token number">30000</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Remote Jobs</h3>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">function</span> <span class="token function">processDataBatch</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">{</span> items<span class="token punctuation">,</span> transform <span class="token punctuation">}</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  <span class="token keyword">let</span> results <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token punctuation">]</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> item <span class="token keyword">of</span> items<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> processed <span class="token operator">=</span> <span class="token function">applyTransform</span><span class="token punctuation">(</span>item<span class="token punctuation">,</span> transform<span class="token punctuation">)</span>
+    results<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span>processed<span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">processed</span><span class="token operator">:</span> results<span class="token punctuation">.</span>length<span class="token punctuation">,</span> results <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<hr>
+<h2>Custom Atoms</h2>
+<p>Extend the runtime with your own operations:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> defineAtom<span class="token punctuation">,</span> AgentVM<span class="token punctuation">,</span> s <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+
+<span class="token keyword">const</span> myScraper <span class="token operator">=</span> <span class="token function">defineAtom</span><span class="token punctuation">(</span>
+  <span class="token string">'scrape'</span><span class="token punctuation">,</span> <span class="token comment">// OpCode</span>
+  s<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span> url<span class="token operator">:</span> s<span class="token punctuation">.</span><span class="token builtin">string</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token comment">// Input Schema</span>
+  s<span class="token punctuation">.</span><span class="token builtin">string</span><span class="token punctuation">,</span> <span class="token comment">// Output Schema</span>
+  <span class="token keyword">async</span> <span class="token punctuation">(</span><span class="token punctuation">{</span> url <span class="token punctuation">}</span><span class="token punctuation">,</span> ctx<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+    <span class="token keyword">const</span> res <span class="token operator">=</span> <span class="token keyword">await</span> ctx<span class="token punctuation">.</span>capabilities<span class="token punctuation">.</span><span class="token function">fetch</span><span class="token punctuation">(</span>url<span class="token punctuation">)</span>
+    <span class="token keyword">return</span> <span class="token keyword">await</span> res<span class="token punctuation">.</span><span class="token function">text</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token punctuation">{</span> cost<span class="token operator">:</span> <span class="token number">5</span> <span class="token punctuation">}</span> <span class="token comment">// Fuel cost</span>
+<span class="token punctuation">)</span>
+
+<span class="token keyword">const</span> myVM <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AgentVM</span><span class="token punctuation">(</span><span class="token punctuation">{</span> scrape<span class="token operator">:</span> myScraper <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Atoms must:</p>
+<ul>
+<li>Be non-blocking (no synchronous CPU-heavy work)</li>
+<li>Respect <code>ctx.signal</code> for cancellation</li>
+<li>Access I/O only via <code>ctx.capabilities</code></li>
+</ul>
+<hr>
+<h2>Builder API</h2>
+<p>For programmatic AST construction:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> Agent<span class="token punctuation">,</span> s <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+
+<span class="token keyword">const</span> agent <span class="token operator">=</span> Agent<span class="token punctuation">.</span><span class="token function">take</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span> price<span class="token operator">:</span> s<span class="token punctuation">.</span><span class="token builtin">number</span><span class="token punctuation">,</span> taxRate<span class="token operator">:</span> s<span class="token punctuation">.</span><span class="token builtin">number</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+  <span class="token punctuation">.</span><span class="token function">varSet</span><span class="token punctuation">(</span><span class="token punctuation">{</span> key<span class="token operator">:</span> <span class="token string">'total'</span><span class="token punctuation">,</span> value<span class="token operator">:</span> Agent<span class="token punctuation">.</span><span class="token function">expr</span><span class="token punctuation">(</span><span class="token string">'price * (1 + taxRate)'</span><span class="token punctuation">)</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+  <span class="token punctuation">.</span><span class="token function">return</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span> total<span class="token operator">:</span> s<span class="token punctuation">.</span><span class="token builtin">number</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+<span class="token keyword">const</span> ast <span class="token operator">=</span> agent<span class="token punctuation">.</span><span class="token function">toJSON</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token comment">// JSON-serializable AST</span>
+</code></pre>
+<p>The builder is lower-level but gives full control over AST construction.</p>
+<hr>
+<h2>Limitations</h2>
+<h3>What AJS Doesn&#39;t Do</h3>
+<ul>
+<li><strong>No closures</strong> - functions can&#39;t capture outer scope</li>
+<li><strong>No classes</strong> - use plain objects</li>
+<li><strong>No async/await syntax</strong> - the VM handles async internally</li>
+<li><strong>No modules</strong> - logic is self-contained</li>
+<li><strong>No direct DOM access</strong> - everything goes through capabilities</li>
+<li><strong>No computed member access with variables</strong> - <code>items[i]</code> is rejected; use <code>items[0]</code> (literal) or <code>for...of</code> loops</li>
+</ul>
+<h3>What AJS Intentionally Avoids</h3>
+<ul>
+<li>Complex language features that enable escape from the sandbox</li>
+<li>Syntax that LLMs frequently hallucinate incorrectly</li>
+<li>Patterns that make code hard to audit</li>
+</ul>
+<hr>
+<h2>Performance</h2>
+<ul>
+<li><strong>100 agents in ~6ms</strong> (torture test benchmark)</li>
+<li><strong>~0.01 fuel per expression</strong></li>
+<li><strong>Proportional memory charging</strong> prevents runaway allocations</li>
+</ul>
+<p>AJS is interpreted (JSON AST), so it&#39;s slower than native JS. But:</p>
+<ul>
+<li>Execution is predictable and bounded</li>
+<li>I/O dominates most agent workloads</li>
+<li>Tracing is free (built into the VM)</li>
+</ul>
+<p>For compute-heavy operations in your platform code, use TJS with <code>wasm {}</code> blocks.</p>
+<hr>
+<h2>Learn More</h2>
+<ul>
+<li><a href="DOCS-TJS.md">TJS Documentation</a> — The host language</li>
+<li><a href="MANIFESTO-BUILDER.md">Builder&#39;s Manifesto</a> — Why AJS is fun</li>
+<li><a href="MANIFESTO-ENTERPRISE.md">Enterprise Guide</a> — Why AJS is safe</li>
+<li><a href="CONTEXT.md">Technical Context</a> — Architecture deep dive</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link current" href="../DOCS-AJS/" aria-current="page">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

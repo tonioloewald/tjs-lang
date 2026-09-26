@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Ambient Contracts — probe reality, derive verified predicate contracts — tjs-lang</title>
+  <meta name="description" content="Static types are pessimistic about ambient runtime environments (the DOM, Node globals, window, host objects) in ways that create ceremony without safety." />
+  <link rel="canonical" href="https://tjs.tosijs.net/ambient-contracts/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Ambient Contracts — probe reality, derive verified predicate contracts — tjs-lang" />
+  <meta property="og:description" content="Static types are pessimistic about ambient runtime environments (the DOM, Node globals, window, host objects) in ways that create ceremony without safety." />
+  <meta property="og:url" content="https://tjs.tosijs.net/ambient-contracts/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Ambient Contracts — probe reality, derive verified predicate contracts","description":"Static types are pessimistic about ambient runtime environments (the DOM, Node globals, window, host objects) in ways that create ceremony without safety.","url":"https://tjs.tosijs.net/ambient-contracts/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "the-tjs-language.md", "order": 12}--><h1>Ambient Contracts — probe reality, derive verified predicate contracts</h1>
+<blockquote>
+<p><strong>Status: design note / idea (2026-07-03).</strong> Not built. Captures the direction
+and a concrete first spike (CSS + DOM). Related: the predicate engine
+(<code>src/lang/predicate.ts</code>), the <code>tjs-lang/css</code> library (<code>src/css/</code>), the
+autocomplete introspection bridge (<code>demo/src/introspection-bridge.ts</code>,
+<code>editors/introspect-value.ts</code>), and the VM capability model (<code>src/vm/</code>).</p>
+</blockquote>
+<h2>The itch</h2>
+<p>Static types are pessimistic about ambient runtime environments (the DOM, Node
+globals, <code>window</code>, host objects) in ways that create ceremony without safety.
+The canonical example:</p>
+<pre><code class="language-ts">element.addEventListener(&#39;input&#39;, (e) =&gt; {
+  const value = e.target.value // ❌ TS: Property &#39;value&#39; does not exist on &#39;EventTarget&#39;
+})
+</code></pre>
+<p><code>e.target</code> is typed <code>EventTarget | null</code>, and <code>EventTarget</code> has no <code>.value</code>, so
+TypeScript forces <code>(e.target as HTMLInputElement).value</code> or a <code>instanceof</code> dance.
+But the honest situation is: <strong>at runtime the value is either there or it
+isn&#39;t, and if it isn&#39;t you find out immediately.</strong> The cast doesn&#39;t make it
+safer — it just silences a compiler that can&#39;t see the real object. A runtime
+predicate is the truthful tool here:</p>
+<pre><code class="language-tjs">// pure, total, verifiable — reads props, no cast, no lie
+function hasValueTarget(e) {
+  return e != null &amp;&amp; e.target != null &amp;&amp; typeof e.target.value === &#39;string&#39;
+}
+// usage: hasValueTarget(e) ? e.target.value : undefined  — no ceremony
+</code></pre>
+<p>That predicate is exactly what the verifier accepts (member access is pure;
+<code>typeof</code> → <code>TypeOf</code>), compiles to native, and — crucially — is <strong>serializable</strong>.
+So the thought: instead of hand-writing these, could tooling <strong>probe a real
+ambient environment and derive the predicate contracts automatically?</strong></p>
+<h2>The payoff: author against an environment you&#39;re not running in</h2>
+<p>The headline use (user, 2026-07-03): <strong>type-checking and autocompletion against a
+non-ambient runtime — editing in a Node-based toolchain while <em>targeting</em> the
+browser</strong> (or the reverse, or Electron, or a specific Bun). Normally you have no
+target environment to introspect, so you fall back to a hand-maintained
+<code>.d.ts</code> (<code>lib.dom</code>) that drifts from what the engine actually does.</p>
+<p>Because a probed contract is a <strong>serializable predicate</strong>, it decouples <em>capture</em>
+from <em>consumption</em> in time and space: probe the real target once (locally or in
+CI), bottle the contract, and a Node-side editor/typechecker consumes it with <strong>no
+target present</strong>. It beats a <code>.d.ts</code> on three axes:</p>
+<ul>
+<li><strong>Grounded in reality, not a drifting spec</strong> — it&#39;s what the target <em>actually</em>
+exposes (we watched happy-dom diverge 678 vs 1 own-keys from real Chrome; a
+captured contract is the real number).</li>
+<li><strong>Target-specific and versioned</strong> — capture from the <em>actual</em> target (this
+browser, this Electron, this Bun), selectable/pinned, not a lowest-common-
+denominator lib.</li>
+<li><strong>The same artifact validates at runtime</strong> — a <code>.d.ts</code> evaporates; a predicate
+contract can stay as a boundary guard, and its enumerable leaves feed
+<code>suggest()</code> completions with real values.</li>
+</ul>
+<p>Why it&#39;s plausible <em>here</em> and not a research project: the contract format already
+exists (<code>$predicate</code> / <code>tjs-lang/schema</code>), the autocomplete provider already has
+an introspection hook (<code>getMembers</code> — point it at a captured contract instead of a
+live object), and this is exactly the metadata the pinned &quot;argument-type-driven
+completion&quot; item wants (e.g. <code>createElement</code>&#39;s tag→type return shapes), sourced
+from reality instead of hand-authored. See <a href="/introspection-autocomplete/" class="wikilink">introspection-autocomplete</a>.</p>
+<h2>Contract vs. shim — the distinction that decides feasibility</h2>
+<p>&quot;A predicate that stands in for the DOM&quot; can mean two very different things:</p>
+<ol>
+<li><strong>A contract / validator</strong> — &quot;does this value behave enough like an
+<code>HTMLElement</code> / an input event / a <code>CSSStyleDeclaration</code>?&quot; Predicates are
+<em>pure validators</em>, so this is squarely in scope: shape, property presence,
+method arity, pure invariants.</li>
+<li><strong>A behavioral substitute</strong> — something that, when code calls
+<code>document.createElement(&#39;div&#39;)</code>, actually <em>does</em> it. Predicates <strong>cannot</strong> be
+this (they&#39;re pure, stateless, effect-free). That&#39;s a shim — happy-dom/jsdom
+territory.</li>
+</ol>
+<p>The valuable, on-thesis move is <strong>#1 as the bridge to #2</strong>: probe the real
+environment, emit a serializable predicate <em>contract</em>, and use it to <strong>certify a
+stand-in</strong> in whatever setting. The predicate isn&#39;t the DOM — it&#39;s the portable,
+verifiable spec a substitute must satisfy, auto-derived from reality and from the
+surface a given program actually touches.</p>
+<h2>Why it fits this project</h2>
+<ul>
+<li><strong>The introspection probe already exists.</strong> The autocomplete work runs code in
+a real iframe and reads live scope (<code>introspect-value.ts</code>,
+<code>introspection-bridge.ts</code>); Claude-in-Chrome can drive a <em>real</em> browser. That&#39;s
+the &quot;kick the tires&quot; mechanism.</li>
+<li><strong>Predicates are the serializable contract form</strong> — verified, ReDoS-safe,
+compile-to-native, travel as data (the <code>$predicate</code> keyword already embeds them
+in JSON Schema, now evaluated by <code>tosijs-schema</code> via <code>tjs-lang/schema</code>).</li>
+<li><strong>The VM already models this as capabilities.</strong> It injects <code>fetch</code>/<code>store</code>/
+<code>llm</code>; &quot;DOM-as-capability, predicate-validated at the boundary&quot; is the same
+pattern. A headless setting swaps the stub; the predicate catches divergence.</li>
+<li><strong>&quot;Types are examples&quot; already</strong> — deriving a contract from <em>observed</em> real
+values is the same philosophy as <code>inferTypeFromValue</code>, sourced from a live probe
+instead of a literal.</li>
+</ul>
+<h2>The honest constraints</h2>
+<ul>
+<li><strong>Most of the DOM&#39;s contract is <em>behavioral</em></strong> (layout, events, mutation),
+which a pure predicate can&#39;t capture — only shape + pure invariants. So:<ul>
+<li><strong>Scope to the used surface.</strong> Trace which ambient APIs the code actually
+touches (in the real iframe) and derive a contract for <em>that slice</em>, not all
+of <code>lib.dom.d.ts</code>.</li>
+<li><strong>Behavioral conformance is a separate, impure harness</strong> — run the same probe
+battery against the real env and a candidate stub, diff the outputs. The
+predicate is the pure shape-gate; the harness is the behavior-gate.</li>
+</ul>
+</li>
+<li><strong>Snapshots drift.</strong> Browsers evolve; a captured contract is a dated snapshot.
+Fine — it&#39;s re-derivable, and versioning it is a feature (conformance over
+time).</li>
+<li><strong>Non-determinism / side effects</strong> must stay outside predicates (the <code>effects</code>
+tag already enforces this): a predicate validates the <em>data</em> crossing the
+boundary, never performs the effect.</li>
+</ul>
+<h2>Shape of the tooling (sketch)</h2>
+<ol>
+<li><strong>Probe</strong> — in a real environment (browser via Claude-in-Chrome, or the
+introspection iframe), walk an ambient object / a program&#39;s used surface and
+record: property names + <code>typeof</code>, method names + <code>.length</code> (arity), and a few
+sampled input→output pairs for pure-ish accessors.</li>
+<li><strong>Derive</strong> — turn the probe record into a predicate cluster (shape checks +
+<code>typeof</code> guards + membership sets), run it through <code>verifyPredicate</code> (so the
+emitted contract is itself certified safe), and <code>suggest()</code>-mine it for the
+enumerable leaves.</li>
+<li><strong>Emit</strong> — a <code>$predicate</code> schema (naive validators see structure, aware ones
+run the contract) + optionally a <code>.d.ts</code>-ish view for editors.</li>
+<li><strong>Conform</strong> — a harness that validates a stand-in (happy-dom, a hand stub, a
+VM capability) against the contract, failing loud where it diverges. This is
+what would have unblocked the Phase 5 real-<code>tosijs</code>-theme measurement (blocked
+because <code>theme.ts</code> needs <code>HTMLElement</code> at import).</li>
+</ol>
+<h2>First spike — CSS + DOM (the convergence point)</h2>
+<p><code>element.style</code> (<code>CSSStyleDeclaration</code>) is the ideal first target: it&#39;s an
+ambient, stateful host object, and we <em>already have a full CSS value grammar as
+predicates</em> (<code>tjs-lang/css</code>). So the loop is concrete and small:</p>
+<ul>
+<li><strong><code>event.target</code> demo</strong> — show the <code>hasValueTarget</code> predicate compiles, is
+verified pure, is total, and validates a real input event while rejecting a
+click on a <code>&lt;div&gt;</code>. The predicate TypeScript won&#39;t let you write cleanly is a
+perfectly ordinary verified predicate. (This is the &quot;asinine&quot; antidote, and
+needs no browser — synthetic event-shaped objects suffice for the unit; a real
+browser confirms on live events.)</li>
+<li><strong><code>CSSStyleDeclaration</code> probe</strong> — introspect real <code>element.style</code> in a browser,
+derive a shape contract, and diff a happy-dom <code>style</code> against it: where does the
+stub lie? Leaf <em>values</em> ride the existing CSS predicates (<code>isColorValue</code>,
+<code>isDimension</code>, …), so this exercises probe → contract → conformance end-to-end
+while reusing what phases 1–5 built.</li>
+</ul>
+<h2>Ask the environment directly — <code>CSS.supports</code> (tosijs-ui port finding)</h2>
+<p>The tosijs 2.0 port arrived at the same idea from the other side (see
+<code>../tosijs/TJS-PORT-DX.md</code>): the strongest form of &quot;probe reality&quot; for CSS is to
+<strong>ask the browser&#39;s own validator</strong> — <code>CSS.supports(prop, value)</code> is exact, always
+current with the engine&#39;s real support (vendor prefixes, new features, the full
+<code>calc()</code>/<code>var()</code> grammar), and zero-maintenance. It closes the exact gap the
+hand-authored grammar has: <code>isCssProperty(&#39;align-kontent&#39;)</code> returns <code>true</code>
+(identifier-shaped), but <code>CSS.supports(&#39;align-kontent&#39;, …)</code> in a real browser
+returns <code>false</code>. Property names for autocomplete come from the same place (a
+throwaway element&#39;s <code>.style</code> keys / <code>CSSStyleDeclaration.prototype</code>).</p>
+<p>This sharpens the contract-vs-fallback split by <strong>when</strong> validation runs:</p>
+<ul>
+<li><strong>Runtime, in a browser</strong> → <code>CSS.supports</code> is ground truth (exact, free). A
+<code>CSS.supports</code>-based check is predicate-<em>safe to run</em> but references the ambient
+<code>CSS</code> object, so it can&#39;t be statically <em>verified</em> (it&#39;s effectful/ambient).</li>
+<li><strong>Transpile-time / SSR / Node</strong> → no <code>CSS</code>, so the hand-authored grammar
+predicates (<code>isColor</code>/<code>isLength</code>/<code>isStyleValueFor</code>) are the portable fallback.</li>
+</ul>
+<p>So the ideal CSS-value check prefers <code>CSS.supports</code> when <code>typeof CSS !== &#39;undefined&#39;</code>
+and falls back to the grammar predicate otherwise — which is exactly the
+probe-reality / portable-fallback pairing this whole note is about, one leaf down.
+<strong>Caveat (verified, and it&#39;s the same &quot;the stand-in lies&quot; finding): happy-dom
+stubs <code>CSS.supports</code> to return <code>true</code> for everything</strong> (even <code>width: banana</code>) — so
+tests can&#39;t rely on it; ground truth needs a real browser or a real CSS engine.</p>
+<h2>Findings from the first spike (2026-07-03)</h2>
+<p>Built in <code>experiments/ambient/</code> (<code>probe.ts</code> + two demo tests, 7 green):</p>
+<ul>
+<li><strong>The <code>event.target</code> predicate is ordinary.</strong> <code>hasValueTarget(e)</code> (reads
+<code>e.target.value</code>, the thing TS rejects) verifies pure/safe, compiles native, and
+is total — no throw on a missing target. The cast TS demands buys nothing a
+predicate doesn&#39;t. (<code>event-target.demo.test.ts</code>.)</li>
+<li><strong>Host objects hide their surface on the prototype.</strong> Probed a real
+<code>CSSStyleDeclaration</code> via happy-dom: <code>Object.keys(style)</code> is nearly empty, yet
+<code>typeof style.color === &#39;string&#39;</code> and <code>typeof style.setProperty === &#39;function&#39;</code>.
+So a naive own-enumerable probe derives an empty contract — <strong>the probe must
+walk the prototype chain</strong> (<code>getOwnPropertyNames</code> per proto) or check a scoped
+key list. <code>probeShape</code> now does both.</li>
+<li><strong>Scope to the used surface — the full proto chain is huge.</strong> An <code>HTMLElement</code>&#39;s
+chain is hundreds of props; a whole-shape contract would be enormous and
+over-specified. A <code>keys: [...]</code> scope (the surface a program actually touches,
+traced from the real env) is the right input. Demonstrated: a 4-key contract for
+<code>style</code> verifies safe, accepts a real happy-dom <code>style</code> and a conforming hand
+stub, rejects a plain object missing the methods.</li>
+<li><strong>Reading accessors during a probe can have side effects</strong> (<code>offsetWidth</code> forces
+layout). A scoped key list bounds this; a stricter probe would read property
+<em>descriptors</em> rather than the values. Getters that throw are skipped.</li>
+<li><strong>CSS convergence holds.</strong> Leaf values off the real object ride the existing
+<code>tjs-lang/css</code> predicates (<code>isColorValue(style.color)</code>), so shape-gate (contract)<ul>
+<li>value-grammar (css) compose — the recursive style structure from CSS phase 4
+is the same shape a DOM-derived contract would target.</li>
+</ul>
+</li>
+</ul>
+<p>Net: the probe→derive→verify→conform loop works end-to-end on a real host object;
+the open work is sourcing the used-surface scope (trace) and the behavioral half.</p>
+<h3>Real-browser findings (via haltija <code>/eval</code>, live Chrome — 2026-07-03)</h3>
+<p>Confirmed against a real browser (not happy-dom), which sharpened three points:</p>
+<ul>
+<li><strong>Builtins don&#39;t honor <code>new</code>.</strong> <code>new HTMLDivElement()</code> → <code>TypeError: Failed to construct &#39;HTMLDivElement&#39;: Illegal constructor</code>. You <strong>don&#39;t need <code>new</code></strong> — the
+shape is on the constructor&#39;s <code>.prototype</code> chain
+(<code>HTMLDivElement → HTMLElement → Element → Node → EventTarget</code>), readable
+statically, no instance, no side effects. Cleaner than instantiating.</li>
+<li><strong>The manager vends the type.</strong> <code>document.createElement(&#39;div&#39;).constructor === HTMLDivElement</code> (and <code>&#39;a&#39; → HTMLAnchorElement</code>, <code>&#39;input&#39; → HTMLInputElement</code>).
+So a factory&#39;s output gives you <em>both</em> a live example (real default values — the
+&quot;types are examples&quot; leaf) <em>and</em> the type identity (<code>.constructor</code> → name +
+<code>.constructor.prototype</code> → the surface). Two complementary probe sources that
+cross-check.</li>
+<li><strong>Structural contracts are realm-portable; <code>instanceof</code> is not — proved.</strong> An
+<code>&lt;iframe&gt;</code>&#39;s input: <code>instanceof HTMLInputElement</code> (top realm) = <strong>false</strong>, but
+the structural predicate (<code>typeof x.value === &#39;string&#39; &amp;&amp; x.tagName === &#39;INPUT&#39;</code>)
+= <strong>true</strong>. This is the whole argument in one line: nominal DOM types are
+realm-bound (the stand-in problem <em>is</em> a realm problem), a derived structural
+predicate crosses realms. (happy-dom couldn&#39;t show this — it shares one
+<code>HTMLInputElement</code> across <code>Window</code>s; the real browser does.)</li>
+<li><strong>Bonus — the stand-in already diverges from reality.</strong> Real Chrome&#39;s <code>style</code>
+has <strong>678 own keys</strong> (CSS properties as own props); happy-dom&#39;s had ~1 (on the
+proto). Same object, wildly different probe result — exactly the conformance gap
+the harness exists to catch, and proof that you must probe <em>reality</em>, not a
+stand-in, to derive the contract.</li>
+</ul>
+<h3>Generalizes beyond the DOM — Node/Bun internals</h3>
+<p>The probe is environment-agnostic: <code>process</code>, <code>Buffer</code>, <code>node:fs</code>, <code>Bun.*</code>,
+<code>globalThis</code> are ambient objects with the same shape. Derive a used-surface
+contract from the <em>real</em> runtime and certify a stand-in — e.g. &quot;does my <code>process</code>
+usage survive in the browser polyfill?&quot; or &quot;does Bun&#39;s <code>process</code> satisfy the
+contract my code derived from Node&#39;s?&quot;. It&#39;s the realm/stand-in problem one level
+up: cross-<em>runtime</em> portability instead of cross-<em>frame</em>. Same tool.</p>
+<h2>Open questions</h2>
+<ul>
+<li>Where&#39;s the line between &quot;derive automatically&quot; and &quot;author, then verify
+against reality&quot;? The probe likely <em>proposes</em> a contract a human trims.</li>
+<li>Method behavior: can we derive useful pure invariants for methods
+(idempotence, <code>getComputedStyle(x)</code> shape) or only signatures?</li>
+<li>Editor story: a derived <code>$predicate</code> contract as the source of both validation
+<em>and</em> autocomplete (the introspection-autocomplete north star) for host objects
+that ship no good <code>.d.ts</code>.</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link current" href="../ambient-contracts/" aria-current="page">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Applied Laziness: The "Zero-Infrastructure" Stack — tjs-lang</title>
+  <meta name="description" content="Stop building pipelines. Start shipping logic." />
+  <link rel="canonical" href="https://tjs.tosijs.net/MANIFESTO-BUILDER/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Applied Laziness: The &quot;Zero-Infrastructure&quot; Stack — tjs-lang" />
+  <meta property="og:description" content="Stop building pipelines. Start shipping logic." />
+  <meta property="og:url" content="https://tjs.tosijs.net/MANIFESTO-BUILDER/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Applied Laziness: The \"Zero-Infrastructure\" Stack","description":"Stop building pipelines. Start shipping logic.","url":"https://tjs.tosijs.net/MANIFESTO-BUILDER/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "meta", "order": 4, "navTitle": "For Builders", "pin": "bottom"}--><h1>Applied Laziness: The &quot;Zero-Infrastructure&quot; Stack</h1>
+<p><strong>Stop building pipelines. Start shipping logic.</strong></p>
+<hr>
+<h2>The Problem</h2>
+<p>You wanted to build a feature. Instead you&#39;re debugging webpack configs, waiting for Docker builds, and wondering why your TypeScript types don&#39;t match reality.</p>
+<p>The modern stack has become a tax on productivity. Every &quot;improvement&quot; adds another layer of indirection, another config file, another thing that can break.</p>
+<hr>
+<h2>The TJS Win</h2>
+<p><strong>&quot;I write the type as an example, and I get validation, documentation, and autocomplete for free.&quot;</strong></p>
+<p>TJS flips the script on types. Instead of describing what a value <em>could</em> be, you show what it <em>looks like</em>:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// TypeScript: describe the abstract shape</span>
+<span class="token keyword">function</span> <span class="token function">greet</span><span class="token punctuation">(</span>name<span class="token operator">:</span> <span class="token builtin">string</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token builtin">string</span>
+
+<span class="token comment">// TJS: show a concrete example</span>
+<span class="token keyword">function</span> <span class="token function">greet</span><span class="token punctuation">(</span>name<span class="token operator">:</span> <span class="token string">'World'</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token string">''</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">Hello, </span><span class="token interpolation"><span class="token interpolation-punctuation punctuation">${</span>name<span class="token interpolation-punctuation punctuation">}</span></span><span class="token string">!</span><span class="token template-punctuation string">`</span></span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>The type <em>is</em> the example. The example <em>is</em> the documentation. One thing, not three.</p>
+<h3>What You Stop Doing</h3>
+<ul>
+<li><strong>No webpack config to debug.</strong> The browser is the compiler.</li>
+<li><strong>No TypeScript errors about missing <code>.d.ts</code> files.</strong> Types survive to runtime.</li>
+<li><strong>No &quot;works on my machine.&quot;</strong> Browser is the single source of truth.</li>
+<li><strong>No rebuild cycles.</strong> Edit, save, see.</li>
+</ul>
+<h3>What You Start Doing</h3>
+<ul>
+<li>Write code in the browser or your editor</li>
+<li>Save it</li>
+<li>It runs</li>
+</ul>
+<p>That&#39;s it. No build server. No bundler. No transpilation step. The loop is: write → run.</p>
+<h3>The &quot;Oops, It&#39;s Robust&quot; Moment</h3>
+<p>Here&#39;s the happy accident: you left Safe Mode on.</p>
+<p>You didn&#39;t write validation logic. You didn&#39;t write <code>if (x == null) throw</code>. You just wrote <code>function add(x: 0)</code>.</p>
+<p>Because you left Safe Mode on, your function now automatically rejects bad inputs with a clean, traceable report:</p>
+<pre><code class="language-javascript" data-highlighted><span class="token punctuation">{</span>
+  <span class="token literal-property property">$error</span><span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">message</span><span class="token operator">:</span> <span class="token string">"Expected 'number', got 'banana'"</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">path</span><span class="token operator">:</span> <span class="token string">"add.input.x"</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>You accidentally built an enterprise-grade API while prototyping.</p>
+<p><strong>This is the physics change:</strong> In every other language, a type error at runtime is a catastrophe—uncaught exception, stack trace, 500 server error. In TJS Safe Mode, a type error is just <em>data</em>. You trace the error to the <em>source</em> (the caller), not the <em>symptom</em> (the crash).</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Behavior</th>
+<th>The &quot;Oops&quot; Factor</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Unsafe (<code>!</code>)</strong></td>
+<td>&quot;Trust me, bro.&quot; Fast, loose.</td>
+<td>You write tests to catch edge cases.</td>
+</tr>
+<tr>
+<td><strong>Safe (<code>?</code>)</strong></td>
+<td>The Contract. Inputs validated, outputs guaranteed.</td>
+<td>&quot;I forgot to turn it off, and now my API is bulletproof.&quot;</td>
+</tr>
+</tbody></table>
+<p>Laziness = Quality. You did less work (no validation code), got a better result (robust contracts).</p>
+<hr>
+<h2>The AJS Win</h2>
+<p><strong>&quot;I don&#39;t deploy microservices. I save AJS records to Postgres. My &#39;deployment&#39; takes 10ms.&quot;</strong></p>
+<p>AJS compiles to JSON. Your agent <em>is</em> a database record:</p>
+<pre><code class="language-sql" data-highlighted><span class="token keyword">INSERT</span> <span class="token keyword">INTO</span> agents <span class="token punctuation">(</span>name<span class="token punctuation">,</span> logic<span class="token punctuation">)</span> <span class="token keyword">VALUES</span> <span class="token punctuation">(</span>
+  <span class="token string">'summarize-article'</span><span class="token punctuation">,</span>
+  <span class="token string">'{"$seq": [{"$op": "httpFetch", ...}, {"$op": "llmPredict", ...}]}'</span>
+<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>Want to update the agent? Update the row. Want to A/B test? Query different rows. Want to audit what changed? <code>git diff</code> the JSON.</p>
+<h3>What You Stop Doing</h3>
+<ul>
+<li><strong>No deploying microservices.</strong> One endpoint runs any agent.</li>
+<li><strong>No managing containers.</strong> The VM is a function call.</li>
+<li><strong>No CI/CD pipelines for logic changes.</strong> Logic is data.</li>
+<li><strong>No cold starts.</strong> The endpoint is always hot.</li>
+</ul>
+<h3>What You Start Doing</h3>
+<ul>
+<li>Store agents as JSON in your database</li>
+<li>Load and run them on demand</li>
+<li>Ship new logic by inserting rows</li>
+</ul>
+<p>Your &quot;deployment&quot; is a database write. Your &quot;rollback&quot; is loading the previous row.</p>
+<hr>
+<h2>The Stack You Delete</h2>
+<table>
+<thead>
+<tr>
+<th>Before</th>
+<th>After</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TypeScript</td>
+<td>TJS</td>
+</tr>
+<tr>
+<td>Webpack / Vite / Babel</td>
+<td>Browser</td>
+</tr>
+<tr>
+<td><code>node_modules</code> (300MB)</td>
+<td>Import URLs</td>
+</tr>
+<tr>
+<td>Source maps</td>
+<td>Direct execution</td>
+</tr>
+<tr>
+<td>Build server</td>
+<td>Nothing</td>
+</tr>
+<tr>
+<td>Microservices</td>
+<td>One endpoint</td>
+</tr>
+<tr>
+<td>Docker / K8s</td>
+<td>A function call</td>
+</tr>
+<tr>
+<td>CI/CD for logic</td>
+<td>Database write</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>The Vibe</h2>
+<p>This isn&#39;t about doing less work. It&#39;s about doing <em>the right</em> work.</p>
+<p>Every hour you spend debugging build tools is an hour you&#39;re not shipping features. Every deployment pipeline you maintain is cognitive overhead you carry forever.</p>
+<p>TJS and AJS are opinionated about one thing: <strong>the fastest path from idea to running code wins.</strong></p>
+<ul>
+<li>Types should validate themselves</li>
+<li>Code should run where you write it</li>
+<li>Logic should travel as data</li>
+<li>Deployment should be instant</li>
+</ul>
+<p>If your stack disagrees, your stack is wrong.</p>
+<hr>
+<h2>Who This Is For</h2>
+<ul>
+<li><strong>The solo dev</strong> who doesn&#39;t have time for infrastructure theater</li>
+<li><strong>The startup</strong> that needs to ship features, not manage K8s</li>
+<li><strong>The AI builder</strong> whose agents need to evolve faster than deploy cycles allow</li>
+<li><strong>The pragmatist</strong> who knows that the best infrastructure is no infrastructure</li>
+<li><strong>The TypeScript dev</strong> who doesn&#39;t care about TJS but wants the tooling (see below)</li>
+</ul>
+<hr>
+<h2>For TypeScript Developers Who Don&#39;t Care About TJS</h2>
+<p>You&#39;re happy with TypeScript. You don&#39;t want a new language. Fine.</p>
+<p>You can still use TJS tooling for one thing: <strong>inline tests that live with your code.</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// mymath.ts - normal TypeScript</span>
+<span class="token keyword">function</span> <span class="token function">add</span><span class="token punctuation">(</span>a<span class="token operator">:</span> <span class="token builtin">number</span><span class="token punctuation">,</span> b<span class="token operator">:</span> <span class="token builtin">number</span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token builtin">number</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> a <span class="token operator">+</span> b
+<span class="token punctuation">}</span>
+
+<span class="token comment">/*test 'adds positive numbers' {
+  expect(add(2, 3)).toBe(5)
+}*/</span>
+
+<span class="token comment">/*test 'handles negatives' {
+  expect(add(-1, 1)).toBe(0)
+}*/</span>
+</code></pre>
+<p>The <code>/*test ... */</code> comments survive TypeScript compilation. TJS extracts and runs them.</p>
+<h3>What You Get</h3>
+<ul>
+<li><strong>Literate programming.</strong> Tests live next to the code they verify.</li>
+<li><strong>Faster debug loops.</strong> No switching between files.</li>
+<li><strong>Private tests.</strong> They&#39;re comments—they don&#39;t ship to production.</li>
+<li><strong>Zero buy-in.</strong> Keep your tsconfig, your build, your everything.</li>
+</ul>
+<h3>How It Works</h3>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> extractTests<span class="token punctuation">,</span> testUtils <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+
+<span class="token comment">// Read your compiled JS (or TS source)</span>
+<span class="token keyword">const</span> source <span class="token operator">=</span> fs<span class="token punctuation">.</span><span class="token function">readFileSync</span><span class="token punctuation">(</span><span class="token string">'mymath.js'</span><span class="token punctuation">,</span> <span class="token string">'utf-8'</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Extract tests from comments</span>
+<span class="token keyword">const</span> <span class="token punctuation">{</span> tests<span class="token punctuation">,</span> testRunner <span class="token punctuation">}</span> <span class="token operator">=</span> <span class="token function">extractTests</span><span class="token punctuation">(</span>source<span class="token punctuation">)</span>
+
+<span class="token comment">// Run them</span>
+<span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token function">eval</span><span class="token punctuation">(</span>source <span class="token operator">+</span> <span class="token string">'\n'</span> <span class="token operator">+</span> testUtils <span class="token operator">+</span> <span class="token string">'\n'</span> <span class="token operator">+</span> testRunner<span class="token punctuation">)</span>
+<span class="token comment">// { passed: 2, failed: 0 }</span>
+</code></pre>
+<p>That&#39;s it. You don&#39;t adopt TJS. You don&#39;t change your types. You just get inline tests for free.</p>
+<p>Set <code>safety none</code> and keep living in your world. We&#39;re not here to convert you.</p>
+<hr>
+<h2>Quick Start</h2>
+<pre><code class="language-bash" data-highlighted><span class="token function">npm</span> <span class="token function">install</span> tjs-lang
+</code></pre>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> tjs<span class="token punctuation">,</span> AgentVM <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+
+<span class="token comment">// TJS: types as examples, runs in browser</span>
+<span class="token keyword">const</span> greet <span class="token operator">=</span> tjs<span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">
+  function greet(name: 'World'): '' {
+    return 'Hello, ' + name + '!'
+  }
+</span><span class="token template-punctuation string">`</span></span>
+
+<span class="token comment">// AJS: logic as data, runs in sandbox</span>
+<span class="token keyword">const</span> agent <span class="token operator">=</span> ajs<span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">
+  function process({ url }) {
+    let data = httpFetch({ url })
+    return { fetched: data }
+  }
+</span><span class="token template-punctuation string">`</span></span>
+
+<span class="token keyword">const</span> vm <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AgentVM</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agent<span class="token punctuation">,</span> <span class="token punctuation">{</span> url<span class="token operator">:</span> <span class="token string">'https://api.example.com'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>That&#39;s the whole stack. No config files. No build step. No deployment.</p>
+<hr>
+<h2>Learn More</h2>
+<ul>
+<li><a href="DOCS-TJS.md">TJS Documentation</a> — The language reference</li>
+<li><a href="DOCS-AJS.md">AJS Documentation</a> — The agent runtime</li>
+<li><a href="MANIFESTO-ENTERPRISE.md">Enterprise Guide</a> — For when you need governance</li>
+<li><a href="demo/">Playground</a> — Try it now, no install</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link current" href="../MANIFESTO-BUILDER/" aria-current="page">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

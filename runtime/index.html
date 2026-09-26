@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>seq (Sequence) — tjs-lang</title>
+  <meta name="description" content="The root atom for all agent programs. Executes steps in order." />
+  <link rel="canonical" href="https://tjs.tosijs.net/runtime/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="seq (Sequence) — tjs-lang" />
+  <meta property="og:description" content="The root atom for all agent programs. Executes steps in order." />
+  <meta property="og:url" content="https://tjs.tosijs.net/runtime/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"seq (Sequence)","description":"The root atom for all agent programs. Executes steps in order.","url":"https://tjs.tosijs.net/runtime/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<h2>seq (Sequence)</h2>
+<p>The root atom for all agent programs. Executes steps in order.</p>
+<ul>
+<li>Stops on <code>return</code> (when <code>ctx.output</code> is set)</li>
+<li>Stops on error (monadic error flow)</li>
+<li>Cost: 0.1</li>
+</ul>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// AsyncJS compiles to seq at the top level</span>
+<span class="token keyword">const</span> x <span class="token operator">=</span> <span class="token number">1</span>
+<span class="token keyword">const</span> y <span class="token operator">=</span> <span class="token number">2</span>
+<span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">sum</span><span class="token operator">:</span> x <span class="token operator">+</span> y <span class="token punctuation">}</span>
+</code></pre>
+<h2>if (Conditional)</h2>
+<p>Conditional branching based on expression evaluation.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">if</span> <span class="token punctuation">(</span>count <span class="token operator">></span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token string">"Has items"</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span> <span class="token keyword">else</span> <span class="token punctuation">{</span>
+  console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token string">"Empty"</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h2>while (Loop)</h2>
+<p>Repeats body while condition is truthy. Consumes fuel each iteration.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span>
+<span class="token keyword">while</span> <span class="token punctuation">(</span>i <span class="token operator">&lt;</span> <span class="token number">10</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>i<span class="token punctuation">)</span>
+  i <span class="token operator">=</span> i <span class="token operator">+</span> <span class="token number">1</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>Note:</strong> No <code>break</code>/<code>continue</code>. Use condition variables instead.</p>
+<h2>return</h2>
+<p>Ends execution and returns values from state. The schema defines which
+state variables to include in the output.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token function">compute</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token keyword">return</span> <span class="token punctuation">{</span> result <span class="token punctuation">}</span>  <span class="token comment">// Returns { result: &lt;computed value> }</span>
+</code></pre>
+<h2>try/catch</h2>
+<p>Error handling with monadic error flow. When an error occurs, subsequent
+steps are skipped until caught.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">try</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> data <span class="token operator">=</span> <span class="token function">fetch</span><span class="token punctuation">(</span>url<span class="token punctuation">)</span>
+  <span class="token function">processData</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span>
+<span class="token punctuation">}</span> <span class="token keyword">catch</span> <span class="token punctuation">(</span>err<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  console<span class="token punctuation">.</span><span class="token function">warn</span><span class="token punctuation">(</span><span class="token string">"Failed: "</span> <span class="token operator">+</span> err<span class="token punctuation">)</span>
+  <span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">error</span><span class="token operator">:</span> err <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>The catch block receives:</p>
+<ul>
+<li><code>err</code> (or custom name): error message</li>
+<li><code>errorOp</code>: the atom that failed</li>
+</ul>
+<h2>for...of / map</h2>
+<p>Transforms each item in an array. The <code>result</code> variable in each iteration
+becomes the new item value.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> doubled <span class="token operator">=</span> items<span class="token punctuation">.</span><span class="token function">map</span><span class="token punctuation">(</span><span class="token parameter">x</span> <span class="token operator">=></span> x <span class="token operator">*</span> <span class="token number">2</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Or with for...of:</span>
+<span class="token keyword">const</span> results <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token punctuation">]</span>
+<span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">const</span> item <span class="token keyword">of</span> items<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  results<span class="token punctuation">.</span><span class="token function">push</span><span class="token punctuation">(</span><span class="token function">process</span><span class="token punctuation">(</span>item<span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h2>filter</h2>
+<p>Keeps items that match a condition.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> adults <span class="token operator">=</span> users<span class="token punctuation">.</span><span class="token function">filter</span><span class="token punctuation">(</span><span class="token parameter">u</span> <span class="token operator">=></span> u<span class="token punctuation">.</span>age <span class="token operator">>=</span> <span class="token number">18</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>reduce</h2>
+<p>Accumulates a single value from an array.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> sum <span class="token operator">=</span> numbers<span class="token punctuation">.</span><span class="token function">reduce</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token parameter">acc<span class="token punctuation">,</span> n</span><span class="token punctuation">)</span> <span class="token operator">=></span> acc <span class="token operator">+</span> n<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>find</h2>
+<p>Returns first item matching condition, or null.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> admin <span class="token operator">=</span> users<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span><span class="token parameter">u</span> <span class="token operator">=></span> u<span class="token punctuation">.</span>role <span class="token operator">===</span> <span class="token string">"admin"</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>fetch</h2>
+<p>HTTP requests. Requires <code>fetch</code> capability or uses global fetch with SSRF protection.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> data <span class="token operator">=</span> <span class="token function">fetch</span><span class="token punctuation">(</span><span class="token string">"https://api.example.com/data"</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> posted <span class="token operator">=</span> <span class="token function">fetch</span><span class="token punctuation">(</span><span class="token string">"https://api.example.com/items"</span><span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  <span class="token literal-property property">method</span><span class="token operator">:</span> <span class="token string">"POST"</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">headers</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token string-property property">"Content-Type"</span><span class="token operator">:</span> <span class="token string">"application/json"</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">body</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token literal-property property">name</span><span class="token operator">:</span> <span class="token string">"New Item"</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Response types: <code>&quot;json&quot;</code> (default for JSON content-type), <code>&quot;text&quot;</code>, <code>&quot;dataUrl&quot;</code> (for images)</p>
+<p>Security:</p>
+<ul>
+<li>Requires <code>ctx.context.allowedFetchDomains</code> allowlist OR restricts to localhost</li>
+<li>Automatically adds <code>X-Agent-Depth</code> header to prevent recursive agent loops</li>
+<li>Custom fetch capability can override all restrictions</li>
+</ul>
+<h2>storeGet / storeSet</h2>
+<p>Persistent key-value storage. Requires <code>store</code> capability.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Save data</span>
+<span class="token function">storeSet</span><span class="token punctuation">(</span><span class="token string">"user:123"</span><span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token literal-property property">name</span><span class="token operator">:</span> <span class="token string">"Alice"</span><span class="token punctuation">,</span> <span class="token literal-property property">prefs</span><span class="token operator">:</span> <span class="token punctuation">{</span><span class="token punctuation">}</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Retrieve later</span>
+<span class="token keyword">const</span> user <span class="token operator">=</span> <span class="token function">storeGet</span><span class="token punctuation">(</span><span class="token string">"user:123"</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>Warning:</strong> Default in-memory store is not suitable for production.</p>
+<h2>storeQueryWhere (predicate pushdown)</h2>
+<p>Send the <em>predicate</em> to the data instead of dragging rows to the code.</p>
+<p><code>predicate</code> is a <strong>canonical verified predicate</strong> — build it at author/transpile time
+with <code>canonicalizePredicate()</code> from <code>tjs-lang/lang</code>, then pass the resulting object.
+Because it is verified pure and canonical, it is safe to ship, cheap to compare, and
+carries a stable <code>key</code> the store can cache on (two spellings of the same predicate hit
+the same cache entry).</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// canonical form produced outside the VM; the VM forwards it as data</span>
+<span class="token keyword">const</span> rows <span class="token operator">=</span> <span class="token function">storeQueryWhere</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">collection</span><span class="token operator">:</span> <span class="token string">'users'</span><span class="token punctuation">,</span> <span class="token literal-property property">predicate</span><span class="token operator">:</span> adultPredicate <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Requires a store that implements <code>queryPredicate</code>. If it doesn&#39;t, this fails with a
+message pointing at the ordinary <code>storeQuery</code> + <code>filter</code> path rather than silently
+returning everything — a filter that silently doesn&#39;t filter is an authorization bug.</p>
+<h2>llmPredict</h2>
+<p>Call language model. Requires <code>llm</code> capability with <code>predict</code> method.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token keyword">const</span> response <span class="token operator">=</span> <span class="token function">llmPredict</span><span class="token punctuation">(</span><span class="token string">"Summarize this: "</span> <span class="token operator">+</span> text<span class="token punctuation">)</span>
+
+<span class="token comment">// With options</span>
+<span class="token keyword">const</span> structured <span class="token operator">=</span> <span class="token function">llmPredict</span><span class="token punctuation">(</span>prompt<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  <span class="token literal-property property">model</span><span class="token operator">:</span> <span class="token string">"gpt-4"</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">temperature</span><span class="token operator">:</span> <span class="token number">0.7</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">responseFormat</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token literal-property property">type</span><span class="token operator">:</span> <span class="token string">"json_object"</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>transpileCode (Code to AST)</h2>
+<p>Transpiles AsyncJS code to an AST without executing it.
+Useful for generating agents to send to other services via fetch.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Generate an agent and send it to a worker</span>
+<span class="token keyword">let</span> code <span class="token operator">=</span> <span class="token function">llmPredict</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">prompt</span><span class="token operator">:</span> <span class="token string">'Write an AsyncJS data processor'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">let</span> ast <span class="token operator">=</span> <span class="token function">transpileCode</span><span class="token punctuation">(</span><span class="token punctuation">{</span> code <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">let</span> result <span class="token operator">=</span> <span class="token function">httpFetch</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+  <span class="token literal-property property">url</span><span class="token operator">:</span> <span class="token string">'https://worker.example.com/run'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">method</span><span class="token operator">:</span> <span class="token string">'POST'</span><span class="token punctuation">,</span>
+  <span class="token literal-property property">body</span><span class="token operator">:</span> <span class="token constant">JSON</span><span class="token punctuation">.</span><span class="token function">stringify</span><span class="token punctuation">(</span><span class="token punctuation">{</span> ast<span class="token punctuation">,</span> <span class="token literal-property property">args</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token literal-property property">data</span><span class="token operator">:</span> myData <span class="token punctuation">}</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Security: Only available when the <code>code.transpile</code> capability is provided.</p>
+<h2>runCode (Dynamic Code Execution)</h2>
+<p>Transpiles and executes AsyncJS code at runtime. The generated code
+runs in the same context, sharing fuel budget, capabilities, and trace.</p>
+<p>This enables agents to write and execute code to solve problems.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Agent writes code to solve a problem</span>
+<span class="token keyword">let</span> code <span class="token operator">=</span> <span class="token function">llmPredict</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">prompt</span><span class="token operator">:</span> <span class="token string">'Write AsyncJS to calculate fibonacci(10)'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">let</span> result <span class="token operator">=</span> <span class="token function">runCode</span><span class="token punctuation">(</span><span class="token punctuation">{</span> code<span class="token punctuation">,</span> <span class="token literal-property property">args</span><span class="token operator">:</span> <span class="token punctuation">{</span><span class="token punctuation">}</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">return</span> <span class="token punctuation">{</span> <span class="token literal-property property">answer</span><span class="token operator">:</span> result <span class="token punctuation">}</span>
+</code></pre>
+<p>The code must be a valid AsyncJS function. The function&#39;s return value
+becomes the result of runCode.</p>
+<p>Security: Only available when the <code>code.transpile</code> capability is provided.
+The transpiled code runs with the same permissions as the parent.
+Recursion depth is limited to prevent stack overflow.</p>
+<h2>memoize</h2>
+<p>In-memory caching within a single execution. Same key returns cached result.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Expensive computation cached by key</span>
+<span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token function">memoize</span><span class="token punctuation">(</span><span class="token string">"expensive-"</span> <span class="token operator">+</span> id<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token function">heavyComputation</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>cache</h2>
+<p>Persistent caching across executions using store capability.</p>
+<pre><code class="language-javascript" data-highlighted><span class="token comment">// Cache API result for 1 hour (3600000 ms)</span>
+<span class="token keyword">const</span> weather <span class="token operator">=</span> <span class="token function">cache</span><span class="token punctuation">(</span><span class="token string">"weather-"</span> <span class="token operator">+</span> city<span class="token punctuation">,</span> <span class="token number">3600000</span><span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> <span class="token function">fetch</span><span class="token punctuation">(</span><span class="token string">"https://api.weather.com/"</span> <span class="token operator">+</span> city<span class="token punctuation">)</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>console.log / console.warn / console.error</h2>
+<p>Logging utilities that integrate with trace and error flow.</p>
+<pre><code class="language-javascript" data-highlighted>console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token string">"Debug info: "</span> <span class="token operator">+</span> value<span class="token punctuation">)</span>   <span class="token comment">// Adds to trace</span>
+console<span class="token punctuation">.</span><span class="token function">warn</span><span class="token punctuation">(</span><span class="token string">"Potential issue"</span><span class="token punctuation">)</span>        <span class="token comment">// Adds to trace + warnings summary</span>
+console<span class="token punctuation">.</span><span class="token function">error</span><span class="token punctuation">(</span><span class="token string">"Fatal: "</span> <span class="token operator">+</span> msg<span class="token punctuation">)</span>         <span class="token comment">// Triggers monadic error flow</span>
+</code></pre>
+<ul>
+<li><code>log</code>: trace only (no side effects)</li>
+<li><code>warn</code>: trace + appears in <code>result.warnings</code></li>
+<li><code>error</code>: stops execution, sets <code>result.error</code></li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link current" href="../runtime/" aria-current="page">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

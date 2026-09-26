@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>tjs-lang Technical Context</title>
+  <meta name="description" content="Note: This document provides a technical deep-dive into tjs-lang&#39;s architecture and security model." />
+  <link rel="canonical" href="https://tjs.tosijs.net/CONTEXT/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="tjs-lang Technical Context" />
+  <meta property="og:description" content="Note: This document provides a technical deep-dive into tjs-lang&#39;s architecture and security model." />
+  <meta property="og:url" content="https://tjs.tosijs.net/CONTEXT/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"tjs-lang Technical Context","description":"Note: This document provides a technical deep-dive into tjs-lang's architecture and security model.","url":"https://tjs.tosijs.net/CONTEXT/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "ajs", "group": "docs", "order": 14, "navTitle": "Technical Context", "parent": "the-tjs-language.md"}--><h1>tjs-lang Technical Context</h1>
+<p><strong>Note:</strong> This document provides a technical deep-dive into tjs-lang&#39;s architecture and security model. For a general overview, installation instructions, and usage examples, please refer to the main <a href="./README.md">README.md</a>.</p>
+<p><strong>tjs-lang</strong> is a secure, environment-agnostic runtime for executing AI agents and logic chains defined as JSON ASTs.</p>
+<p><strong>Bundle Size:</strong> ~17KB gzipped. Expressions are evaluated via lightweight AST nodes at runtime, eliminating the need for a parser library (the previous JSEP-based approach was ~50KB gzipped).</p>
+<h2>1. Architecture</h2>
+<h3>The Builder (<code>TypedBuilder</code>)</h3>
+<p>A fluent TypeScript API that generates a portable JSON AST. It uses a <code>Proxy</code> to dynamically infer methods from the registered Atoms, providing a strongly-typed developer experience.</p>
+<p>It is important to understand that the builder is only for constructing the AST; it does not contain any of the actual implementation logic for the atoms. All execution is handled by the Runtime.</p>
+<p><strong>Usage Pattern:</strong></p>
+<ul>
+<li>All logic chains <strong>must</strong> start with <code>Agent.take()</code> to define the input schema for the agent.</li>
+<li>Subsequent atom calls are chained together fluently (e.g., <code>.varSet(...)</code>, <code>.httpFetch(...)</code>). This creates an implicit <code>seq</code> (sequence) of operations.</li>
+<li>The chain is terminated by calling <code>.toJSON()</code> to produce the serializable AST.</li>
+</ul>
+<p>You can access the builder via <code>Agent</code> (for core atoms) or <code>vm.Agent</code> (the recommended way to access both core and any custom atoms registered with the VM instance).</p>
+<!-- tjs-doc: fragment --><pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> Agent<span class="token punctuation">,</span> s<span class="token punctuation">,</span> AgentVM <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+
+<span class="token comment">// Global Builder (Core Atoms)</span>
+<span class="token keyword">const</span> logic <span class="token operator">=</span> Agent<span class="token punctuation">.</span><span class="token function">take</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span> input<span class="token operator">:</span> s<span class="token punctuation">.</span><span class="token builtin">string</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+  <span class="token punctuation">.</span><span class="token function">varSet</span><span class="token punctuation">(</span><span class="token punctuation">{</span> key<span class="token operator">:</span> <span class="token string">'sum'</span><span class="token punctuation">,</span> value<span class="token operator">:</span> <span class="token punctuation">{</span> $expr<span class="token operator">:</span> <span class="token string">'binary'</span><span class="token punctuation">,</span> op<span class="token operator">:</span> <span class="token string">'+'</span><span class="token punctuation">,</span> left<span class="token operator">:</span> <span class="token punctuation">{</span> $expr<span class="token operator">:</span> <span class="token string">'literal'</span><span class="token punctuation">,</span> value<span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span><span class="token punctuation">,</span> right<span class="token operator">:</span> <span class="token punctuation">{</span> $expr<span class="token operator">:</span> <span class="token string">'literal'</span><span class="token punctuation">,</span> value<span class="token operator">:</span> <span class="token number">1</span> <span class="token punctuation">}</span> <span class="token punctuation">}</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// VM Builder (Custom Atoms)</span>
+<span class="token keyword">const</span> vm <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AgentVM</span><span class="token punctuation">(</span><span class="token punctuation">{</span> myAtom <span class="token punctuation">}</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> customLogic <span class="token operator">=</span> vm<span class="token punctuation">.</span>Agent
+  <span class="token punctuation">.</span><span class="token function">myAtom</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+  <span class="token punctuation">.</span><span class="token function">varSet</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token operator">...</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h3>The Runtime (<code>AgentVM</code>)</h3>
+<p>A stateless Virtual Machine that executes the AST. The runtime contains all the actual implementation logic for the atoms.</p>
+<ul>
+<li><strong>Sandboxed:</strong> No <code>eval()</code>. Math/Logic is evaluated safely via AST expression nodes.</li>
+<li><strong>Resource Limited:</strong> Enforces <code>fuel</code> (gas) limits and execution timeouts per atom.</li>
+<li><strong>Capability-Based:</strong> All IO (Network, DB, AI) must be injected via <code>capabilities</code> object.</li>
+</ul>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">import</span> <span class="token punctuation">{</span> AgentVM <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'tjs-lang'</span>
+<span class="token keyword">const</span> vm <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AgentVM</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> <span class="token punctuation">{</span> result<span class="token punctuation">,</span> fuelUsed <span class="token punctuation">}</span> <span class="token operator">=</span> <span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  capabilities<span class="token punctuation">,</span>
+  fuel<span class="token operator">:</span> <span class="token number">1000</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>2. Expression Syntax (ExprNode)</h2>
+<p>Expressions use AST expression nodes (<code>$expr</code>) for safe, sandboxed evaluation. Conditions in <code>if</code> and <code>while</code> atoms use expression strings that are parsed at transpile time.</p>
+<p>For security, expressions are sandboxed and cannot directly access the agent&#39;s state. Use the <code>vars</code> parameter to explicitly pass variables from state into the expression scope.</p>
+<h3>ExprNode Types</h3>
+<ul>
+<li><strong>literal:</strong> <code>{ $expr: &#39;literal&#39;, value: 5 }</code> - A constant value</li>
+<li><strong>ident:</strong> <code>{ $expr: &#39;ident&#39;, name: &#39;x&#39; }</code> - A variable reference</li>
+<li><strong>member:</strong> <code>{ $expr: &#39;member&#39;, object: {...}, property: &#39;foo&#39; }</code> - Property access</li>
+<li><strong>binary:</strong> <code>{ $expr: &#39;binary&#39;, op: &#39;+&#39;, left: {...}, right: {...} }</code> - Binary operations</li>
+<li><strong>unary:</strong> <code>{ $expr: &#39;unary&#39;, op: &#39;-&#39;, argument: {...} }</code> - Unary operations</li>
+<li><strong>conditional:</strong> <code>{ $expr: &#39;conditional&#39;, test: {...}, consequent: {...}, alternate: {...} }</code> - Ternary</li>
+</ul>
+<h3>Supported Operators</h3>
+<ul>
+<li><strong>Binary ops:</strong> <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>, <code>**</code></li>
+<li><strong>Logic:</strong> <code>&amp;&amp;</code>, <code>||</code></li>
+<li><strong>Comparison:</strong> <code>==</code>, <code>!=</code>, <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, <code>&lt;=</code></li>
+<li><strong>Member Access:</strong> <code>obj.prop</code>, <code>arr[0]</code></li>
+</ul>
+<h3>Security</h3>
+<ul>
+<li><strong>Forbidden:</strong> Function calls, <code>new</code>, <code>this</code>, global access</li>
+<li><strong>Blocked:</strong> Prototype access (<code>__proto__</code>, <code>constructor</code>)</li>
+</ul>
+<h3>Fuel Consumption</h3>
+<p>Each expression node evaluation consumes <strong>0.01 fuel</strong>. This prevents deeply nested or recursive expressions from running unchecked. A simple <code>a + b</code> costs ~0.03 fuel (two identifiers + one binary op), while complex nested expressions accumulate cost proportionally.</p>
+<h2>3. Security Model</h2>
+<ul>
+<li><strong>Capabilities:</strong> The VM has no default IO. You must provide <code>fetch</code>, <code>store</code>, etc., allowing you to mock, proxy, or limit access.</li>
+<li><strong>Fuel:</strong> Every atom consumes &quot;fuel&quot;. Execution aborts if fuel reaches 0.</li>
+<li><strong>Execution Timeout:</strong> The VM enforces a global timeout based on fuel budget (see below).</li>
+<li><strong>Atom Timeouts:</strong> Individual atoms have a default timeout (1s) to prevent hangs.</li>
+<li><strong>State Isolation:</strong> Each run creates a fresh context. Scopes (loops/maps) use prototype inheritance to isolate local variables.</li>
+</ul>
+<h3>Execution Timeout</h3>
+<p>The VM enforces a hard timeout on execution to prevent hung agents—safeguarding against code that effectively halts by waiting on slow or non-responsive IO.</p>
+<p><strong>How it works:</strong></p>
+<ol>
+<li><strong>Automatic Safety Net:</strong> By default, timeout = <code>fuel × 10ms</code>. So 1000 fuel = 10 seconds. <em>For IO-heavy agents with low fuel costs, explicitly set <code>timeoutMs</code> to prevent premature timeouts.</em></li>
+<li><strong>Explicit SLA:</strong> Pass <code>timeoutMs</code> to enforce a strict time limit regardless of fuel.</li>
+<li><strong>External Cancellation:</strong> Pass an <code>AbortSignal</code> to integrate with external controllers (user cancellation, HTTP timeouts, etc.).</li>
+</ol>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Default: 1000 fuel = 10 second timeout</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> fuel<span class="token operator">:</span> <span class="token number">1000</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// Explicit timeout: 5 seconds regardless of fuel</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> fuel<span class="token operator">:</span> <span class="token number">10000</span><span class="token punctuation">,</span> timeoutMs<span class="token operator">:</span> <span class="token number">5000</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+<span class="token comment">// External abort signal</span>
+<span class="token keyword">const</span> controller <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">AbortController</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+<span class="token function">setTimeout</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=></span> controller<span class="token punctuation">.</span><span class="token function">abort</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token number">3000</span><span class="token punctuation">)</span> <span class="token comment">// Cancel after 3s</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span> signal<span class="token operator">:</span> controller<span class="token punctuation">.</span>signal <span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>Resource Cleanup:</strong> When a timeout occurs, the VM passes the abort signal to the currently executing atom via <code>ctx.signal</code>. Loop atoms (<code>while</code>, <code>map</code>, <code>filter</code>, <code>reduce</code>, <code>find</code>) check the signal between iterations. <code>httpFetch</code> passes the signal to <code>fetch</code> for immediate request cancellation.</p>
+<p><strong>Timeout vs Fuel:</strong></p>
+<ul>
+<li><strong>Fuel</strong> protects against CPU-bound abuse (tight loops burning compute)</li>
+<li><strong>Timeout</strong> protects against IO-bound abuse (slow network calls, hung promises)</li>
+</ul>
+<p>Both work together to ensure the VM cannot be held hostage by untrusted code.</p>
+<p><strong>Trust Boundary:</strong> The sandbox protects against malicious <em>agents</em> (untrusted AST), not malicious <em>atom implementations</em>. Atoms are registered by the host and are trusted to:</p>
+<ol>
+<li>Be non-blocking (no synchronous CPU-heavy work)</li>
+<li>Respect <code>ctx.signal</code> for cancellation</li>
+<li>Clean up resources when aborted</li>
+</ol>
+<p>If you write custom atoms, ensure they check <code>ctx.signal?.aborted</code> in loops and pass <code>ctx.signal</code> to any async operations like <code>fetch</code>.</p>
+<h3>Cost Overrides</h3>
+<p>Default atom costs are guesses. Override them per-run to match your deployment reality:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  costOverrides<span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token comment">// Static: fixed cost per invocation</span>
+    httpFetch<span class="token operator">:</span> <span class="token number">50</span><span class="token punctuation">,</span>
+    llmPredict<span class="token operator">:</span> <span class="token number">500</span><span class="token punctuation">,</span>
+
+    <span class="token comment">// Dynamic: cost based on input</span>
+    <span class="token function-variable function">storeSet</span><span class="token operator">:</span> <span class="token punctuation">(</span>input<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token constant">JSON</span><span class="token punctuation">.</span><span class="token function">stringify</span><span class="token punctuation">(</span>input<span class="token punctuation">.</span>value<span class="token punctuation">)</span><span class="token punctuation">.</span>length <span class="token operator">*</span> <span class="token number">0.001</span><span class="token punctuation">,</span>
+    <span class="token function-variable function">llmPredict</span><span class="token operator">:</span> <span class="token punctuation">(</span>input<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">(</span>input<span class="token punctuation">.</span>model<span class="token operator">?.</span><span class="token function">includes</span><span class="token punctuation">(</span><span class="token string">'gpt-4'</span><span class="token punctuation">)</span> <span class="token operator">?</span> <span class="token number">1000</span> <span class="token operator">:</span> <span class="token number">100</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Use cases:</p>
+<ul>
+<li><strong>API rate limits:</strong> Make external API calls expensive to stay under quota</li>
+<li><strong>Metered billing:</strong> Reflect actual dollar costs in fuel consumption</li>
+<li><strong>Resource protection:</strong> Make database writes cost more than reads</li>
+<li><strong>Testing:</strong> Set all costs to 0 to focus on logic, not budgeting</li>
+</ul>
+<h3>Request Context</h3>
+<p>The <code>context</code> option passes request-scoped metadata to atoms. Unlike <code>args</code> (agent input) or <code>capabilities</code> (IO implementations), context carries ambient data like auth, permissions, and request tracing.</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  context<span class="token operator">:</span> <span class="token punctuation">{</span>
+    userId<span class="token operator">:</span> <span class="token string">'user-123'</span><span class="token punctuation">,</span>
+    role<span class="token operator">:</span> <span class="token string">'admin'</span><span class="token punctuation">,</span>
+    permissions<span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">'read:data'</span><span class="token punctuation">,</span> <span class="token string">'write:data'</span><span class="token punctuation">,</span> <span class="token string">'fetch:external'</span><span class="token punctuation">]</span><span class="token punctuation">,</span>
+    requestId<span class="token operator">:</span> <span class="token string">'req-abc-123'</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Atoms access it via <code>ctx.context</code>:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> secureFetch <span class="token operator">=</span> <span class="token function">defineAtom</span><span class="token punctuation">(</span>
+  <span class="token string">'secureFetch'</span><span class="token punctuation">,</span>
+  s<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span> url<span class="token operator">:</span> s<span class="token punctuation">.</span><span class="token builtin">string</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  s<span class="token punctuation">.</span><span class="token builtin">any</span><span class="token punctuation">,</span>
+  <span class="token keyword">async</span> <span class="token punctuation">(</span>input<span class="token punctuation">,</span> ctx<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+    <span class="token comment">// Check permissions</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span><span class="token operator">!</span>ctx<span class="token punctuation">.</span>context<span class="token operator">?.</span>permissions<span class="token operator">?.</span><span class="token function">includes</span><span class="token punctuation">(</span><span class="token string">'fetch:external'</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">throw</span> <span class="token keyword">new</span> <span class="token class-name">Error</span><span class="token punctuation">(</span><span class="token string">'Not authorized for external fetch'</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> ctx<span class="token punctuation">.</span>capabilities<span class="token punctuation">.</span><span class="token function">fetch</span><span class="token punctuation">(</span>input<span class="token punctuation">.</span>url<span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">)</span>
+</code></pre>
+<p><strong>Design rationale:</strong></p>
+<ul>
+<li><strong>Immutable:</strong> Context is read-only; agents cannot modify their own permissions</li>
+<li><strong>Separate from args:</strong> Auth data doesn&#39;t pollute the agent&#39;s input schema</li>
+<li><strong>Separate from capabilities:</strong> Same capability implementation, different authorization</li>
+<li><strong>Composable:</strong> Works with cost overrides for user-tier-based fuel costs</li>
+</ul>
+<p><strong>Production patterns:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token comment">// Firebase/Express integration</span>
+app<span class="token punctuation">.</span><span class="token function">post</span><span class="token punctuation">(</span><span class="token string">'/run-agent'</span><span class="token punctuation">,</span> <span class="token keyword">async</span> <span class="token punctuation">(</span>req<span class="token punctuation">,</span> res<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> ast <span class="token operator">=</span> req<span class="token punctuation">.</span>body<span class="token punctuation">.</span>ast
+  <span class="token keyword">const</span> args <span class="token operator">=</span> req<span class="token punctuation">.</span>body<span class="token punctuation">.</span>args
+
+  <span class="token comment">// Extract auth from request</span>
+  <span class="token keyword">const</span> user <span class="token operator">=</span> <span class="token keyword">await</span> <span class="token function">verifyToken</span><span class="token punctuation">(</span>req<span class="token punctuation">.</span>headers<span class="token punctuation">.</span>authorization<span class="token punctuation">)</span>
+
+  <span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+    context<span class="token operator">:</span> <span class="token punctuation">{</span>
+      userId<span class="token operator">:</span> user<span class="token punctuation">.</span>id<span class="token punctuation">,</span>
+      role<span class="token operator">:</span> user<span class="token punctuation">.</span>role<span class="token punctuation">,</span>
+      permissions<span class="token operator">:</span> user<span class="token punctuation">.</span>permissions<span class="token punctuation">,</span>
+      requestId<span class="token operator">:</span> req<span class="token punctuation">.</span>id<span class="token punctuation">,</span>
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+    <span class="token comment">// User-tier-based costs</span>
+    costOverrides<span class="token operator">:</span> <span class="token punctuation">{</span>
+      llmPredict<span class="token operator">:</span> user<span class="token punctuation">.</span>tier <span class="token operator">===</span> <span class="token string">'premium'</span> <span class="token operator">?</span> <span class="token number">10</span> <span class="token operator">:</span> <span class="token number">100</span><span class="token punctuation">,</span>
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">)</span>
+
+  res<span class="token punctuation">.</span><span class="token function">json</span><span class="token punctuation">(</span>result<span class="token punctuation">)</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>4. Stored Procedures</h2>
+<p>The procedure store provides a built-in mechanism for storing ASTs as callable tokens. This enables function-pointer-like patterns where behavior can be passed as data.</p>
+<h3>Storage Model</h3>
+<!-- tjs-doc: fragment --><pre><code class="language-typescript" data-highlighted><span class="token comment">// Module-level storage in runtime.ts</span>
+<span class="token keyword">const</span> procedureStore <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Map<span class="token operator">&lt;</span>
+  <span class="token builtin">string</span><span class="token punctuation">,</span>
+  <span class="token punctuation">{</span>
+    ast<span class="token operator">:</span> <span class="token builtin">any</span>
+    createdAt<span class="token operator">:</span> <span class="token builtin">number</span>
+    expiresAt<span class="token operator">:</span> <span class="token builtin">number</span>
+  <span class="token punctuation">}</span>
+<span class="token operator">></span></span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>Constants:</strong></p>
+<ul>
+<li><code>PROCEDURE_TOKEN_PREFIX</code>: <code>&#39;proc_&#39;</code> - All tokens start with this prefix</li>
+<li><code>DEFAULT_PROCEDURE_TTL</code>: 3,600,000ms (1 hour)</li>
+<li><code>DEFAULT_MAX_AST_SIZE</code>: 102,400 bytes (100KB)</li>
+</ul>
+<h3>Token Resolution</h3>
+<p>Tokens can be used anywhere an AST is accepted:</p>
+<ol>
+<li><strong><code>vm.run(token, args)</code></strong> - Direct execution via VM</li>
+<li><strong><code>agentRun({ agentId: token, input })</code></strong> - Execution from within an agent</li>
+<li><strong><code>agentRun({ agentId: ast, input })</code></strong> - Raw AST also accepted (no storage needed)</li>
+</ol>
+<p>Resolution happens at runtime. If a string starts with <code>proc_</code>, the VM looks it up in the store. Expired or missing tokens throw clear errors.</p>
+<h3>Fuel Costs</h3>
+<table>
+<thead>
+<tr>
+<th>Atom</th>
+<th>Cost</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>storeProcedure</code></td>
+<td>1.0</td>
+<td>Plus 0.001 per byte of AST</td>
+</tr>
+<tr>
+<td><code>releaseProcedure</code></td>
+<td>0.5</td>
+<td>Constant</td>
+</tr>
+<tr>
+<td><code>clearExpiredProcedures</code></td>
+<td>0.5</td>
+<td>Plus 0.01 per procedure scanned</td>
+</tr>
+</tbody></table>
+<h3>Security Considerations</h3>
+<p><strong>Memory bounds:</strong> The <code>maxSize</code> parameter prevents storing arbitrarily large ASTs. Default 100KB is generous for most agents.</p>
+<p><strong>Expiry:</strong> TTL prevents memory leaks from abandoned procedures. The store is in-memory, so procedures don&#39;t survive process restarts.</p>
+<p><strong>No capability escalation:</strong> Stored procedures inherit the capabilities of the calling context, not the storing context. A malicious agent cannot store a procedure that later executes with elevated privileges.</p>
+<p><strong>Token predictability:</strong> Tokens are UUIDs, not sequential. They cannot be enumerated or guessed.</p>
+<h3>Use Cases</h3>
+<p><strong>Dynamic dispatch (strategy pattern):</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> strategies <span class="token operator">=</span> ajs<span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">
+  function dispatch({ strategyToken, data }) {
+    let result = agentRun({ agentId: strategyToken, input: { data } })
+    return result
+  }
+</span><span class="token template-punctuation string">`</span></span>
+</code></pre>
+<p><strong>Worker pool:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> orchestrator <span class="token operator">=</span> ajs<span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">
+  function orchestrate({ workers, tasks }) {
+    let results = []
+    for (let i = 0; i &lt; tasks.length; i = i + 1) {
+      let workerToken = workers[i % workers.length]
+      let r = agentRun({ agentId: workerToken, input: tasks[i] })
+      results.push(r)
+    }
+    return { results }
+  }
+</span><span class="token template-punctuation string">`</span></span>
+</code></pre>
+<p><strong>Callback registration:</strong></p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> registerCallback <span class="token operator">=</span> ajs<span class="token template-string"><span class="token template-punctuation string">`</span><span class="token string">
+  function register({ handler }) {
+    let token = storeProcedure({ ast: handler, ttl: 300000 })
+    return { callbackId: token }
+  }
+</span><span class="token template-punctuation string">`</span></span>
+</code></pre>
+<h2>5. Production Considerations</h2>
+<h3>Isomorphic Deployment (Universal Endpoint)</h3>
+<p>Because the VM is environment-agnostic and all IO is injected via capabilities, the <em>same</em> agent program runs unchanged in the data center and in the browser client — with <strong>one security model spanning both</strong> (capabilities + fuel + portable TJS RBAC rules). Atoms are the seam: a client <code>getRecords</code> can serve already-loaded data and fall back to the server-side <code>getRecords</code> only on a miss, eliminating round-trips. This emerged for free from the sandboxing design rather than being built for. See <a href="docs/universal-endpoint.md"><code>docs/universal-endpoint.md</code></a>.</p>
+<h3>Recursive Agent Fuel</h3>
+<p>When an agent calls sub-agents via <code>agentRun</code>, each sub-agent gets its own fuel budget (passed via the capability). Fuel is <strong>not shared</strong> across the call tree by default.</p>
+<p><strong>Why:</strong> The <code>agentRun</code> atom delegates to <code>ctx.capabilities.agent.run</code>, which the host implements. This gives operators full control over sub-agent resource allocation.</p>
+<p><strong>Patterns for shared fuel:</strong></p>
+<!-- tjs-doc: fragment --><pre><code class="language-typescript" data-highlighted><span class="token comment">// Option 1: Pass remaining fuel to children</span>
+<span class="token keyword">const</span> sharedFuel <span class="token operator">=</span> <span class="token punctuation">{</span> current<span class="token operator">:</span> <span class="token number">1000</span> <span class="token punctuation">}</span>
+
+<span class="token keyword">const</span> caps <span class="token operator">=</span> <span class="token punctuation">{</span>
+  agent<span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token function-variable function">run</span><span class="token operator">:</span> <span class="token keyword">async</span> <span class="token punctuation">(</span>agentId<span class="token punctuation">,</span> input<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+      <span class="token keyword">if</span> <span class="token punctuation">(</span>sharedFuel<span class="token punctuation">.</span>current <span class="token operator">&lt;=</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token keyword">throw</span> <span class="token keyword">new</span> <span class="token class-name">Error</span><span class="token punctuation">(</span><span class="token string">'Out of shared fuel'</span><span class="token punctuation">)</span>
+      <span class="token keyword">const</span> result <span class="token operator">=</span> <span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agents<span class="token punctuation">[</span>agentId<span class="token punctuation">]</span><span class="token punctuation">,</span> input<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+        fuel<span class="token operator">:</span> sharedFuel<span class="token punctuation">.</span>current<span class="token punctuation">,</span>
+        capabilities<span class="token operator">:</span> caps<span class="token punctuation">,</span>
+      <span class="token punctuation">}</span><span class="token punctuation">)</span>
+      sharedFuel<span class="token punctuation">.</span>current <span class="token operator">-=</span> result<span class="token punctuation">.</span>fuelUsed
+      <span class="token keyword">return</span> result<span class="token punctuation">.</span>result
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment">// Option 2: Fixed budget per recursion depth</span>
+<span class="token keyword">const</span> caps <span class="token operator">=</span> <span class="token punctuation">{</span>
+  agent<span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token function-variable function">run</span><span class="token operator">:</span> <span class="token keyword">async</span> <span class="token punctuation">(</span>agentId<span class="token punctuation">,</span> input<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+      <span class="token comment">// Each child gets 10% of parent's budget</span>
+      <span class="token keyword">return</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>agents<span class="token punctuation">[</span>agentId<span class="token punctuation">]</span><span class="token punctuation">,</span> input<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+        fuel<span class="token operator">:</span> <span class="token number">100</span><span class="token punctuation">,</span> <span class="token comment">// Fixed small budget</span>
+        capabilities<span class="token operator">:</span> caps<span class="token punctuation">,</span>
+      <span class="token punctuation">}</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Streaming and Long-Running Agents</h3>
+<p>The VM returns results only after complete execution. For long-running agents:</p>
+<ul>
+<li>Use <code>timeoutMs</code> to enforce SLAs</li>
+<li>Use <code>AbortSignal</code> for user-initiated cancellation</li>
+<li>Use <code>trace: true</code> for post-hoc debugging</li>
+</ul>
+<p><strong>For real-time streaming</strong>, implement a custom atom that emits intermediate results:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> streamingAtom <span class="token operator">=</span> <span class="token function">defineAtom</span><span class="token punctuation">(</span>
+  <span class="token string">'streamChunk'</span><span class="token punctuation">,</span>
+  s<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span> data<span class="token operator">:</span> s<span class="token punctuation">.</span><span class="token builtin">any</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  s<span class="token punctuation">.</span>null<span class="token punctuation">,</span>
+  <span class="token keyword">async</span> <span class="token punctuation">(</span><span class="token punctuation">{</span> data <span class="token punctuation">}</span><span class="token punctuation">,</span> ctx<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+    <span class="token comment">// ctx.context contains your streaming callback</span>
+    <span class="token keyword">await</span> ctx<span class="token punctuation">.</span>context<span class="token operator">?.</span>onChunk<span class="token operator">?.</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span>
+    <span class="token keyword">return</span> <span class="token keyword">null</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">)</span>
+
+<span class="token comment">// Usage</span>
+<span class="token keyword">await</span> vm<span class="token punctuation">.</span><span class="token function">run</span><span class="token punctuation">(</span>ast<span class="token punctuation">,</span> args<span class="token punctuation">,</span> <span class="token punctuation">{</span>
+  context<span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token function-variable function">onChunk</span><span class="token operator">:</span> <span class="token punctuation">(</span>data<span class="token punctuation">)</span> <span class="token operator">=></span> res<span class="token punctuation">.</span><span class="token function">write</span><span class="token punctuation">(</span><span class="token constant">JSON</span><span class="token punctuation">.</span><span class="token function">stringify</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token string">'\n'</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h3>Condition String Syntax</h3>
+<p>The condition parser in <code>if</code>/<code>while</code> atoms supports a subset of expression syntax:</p>
+<table>
+<thead>
+<tr>
+<th>Supported</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Comparisons</td>
+<td><code>a &gt; b</code>, <code>x == &#39;hello&#39;</code>, <code>n != 0</code></td>
+</tr>
+<tr>
+<td>Logical</td>
+<td><code>a &amp;&amp; b</code>, <code>a || b</code>, <code>!a</code></td>
+</tr>
+<tr>
+<td>Arithmetic</td>
+<td><code>a + b * c</code>, <code>(a + b) / c</code></td>
+</tr>
+<tr>
+<td>Member access</td>
+<td><code>obj.foo.bar</code></td>
+</tr>
+<tr>
+<td>Literals</td>
+<td><code>42</code>, <code>&quot;string&quot;</code>, <code>true</code>, <code>null</code></td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th><strong>Unsupported</strong></th>
+<th>Alternative</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Ternary <code>a ? b : c</code></td>
+<td>Use nested <code>if</code> atoms</td>
+</tr>
+<tr>
+<td>Array index <code>a[0]</code></td>
+<td>Use ExprNode with <code>computed: true</code></td>
+</tr>
+<tr>
+<td>Function calls <code>fn(x)</code></td>
+<td>Use atoms</td>
+</tr>
+<tr>
+<td>Chained <code>a &gt; b &gt; c</code></td>
+<td>Use <code>a &gt; b &amp;&amp; b &gt; c</code></td>
+</tr>
+</tbody></table>
+<p>Unsupported syntax now throws a clear error at build time with suggestions.</p>
+<h3>State Semantics</h3>
+<p>Agents are <strong>not transactional</strong>. If an atom fails mid-execution:</p>
+<ul>
+<li>Previous state changes persist</li>
+<li>No automatic rollback</li>
+<li>Error is captured in monadic flow (<code>ctx.error</code>)</li>
+</ul>
+<p>This is by design—agents are stateful pipelines, not database transactions. If you need atomicity, implement checkpoint/restore in your capabilities:</p>
+<pre><code class="language-typescript" data-highlighted><span class="token keyword">const</span> caps <span class="token operator">=</span> <span class="token punctuation">{</span>
+  store<span class="token operator">:</span> <span class="token punctuation">{</span>
+    <span class="token function-variable function">set</span><span class="token operator">:</span> <span class="token keyword">async</span> <span class="token punctuation">(</span>key<span class="token punctuation">,</span> value<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+      <span class="token keyword">await</span> db<span class="token punctuation">.</span><span class="token function">runTransaction</span><span class="token punctuation">(</span><span class="token keyword">async</span> <span class="token punctuation">(</span>tx<span class="token punctuation">)</span> <span class="token operator">=></span> <span class="token punctuation">{</span>
+        <span class="token keyword">await</span> tx<span class="token punctuation">.</span><span class="token function">set</span><span class="token punctuation">(</span>key<span class="token punctuation">,</span> value<span class="token punctuation">)</span>
+      <span class="token punctuation">}</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span><span class="token punctuation">,</span>
+  <span class="token punctuation">}</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Error Handling Granularity</h3>
+<p>The <code>try/catch</code> atom catches all errors in the try block. There&#39;s no selective catch by error type.</p>
+<p><strong>Pattern for error type handling:</strong></p>
+<pre><code class="language-typescript" data-highlighted>Agent<span class="token punctuation">.</span><span class="token function">take</span><span class="token punctuation">(</span>s<span class="token punctuation">.</span><span class="token function">object</span><span class="token punctuation">(</span><span class="token punctuation">{</span><span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">try</span><span class="token punctuation">(</span><span class="token punctuation">{</span>
+  <span class="token function-variable function">try</span><span class="token operator">:</span> <span class="token punctuation">(</span>b<span class="token punctuation">)</span> <span class="token operator">=></span> b<span class="token punctuation">.</span><span class="token function">httpFetch</span><span class="token punctuation">(</span><span class="token punctuation">{</span> url<span class="token operator">:</span> <span class="token string">'...'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">as</span><span class="token punctuation">(</span><span class="token string">'response'</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  <span class="token function-variable function">catch</span><span class="token operator">:</span> <span class="token punctuation">(</span>b<span class="token punctuation">)</span> <span class="token operator">=></span>
+    b
+      <span class="token punctuation">.</span><span class="token function">varSet</span><span class="token punctuation">(</span><span class="token punctuation">{</span> key<span class="token operator">:</span> <span class="token string">'errorType'</span><span class="token punctuation">,</span> value<span class="token operator">:</span> <span class="token string">'unknown'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+      <span class="token comment">// Check error message patterns</span>
+      <span class="token punctuation">.</span><span class="token function">if</span><span class="token punctuation">(</span>
+        <span class="token string">'msg.includes("timeout")'</span><span class="token punctuation">,</span>
+        <span class="token punctuation">{</span> msg<span class="token operator">:</span> <span class="token string">'error.message'</span> <span class="token punctuation">}</span><span class="token punctuation">,</span>
+        <span class="token punctuation">(</span>then<span class="token punctuation">)</span> <span class="token operator">=></span> then<span class="token punctuation">.</span><span class="token function">varSet</span><span class="token punctuation">(</span><span class="token punctuation">{</span> key<span class="token operator">:</span> <span class="token string">'errorType'</span><span class="token punctuation">,</span> value<span class="token operator">:</span> <span class="token string">'timeout'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token punctuation">(</span>el<span class="token punctuation">)</span> <span class="token operator">=></span>
+          el<span class="token punctuation">.</span><span class="token function">if</span><span class="token punctuation">(</span><span class="token string">'msg.includes("404")'</span><span class="token punctuation">,</span> <span class="token punctuation">{</span> msg<span class="token operator">:</span> <span class="token string">'error.message'</span> <span class="token punctuation">}</span><span class="token punctuation">,</span> <span class="token punctuation">(</span>then<span class="token punctuation">)</span> <span class="token operator">=></span>
+            then<span class="token punctuation">.</span><span class="token function">varSet</span><span class="token punctuation">(</span><span class="token punctuation">{</span> key<span class="token operator">:</span> <span class="token string">'errorType'</span><span class="token punctuation">,</span> value<span class="token operator">:</span> <span class="token string">'not_found'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span>
+          <span class="token punctuation">)</span>
+      <span class="token punctuation">)</span><span class="token punctuation">,</span>
+<span class="token punctuation">}</span><span class="token punctuation">)</span>
+</code></pre>
+<h2>9. Test Coverage</h2>
+<p><strong>Summary (as of January 2025):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tests</td>
+<td>508</td>
+</tr>
+<tr>
+<td>Functions</td>
+<td>84.77%</td>
+</tr>
+<tr>
+<td>Lines</td>
+<td>80.36%</td>
+</tr>
+</tbody></table>
+<h3>Coverage by Component</h3>
+<p><strong>Core Runtime (security-critical):</strong></p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Functions</th>
+<th>Lines</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>src/runtime.ts</code></td>
+<td>100%</td>
+<td>100%</td>
+<td>Re-exports</td>
+</tr>
+<tr>
+<td><code>src/vm.ts</code></td>
+<td>100%</td>
+<td>100%</td>
+<td>Re-exports</td>
+</tr>
+<tr>
+<td><code>src/vm/runtime.ts</code></td>
+<td>84%</td>
+<td><strong>98%</strong></td>
+<td>Atoms, expression eval, fuel</td>
+</tr>
+<tr>
+<td><code>src/vm/vm.ts</code></td>
+<td>90%</td>
+<td>94%</td>
+<td>VM entry point</td>
+</tr>
+<tr>
+<td><code>src/transpiler/index.ts</code></td>
+<td>100%</td>
+<td>100%</td>
+<td>AJS transpiler</td>
+</tr>
+<tr>
+<td><code>src/builder.ts</code></td>
+<td>92%</td>
+<td>90%</td>
+<td>Fluent builder</td>
+</tr>
+</tbody></table>
+<p><strong>Language/Transpiler:</strong></p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Functions</th>
+<th>Lines</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>src/lang/emitters/ast.ts</code></td>
+<td>94%</td>
+<td>83%</td>
+<td>TJS → AST</td>
+</tr>
+<tr>
+<td><code>src/lang/parser.ts</code></td>
+<td>92%</td>
+<td>82%</td>
+<td>TJS parser</td>
+</tr>
+<tr>
+<td><code>src/lang/inference.ts</code></td>
+<td>57%</td>
+<td>60%</td>
+<td>Type inference (lower priority)</td>
+</tr>
+</tbody></table>
+<p><strong>Test Categories:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Tests</th>
+<th>Coverage</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Security (malicious actor)</td>
+<td>10</td>
+<td>Prototype access, SSRF, ReDoS, path traversal</td>
+</tr>
+<tr>
+<td>Runtime core</td>
+<td>25+</td>
+<td>Fuel, timeout, tracing, expressions</td>
+</tr>
+<tr>
+<td>Stress/Memory</td>
+<td>6</td>
+<td>Large arrays, deep nesting, memory pressure</td>
+</tr>
+<tr>
+<td>Capability failures</td>
+<td>10</td>
+<td>Network errors, store failures, partial capabilities</td>
+</tr>
+<tr>
+<td>Allocation fuel</td>
+<td>4</td>
+<td>Proportional charging for strings/arrays</td>
+</tr>
+<tr>
+<td>Transpiler</td>
+<td>50+</td>
+<td>Language features, edge cases</td>
+</tr>
+<tr>
+<td>Use cases</td>
+<td>100+</td>
+<td>RAG, orchestration, client-server patterns</td>
+</tr>
+</tbody></table>
+<h3>Running Tests</h3>
+<pre><code class="language-bash" data-highlighted><span class="token comment"># Full suite</span>
+bun <span class="token builtin class-name">test</span>
+
+<span class="token comment"># Fast (skip LLM and benchmarks)</span>
+<span class="token assign-left variable">SKIP_LLM_TESTS</span><span class="token operator">=</span><span class="token number">1</span> <span class="token assign-left variable">AGENT99_TESTS_SKIP_BENCHMARKS</span><span class="token operator">=</span><span class="token number">1</span> bun <span class="token builtin class-name">test</span>
+
+<span class="token comment"># With coverage</span>
+bun <span class="token builtin class-name">test</span> <span class="token parameter variable">--coverage</span>
+</code></pre>
+<h2>10. Dependencies</h2>
+<h3>Runtime Dependencies</h3>
+<p>These ship with the library and affect bundle size and security posture.</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Version</th>
+<th>Size</th>
+<th>Purpose</th>
+<th>Risk</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>acorn</code></td>
+<td>^8.15.0</td>
+<td>~30KB</td>
+<td>JavaScript parser for AJS transpilation</td>
+<td><strong>Low</strong> - Mature, widely audited, Mozilla-maintained</td>
+</tr>
+<tr>
+<td><code>tosijs-schema</code></td>
+<td>^1.2.0</td>
+<td>~5KB</td>
+<td>JSON Schema validation</td>
+<td><strong>Low</strong> - Our library, 96.6% coverage, zero deps</td>
+</tr>
+<tr>
+<td><code>@codemirror/*</code></td>
+<td>various</td>
+<td>~50KB</td>
+<td>Editor syntax highlighting (optional)</td>
+<td><strong>Low</strong> - Only loaded for editor integration</td>
+</tr>
+</tbody></table>
+<p><strong>Total runtime footprint:</strong> ~33KB gzipped (core), ~83KB with editor support.</p>
+<h3>tosijs-schema 1.2.0 Coverage</h3>
+<p>Our validation dependency maintains comprehensive test coverage:</p>
+<ul>
+<li><strong>98.25% function coverage, 96.62% line coverage</strong> (146 tests, 349 assertions)</li>
+<li><strong>Edge cases tested:</strong> NaN, Infinity, -0, sparse arrays, unicode, deeply nested structures</li>
+<li><strong>Complex unions:</strong> nested unions, discriminated unions, union of arrays, union with null/undefined</li>
+<li><strong>Format validators:</strong> email, ipv4 boundaries, url protocols, datetime variants</li>
+<li><strong>Strict mode:</strong> <code>validate(data, schema, { strict: true })</code> validates every item</li>
+</ul>
+<p>Because tosijs-schema schemas are JSON data (not code), library coverage extends to user-defined schemas—unlike Zod where user schema compositions are untested code.</p>
+<h3>Development Dependencies</h3>
+<p>Not shipped to users. Used for building, testing, and development.</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Purpose</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>typescript</code></td>
+<td>Type checking and compilation</td>
+<td>Standard</td>
+</tr>
+<tr>
+<td><code>bun</code></td>
+<td>Runtime, bundler, test runner</td>
+<td>Fast, modern</td>
+</tr>
+<tr>
+<td><code>eslint</code> / <code>prettier</code></td>
+<td>Code quality</td>
+<td>Standard</td>
+</tr>
+<tr>
+<td><code>acorn-walk</code></td>
+<td>AST traversal for transpiler</td>
+<td>Only used at build time</td>
+</tr>
+<tr>
+<td><code>codemirror</code></td>
+<td>Editor components for demo</td>
+<td>Demo only</td>
+</tr>
+<tr>
+<td><code>tosijs</code> / <code>tosijs-ui</code></td>
+<td>Demo UI framework</td>
+<td>Demo only</td>
+</tr>
+<tr>
+<td><code>happy-dom</code></td>
+<td>DOM mocking for tests</td>
+<td>Test only</td>
+</tr>
+<tr>
+<td><code>vitest</code></td>
+<td>Alternative test runner</td>
+<td>Optional</td>
+</tr>
+</tbody></table>
+<h3>Dependency Risk Assessment</h3>
+<p><strong>Supply Chain:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Acorn compromise</td>
+<td>Mature project (10+ years), Mozilla backing, widely used</td>
+</tr>
+<tr>
+<td>tosijs-schema compromise</td>
+<td>We control this library</td>
+</tr>
+<tr>
+<td>Transitive dependencies</td>
+<td>Minimal—acorn has 0 deps, tosijs-schema has 0 deps</td>
+</tr>
+</tbody></table>
+<p><strong>Version Pinning:</strong></p>
+<ul>
+<li>Production dependencies use caret (<code>^</code>) for patch updates</li>
+<li>Consider using exact versions or lockfile for production deployments</li>
+</ul>
+<p><strong>Audit:</strong></p>
+<pre><code class="language-bash" data-highlighted><span class="token comment"># Check for known vulnerabilities</span>
+bun audit
+<span class="token comment"># or</span>
+<span class="token function">npm</span> audit
+</code></pre>
+<h3>What We Don&#39;t Depend On</h3>
+<p>Notably absent from our dependency tree:</p>
+<table>
+<thead>
+<tr>
+<th>Common Dependency</th>
+<th>Why We Don&#39;t Use It</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>lodash</td>
+<td>Native JS methods suffice</td>
+</tr>
+<tr>
+<td>axios</td>
+<td>Native fetch + capability injection</td>
+</tr>
+<tr>
+<td>moment/dayjs</td>
+<td>Built-in Date wrapper in expressions</td>
+</tr>
+<tr>
+<td>zod/yup</td>
+<td>tosijs-schema is lighter and sufficient</td>
+</tr>
+<tr>
+<td>jsep</td>
+<td>Replaced with acorn + custom AST nodes</td>
+</tr>
+</tbody></table>
+<p>This minimal dependency approach reduces supply chain risk and bundle size.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link current" href="../CONTEXT/" aria-current="page">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

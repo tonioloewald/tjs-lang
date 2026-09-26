@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>JS Footguns That TJS Quietly Fixes — tjs-lang</title>
+  <meta name="description" content="JavaScript has a small set of legendary, well-documented gotchas that no one defends but that the spec will never change." />
+  <link rel="canonical" href="https://tjs.tosijs.net/footguns/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="JS Footguns That TJS Quietly Fixes — tjs-lang" />
+  <meta property="og:description" content="JavaScript has a small set of legendary, well-documented gotchas that no one defends but that the spec will never change." />
+  <meta property="og:url" content="https://tjs.tosijs.net/footguns/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"JS Footguns That TJS Quietly Fixes","description":"JavaScript has a small set of legendary, well-documented gotchas that no one defends but that the spec will never change.","url":"https://tjs.tosijs.net/footguns/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "tjs.md", "order": 4}--><h1>JS Footguns That TJS Quietly Fixes</h1>
+<p>JavaScript has a small set of legendary, well-documented gotchas that no one
+defends but that the spec will never change. Native TJS fixes them at the
+language level so you don&#39;t have to remember which version of an idiom to
+use in which context.</p>
+<p>A runnable demo lives at <a href="../examples/js-footguns-fixed.tjs"><code>examples/js-footguns-fixed.tjs</code></a>:</p>
+<pre><code class="language-bash" data-highlighted>bun src/cli/tjs.ts run examples/js-footguns-fixed.tjs
+</code></pre>
+<p>All the fixes below are <strong>always on in <code>.tjs</code></strong> (the default for
+native TJS files). They are <strong>off</strong> under <code>TjsCompat</code>, in <code>fromTS</code>-emitted
+code, and in AJS/VM targets — so existing JS/TS semantics are preserved
+when you opt out.</p>
+<hr>
+<h2>1. <code>Boolean(new Boolean(false))</code> is <code>true</code> (and friends)</h2>
+<p>A boxed primitive is an <code>Object</code>, and the spec&#39;s <code>ToBoolean</code> operation
+declares any <code>Object</code> truthy. The result:</p>
+<!-- tjs-doc: fragment --><pre><code class="language-js">Boolean(new Boolean(false))   // true   — wrong!
+if (new Boolean(false)) { ... }   // enters branch — wrong!
+!new Boolean(false)           // false  — wrong!
+new Boolean(false) || &#39;x&#39;     // Boolean { false } — wrong!
+new Boolean(false) ? &#39;y&#39; : &#39;n&#39;  // &#39;y&#39; — wrong!
+</code></pre>
+<p><code>Symbol.toPrimitive</code> doesn&#39;t fire for boolean coercion, so there is no
+hook to fix this in plain JS. <strong>TJS rewrites every truthiness context</strong>
+(including <code>if</code>, <code>while</code>, <code>for</code>, <code>do</code>, <code>!</code>, <code>&amp;&amp;</code>, <code>||</code>, ternary, and
+top-level <code>Boolean(x)</code> calls) to call <code>__tjs.toBool(x)</code>, which unwraps
+boxed primitives before applying <code>ToBoolean</code>:</p>
+<!-- tjs-doc: fragment --><pre><code class="language-tjs">Boolean(new Boolean(false))    // false  ✓
+if (new Boolean(false)) ...    // does not enter  ✓
+!new Boolean(false)            // true   ✓
+new Boolean(false) || &#39;x&#39;      // &#39;x&#39;    ✓
+</code></pre>
+<p>The <code>&amp;&amp;</code> / <code>||</code> rewrites preserve JS&#39;s value-returning semantics: <code>a &amp;&amp; b</code>
+still returns <code>a</code> when <code>a</code> is falsy (after unwrapping) and <code>b</code> otherwise.
+Side effects fire exactly as they would in raw JS — <code>inc() &amp;&amp; inc()</code> calls
+<code>inc</code> twice. No double-evaluation.</p>
+<p><code>??</code> (nullish coalescing) is intentionally <strong>not</strong> rewritten. Its semantics
+are about <code>null</code>/<code>undefined</code> specifically, not truthiness, so boxed
+primitives behave correctly already (<code>new Boolean(false) ?? &#39;fallback&#39;</code>
+returns the wrapper, which is what you&#39;d want).</p>
+<p><code>===</code> / <code>!==</code> (identity) are also not touched — that&#39;s a different
+footgun, handled by the <code>Is</code> operator (see below).</p>
+<blockquote>
+<p><strong>Why fix instead of ban?</strong> Boxed primitives have legitimate uses
+(passing primitives by reference, attaching properties for tagging).
+Banning them with a parse error would be paternalistic. TJS lets you
+use them — and makes them work the way the name implies.</p>
+</blockquote>
+<h2>2. <code>==</code> is a coercion lottery; <code>NaN !== NaN</code></h2>
+<p>Raw JS <code>==</code> coerces wildly across types:</p>
+<!-- prettier-ignore -->
+<!-- tjs-doc: fragment --><pre><code class="language-js">&#39;5&#39; == 5     // true
+&#39;&#39; == false  // true
+0 == &#39;&#39;      // true
+[1] == 1     // true
+</code></pre>
+<p>…and <code>NaN</code> is famously unequal to itself, which makes &quot;is this a real
+number?&quot; checks awkward.</p>
+<p>Native TJS rewrites <code>==</code> and <code>!=</code> to <strong>honest equality</strong> (the <code>Eq</code> /
+<code>NotEq</code> runtime functions):</p>
+<!-- tjs-doc: fragment --><pre><code class="language-tjs">&#39;5&#39; == 5          // false  ✓ (different types, no coercion)
+NaN == NaN        // true   ✓
+null == undefined // true   (preserved — this one is actually useful)
+</code></pre>
+<p>Boxed primitives are unwrapped before comparison: <code>new Boolean(false) == false</code>
+is <code>true</code>.</p>
+<p>For <strong>deep structural equality</strong> of objects, arrays, Maps, and Sets, use
+the explicit <code>Is</code> / <code>IsNot</code> operators:</p>
+<!-- tjs-doc: fragment --><pre><code class="language-tjs">Is({a: 1}, {a: 1})    // true   ✓
+Is([1, 2], [1, 2])    // true   ✓
+{a: 1} Is {a: 1}      // true   ✓ (infix form)
+</code></pre>
+<p>Identity comparison stays available as <code>===</code> / <code>!==</code> when you really
+mean &quot;same reference.&quot;</p>
+<h2>3. <code>typeof null === &#39;object&#39;</code></h2>
+<p>The original JS bug, preserved forever for backward compatibility.
+In <code>.tjs</code>, <code>typeof</code> is rewritten to a runtime helper that returns
+<code>&#39;null&#39;</code> for <code>null</code>:</p>
+<pre><code class="language-tjs">typeof null   // &#39;null&#39;  ✓
+typeof undefined   // &#39;undefined&#39;
+typeof 42     // &#39;number&#39;
+</code></pre>
+<h2>4. <code>let x</code> (uninitialized) silently leaves a hole</h2>
+<p>Raw JS: <code>let x</code> declares a variable bound to <code>undefined</code>. There&#39;s no
+indication whether you forgot to initialize it, intend to assign it
+later, or intend it to actually be undefined.</p>
+<p>Native TJS warns under the <code>safe-assign-let-needs-type</code> linter rule:</p>
+<pre><code class="language-tjs">let x                     // ⚠ let needs initializer or type annotation
+let y = undefined         // ⚠ same
+let z = null              // ⚠ same
+let result: &#39;&#39;            // ✓ type annotation, no init
+let count = 0             // ✓ inferable from init
+</code></pre>
+<p>Once a <code>let</code> is &quot;typed&quot; (annotated or inferable), assigning literal
+<code>undefined</code> / <code>null</code> / <code>void 0</code> to it is also flagged:</p>
+<pre><code class="language-tjs">let name = &#39;world&#39;
+name = undefined          // ⚠ Cannot assign undefined to typed let &#39;name&#39;
+</code></pre>
+<p>Severity is warning by default, error under <code>TjsStrict</code>.</p>
+<h2>5. Classes that require <code>new</code></h2>
+<p>Calling a class without <code>new</code> is a <code>TypeError</code> in strict mode and silently
+leaks to the global object in sloppy mode. TJS wraps user classes (always, in
+<code>.tjs</code>) so they are CALLED — and because the two forms then produce identical
+objects, <code>new</code> on a class declared in the file is an error rather than a synonym:</p>
+<!-- tjs-doc: expect-error --><pre><code class="language-tjs">class Point {
+  constructor(x: 0, y: 0) { this.x = x; this.y = y }
+}
+
+Point(1, 2)              // ✓ the TJS way
+unsafe new Point(1, 2)   // ✓ deliberate
+new Point(1, 2)          // ✗ ERROR — the two forms are identical, so `new` said nothing
+</code></pre>
+<p>Scoped to classes declared in the file. For a built-in, <code>new</code> is <strong>mandatory</strong>:
+<code>new Float32Array(4)</code> throws without it, so those are untouched.</p>
+<h2>6. <code>var</code> hoisting and the temporal dead zone</h2>
+<p><code>var</code> declarations are a parse error in <code>.tjs</code>. Use
+<code>let</code> and <code>const</code> exclusively, get block scoping, and avoid the entire
+class of &quot;wait, that&#39;s hoisted?&quot; bugs.</p>
+<hr>
+<h2>Opting out</h2>
+<p>If you have a specific file where you need raw JS semantics:</p>
+<pre><code class="language-tjs">TjsCompat
+// All TJS modes off; behaves like plain JS.
+</code></pre>
+<p>For ts-originated code (<code>fromTS</code>), all modes default off. Add <code>TjsStrict</code>
+if you want to opt back in.</p>
+<p>For specific mode toggles, see <a href="../DOCS-TJS.md">DOCS-TJS.md</a> and the
+mode list in <a href="../CLAUDE-TJS-SYNTAX.md">CLAUDE-TJS-SYNTAX.md</a>.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link current" href="../footguns/" aria-current="page">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>North star: JSON-Schema + predicates as the single source of truth for types — tjs-lang</title>
+  <meta name="description" content="A TJS type is, canonically, a JSON-Schema node — optionally carrying a $predicate (a verified-pure predicate cluster) for the computational part that plain…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/type-system-north-star/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="North star: JSON-Schema + predicates as the single source of truth for types — tjs-lang" />
+  <meta property="og:description" content="A TJS type is, canonically, a JSON-Schema node — optionally carrying a $predicate (a verified-pure predicate cluster) for the computational part that plain…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/type-system-north-star/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"North star: JSON-Schema + predicates as the single source of truth for types","description":"A TJS type is, canonically, a JSON-Schema node — optionally carrying a $predicate (a verified-pure predicate cluster) for the computational part that plain…","url":"https://tjs.tosijs.net/type-system-north-star/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "the-tjs-language.md", "order": 8}--><h1>North star: JSON-Schema + predicates as the single source of truth for types</h1>
+<blockquote>
+<p><strong>Status: strategic direction (2026-07-06, user-set). Possibly post-1.0. Use as
+a decision lens NOW.</strong> Related: <code>$predicate</code> keyword
+(<code>src/lang/predicate-schema.ts</code>), <code>createPredicateEvaluator</code>, the <code>tjs-lang/css</code>
+library, <code>docs/ambient-contracts.md</code>, PRINCIPLES.md.</p>
+</blockquote>
+<h2>The principle</h2>
+<p><strong>A TJS type is, canonically, a JSON-Schema node — optionally carrying a
+<code>$predicate</code> (a verified-pure predicate cluster) for the computational part that
+plain JSON-Schema can&#39;t express.</strong> Everything else — examples-as-types (<code>x: 0</code>),
+TS-derived types, <code>Type</code>/<code>Generic</code> declarations, <code>TypeDescriptor</code> — is <strong>surface
+syntax or an internal projection</strong> of that one canonical form, not a competing
+source of truth.</p>
+<ul>
+<li><strong>Structure</strong> (shape, required keys, enums, ranges, nesting) → JSON-Schema
+keywords, which any validator understands.</li>
+<li><strong>Computation</strong> (open value grammars, cross-field invariants, recursive
+grammars — the things TS/JSON-Schema cave to <code>string</code>/<code>any</code> on) → <code>$predicate</code>,
+which a predicate-aware validator runs.</li>
+</ul>
+<p>Together they express the full range of what TJS types mean, in a <strong>standard,
+serializable, inspectable, cross-language</strong> form.</p>
+<h2>The decision lens</h2>
+<p>For any architecture or implementation choice, ask:</p>
+<blockquote>
+<p><strong>Does this move types toward — or away from — being fully expressible as
+JSON-Schema + <code>$predicate</code>?</strong></p>
+</blockquote>
+<p>Concretely, <em>toward</em> looks like:</p>
+<ul>
+<li>New type capabilities are added by (a) a JSON-Schema keyword, or (b) a
+predicate — never a bespoke <code>TypeDescriptor</code> field that can&#39;t round-trip to
+JSON-Schema + <code>$predicate</code>.</li>
+<li><code>TypeDescriptor</code> is treated as a <strong>lossless projection</strong> of the canonical form
+(a convenient in-memory shape), not a superset. If something can live in
+<code>TypeDescriptor</code> but not in JSON-Schema + <code>$predicate</code>, that&#39;s a smell.</li>
+<li><code>.d.ts</code> emission, runtime validation, inference, and autocomplete all <strong>derive
+from</strong> the canonical form rather than from a parallel representation.</li>
+<li>The predicate subset stays <strong>small and portable</strong> (see below) so <code>$predicate</code>
+can run anywhere — expanding it is a cost, not a free win.</li>
+</ul>
+<p><em>Away</em> looks like: a TJS-only internal type IR that accretes features JSON-Schema</p>
+<ul>
+<li><code>$predicate</code> can&#39;t carry; validation logic that only the JS runtime can do;
+predicate features that need a full JS engine.</li>
+</ul>
+<h2>Why this is the right endgame</h2>
+<ul>
+<li><strong>Types as data.</strong> JSON-Schema + <code>$predicate</code> is just JSON — it travels, it&#39;s
+inspectable, it&#39;s diffable, it survives a network hop or a file. Types stop
+being a compile-time-only artifact.</li>
+<li><strong>Cross-language by construction.</strong> Any language with a JSON-Schema validator
+gets TJS <em>structure</em> for free; add a small predicate VM (below) and it gets the
+<em>computational</em> half too. TJS types become a contract multiple runtimes share.</li>
+<li><strong>Standard, not bespoke.</strong> We ride the JSON-Schema ecosystem (tooling, docs,
+editors) instead of reinventing it, and add exactly the one thing it lacks.</li>
+<li><strong>It&#39;s already real.</strong> <code>tjs-lang/css</code> is a working JSON-Schema + <code>$predicate</code>
+artifact; <code>tosijs-schema</code> (via <code>createPredicateEvaluator</code>) already runs it;
+<code>cssStyleSchema()</code> produces exactly this shape. The endgame exists in miniature.</li>
+</ul>
+<h2>The priority that unlocks it: a small, portable predicate VM</h2>
+<p>For &quot;types across language boundaries&quot; to be real, <code>$predicate</code> must <strong>run
+anywhere</strong>, not just in JS. The priority is a <strong>reference implementation of a tiny,
+portable VM that safely evaluates the predicate subset</strong> — ideally smaller than a
+JS runtime, implementable in a few hundred lines in any language.</p>
+<p>It&#39;s tractable precisely because the predicate subset is deliberately minimal
+(the verifier enforces it): pure, synchronous, <strong>no loops</strong> (recursion + array
+methods only), fuel-bounded, no IO, a whitelist of pure operations (member access,
+comparisons, <code>&amp;&amp;</code>/<code>||</code>/ternary, <code>typeof</code>, a fixed set of string/array/Math/regex
+methods). That&#39;s a small tree-walking interpreter — no closures-over-mutable-state,
+no async, no allocation surprises, no host access.</p>
+<p><strong>Key architectural implication — carry the AST, not (only) the source.</strong> Today
+<code>$predicate</code> is predicate <em>source</em> (JS/AJS text). A portable VM in Rust/Go/Python
+shouldn&#39;t have to embed a JS parser. So the canonical portable form of a predicate
+should be its <strong>serialized AST</strong> (JSON) — which is the original AJS thesis (&quot;code
+travels as data&quot;) applied here. Source stays the authoring form; the serialized
+AST is the wire/exec form the small VM walks. A <code>$predicate</code> could carry either,
+with the AST as the portable default.</p>
+<h2><code>asCompared</code> — the missing half of a type</h2>
+<p><strong>Status:</strong> designed, not built. Targeted as a patch after 0.13.3 — it is additive and
+non-breaking, so it need not wait for 0.14.</p>
+<h3>The gap</h3>
+<p>A type today answers one question: <strong>membership</strong> — does <code>v</code> satisfy <code>T</code>? That is what
+<code>predicate</code> is. It cannot answer the other one: <strong>equivalence</strong> — are <code>a</code> and <code>b</code> the same,
+<em>as T</em>?</p>
+<p>Tonio&#39;s framing, which states it better than anything else here:</p>
+<blockquote>
+<p>a number is a number for comparison, but <code>-1</code> is not a positive integer</p>
+</blockquote>
+<p>Those are independent. <code>-1</code> failing <code>Positive</code> is membership. <code>1</code> and <code>1.0</code> being the same
+number is equivalence. A type that can only answer the first is half a type.</p>
+<h3>The hook that exists, and why it cannot close the gap</h3>
+<p><code>goIs</code> dispatches to <code>[Symbol.for(&#39;tjs.equals&#39;)]</code> or <code>.Equals</code> — a method <strong>bound to the
+value</strong>, Java-style. Three things follow, and each is fatal on its own:</p>
+<ol>
+<li><strong>Primitives cannot participate.</strong> <code>customEquals</code> returns <code>null</code> for anything where
+<code>typeof x !== &#39;object&#39;</code>. There is no way to say &quot;compare these floats with tolerance&quot;.</li>
+<li><strong>You must own the class.</strong> Making a Firestore <code>Timestamp</code> compare as a timestamp would
+mean monkey-patching a prototype you do not own — prototype pollution, which this
+codebase treats as a security boundary (<code>FORBIDDEN_KEYS</code>).</li>
+<li><strong>Equivalence is type-relative, so it cannot live on the value.</strong> <code>1.0000001</code> and <code>1.0</code>
+are equal as <code>Approximate</code>, distinct as <code>Float</code>. Only the <em>comparator</em> knows which
+question is being asked. The current design put the answer in the wrong place.</li>
+</ol>
+<h3>The language already does this — for three types, hardcoded</h3>
+<pre><code class="language-ts">if (v instanceof String)  return String.prototype.valueOf.call(v)
+if (v instanceof Number)  return Number.prototype.valueOf.call(v)
+if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
+</code></pre>
+<p><code>unwrapBoxed</code> <strong>is</strong> a comparator registry with exactly three entries. It is precisely
+&quot;compare this object as something else&quot; — a <code>String</code> instance normalised to a string before
+comparison. The semantics were decided and shipped; what was never shipped is a way to add
+a fourth entry.</p>
+<p><code>asCompared</code> generalises those three hardcoded cases into an open registry. They become its
+base cases rather than a special rule.</p>
+<h3>A projection, not a comparison</h3>
+<pre><code class="language-ts">extend Timestamp {
+  asCompared() { return this.seconds * 1000 + this.nanoseconds / 1e6 }
+}
+</code></pre>
+<p>The name is deliberate: it says what the value <strong>is, for comparison</strong> — not how to compare
+it. That distinction carries real weight:</p>
+<ul>
+<li><strong>It composes.</strong> A deep walk normalises each node before comparing, exactly as
+<code>unwrapBoxed</code> already does. A <code>Timestamp</code> nested three levels inside an object just works.
+An <code>Equals(other)</code> predicate only fires where something remembers to dispatch it.</li>
+<li><strong>It generalises past equality.</strong> Once a value can say what it is for comparison, ordering
+and range checks follow from the same hook. <code>Equals</code> could never give that.</li>
+</ul>
+<h3>It is consumed by <code>Eq</code>, <code>Is</code> AND <code>toBool</code></h3>
+<p>This is the part that makes it more than an equality feature, and it answers the question
+that prompted the design — <em>why don&#39;t <code>Eq</code> and <code>toBool</code> use the computed comparator?</em> Because
+there isn&#39;t one, and both need it.</p>
+<p><code>toBool</code> is <code>Boolean(unwrapBoxed(v))</code>. An errored service result is an object, objects are
+truthy, so <code>if (result)</code> takes the <strong>success</strong> branch and the type cannot say otherwise:</p>
+<pre><code>toBool({ ok: false, error: &#39;timeout&#39; })   -&gt;  true
+</code></pre>
+<p>With <code>asCompared → false</code>, <code>if (result)</code> is correct. The same applies to any library&#39;s own
+boolean wrapper, which <code>unwrapBoxed</code> cannot see because it only knows <code>Boolean</code>.</p>
+<h3>Return type: a primitive, or nothing</h3>
+<p><strong>Allowed: <code>number</code>, <code>string</code>, <code>boolean</code>, <code>null</code>, <code>undefined</code>.</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>why</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>number</code></td>
+<td>ordering falls out free (<code>&lt;</code>, <code>&gt;</code>, sorting)</td>
+</tr>
+<tr>
+<td><code>string</code></td>
+<td>identity and normalisation — <code>URL → href</code>, case-insensitive keys; and it is what the existing <code>String</code> entry already returns</td>
+</tr>
+<tr>
+<td><code>boolean</code></td>
+<td>feeds <code>toBool</code>; errored results and foreign boolean wrappers</td>
+</tr>
+<tr>
+<td><code>null</code> / <code>undefined</code></td>
+<td><code>Option</code>/<code>Maybe</code> — <code>None</code> projects to <code>null</code>, and <code>Eq</code> already treats the two as equal</td>
+</tr>
+</tbody></table>
+<p><strong>Rejected:</strong></p>
+<ul>
+<li><strong><code>bigint</code></strong> — the only case was nanosecond-exact timestamp equality. Almost nobody needs
+that precision, and anyone who does would not reach for <code>==</code>. Excluding it also removes a
+genuine trap: <code>1n === 1</code> is <code>false</code>, so two modules projecting the same type to <code>bigint</code>
+and to <code>number</code> would silently compare unequal. (For the record, the precision is real:
+a nanosecond epoch value overflows <code>MAX_SAFE_INTEGER</code> by ~198×, leaving a 128ns
+resolution. The judgement is that nobody is doing that with <code>==</code>.)</li>
+<li><strong><code>symbol</code></strong> — no case that an object reference does not serve.</li>
+<li><strong>object references</strong> — &quot;compare as another object&quot; defers the question rather than
+answering it.</li>
+</ul>
+<p>The rule is simpler than the list: <strong>project to a primitive, or to nothing.</strong> Which is
+exactly what <code>unwrapBoxed</code> already does.</p>
+<p>Participation is signalled by whether the type <strong>declares</strong> <code>asCompared</code>, not by what it
+returns — otherwise <code>null</code>/<code>undefined</code> would be ambiguous with declining.</p>
+<h3>Resolved: a registry CHAIN, rooted at the host</h3>
+<p>The scoping question is settled, and the answer reframes what <code>asCompared</code> is.</p>
+<p><strong>The registry chain is TJS&#39;s view of the type environment.</strong></p>
+<pre><code>module registry      ← `extend` lands here; local, does not leak (SHIPPED GLOBAL in
+                       0.13.4 by mistake — fixed in 0.13.5; see the CHANGELOG)
+       ↑ inherits
+globalThis.__tjs     ← the shared view, one of them, installed before anything runs
+       ↑ inherits
+the type ITSELF      ← `class Foo { asCompared() {…} }` (0.13.6)
+       ↑ inherits
+host built-ins       ← String / Number / Boolean base entries
+</code></pre>
+<p>Lookup walks up; writes land locally. A module can say &quot;a Firestore <code>Timestamp</code> compares as
+millis&quot; without any other module seeing it, while everyone inherits the shared view of
+<code>String</code>.</p>
+<p><strong>The type&#39;s own method is the layer beneath the registries</strong>, and it is the one that makes
+the chain complete rather than merely long. The registries are keyed by <code>constructor.name</code> —
+that is a <em>third party</em> describing a type it does not own, which is why a registration is an
+override and is consulted first. A method is the type answering for itself, so it is the
+default everyone inherits, exactly like the host entries below it.</p>
+<p>It is also the only layer a <strong>Proxy</strong> can reach (#33), and that turned out to be load-bearing
+for a real consumer. tosijs 2.0&#39;s boxed scalars are proxies over <code>new Number(0)</code> serving a
+live value from the <code>get</code> trap. Neither layer above works for them:</p>
+<ul>
+<li><strong>The slot read can&#39;t</strong>: a Proxy has no internal slot and slots are not forwarded to the
+target, so <code>Number.prototype.valueOf.call(p)</code> throws while <code>p instanceof Number</code> says yes.</li>
+<li><strong>The registries can&#39;t</strong>: the proxy reports its <em>target&#39;s</em> <code>constructor.name</code>, so the only
+registerable key is <code>&#39;Number&#39;</code> — claiming it for every boxed Number in the process.</li>
+</ul>
+<p>A <code>get</code> trap can serve a method. That is the whole reason this layer is a method and not
+another table.</p>
+<p><strong>Duck-typed on the name, deliberately.</strong> <code>[tjsEquals]</code> and <code>.Equals</code> are dispatched the same
+way, and the line this codebase draws is the right one: <em>a hook a type declares about itself</em>
+is categorically different from <em>a boxed primitive intercepting a comparison it never agreed
+to join</em>. Nobody writes <code>asCompared</code> by accident — unlike <code>valueOf</code>, which every <code>Date</code> and
+<code>Number</code> already has, and which is precisely why <code>unwrapBoxed</code> reads the internal slot
+instead of calling it. Containment is unchanged either way: the probe and the call are both
+fail-soft, and a projection that is not a primitive is ignored rather than honoured.</p>
+<p>The emitted preamble already encodes exactly this link:</p>
+<pre><code class="language-js">const __tjs = globalThis.__tjs?.createRuntime?.() ?? { …inline stubs }
+</code></pre>
+<p><strong>Why the chain is only two levels deep — and must be.</strong> A module&#39;s parent is <code>globalThis</code>,
+not its importer. Modules form a flat GRAPH, not a tree: at runtime nothing knows who
+imported it, and a module imported by two others would have two candidate parents. Which one
+it got would then depend on <strong>evaluation order</strong> — the same module producing different
+comparison semantics depending on who won the import race. <code>Is(a, b)</code> answering differently
+by load order is about the worst property a comparator can have: nondeterministic, invisible
+and unreproducible.</p>
+<p>So lexical inheritance is not merely hard here, it is incoherent. The flat module graph
+forces the flat chain, and each layer&#39;s determinism is then trivially statable: a module&#39;s
+own extends are its own, the global layer is whatever was installed before anything ran, and
+the base is fixed.</p>
+<p><strong>What this makes true, that the earlier framing missed:</strong></p>
+<ul>
+<li><strong><code>unwrapBoxed</code> is not a special case — it IS the root layer.</strong> Its three entries are the
+host built-ins&#39; comparison projections. &quot;A <code>String</code> instance compares as a string&quot; is
+TJS&#39;s view of a host type, which is precisely what the root is for. This feature does not
+<em>generalise</em> three hardcoded cases; those cases were always registry contents that had
+nowhere to be stored.</li>
+<li><strong>The inline-runtime blocker dissolves.</strong> A standalone emitted file does not need a full
+registry — it needs its own local table plus the fixed base entries, which an inline stub
+can carry. With no shared runtime the chain degrades to module → base and still works.</li>
+<li><strong>It is the same layer as <code>docs/ambient-contracts.md</code>.</strong> That document is about the DOM
+being pessimistically typed (<code>e.target.value</code> failing because <code>EventTarget</code> does not
+declare <code>value</code>) and proposes deriving contracts for ambient types. Membership contracts
+and comparison projections are two kinds of entry in ONE table, not two mechanisms.</li>
+<li><strong>It answers &quot;local, or it is prototype pollution by another name.&quot;</strong> A single flat global
+table that every module writes to and every module reads from would be exactly that. The
+chain gives sharing without leaking.</li>
+</ul>
+<h3>Prerequisite: <code>extend</code>&#39;s runtime half is dead code</h3>
+<p><strong>This must be fixed first, and it is not a parallel task.</strong> Measured at 0.13.3:</p>
+<table>
+<thead>
+<tr>
+<th>receiver</th>
+<th>emitted</th>
+<th>works?</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>literal — <code>&#39;hello&#39;.cap()</code></td>
+<td><code>__ext_String.cap.call(&#39;hello&#39;)</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td>annotated param — <code>s: &#39;&#39;</code></td>
+<td><code>s.cap()</code></td>
+<td><strong>no</strong> — <code>s.cap is not a function</code></td>
+</tr>
+<tr>
+<td>untyped param</td>
+<td><code>s.cap()</code></td>
+<td><strong>no</strong></td>
+</tr>
+</tbody></table>
+<p>Only a LITERAL receiver is rewritten. Even a parameter the transpiler knows is a string
+emits an unrewritten call, which needs <code>String.prototype.cap</code> — deliberately absent.</p>
+<p>The registry is <strong>write-only</strong>: emitted code calls <code>registerExtension</code>, and the emitter never
+emits a <code>resolveExtension</code> call anywhere. Entries go in; nothing looks them up.
+<code>CLAUDE-TJS-SYNTAX.md:656</code> claims &quot;Runtime fallback via
+<code>registerExtension()</code>/<code>resolveExtension()</code> for unknown types&quot; — the resolver exists, is
+exported, walks prototype chains correctly, and is never called.</p>
+<p>So <code>extend</code> is currently local by ACCIDENT rather than design: local because the only working
+mechanism is a lexical rewrite, and the mechanism that would make it non-local is unreachable.
+Wiring the resolver without deciding the chain first would turn it into the flat global table
+described above — the prototype pollution the feature exists to avoid.</p>
+<p><code>asCompared</code> cannot ride on <code>extend</code> until that half works, and fixing it is where the chain
+model actually gets built.</p>
+<h3>Still open</h3>
+<ul>
+<li><strong>Declaration site.</strong> <code>extend Timestamp { asCompared() { … } }</code> reuses the mechanism and
+needs no new syntax; a slot on <code>Type</code> serializes into the <code>$predicate</code> story and travels
+to the portable predicate VM. The chain model works for either.</li>
+<li><strong>Whose registry answers <code>Is(a, b)</code></strong> when the call is in module A and the value came from
+module B. The caller&#39;s, under this model — <em>you</em> choose how to compare, which is what
+&quot;as compared&quot; says. The alternative (the value&#39;s defining module) is defensible and
+disagrees, so it should be stated rather than left implicit.</li>
+</ul>
+<h3>Implementation notes</h3>
+<ul>
+<li>Probe fail-soft, invoke strictly — the discipline <code>goIs</code> already documents. Asking a Proxy
+whether it declares <code>asCompared</code> runs a trap that can throw, and a hostile object must not
+throw out of <code>==</code>. A declared hook that throws is the author&#39;s own bug and should surface.</li>
+<li>Five copies of the comparator exist by design (bundle isolation): <code>runtime.ts</code>,
+<code>tests.ts</code>&#39;s <code>expectFunction</code>, <code>js-tests.ts</code>&#39;s <code>__deepEqual</code>/<code>formatValue</code>, and the
+emitted inline <code>Is</code>. <strong>All five move together or they drift.</strong></li>
+<li>The hot path must stay allocation-free. <code>Eq</code> is ~29ns; a lookup on every comparison is the
+main risk to watch.</li>
+</ul>
+<h2><code>Predicate</code> is the umbrella — and it already exists, unnamed</h2>
+<p><strong>Design position (Tonio, 2026-09-19):</strong> <em>predicates stay plain functions under the hood, but
+within TJS they are instances of <code>Predicate</code>.</em> Everything that answers <strong>&quot;does <code>v</code> satisfy X&quot;</strong>
+is a predicate; the declaration forms differ only in how they are constructed and how much they
+can tell you about themselves.</p>
+<p>This started as an argument for renaming <code>FunctionPredicate</code> to <code>FunctionType</code>, on the grounds
+that it declares a function <em>type</em>. That argument proves too much: <code>Type Age 0</code> also produces a
+runtime checker, so if producing a check disqualifies something from being a predicate, nothing
+in the language is one. The taxonomy was wrong at the root, and the rename was abandoned
+mid-flight.</p>
+<h3>The finding: the interface is already implemented</h3>
+<p>Every declaration form returns an object sharing <strong>exactly five members</strong>:</p>
+<pre><code>__runtimeType   check   description   strip   toJSONSchema
+</code></pre>
+<p>and each adds its own introspection on top:</p>
+<table>
+<thead>
+<tr>
+<th>form</th>
+<th>adds</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Type Age 0</code></td>
+<td><code>example</code>, <code>examples</code>, <code>default</code>, <code>schema</code>, <code>predicate</code></td>
+</tr>
+<tr>
+<td><code>Enum Colour [&#39;red&#39;,&#39;green&#39;]</code></td>
+<td><code>values</code>, <code>keys</code>, <code>names</code>, <code>members</code></td>
+</tr>
+<tr>
+<td><code>Union U [0, &#39;&#39;]</code></td>
+<td><code>values</code></td>
+</tr>
+<tr>
+<td><code>FunctionPredicate Cb {…}</code></td>
+<td><code>params</code>, <code>returns</code>, <code>returnContract</code></td>
+</tr>
+</tbody></table>
+<p>So the common concept is not hypothetical — it is built, consistent across four constructs, and
+branded (<code>__runtimeType: true</code>). <strong>It has no name.</strong> That is the gap.</p>
+<h3>Why naming it is not cosmetic</h3>
+<p>A named umbrella gives one answer where there are currently four parallel ones:</p>
+<ul>
+<li><strong>One thing to serialise.</strong> <code>$predicate</code> needs a subject; today each form implements
+<code>toJSONSchema</code> separately and nothing says they are the same kind of thing.</li>
+<li><strong>One thing to compose.</strong> <code>verifyPredicate</code> certifies clusters of plain functions, and there
+is currently no expressible relationship between a verified <code>isColor</code> and a <code>Type</code> — though
+both answer the same question.</li>
+<li><strong>One thing to introspect.</strong> Editor tooling, <code>suggest()</code>, and <code>.d.ts</code> generation all want
+&quot;give me the check and whatever else you know&quot;, which is precisely this interface.</li>
+<li><strong>One thing to document.</strong> The book currently needs a declarations chapter that explains four
+constructs and then separately explains predicates, when it should explain one idea with four
+constructions.</li>
+</ul>
+<h3>What &quot;plain functions under the hood&quot; buys, and must not cost</h3>
+<p>The constraint that keeps this honest: a <code>Predicate</code> must remain <strong>an ordinary JavaScript
+function</strong> underneath. Not a class instance requiring a runtime, not a wrapper that has to be
+unwrapped at a boundary. That is what lets a verified predicate compile to native JS, travel as
+<code>$predicate</code>, and be called by code that has never heard of TJS — and it is the same
+&quot;inside JavaScript&quot; commitment the rest of the language rests on (<code>guides/why-tjs.md</code>).</p>
+<p><code>FunctionPredicate</code> then stops looking like an outlier and reads correctly: <strong>a <code>Predicate</code> whose
+subject happens to be a function, distinguished by richer introspection</strong> — it can report
+<code>params</code> and <code>returns</code>, not merely &quot;yes, that is a function&quot;. The specialisation is in what it
+knows, not in what kind of thing it is.</p>
+<h3>The concrete difference: a <code>Type</code> is a <code>Predicate</code> that carries a WITNESS</h3>
+<p><strong>Decided 2026-09-20.</strong> The relationship between <code>Type</code> and <code>Predicate</code> is not a hierarchy. It
+is <em>what the predicate additionally carries</em>, which makes it an <strong>instances</strong> story rather than
+a subclass one.</p>
+<p>A <strong><code>Predicate</code> can decide</strong> — <code>check(v) -&gt; boolean</code>, and that is the entire contract. <code>n % 2 === 0</code> has nothing else to offer; you cannot ask it for an even number.</p>
+<p>A <strong><code>Type</code> is built from an example</strong>, so it carries a <strong>witness value</strong> — and every other
+capability it has follows from that one fact:</p>
+<pre><code>Type(&#39;age&#39;, 0).check(5)   -&gt; true      it decides, like any predicate
+Type(&#39;age&#39;, 0).example    -&gt; 0         it carries a witness
+Type(&#39;age&#39;, 0).default    -&gt; 0         ...so it can GENERATE
+                                       ...so it can STRIP (it knows the shape)
+                                       ...so it can describe STRUCTURE in JSON Schema
+</code></pre>
+<p>Generalised, the four existing forms differ only in what they carry:</p>
+<table>
+<thead>
+<tr>
+<th>carries</th>
+<th>can additionally</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Predicate</code> — nothing</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>Type</code> — one example</td>
+<td>generate, strip, describe structure</td>
+</tr>
+<tr>
+<td><code>Enum</code> / <code>Union</code> — the whole finite domain</td>
+<td>generate, <strong>enumerate → autocomplete for free</strong></td>
+</tr>
+<tr>
+<td><code>FunctionPredicate</code> — a signature</td>
+<td>describe <code>params</code>/<code>returns</code>, check arity</td>
+</tr>
+</tbody></table>
+<p>Capabilities are <strong>properties present or absent</strong>, not subclasses. <code>instanceof Predicate</code>
+comes from a <strong>real prototype chain</strong>: <code>brandPredicate</code> (<code>src/types/predicate-brand.ts</code>) sets a
+predicate&#39;s prototype to <code>Predicate.prototype</code>, which itself links to <code>Function.prototype</code>, so a
+predicate keeps <code>call</code>/<code>apply</code>/<code>bind</code> and stays a function to everything that does not know
+better.</p>
+<p><em>Superseded design, kept because the reasoning shows up elsewhere in this note:</em> the first
+draft used <code>Symbol.hasInstance</code> on the brand, which spanned a plain object like the old
+<code>Type(…)</code> and an ordinary callable like <code>isColor</code> without touching prototypes. It stopped being
+necessary once runtime types became functions — there was no longer a plain-object population
+to span — and a real chain beats a stand-in for one. The class is claimed through a
+shape-versioned global slot so it is the SAME class across bundles (<code>docs/runtime-fusion.md</code>).</p>
+<h3>Autocomplete is NOT in the minimum, and that is load-bearing</h3>
+<p>A predicate drives autocomplete <strong>iff it carries values</strong>. <code>Enum</code> does, for free. A bare
+predicate does not — and <code>suggest()</code> already covers that case by <strong>mining the source</strong> (keyword
+sets, <code>startsWith</code> guards) rather than asking the predicate for something it cannot know.</p>
+<p>Suggestion is therefore a capability some predicates <em>have</em> and others have <em>recovered by
+analysis</em>. Requiring it of the minimum would force every predicate to answer a question most
+cannot.</p>
+<h3>Sensible defaults: the minimum is ONE member</h3>
+<table>
+<thead>
+<tr>
+<th>member</th>
+<th>default</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>check</code></td>
+<td><strong>required</strong> — it <em>is</em> the function</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td><code>fn.name</code></td>
+</tr>
+<tr>
+<td><code>toJSONSchema</code></td>
+<td><code>{ $predicate: … }</code> — claims no structure, which is exactly the progressive-enhancement story</td>
+</tr>
+<tr>
+<td><code>strip</code></td>
+<td>identity — you cannot strip what you cannot describe</td>
+</tr>
+<tr>
+<td><code>example</code> / <code>values</code></td>
+<td><strong>absent</strong>; presence <em>is</em> the capability</td>
+</tr>
+</tbody></table>
+<p>This also resolves the <code>strip</code>-on-a-<code>FunctionPredicate</code> smell noted above: it is identity there,
+and should be <strong>inherited by default</strong> rather than separately implemented on each form. The five
+observed members stop being an accidental intersection and become one required member plus four
+defaults.</p>
+<h3><code>Type</code> is already a <code>Predicate</code> with more attached — so nothing needs restructuring</h3>
+<p><strong>Settled 2026-09-20 (Tonio).</strong> <em>&quot;Can&#39;t <code>Type</code> just be a predicate with more information
+attached?&quot;</em> — it can, and it already is. The extra information is <strong>properties on the object</strong>,
+so there is nothing to construct <em>through</em>. The &quot;is <code>Type</code> built on <code>Predicate</code> or does it
+merely satisfy it&quot; question does not need an answer; it dissolves.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong><code>Predicate</code></strong></td>
+<td>an object with <code>check</code> — the <em>function</em> does the work under the hood</td>
+</tr>
+<tr>
+<td><strong><code>Type</code></strong></td>
+<td>a <code>Predicate</code> with an <strong>example</strong> attached</td>
+</tr>
+<tr>
+<td><strong><code>Enum</code> / <code>Union</code></strong></td>
+<td>a <code>Predicate</code> with a <strong>finite domain</strong> attached</td>
+</tr>
+<tr>
+<td><strong><code>FunctionPredicate</code></strong></td>
+<td>a <code>Predicate</code> with a <strong>signature</strong> attached</td>
+</tr>
+</tbody></table>
+<p><strong>Predicates are FUNCTIONS WITH PROPERTIES, not objects with a callable test.</strong> That was the
+original conception and it is the right one; an earlier draft of this section argued against it
+and was wrong on every count. The objections, and what measuring them showed:</p>
+<table>
+<thead>
+<tr>
+<th>objection raised</th>
+<th>measured reality</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Two guards branch on <code>typeof === &#39;object&#39;</code> (<code>runtime.ts</code>, and the inline <code>__match</code> stub)</td>
+<td>a <strong>two-line widening</strong> (<code>|| typeof ex === &#39;function&#39;</code>), backward compatible — object-shaped types still match</td>
+</tr>
+<tr>
+<td><code>Object.setPrototypeOf</code> is expensive</td>
+<td><strong>2.7ms vs 0.7ms per 20,000 declarations</strong> (~0.1µs each), at module-init only. Non-issue</td>
+</tr>
+<tr>
+<td>Old emitted files would not recognise a callable type</td>
+<td><strong>no exposure.</strong> Emitted types are file-local <code>const</code>s, never exported, and the param check calls <code>.check()</code> directly rather than going through <code>__match</code>. A file only ever checks against types its own stub built</td>
+</tr>
+</tbody></table>
+<p>The shape, which needs no <code>eval</code> and no <code>new Function</code>:</p>
+<pre><code>const fn = (v) =&gt; /* the test */
+Object.setPrototypeOf(fn, Type.prototype)      // real prototype chain
+Object.assign(fn, { description, example, check: fn, __runtimeType: true })
+
+Age(5)                  // true        — callable, the natural JS idiom
+Age.check(5)            // true        — same function, cannot drift
+Age instanceof Type     // true        — real instanceof, no Symbol.hasInstance
+Age instanceof Predicate // true
+</code></pre>
+<p><strong>Why this is better than the object-shaped alternative</strong>, beyond taste:</p>
+<ul>
+<li>A verified plain function like <code>isColor</code> becomes a <code>Predicate</code> by <strong>attaching properties</strong> —
+no wrapping, no lifting, no two populations to reconcile. The &quot;remaining loose end&quot; an earlier
+draft recorded simply does not arise.</li>
+<li><code>check</code> <strong>is</strong> the function, so there is one implementation that cannot drift from itself.
+This repo has paid for two copies of one runtime before (<code>docs/runtime-fusion.md</code>).</li>
+<li><code>instanceof</code> comes from a real prototype chain rather than <code>Symbol.hasInstance</code> standing in
+for one.</li>
+</ul>
+<p><strong>The one genuine finding</strong>, which is worth fixing on its own merits: a callable <code>Type</code> satisfies
+<code>FunctionPredicate.check</code>, because that check is literally <code>v =&gt; typeof v === &#39;function&#39;</code> and so
+already accepts <strong>any</strong> function regardless of signature. Callable predicates add one more
+category to a check that is already too permissive. The defect is the weak <code>check</code>, and it
+exists today.</p>
+<p>Minor and known: functions carry <code>name</code> and <code>length</code> as own properties. Both are configurable
+and no declaration form uses <code>.name</code> today, but a property named <code>name</code> would need care.</p>
+<h3>Open, and genuinely undecided</h3>
+<ul>
+<li><p><strong>Is there a <code>Predicate</code> declaration keyword, or is the umbrella type-level only?</strong> A keyword
+(<code>Predicate isEven(n: 0) { … }</code>) makes the concept first-class but competes with &quot;it is just a
+function&quot; — arguably a crater. The alternative is that <code>verifyPredicate</code> <em>lifts</em> a plain
+function into a <code>Predicate</code> and nothing new appears in the grammar.</p>
+</li>
+<li><p><del><strong>What is the minimal interface?</strong></del> <strong>Answered above:</strong> one required member (<code>check</code>) plus
+four defaults. <code>strip</code> on a <code>FunctionPredicate</code> was indeed incidental — identity, inherited.</p>
+</li>
+<li><p><strong>Does <code>Type</code> become a constructor of <code>Predicate</code>, or stay parallel to it?</strong> The <em>conceptual</em>
+answer is settled (a <code>Type</code> is a <code>Predicate</code> carrying a witness). The implementation question
+is <strong>smaller than it was recorded as being here</strong>, and the correction is worth keeping.</p>
+<p>An earlier draft of this section claimed <code>docs/type-identity.md</code> &quot;records four measured
+disagreements&quot;, so unification would mean picking a winner in four places. <strong>That was a stale
+reading.</strong> Those four cases are <em>historical</em>: the page&#39;s live section says &quot;Where they
+disagree today: <strong>Nowhere in the corpus.</strong>&quot; They were closed in 2026-08 — two by deriving
+numeric narrowing from the example value the stub already holds, one by emitting a
+source-level predicate for <code>+0</code>, and the fourth in the opposite direction by reversing the
+policy so both checkers accept excess keys.</p>
+<p>Confirmed by running <code>src/lang/type-identity.test.ts</code> (24 pass) rather than re-reading the
+prose — which is precisely the failure that page warns about in its own opening line: &quot;a page
+like this is exactly where a stale claim survives longest.&quot;</p>
+<p>So the mechanisms already <strong>agree</strong> across the corpus. Unifying them is therefore closer to a
+refactor than to a behaviour change, and the remaining question is design (should <code>Type</code> be
+constructed <em>through</em> <code>Predicate</code>, or merely satisfy it?) rather than &quot;which semantics win&quot;.
+Branding stays orthogonal either way. (Written when the brand was a <code>Symbol.hasInstance</code>
+check; it is now a real prototype chain — see &quot;Capabilities are properties&quot; above.)</p>
+</li>
+</ul>
+<h2>Open questions</h2>
+<ul>
+<li><strong><code>TypeDescriptor</code>&#39;s fate:</strong> keep it as a cached projection of JSON-Schema +
+<code>$predicate</code>, or eventually retire it? At minimum, guard that it can&#39;t express
+what the canonical form can&#39;t.</li>
+<li><strong>The predicate ISA:</strong> pin down the exact minimal node set + operation whitelist
+the reference VM must support (a spec), and a <strong>conformance suite</strong> every port
+runs — so &quot;TJS types&quot; means the same thing in every language.</li>
+<li><strong>AST format:</strong> settle the serialized predicate AST schema (it should itself be
+describable — turtles: the AST format as a JSON-Schema).</li>
+<li><strong>Fuel across languages:</strong> the fuel model must be spec&#39;d (per-node cost) so a
+runaway predicate is bounded identically everywhere.</li>
+<li><strong>Structure/predicate split:</strong> conventions for what belongs in JSON-Schema
+keywords vs <code>$predicate</code> (prefer standard keywords; reach for <code>$predicate</code> only
+for the genuinely computational).</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link current" href="../type-system-north-star/" aria-current="page">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Case study: fixing switch — tjs-lang</title>
+  <meta name="description" content="A record of one language decision, start to unfinished, including the measurements that misled us and the ones that held." />
+  <link rel="canonical" href="https://tjs.tosijs.net/case-study-switch/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Case study: fixing switch — tjs-lang" />
+  <meta property="og:description" content="A record of one language decision, start to unfinished, including the measurements that misled us and the ones that held." />
+  <meta property="og:url" content="https://tjs.tosijs.net/case-study-switch/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Case study: fixing switch","description":"A record of one language decision, start to unfinished, including the measurements that misled us and the ones that held.","url":"https://tjs.tosijs.net/case-study-switch/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"section": "home", "order": 10, "navTitle": "Case study: switch", "parent": "the-tjs-language.md"}--><h1>Case study: fixing <code>switch</code></h1>
+<p>A record of one language decision, start to unfinished, including the measurements that
+misled us and the ones that held. Written down because the <em>process</em> turned out to be more
+interesting than the conclusion, and because several of the wrong turns are the kind nobody
+writes up.</p>
+<p>Outcome: <strong><code>given</code> shipped, <code>switch</code> reverted to C semantics with a warning, and existing
+code is upgraded automatically where that is provably safe.</strong> The keyword was chosen on
+structural argument, because the measurement that appeared to rank the candidates turned out
+to be noise — which is the most useful thing in this document.</p>
+<hr>
+<h2>1. The defect</h2>
+<p><code>switch</code> in JavaScript is C&#39;s, and it carries four problems that have nothing to do with each
+other except a common origin:</p>
+<ol>
+<li><code>case</code> compares with <code>===</code>, so in a language where <code>==</code> means something better, <code>switch</code>
+silently disagrees with the rest of the file.</li>
+<li>Multiple values sharing one block is only expressible <strong>as</strong> fallthrough.</li>
+<li>Fallthrough is the <strong>default</strong>, so correctness requires <code>break</code> on every arm.</li>
+<li>All arms share <strong>one scope</strong>, so <code>let</code> leaks and <code>const</code> collides.</li>
+</ol>
+<p>Two of these ship as errors in <code>eslint:recommended</code> (<code>no-fallthrough</code>, <code>no-case-declarations</code>).
+The ecosystem decided the defaults were wrong long ago and has been hand-patching ever since,
+because the language cannot change. That is the observation the whole project rests on: <em>a
+pattern that needs a heavy-handed lint rule is a language defect, not a user error.</em></p>
+<h2>2. What we built first — and later reversed</h2>
+<p>Swift&#39;s answer: make <code>break</code> implicit, and 2/3/4 collapse into one decision. Add <code>Eq</code> for 1.</p>
+<p>That shipped (<a href="https://github.com/tonioloewald/tjs-lang/issues/43">#43</a>) — multi-value <code>case &#39;a&#39;, &#39;b&#39;:</code>, opt-in <code>fallthrough</code>, per-arm scope, and
+a discriminant keyed the same way <code>==</code> compares. It also needed <code>Exactly(…)</code> underneath,
+because a discriminant is a literal and the example rule widens <code>kind: &#39;circle&#39;</code> to &quot;a string&quot;,
+which is why <code>Circle</code> and <code>Rect</code> looked identical to the dispatcher.</p>
+<p>Three implementation traps, each worth remembering:</p>
+<ul>
+<li><strong>Rewriting to an if-chain is wrong.</strong> <code>break</code> inside a <code>switch</code> breaks the switch; inside
+an <code>if</code> it breaks the enclosing <em>loop</em>. That rewrite silently changes control flow.</li>
+<li><strong>Per-arm scope cannot be done post-parse.</strong> A switch body is one block scope in JS, so
+duplicate <code>const</code> is a spec early error — acorn is right to refuse, and the source has to be
+braced <em>before</em> the strict parse.</li>
+<li><strong>Fixing the runtime changed nothing that ships.</strong> Emitted code uses inline stubs, so the
+real <code>Type()</code> fix was invisible until the inline <code>__match</code> learned the same rule. Fourth
+time that asymmetry cost a fix in one week.</li>
+</ul>
+<h2>3. The measurement that changed the plan</h2>
+<p>We showed a model the same program twice, varying only the file extension, and asked what it
+returned. <code>switch-probe.ts</code>:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>correct</th>
+<th><strong>wrong</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>explicit <code>break</code>, as <code>.js</code></td>
+<td>5/5</td>
+<td>0</td>
+</tr>
+<tr>
+<td>no <code>break</code>, as <code>.js</code></td>
+<td>5/5</td>
+<td>0</td>
+</tr>
+<tr>
+<td>no <code>break</code>, as <strong><code>.tjs</code></strong></td>
+<td><strong>0/5</strong></td>
+<td><strong>5</strong></td>
+</tr>
+</tbody></table>
+<p>Not &quot;poorly&quot; — the <strong>worst possible result</strong>, and not from uncertainty: both controls are
+100%. Shown identical text as <code>.tjs</code>, it applied C fallthrough five times out of five,
+confidently.</p>
+<p>Its own reasoning, verbatim: <em>&quot;…maybe has &#39;case&#39; with comma to group multiple cases? There is
+a language &#39;TJS&#39;…&quot;</em> There is no prior for the extension. Our out-of-band mode marker — the
+thing that lets TJS fix <code>==</code> where <code>&quot;use strict&quot;</code> could not — carries <strong>nothing</strong> to a reader.</p>
+<p>A one-line comment took it to 5/5. So the affordance has to be in the code.</p>
+<h2>4. The reframe: if it behaves differently, it should look different</h2>
+<p>The comment fixes the file that carries it. It does not reach a snippet in chat, a diff hunk,
+a stack frame, or a search result. <a href="https://github.com/tonioloewald/tjs-lang/issues/48">#48</a> proposed the alternative: <strong>stop changing what
+<code>switch</code> means, and give the fixed construct a different name.</strong></p>
+<p>Then a stronger form of the idea — change the <em>shape</em> too, not just the word:</p>
+<pre><code class="language-js">given x {
+  &#39;a&#39;, &#39;b&#39; { … }
+} else { … }
+</code></pre>
+<p>No <code>case</code>. No colons. No implicit blocks. <code>else</code> for the remaining arm. Every difference
+visible.</p>
+<p>Measured:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>correct</th>
+<th><strong>wrong</strong></th>
+<th>no-answer</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>switch</code>, C syntax</td>
+<td>0/5</td>
+<td><strong>5</strong></td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>switch</code>, NEW syntax</td>
+<td>0/5</td>
+<td>0</td>
+<td><strong>5</strong></td>
+</tr>
+<tr>
+<td>new keyword, NEW syntax</td>
+<td>4/5</td>
+<td>0</td>
+<td>1</td>
+</tr>
+</tbody></table>
+<p><strong>Two findings, and the second was a surprise.</strong> Changing the shape eliminated every
+confident wrong answer — 5 to 0 — which is the failure mode that ships bugs. But keeping the
+<em>name</em> while changing the shape produced five <strong>no-answers</strong>: the model cannot reconcile &quot;this
+is <code>switch</code>&quot; with &quot;this does not look like <code>switch</code>&quot;, and stalls. The keyword and the shape
+have to move together.</p>
+<h2>5. Syntax details that earned themselves</h2>
+<p><strong>No parentheses.</strong> <code>match (x) { }</code> is <em>already valid JavaScript</em> — a call followed by a
+block. Without parens it is unambiguous. The choice that looked like taste turned out to be
+what makes detection possible.</p>
+<p><strong><code>else</code>, not <code>otherwise</code>.</strong> Already reserved, so unlike the keyword itself it cannot collide
+with a user identifier; shorter; and it already means &quot;the remaining case&quot;.</p>
+<p><strong>Detection is the hard part</strong>, because no candidate keyword is reserved. A first prototype
+mangled <code>const match = 1; if (y) { … }</code> into <code>switch (= 1; if (y))</code>. Fixed by requiring the
+discriminant to look like an expression — no <code>;</code>, no leading operator — and by excluding
+declarators and member access. Six false-positive shapes now pass, including the keyword
+inside a string literal.</p>
+<h2>6. Rewriting existing code, which is the actual job</h2>
+<p>Adding a better alternative is not fixing the language. <code>switchToGiven</code> rewrites a C <code>switch</code>
+<strong>only where it provably means the same thing</strong>: every non-empty arm leaves
+(<code>return</code>/<code>throw</code>/<code>break</code>/<code>continue</code>), so implicit-versus-explicit break is unobservable.
+Stacked empty arms become multi-value; trailing <code>break</code> is dropped as dead code; <code>default</code>
+becomes <code>else</code>. Where an arm genuinely runs into the next it is <strong>not</strong> rewritten and says why
+at the site — a converter that is occasionally wrong is worse than one that is honest.</p>
+<p>It runs at <strong>graduation</strong>, not conversion, and the distinction is load-bearing. <code>fromTS</code> output
+carries <code>/* tjs &lt;- source */</code>, which means JS semantics; <code>given</code> is lowered only for native
+TJS. Emitting it at conversion time would produce files that do not parse — which is exactly
+the shape of [#37], where dropping <code>new</code> at conversion time shipped modules that could not be
+imported. Graduation strips the annotation and then applies both rewrites, and it is now one
+function (<code>graduate.ts</code>) rather than three lines inlined in a test.</p>
+<p>On our own source: <strong>44 switches upgraded across 19 files, 0 declined</strong> — consistent with
+<code>no-fallthrough</code> being an error in our lint. Graduation went from 104/105 to <strong>105/105</strong>.</p>
+<h3>Three defects the rewrite found, none of them in the rewrite</h3>
+<p>Worth recording because all three were <strong>silent</strong>, and two predate this work entirely:</p>
+<ol>
+<li><strong>It deleted every comment.</strong> Arm text is sliced from the first statement to the last, so
+anything sitting <em>between</em> arms simply vanished — including a twenty-line rationale block in
+our own converter. Every test stayed green, because no test asserted that comments survive.
+The comments are usually the part of a file you cannot reconstruct; a converter that drops
+them is worse than one that declines.</li>
+<li><strong><code>given</code> did not nest.</strong> Lowering slices an arm&#39;s body as <em>text</em> rather than re-scanning
+it, so one pass reached only the outermost construct and the inner one arrived at the parser
+as <code>given b {</code>, which is not JavaScript. The transform now runs to a fixpoint. This shipped
+with <code>given</code> and no test had nested one.</li>
+<li><strong><code>isFromTS</code> was literal-blind.</strong> The annotation that means &quot;JS semantics&quot; was detected by
+scanning <strong>raw</strong> source, so any file that merely <em>mentioned</em> <code>/* tjs &lt;- … */</code> in a string was
+read as TS-originated and silently lost the entire language — <code>==</code> stopped being <code>Eq</code>,
+dictionary defaults went atomic, <code>given</code> never lowered. <code>from-ts.ts</code> emits that annotation
+from a template, so <strong>the converter&#39;s own source was the first casualty</strong>, and had been for
+as long as the check existed.</li>
+</ol>
+<p>The pattern is the same one this whole document keeps running into: the failures that matter
+here do not throw. They produce plausible output. #3 in particular is the repo&#39;s dominant
+defect class (<code>literal-blindness.test.ts</code>) appearing in the one place nobody had thought to
+look — the check that decides <em>which language the file is written in</em>.</p>
+<h2>7. The keyword, and how the data failed us</h2>
+<p>Candidates measured cold, same program, only the word varying:</p>
+<table>
+<thead>
+<tr>
+<th>keyword</th>
+<th>correct</th>
+<th><strong>wrong</strong></th>
+<th>no-answer</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>match</code></td>
+<td>4/5</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>when</code></td>
+<td>3/5</td>
+<td>0</td>
+<td>2</td>
+</tr>
+<tr>
+<td><code>given</code></td>
+<td>1/5</td>
+<td>0</td>
+<td>4</td>
+</tr>
+</tbody></table>
+<p>That looked like a ranking, and it was written up as one. <strong>Then the identical <code>given</code> arm
+was re-run and scored 4/5.</strong> A swing of three in a sample of five, same model, same prompt.</p>
+<p>So the ranking was noise. What the re-run establishes is a property of the <em>instrument</em>:</p>
+<blockquote>
+<p><strong>Correctness is stable; willingness to commit is not.</strong> Every new keyword produced zero
+wrong answers in every run. The thing that varied wildly was whether the model answered at
+all.</p>
+</blockquote>
+<p>This matters beyond the keyword, because it means a probe scored on &quot;correct out of N&quot;
+silently mixes a stable signal with a noisy one. The two should be read separately, and the
+no-answer column is the one that needs a much larger N.</p>
+<p><strong>What survives.</strong> Replicated across eleven arms and several runs:</p>
+<ul>
+<li>the C shape in <code>.tjs</code> produces <strong>confident wrong answers</strong>, reliably;</li>
+<li><strong>any</strong> new shape produces <strong>zero</strong> wrong answers, reliably;</li>
+<li>an inline hint takes comprehension to 5/5.</li>
+</ul>
+<p><strong>What does not survive:</strong> any ranking among <code>match</code> / <code>when</code> / <code>given</code>.</p>
+<h2>8. Where that leaves the decision</h2>
+<p>The measurement does not choose the keyword, so the structural arguments do. Both favour
+<code>given</code>:</p>
+<p><strong>Collision risk</strong>, counted in our own source:</p>
+<table>
+<thead>
+<tr>
+<th>keyword</th>
+<th>occurrences</th>
+<th>as a <strong>method call</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>match</code></td>
+<td>417</td>
+<td><strong>33</strong> (<code>.match(…)</code>)</td>
+</tr>
+<tr>
+<td><code>when</code></td>
+<td>423</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>given</code></td>
+<td>21</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p>None are reserved, so detection must exclude every other use. <code>match</code> is worst, in the
+dangerous way.</p>
+<p><strong>Semantics.</strong> This construct compares <strong>values</strong> with <code>Eq</code>. It does not destructure, bind, or
+guard. <code>match</code> names what Rust, Python and Scala do — <em>pattern matching</em> — so it over-promises
+to precisely the reader whose prior it was meant to recruit. <code>given x</code> reads in English as
+&quot;given this value, these are the cases&quot;, which is what the code does.</p>
+<p>There are also advantages a comprehension probe structurally cannot see: a rarer word is
+easier to search for, and documentation about <code>given</code> is not competing with a decade of
+<code>String.prototype.match</code> results. A cold-reading probe measures recognition, not
+findability — and recognition is the one thing a novel keyword is guaranteed to lose at.</p>
+<p>That is worth stating carefully rather than as a rationalisation. The risk of reasoning this
+way is obvious: it can excuse any result. The check is that the argument was made <em>before</em>
+the re-run collapsed the ranking, and that the ranking collapsed on its own evidence rather
+than being argued away.</p>
+<h2>9. The fallback block: a measurement that legitimately abstains</h2>
+<p>Three spellings, same program, asking what an unmatched value returns:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>correct</th>
+<th>wrong</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>given x { … } else { … }</code></td>
+<td>5/5</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>given x { … default { … } }</code></td>
+<td>5/5</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>given x { … } otherwise { … }</code></td>
+<td>5/5</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p><strong>All three, perfectly.</strong> Unlike the keyword ranking this is not noise — it is a real
+negative result, and the reason is structural: the fallback block&#39;s meaning is carried by its
+POSITION, not its name. A reader who has understood the arms understands the leftover block
+whatever it is called.</p>
+<p>So the choice is design, and the argument that decides it is the same one that drove the
+rename:</p>
+<ul>
+<li><strong><code>default</code> re-imports the prior we just escaped.</strong> A reader who sees <code>default</code> inside
+<code>given</code> has been handed a piece of <code>switch</code>, and may reasonably reach for the rest of it —
+<code>case</code>, <code>break</code>, fallthrough. Renaming to shed a prior and then keeping one of its keywords
+gives back part of what the rename bought.</li>
+<li><strong><code>otherwise</code> is not a reserved word</strong>, so it carries the same collision problem <code>given</code>
+does, for no gain over a word that is.</li>
+<li><strong><code>else</code> is reserved, and already means exactly this.</strong> It parallels <code>if</code>/<code>else</code>, which
+every JavaScript reader knows, and it sits outside the arm list where it visually separates
+&quot;the cases&quot; from &quot;everything else&quot;.</li>
+</ul>
+<p><code>else</code> it is. Worth recording that this was decided on argument with the measurement
+explicitly abstaining, rather than the measurement being ignored.</p>
+<p><strong>A possible extension, not taken:</strong> if <code>else</code> reads as <code>if</code>/<code>else</code>, then <code>else if (cond) { }</code>
+is the obvious next step. That would mix value dispatch with condition dispatch in one
+construct, which is a bigger change than it looks and is not needed for anything today.</p>
+<h2>10. Where it landed, and what is still open</h2>
+<p><strong>Decided and shipped.</strong> <code>given</code> is the construct; <code>else</code> is the fallback; <code>switch</code> keeps C
+semantics exactly and gets a warning pointing at the replacement, so nothing silently changes
+meaning. Existing code is upgraded at graduation where that is provably safe.</p>
+<p><strong>Still open:</strong></p>
+<ul>
+<li><strong>Re-measure with a cheat sheet.</strong> The no-answer mode is exactly what guidance fixes
+(measured elsewhere: none 0% → cheatsheet 67%), and cold reading is the worst case for a
+novel word and the best case for a familiar one. The keyword ranking should be re-taken under
+those conditions, with a much larger N on the no-answer column specifically.</li>
+<li><strong><code>else if (cond) { }</code>.</strong> If <code>else</code> reads as <code>if</code>/<code>else</code>, that is the obvious next step. It
+would mix value dispatch with condition dispatch in one construct, which is a bigger change
+than it looks, and nothing needs it today.</li>
+</ul>
+<h2>11. What generalises</h2>
+<p>Three things, none of them about <code>switch</code>:</p>
+<ol>
+<li><strong>A pattern that needs a heavy-handed lint rule is a language defect.</strong> That is what
+started this, and it held up.</li>
+<li><strong>Correctness is stable; willingness to commit is not.</strong> A probe scored &quot;correct out of N&quot;
+silently mixes a stable signal with a noisy one. Read the columns separately, and treat a
+ranking built on the noisy one as unmeasured until it replicates. We wrote one up as a
+finding before it did.</li>
+<li><strong>If it behaves differently, it should look different.</strong> The out-of-band signal — the file
+extension — carries nothing to a reader. This is the single most transferable result here,
+and it applies to every remaining place TJS changes a JavaScript meaning in place.</li>
+</ol>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link current" href="../case-study-switch/" aria-current="page">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>

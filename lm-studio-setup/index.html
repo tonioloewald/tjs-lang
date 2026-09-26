@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- NB: the body is NOT hidden until hydration. It used to be (body opacity 0 +
+       a 4s safety-net timeout), because an undefined custom element is
+       display:inline, so the pre-rendered page stacked as bare text and hydration
+       reflowed the whole thing. The cost was a blank screen for as long as the
+       bundle took — ~4.5s on a cheap phone, for content already in the HTML. The
+       tosi-doc-system:not(:defined) rules in the stylesheet now lay the static page
+       out as though the chrome were there, so hydration only ADDS the chrome and
+       nothing moves. Paint immediately; don't hide readable content. -->
+  <!-- Theme, applied BEFORE first paint. Now that we paint the static page rather
+       than hiding it, a dark-mode reader would otherwise get a flash of the light
+       theme until the bundle lands and sets body.darkmode. CSS alone can't do this:
+       an explicit theme choice lives in localStorage. Mirrors applyThemePrefs()
+       (doc-system.ts) — keep the two in step. Fails safe: any error leaves the
+       light default, exactly as before. -->
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=c37dee9848e4" data-tosi-doc-system />
+  <title>Running the LLM test suite (LM Studio setup) — tjs-lang</title>
+  <meta name="description" content="The LLM-dependent tests (bun test without SKIP_LLM_TESTS) talk to a local LM Studio OpenAI-compatible server." />
+  <link rel="canonical" href="https://tjs.tosijs.net/lm-studio-setup/" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Running the LLM test suite (LM Studio setup) — tjs-lang" />
+  <meta property="og:description" content="The LLM-dependent tests (bun test without SKIP_LLM_TESTS) talk to a local LM Studio OpenAI-compatible server." />
+  <meta property="og:url" content="https://tjs.tosijs.net/lm-studio-setup/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Running the LLM test suite (LM Studio setup)","description":"The LLM-dependent tests (bun test without SKIP_LLM_TESTS) talk to a local LM Studio OpenAI-compatible server.","url":"https://tjs.tosijs.net/lm-studio-setup/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=60ed83cc4679" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;}">
+  <article class="doc-content">
+<!--{"parent": "ajs.md", "order": 7}--><h1>Running the LLM test suite (LM Studio setup)</h1>
+<p>The LLM-dependent tests (<code>bun test</code> without <code>SKIP_LLM_TESTS</code>) talk to a local
+<strong>LM Studio</strong> OpenAI-compatible server. This doc captures the setup and the
+pain points hit getting it working on Linux — read the troubleshooting section
+first if a model won&#39;t load or LLM tests fail fast.</p>
+<h2>What has to be true</h2>
+<ul>
+<li>LM Studio server running at <strong><code>http://localhost:1234/v1</code></strong> — this is hardcoded
+(<code>src/batteries/models.ts</code> → <code>DEFAULT_BASE_URL</code>), <strong>no env override</strong>. Any
+OpenAI-compatible server on 1234 works (Ollama bound to 1234 is a drop-in).</li>
+<li><strong>One chat LLM and one embedding model loaded</strong> — the model audit
+(<code>src/batteries/audit.ts</code>) needs both; it auto-detects a structured-output LLM
+from the chat model.</li>
+<li><strong>CORS enabled</strong> in LM Studio (see below) — required for the playground-example
+tests, which run under happy-dom and send a CORS preflight.</li>
+</ul>
+<h2>Quick start (happy path)</h2>
+<ol>
+<li>Install LM Studio, <strong>update the runtimes</strong> (see Install).</li>
+<li>Load a chat LLM + an embedding model (e.g. <code>nomic-embed-text-v1.5</code>).</li>
+<li>Developer → <strong>Start Server</strong> (port 1234) → <strong>Enable CORS</strong>.</li>
+<li>Warm a clean audit cache, then run the full suite:<pre><code class="language-bash" data-highlighted><span class="token function">rm</span> <span class="token parameter variable">-f</span> <span class="token string">"<span class="token variable">${XDG_CACHE_HOME<span class="token operator">:-</span>$HOME<span class="token operator">/</span>Library<span class="token operator">/</span>Caches}</span>/tjs-lang/.models.cache.json"</span>
+bun run test:llm        <span class="token comment"># warms + writes one clean cache, in isolation</span>
+bun <span class="token builtin class-name">test</span>                <span class="token comment"># full suite reuses that cache (avoids the race below)</span>
+</code></pre>
+</li>
+</ol>
+<p>Sanity check the server (note <strong>127.0.0.1</strong>, not <code>localhost</code> — see IPv6 note):</p>
+<pre><code class="language-bash" data-highlighted><span class="token function">curl</span> <span class="token parameter variable">-s</span> http://127.0.0.1:1234/v1/models <span class="token operator">|</span> <span class="token function">grep</span> <span class="token parameter variable">-oE</span> <span class="token string">'"id":"[^"]*"'</span>
+~/.lmstudio/bin/lms <span class="token function">ps</span>     <span class="token comment"># what's loaded + on GPU or CPU</span>
+</code></pre>
+<h2>Install (Linux)</h2>
+<ul>
+<li><strong>AppImage only</strong> — no <code>.deb</code>/apt/snap. On the Ubuntu 24.04 / Mint 22 base,
+install <code>libfuse2t64</code> first, then <code>chmod +x</code> and run.</li>
+<li>Requires <strong>x86-64 + AVX2</strong> (<code>grep -w avx2 /proc/cpuinfo</code>).</li>
+<li><strong>Update the inference runtimes after installing.</strong> A fresh install ships with
+old engines; recent model architectures (Gemma 3/3n/QAT, etc.) won&#39;t load until
+you update. LM Studio → Settings → <strong>Runtime</strong> → update all. (A fresh install
+needed many updates.)</li>
+<li>The CLI lives at <code>~/.lmstudio/bin/lms</code> (<code>lms bootstrap</code> adds it to PATH).</li>
+</ul>
+<h2>Enable CORS (needed for playground-example tests)</h2>
+<p><code>demo/examples.test.ts</code> runs under happy-dom (a browser-like env) and issues a
+CORS preflight <code>OPTIONS</code> to <code>localhost:1234</code>. Without CORS enabled LM Studio
+answers <code>400</code> and those ~8 tests fail with <strong>&quot;Cross-Origin Request Blocked&quot;</strong>.
+Toggle <strong>Enable CORS</strong> in the LM Studio server settings. (Production doesn&#39;t hit
+this — the playground proxies LLM calls through the <code>/run</code> cloud function.)</p>
+<h2>Troubleshooting</h2>
+<h3>&quot;Error loading model. (Exit code: null)&quot; — crash partway through loading</h3>
+<p>The loader process died, almost always <strong>out of VRAM</strong> (it crashes mid-offload —
+e.g. at ~53% of a 5–6.5 GB model) or, rarely, an architecture the runtime can&#39;t
+build. Diagnose:</p>
+<pre><code class="language-bash" data-highlighted>nvidia-smi --query-gpu<span class="token operator">=</span>memory.used,memory.free <span class="token parameter variable">--format</span><span class="token operator">=</span>csv,noheader
+nvidia-smi --query-compute-apps<span class="token operator">=</span>pid,used_memory,process_name <span class="token parameter variable">--format</span><span class="token operator">=</span>csv
+</code></pre>
+<p>Two fixes:</p>
+<ul>
+<li><strong>Free VRAM</strong> (see stray-worker note) so the model fits, or</li>
+<li><strong>Force CPU load</strong> — slower but reliable, fits in system RAM:<pre><code class="language-bash" data-highlighted>~/.lmstudio/bin/lms load <span class="token operator">&lt;</span>model-id<span class="token operator">></span> <span class="token parameter variable">--gpu</span> off
+</code></pre>
+</li>
+</ul>
+<p>The recent <strong>gemma-4 / gemma-3n</strong> models are multimodal (note the <code>mmproj-*.gguf</code>
+projector files) and memory-heavy. A 12 GB card runs them fine <strong>once VRAM is
+actually free</strong>. Blackwell GPUs (RTX 50xx) need a recent driver — 595+/CUDA 13
+works.</p>
+<h3>Leaked VRAM / killing the stray <code>node</code> worker — THE big one</h3>
+<p>LM Studio&#39;s <strong>embedding worker</strong> (<code>~/.lmstudio/.internal/utils/node</code> running
+<code>embeddingworker.js</code>) can leak VRAM — observed holding <strong>6.5 GB</strong> while only
+~700 MB of embedding models were loaded — and it is a <strong>detached child process
+that survives app restarts.</strong> Closing/reopening the LM Studio window does <em>not</em>
+reap it, so VRAM stays pinned and every subsequent GPU load crashes. Failed
+GPU loads compound the leak (partial offloads never released).</p>
+<p>Reclaim it by killing the workers directly, then verify before relaunching:</p>
+<pre><code class="language-bash" data-highlighted><span class="token function">pkill</span> <span class="token parameter variable">-f</span> <span class="token string">'LM-Studio/lm-studio'</span>
+<span class="token function">pkill</span> <span class="token parameter variable">-f</span> <span class="token string">'.lmstudio/.internal/utils/node'</span>   <span class="token comment"># the stuck embedding/resource workers</span>
+<span class="token function">sleep</span> <span class="token number">2</span>
+nvidia-smi --query-gpu<span class="token operator">=</span>memory.used,memory.free <span class="token parameter variable">--format</span><span class="token operator">=</span>csv,noheader  <span class="token comment"># should drop to ~1 GB used</span>
+</code></pre>
+<p>Then relaunch LM Studio fresh, Start Server, reload both models. If &quot;restarting&quot;
+didn&#39;t help, you didn&#39;t kill these — check <code>nvidia-smi --query-compute-apps</code>.</p>
+<h3><code>curl localhost:1234</code> fails but the server is up</h3>
+<p><code>localhost</code> may resolve to IPv6 <code>::1</code> while LM Studio listens on IPv4
+<code>0.0.0.0:1234</code> → connection refused. Use <strong><code>127.0.0.1</code></strong> for manual probes.
+(<code>ss -ltn | grep 1234</code> confirms it&#39;s listening regardless.)</p>
+<h3>LLM tests fail <em>fast</em> (single-digit ms) with &quot;No LLM/embedding available&quot;</h3>
+<p>The audit classified no usable model and the result is cached. Causes:</p>
+<ul>
+<li>Models weren&#39;t loaded/ready when the audit ran (it caches the bad result for 24h).</li>
+<li>A model is listed in <code>/v1/models</code> (downloaded) but fails to load (see above).</li>
+</ul>
+<p>Fix: make sure both model types are loaded and inferring, then <strong>clear the cache</strong>:</p>
+<pre><code class="language-bash" data-highlighted><span class="token comment"># macOS; Linux uses ${XDG_CACHE_HOME:-~/.cache}, Windows %LOCALAPPDATA%</span>
+<span class="token function">rm</span> <span class="token parameter variable">-f</span> ~/Library/Caches/tjs-lang/.models.cache.json
+
+<span class="token comment"># Or put the cache somewhere you control, and delete that instead. `TJS_CACHE_DIR`</span>
+<span class="token comment"># overrides every default above; with no home directory at all (scratch containers,</span>
+<span class="token comment"># some CI images) the cache falls back to the OS temp dir. It is never written to the</span>
+<span class="token comment"># working directory — that was the original bug.</span>
+<span class="token builtin class-name">export</span> <span class="token assign-left variable">TJS_CACHE_DIR</span><span class="token operator">=</span>/tmp/my-tjs-cache
+<span class="token function">rm</span> <span class="token parameter variable">-f</span> <span class="token string">"<span class="token variable">$TJS_CACHE_DIR</span>/.models.cache.json"</span>
+</code></pre>
+<p>The path is printed to stderr the first time an audit writes it, so you never have to
+guess. It moved out of the working directory in 0.13.0 — importing <code>tjs-lang/batteries</code>
+used to drop a dotfile into whatever repo you happened to run from.</p>
+<h3>Audit misclassifies models on a parallel run</h3>
+<p><code>.models.cache.json</code> (in the OS cache directory, 24h TTL) is shared, and many test files call <code>audit()</code>
+concurrently. Clearing the cache right before a full parallel <code>bun test</code> makes
+several audits probe <strong>at once</strong>, and under that load classifications come back
+scrambled (embedding models tagged <code>LLM</code>, etc.). <strong>Work around it</strong> by writing one
+clean cache in isolation first (<code>bun run test:llm</code>) and <em>not</em> clearing it before
+the full run. (Proper fix is tracked in TODO — serialize the audit / isolate the
+cache.)</p>
+<h3>3 <code>TJS Performance &gt; CLI cold start</code> failures</h3>
+<p>Known, not LLM-related: <code>perf.test.ts</code> asserts cold start <code>&lt; 200ms</code>; a loaded or
+slower box measures ~210ms. Ignore, or relax the threshold.</p>
+<h2>Command reference</h2>
+<pre><code class="language-bash" data-highlighted>~/.lmstudio/bin/lms <span class="token function">ps</span>                 <span class="token comment"># loaded models, device (GPU/CPU/Local), TTL</span>
+~/.lmstudio/bin/lms server status      <span class="token comment"># is the OpenAI endpoint up + which port</span>
+~/.lmstudio/bin/lms load <span class="token operator">&lt;</span>id<span class="token operator">></span> <span class="token parameter variable">--gpu</span> off   <span class="token comment"># CPU-only load (off | max | 0..1)</span>
+nvidia-smi --query-compute-apps<span class="token operator">=</span>pid,used_memory,process_name <span class="token parameter variable">--format</span><span class="token operator">=</span>csv
+<span class="token function">curl</span> <span class="token parameter variable">-s</span> http://127.0.0.1:1234/v1/models <span class="token operator">|</span> <span class="token function">grep</span> <span class="token parameter variable">-oE</span> <span class="token string">'"id":"[^"]*"'</span>
+</code></pre>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — post-1.0 direction</a></li>
+      <li><a class="doc-link current" href="../lm-studio-setup/" aria-current="page">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../CLAUDE-TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script src="../iife.js?v=c37dee9848e4"></script>
+</body>
+</html>
