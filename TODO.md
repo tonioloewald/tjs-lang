@@ -535,6 +535,19 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 8 — dispositions** (docs/reviews/0.14.0-final-rereview-8.md;
+      B-1 FIXED and the class BOUNDED — a deterministic work budget on the AJS transform
+      (TransformWork, 64× source length), since hunting scans one at a time had failed five
+      reviews running; the lexical regex scan's (position, state) failure memo, found by the
+      pair grid; the pair grid itself; the caller-abort message). Open:
+  - Guest-source retention in strip-comments' scan/mask memos (24/16 LRU) across runs and
+    tenants: scope them per transpile, or record a keep-decision and document
+    `clearLiteralCache()`/`clearMaskCache()` for multi-tenant hosts. Linearity does not
+    depend on them (audited; the admission grid could run with caches cleared per call —
+    add that guard).
+  - Expose the abort reason as data (`reason: 'timeout' | 'aborted'` on the AgentError).
+  - vm.run's cheap refusals (pre-aborted signal, timeoutMs 0) run after the source
+    transpile, args walk and schema check; move them first.
 - [ ] **0.14.0 final re-review 7 — dispositions** (docs/reviews/0.14.0-final-rereview-7.md;
       M-1 FIXED — the ternary colon set lives in the transform's call frame, no process-global
       memo (it was thrashed by >16 nested distinct substrings, and retained guest sources);

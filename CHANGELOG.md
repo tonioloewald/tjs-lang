@@ -83,9 +83,15 @@ options bags. But every validated function used to begin with a pre-check that r
   `:` and is now one forward pass (held equal to the old walk at every `:` of the corpus).
   **AJS** paren nesting is bounded at 64 by the recursion itself (the deepest in 3,372 real
   files is 19); the TJS compiler, which takes the author's own source, has no limit.
-  `src/admission.test.ts` pushes every hostile shape it knows, plus a GENERATED grid of 41
-  tokens repeated to the cap, through every source entry; the worst measured at the 64KB cap
-  is ~111ms through `Eval`.
+  After five consecutive review blocks each found another such scan, the AJS transform also
+  carries a deterministic **work budget** (64× the source length, shared by every recursion
+  level; real code uses a median of 2×, at most 8.8×) — fuel for the parser, so a
+  super-linear scan anywhere in it is refused at a bounded cost instead of trusted to be
+  linear. The lexical layer's regex scan remembers which (position, state) pairs it has
+  proven fail, so a line of `/[/[…` or `/\/\…` no longer rescans per `/`.
+  `src/admission.test.ts` pushes every hostile shape it knows, a GENERATED grid of 41 tokens
+  and a grid of 289 token PAIRS, each repeated to the cap, through the source entries; the
+  worst measured at the 64KB cap is ~114ms.
 - **An aborted run takes no further step.** Every atom now checks the run's abort signal
   before it runs, so after a deadline or a caller's abort no capability is called and no
   guest code continues — `vm.run` used to stop WAITING while straight-line steps carried on

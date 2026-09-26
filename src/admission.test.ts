@@ -121,9 +121,12 @@ const EXPECT: Record<string, RegExp | null> = {
   'line comments at the cap': null,
   'blank lines at the cap': null,
   '64-deep parens, repeated to the cap': null,
-  'parens nested 20000 deep': /nest more than 64 deep/,
-  'parens nested 20000 deep inside a template ${}': /nest more than 64 deep/,
-  'parens nested 20000 deep after `}` as division': /nest more than 64 deep/,
+  // Either bound may fire first: the depth limit, or the work budget (64 levels × 40KB copied).
+  'parens nested 20000 deep': /nest more than 64 deep|too complex to transpile/,
+  'parens nested 20000 deep inside a template ${}':
+    /nest more than 64 deep|too complex to transpile/,
+  'parens nested 20000 deep after `}` as division':
+    /nest more than 64 deep|too complex to transpile/,
   'a megabyte of source': /over the \d+-byte limit/,
   'unbalanced ( to the cap': null,
   'unbalanced ,( to the cap': null,
@@ -378,8 +381,7 @@ describe('an aborted run takes no step and calls no capability (re-review 7, M-2
     )
     await new Promise((res) => setTimeout(res, 20))
     expect(calls).toEqual([])
-    expect(reasonOf(r)).toMatch(/aborted/i)
-    expect(reasonOf(r)).not.toMatch(/timeout/i)
+    expect(reasonOf(r)).toMatch(/aborted by the caller/)
   })
 
   it('an already-aborted caller signal stops a compute-only agent too', async () => {
@@ -405,4 +407,110 @@ describe('computed method names directly after a keyword (re-review 7 minor)', (
     it(src, () => {
       expect(() => tjs(src)).not.toThrow()
     })
+})
+
+/**
+ * PAIRS, not just single tokens: re-review 8 found a quadratic that only a pair shows — an
+ * opener followed by an unbalanced bracket (`():(` ~1.9s) — and the grid's own run then found
+ * `/\` and `/[` (a regex that never closes on its line, ~2-4s). Every opener × every
+ * follower, repeated to the cap, through the AJS preprocessor (the code every source entry
+ * shares), each within the bound.
+ */
+const OPENERS = [
+  '():',
+  '(a): ',
+  '=>',
+  '(a) => ',
+  '(',
+  'function f(',
+  'class A ',
+  'x ? ',
+  '/',
+  '`${',
+  'a:',
+  '(): x | ',
+  '/[',
+  '[',
+  '{',
+  '\\',
+  '"',
+]
+const FOLLOWERS = [
+  '(',
+  '[',
+  '{',
+  '`',
+  "'",
+  '/',
+  '`${',
+  '//',
+  '/*',
+  ':',
+  '?',
+  '/[',
+  ']',
+  '\\',
+  '"',
+  ')',
+  '}',
+]
+
+describe('generated PAIR grid: opener × follower, repeated to the cap', () => {
+  const { preprocessAgentSource } = require('./lang/parser-agent')
+  for (const o of OPENERS)
+    it(`${JSON.stringify(o)} × every follower`, () => {
+      for (const f of FOLLOWERS) {
+        const unit = o + f
+        const src = `function f() {\nlet z = ${unit.repeat(
+          Math.floor(CAP / unit.length)
+        )}\n}`
+        const t = performance.now()
+        try {
+          preprocessAgentSource(src)
+        } catch {
+          // Refusing (a parse error, a budget) is a fine outcome; only the time is asserted.
+        }
+        const ms = performance.now() - t
+        expect({ unit, slow: ms > BOUND_MS }).toEqual({ unit, slow: false })
+      }
+    })
+})
+
+describe('the transform work budget (TransformWork)', () => {
+  const {
+    transformParenExpressions,
+    WORK_PER_CHAR,
+  } = require('./lang/parser-params')
+  const ctx = (work: any, src: string) => ({
+    originalSource: src,
+    requiredParams: new Set(),
+    typeNameOptionals: new Set(),
+    unsafeFunctions: new Set(),
+    safeFunctions: new Set(),
+    work,
+  })
+  it('refuses when the work exceeds the budget', () => {
+    const src = 'function f(a: 0) { return (b: 0) => a + b }'
+    expect(() =>
+      transformParenExpressions(src, ctx({ used: 0, limit: 10 }, src))
+    ).toThrow(/too complex to transpile/)
+  })
+  it('real code uses a small fraction of it (so it can never refuse real code)', () => {
+    const { readFileSync } = require('fs')
+    const { join } = require('path')
+    let worst = 0
+    for (const f of [
+      'lang/parser.ts',
+      'lang/parser-params.ts',
+      'vm/runtime.ts',
+      'lang/emitters/js.ts',
+    ]) {
+      const src = readFileSync(join(import.meta.dir, f), 'utf8')
+      const work = { used: 0, limit: Infinity }
+      transformParenExpressions(src, ctx(work, src))
+      worst = Math.max(worst, work.used / src.length)
+    }
+    // Measured 2026-09-26 across 1,368 files: median 2.0, p99 3.5, max 8.8.
+    expect(worst).toBeLessThan(WORK_PER_CHAR / 4)
+  })
 })

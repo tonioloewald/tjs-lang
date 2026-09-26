@@ -56,6 +56,7 @@ import {
   transformParenExpressions,
   extractParamMarkers,
   MAX_PAREN_DEPTH,
+  transformWorkFor,
 } from './parser-params'
 
 export interface AgentParseOptions {
@@ -131,8 +132,10 @@ export function preprocessAgentSource(
   const { source: transformed, returnType } = transformParenExpressions(
     source,
     {
-      // AJS takes untrusted code: nesting is bounded in the recursion (see MAX_PAREN_DEPTH).
+      // AJS takes untrusted code: nesting is bounded in the recursion (see MAX_PAREN_DEPTH),
+      // and all of the transform's scanning is metered (see TransformWork).
       maxParenDepth: MAX_PAREN_DEPTH,
+      work: transformWorkFor(source),
       originalSource,
       requiredParams,
       typeNameOptionals,

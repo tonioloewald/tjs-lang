@@ -488,6 +488,15 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       clearTimeout(timeout)
       // A step that saw the abort reports "Execution aborted"; when the cause was the run's
       // own deadline, say so, in the words hosts already detect.
+      if (
+        !timedOut &&
+        options.signal?.aborted &&
+        ctx.error?.message === 'Execution aborted'
+      )
+        ctx.error = new AgentError(
+          'Execution aborted by the caller (options.signal)',
+          'vm.run'
+        )
       if (timedOut && ctx.error?.message === 'Execution aborted')
         ctx.error = new AgentError(
           `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`,

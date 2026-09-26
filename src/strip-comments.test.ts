@@ -313,3 +313,51 @@ describe('a template ends past its own substitutions', () => {
     expect(maskLiterals('const s = `a${ ident }b`')).not.toContain('ident')
   })
 })
+
+describe('findRegexEnd with its failure memo agrees with the plain scan at every `/`', () => {
+  const { findRegexEnd } = require('./strip-comments')
+  const { readFileSync, existsSync } = require('fs')
+  const { join } = require('path')
+  const { Glob } = require('bun')
+  const files: Array<[string, string]> = []
+  for (const [root, pat, limit] of [
+    [join(import.meta.dir, 'lang'), '*.ts', 60],
+    [import.meta.dir, '*.ts', 30],
+    [join(import.meta.dir, '..', '.compat-tests'), '**/src/**/*.ts', 60],
+  ] as const) {
+    if (!existsSync(root)) continue
+    let n = 0
+    for (const f of new Glob(pat).scanSync({ cwd: root, onlyFiles: true })) {
+      if (f.includes('node_modules') || f.endsWith('.d.ts')) continue
+      const src = readFileSync(join(root, f), 'utf8')
+      if (src.length > 120_000) continue
+      files.push([f, src])
+      if (++n >= limit) break
+    }
+  }
+  files.push([
+    'hostile',
+    [
+      '/['.repeat(200),
+      'a = /[\\]]/ ; b = /[/]/ ; c = /\\[/ ; d = /[\\\\]/',
+      '/[' + 'x/'.repeat(50) + ']/ ok /[/[/[ then /x/',
+      '\\\\\\[/[\\]/[/',
+      '/[a-z]+/g.test(s) && /[/'.repeat(20),
+      '/\\'.repeat(200),
+      'x = /a\\/b/ + /\\/'.repeat(30),
+    ].join('\n'),
+  ])
+  it('apparatus: a real corpus', () => expect(files.length).toBeGreaterThan(40))
+  for (const [name, src] of files)
+    it(name, () => {
+      const memo = {}
+      const bad: string[] = []
+      for (let p = 0; p < src.length; p++) {
+        if (src[p] !== '/') continue
+        const plain = findRegexEnd(src, p)
+        const fast = findRegexEnd(src, p, memo)
+        if (plain !== fast) bad.push(`at ${p}: plain ${plain}, memo ${fast}`)
+      }
+      expect(bad.slice(0, 5)).toEqual([])
+    })
+})

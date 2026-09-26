@@ -324,6 +324,9 @@ describe('the AJS path runs AJS and nothing else', () => {
         // only — TJS passes none, since JS ⊆ TJS). Enforced by the recursion itself; a
         // separate pre-scan over another lexical view was bypassable (0.14.0 re-review 5).
         './parser-params:MAX_PAREN_DEPTH',
+        // A BUDGET, not a transform: the work meter AJS hands the transform above (untrusted
+        // code only; TJS passes none). It rewrites nothing and adds no construct.
+        './parser-params:transformWorkFor',
       ].sort()
     )
   })

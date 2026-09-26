@@ -81,16 +81,44 @@ const REGEX_PRECEDING_KEYWORDS = new Set([
  * Index of the closing `/` of the regex literal starting at `start`, or -1.
  * Honours escapes and character classes, inside which `/` is a literal character.
  */
-export function findRegexEnd(source: string, start: number): number {
+export function findRegexEnd(
+  source: string,
+  start: number,
+  /**
+   * The (position, state) pairs that scans for THIS source have already proven lead to
+   * failure. A scan's future is fully determined by where it is and whether it is inside a
+   * character class — every scan reads a backslash run from its start, so escapes align — so
+   * a later scan that reaches a pair a failed scan passed through fails too, and stops there.
+   * Each pair is then visited at most once over all scans: linear. Without it, one long line
+   * of `/[/[…` (class never closes) or `/\\/\\…` (escaped slashes never close) made every
+   * candidate `/` scan to the end of the line — quadratic in the lexical layer, before any
+   * budget (0.14.0 final re-review 8's pairwise grid: ~2-4s at 60KB). Held equal to the plain
+   * scan at every `/` of a corpus by strip-comments.test.ts.
+   */
+  memo?: RegexScanMemo
+): number {
   let k = start + 1
   let inClass = false
+  const failed = memo
+    ? (memo.failed ??= new Uint8Array(source.length + 1))
+    : null
+  const visited: number[] = []
+  const fail = () => {
+    if (failed) for (const v of visited) failed[v >> 1] |= (v & 1) + 1
+    return -1
+  }
   while (k < source.length) {
+    if (failed) {
+      const state = inClass ? 2 : 1
+      if (failed[k] & state) return fail()
+      visited.push(k * 2 + (inClass ? 1 : 0))
+    }
     const c = source[k]
     if (c === '\\') {
       k += 2
       continue
     }
-    if (c === '\n') return -1 // regex literals cannot span lines
+    if (c === '\n') return fail() // regex literals cannot span lines
     if (inClass) {
       if (c === ']') inClass = false
     } else if (c === '[') {
@@ -100,7 +128,12 @@ export function findRegexEnd(source: string, start: number): number {
     }
     k++
   }
-  return -1
+  return fail()
+}
+
+/** Per-source memo for {@link findRegexEnd}: bit 1 = failed outside a class, bit 2 = inside. */
+export interface RegexScanMemo {
+  failed?: Uint8Array
 }
 
 export function stripLineComments(source: string): string {
@@ -281,6 +314,8 @@ function templateEnd(source: string, start: number): number {
 
 function scanLiteralsUncached(source: string): LiteralRegion[] {
   const regions: LiteralRegion[] = []
+  /** (position, state) pairs proven to fail (see findRegexEnd). */
+  const regexMemo: RegexScanMemo = {}
   let i = 0
   let sigTail = ''
   while (i < source.length) {
@@ -347,7 +382,7 @@ function scanLiteralsUncached(source: string): LiteralRegion[] {
       continue
     }
     if (ch === '/' && isRegexStart(sigTail)) {
-      const close = findRegexEnd(source, i)
+      const close = findRegexEnd(source, i, regexMemo)
       if (close !== -1) {
         regions.push({
           kind: 'regex',

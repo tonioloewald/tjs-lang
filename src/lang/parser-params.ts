@@ -16,6 +16,7 @@ import { ternaryColons } from './expression-context'
 import {
   isRegexStart,
   findRegexEnd,
+  type RegexScanMemo,
   isEscapedAt,
   maskLiterals,
   scanLiterals,
@@ -217,6 +218,52 @@ const REGEX_KEYWORDS_BEFORE = new Set([
 ])
 
 /**
+ * A WORK budget for the parameter transform: characters visited, across every scan it makes,
+ * shared by every recursion level. Exceeding it refuses the source.
+ *
+ * Why a meter and not another fix. The 0.14.0 release reviews blocked five times running on
+ * this transform (re-reviews 4-8), each time on a different hand-written scan that a hostile
+ * shape could drive to EOF from every candidate: look-backs over blanked comments, unmatched
+ * parens, the method-head regex, `trimEnd()` per `/`, class heritage, ternary colons, return
+ * types. Each was fixed at its cause, and the next was found. Hunting scans one at a time is
+ * the losing game; the VM's own answer to the same problem is FUEL, which meters work instead
+ * of predicting its shape. This is that, for the transform: a super-linear pass anywhere in it
+ * is refused at a cost of `WORK_PER_CHAR × n` rather than trusted to be linear. Real code
+ * uses a small multiple of its length (measured across the compat corpus and this repo).
+ *
+ * AJS only (untrusted source); the TJS compiler passes none. The structural fix — a real
+ * parser, one pass, no rescans — is tracked in TODO.md.
+ */
+export interface TransformWork {
+  used: number
+  limit: number
+}
+
+/** Work allowed per character of source, and a floor for tiny inputs. */
+export const WORK_PER_CHAR = 64
+export const WORK_FLOOR = 200_000
+
+export function transformWorkFor(source: string): TransformWork {
+  return { used: 0, limit: source.length * WORK_PER_CHAR + WORK_FLOOR }
+}
+
+function charge(
+  work: TransformWork | undefined,
+  n: number,
+  source: string
+): void {
+  if (!work) return
+  if ((work.used += n) > work.limit)
+    throw new SyntaxError(
+      `Source is too complex to transpile within its work budget ` +
+        `(${WORK_PER_CHAR}× its length). The parser refuses it rather than run super-linear ` +
+        `work before any fuel applies.`,
+      locAt(source, 0),
+      source
+    )
+}
+
+/**
  * Deepest parenthesis nesting the parameter transform accepts on the AJS path (untrusted code).
  *
  * The transform RECURSES on each non-arrow paren group's content, so N nested groups are N
@@ -270,6 +317,8 @@ export function transformParenExpressions(
     maxParenDepth?: number
     /** @internal How many recursion levels deep this call is. */
     parenDepth?: number
+    /** Work budget shared by the whole transform (AJS). See TransformWork. */
+    work?: TransformWork
   }
 ): {
   source: string
@@ -289,6 +338,8 @@ export function transformParenExpressions(
   let i = 0
   /** Paren partners proven so far in THIS source (see extractBalancedContent). */
   const parenMemo = new Map<number, number>()
+  /** Regex-scan failures proven in THIS source (see findRegexEnd). */
+  const regexMemo: RegexScanMemo = {}
   /** Ternary-alternative colons of THIS source, computed on first need (see ternaryColons). */
   let ternary: Set<number> | undefined
   /** Class-heritage outcomes (the body's `{` index, or -1) proven so far. */
@@ -317,7 +368,9 @@ export function transformParenExpressions(
     return frame?.type === 'class-body' && braceDepth === frame.braceDepth + 1
   }
 
+  const work = ctx.work
   while (i < source.length) {
+    charge(work, 1, ctx.originalSource)
     const char = source[i]
     const nextChar = source[i + 1]
 
@@ -486,10 +539,16 @@ export function transformParenExpressions(
           // re-review 6, M-1). Same predicate: `\s` is the whitespace trimEnd trims, and the
           // word is read over `\w` ([A-Za-z0-9_] — no `$`), which is what `\b` bounds.
           let last = result.length - 1
-          while (last >= 0 && /\s/.test(result[last])) last--
+          while (last >= 0 && /\s/.test(result[last])) {
+            last--
+            charge(work, 1, ctx.originalSource)
+          }
           const lastChar = last >= 0 ? result[last] : ''
           let w = last
-          while (w >= 0 && /\w/.test(result[w])) w--
+          while (w >= 0 && /\w/.test(result[w])) {
+            w--
+            charge(work, 1, ctx.originalSource)
+          }
           const word = result.slice(w + 1, last + 1)
           const isRegexContext =
             !lastChar ||
@@ -559,6 +618,7 @@ export function transformParenExpressions(
       if (known !== undefined) j = known
       else
         for (; j < source.length; j++) {
+          charge(work, 1, ctx.originalSource)
           const c = source[j]
           if (d === 0) zeroDepth.push(j)
           if (c === '"' || c === "'" || c === '`') {
@@ -675,7 +735,10 @@ export function transformParenExpressions(
         i,
         '(',
         ')',
-        parenMemo
+        parenMemo,
+        work,
+        ctx.originalSource,
+        regexMemo
       )
       if (!paramsResult) {
         // Unbalanced - just copy character and continue
@@ -706,7 +769,13 @@ export function transformParenExpressions(
         }
         while (j < source.length && /\s/.test(source[j])) j++
 
-        const typeResult = extractReturnTypeValue(source, j)
+        const typeResult = extractReturnTypeValue(
+          source,
+          j,
+          work,
+          ctx.originalSource,
+          regexMemo
+        )
         if (typeResult) {
           if (firstReturnType === undefined) {
             firstReturnType = typeResult.type
@@ -773,6 +842,7 @@ export function transformParenExpressions(
     if (methodMatch && isInClassBody()) {
       let prevIdx = -1
       for (let k = result.length - 1; k >= 0; k--) {
+        charge(work, 1, ctx.originalSource)
         if (!/\s/.test(result[k])) {
           prevIdx = k
           break
@@ -793,7 +863,10 @@ export function transformParenExpressions(
       let prevWord = ''
       if (prevIdx >= 0 && /[A-Za-z0-9_$]/.test(prevNonWs)) {
         let w = prevIdx
-        while (w >= 0 && /[A-Za-z0-9_$]/.test(result[w])) w--
+        while (w >= 0 && /[A-Za-z0-9_$]/.test(result[w])) {
+          w--
+          charge(work, 1, ctx.originalSource)
+        }
         prevWord = result.slice(w + 1, prevIdx + 1)
       }
       // Method declarations can follow almost anything (property, }, ;, etc.)
@@ -833,7 +906,10 @@ export function transformParenExpressions(
         i,
         '(',
         ')',
-        parenMemo
+        parenMemo,
+        work,
+        ctx.originalSource,
+        regexMemo
       )
       if (!paramsResult) {
         result += source[i]
@@ -860,7 +936,13 @@ export function transformParenExpressions(
           j++
         }
         while (j < source.length && /\s/.test(source[j])) j++
-        const typeResult = extractReturnTypeValue(source, j)
+        const typeResult = extractReturnTypeValue(
+          source,
+          j,
+          work,
+          ctx.originalSource,
+          regexMemo
+        )
         if (typeResult) {
           i = typeResult.endPos
         }
@@ -907,7 +989,10 @@ export function transformParenExpressions(
     let isCallArgs = false
     if (source[i] === '(') {
       let argPrevIdx = i - 1
-      while (argPrevIdx >= 0 && /\s/.test(source[argPrevIdx])) argPrevIdx--
+      while (argPrevIdx >= 0 && /\s/.test(source[argPrevIdx])) {
+        argPrevIdx--
+        charge(work, 1, ctx.originalSource)
+      }
       const prevTok = argPrevIdx < 0 ? '' : source[argPrevIdx]
       // The preceding WORD, when the preceding character is part of one. Reading only the
       // CHARACTER cannot tell a callee from a keyword, so the `n` of `return` and the `t` of
@@ -928,7 +1013,10 @@ export function transformParenExpressions(
       let argPrevWord = ''
       if (/[A-Za-z0-9_$]/.test(prevTok)) {
         let w = argPrevIdx
-        while (w >= 0 && /[A-Za-z0-9_$]/.test(source[w])) w--
+        while (w >= 0 && /[A-Za-z0-9_$]/.test(source[w])) {
+          w--
+          charge(work, 1, ctx.originalSource)
+        }
         argPrevWord = source.slice(w + 1, argPrevIdx + 1)
       }
       isCallArgs =
@@ -946,7 +1034,10 @@ export function transformParenExpressions(
         i + 1,
         '(',
         ')',
-        parenMemo
+        parenMemo,
+        work,
+        ctx.originalSource,
+        regexMemo
       )
       if (!fullParamsResult) {
         result += source[i]
@@ -969,10 +1060,19 @@ export function transformParenExpressions(
       // that alternative and consuming it as a type deletes a branch of the program. The
       // `isCallArgs` guard above catches the sibling shape by noticing that a call's `(`
       // follows its callee — true, but a proxy: here the `(` follows `?`, because the
-      // consequent is a PARENTHESIZED EXPRESSION rather than a call. `isTernaryColon` asks
-      // the question directly instead of inferring it from the neighbouring token.
+      // consequent is a PARENTHESIZED EXPRESSION rather than a call. `ternaryColons` asks
+      // the question directly instead of inferring it from the neighbouring token. It is
+      // computed ONCE per source and held in this frame; a per-colon query is O(n) each,
+      // which was the quadratic (re-review 7).
       let arrowReturnType: string | undefined
-      if (source[j] === ':' && !(ternary ??= ternaryColons(source)).has(j)) {
+      if (
+        source[j] === ':' &&
+        !(
+          ternary ??
+          (charge(work, source.length, ctx.originalSource),
+          (ternary = ternaryColons(source)))
+        ).has(j)
+      ) {
         const colonMarker = source.slice(j, j + 2)
         if (colonMarker === ':?' || colonMarker === ':!') {
           j += 2
@@ -980,7 +1080,13 @@ export function transformParenExpressions(
           j++
         }
         while (j < source.length && /\s/.test(source[j])) j++
-        const typeResult = extractReturnTypeValue(source, j)
+        const typeResult = extractReturnTypeValue(
+          source,
+          j,
+          work,
+          ctx.originalSource,
+          regexMemo
+        )
         if (typeResult) {
           arrowReturnType = typeResult.type
           j = typeResult.endPos
@@ -1040,6 +1146,7 @@ export function transformParenExpressions(
       } else {
         // Not an arrow function - recursively transform the content for nested arrows
         // but don't process as param declarations (no colon-to-equals transform)
+        charge(work, fullContent.length, ctx.originalSource) // the substring it recurses on
         const transformed = transformParenExpressions(fullContent, {
           ...ctx,
           parenDepth: parenDepth + 1,
@@ -1089,13 +1196,18 @@ export function extractBalancedContent(
    * recurses (0.14.0 final re-review 6, B-1). Held equal to the uncached scan at every `(` of
    * a corpus by parser-balanced.test.ts.
    */
-  memo?: Map<number, number>
+  memo?: Map<number, number>,
+  work?: TransformWork,
+  original = source,
+  regexMemo?: RegexScanMemo
 ): { content: string; endPos: number } | null {
   const known = memo?.get(start)
-  if (known !== undefined)
+  if (known !== undefined) {
+    if (known > 0) charge(work, known - start, original) // the content is copied
     return known < 0
       ? null
       : { content: source.slice(start, known - 1), endPos: known }
+  }
   /** Content starts of the nested pairs still open, for the memo. */
   const opened: number[] = []
   let depth = 1
@@ -1108,6 +1220,7 @@ export function extractBalancedContent(
   let sigTail = open
 
   while (i < source.length && depth > 0) {
+    charge(work, 1, original)
     const char = source[i]
 
     // Handle string literals.
@@ -1131,7 +1244,7 @@ export function extractBalancedContent(
       // enclosing paren, so `if (/[)\]']/.test(c))` handed the caller the fragment `/[`
       // and every function after it went untransformed. Skip the literal whole.
       if (char === '/' && isRegexStart(sigTail)) {
-        const end = findRegexEnd(source, i)
+        const end = findRegexEnd(source, i, regexMemo)
         if (end !== -1) {
           i = end + 1
           sigTail = '/'
@@ -1299,7 +1412,10 @@ function matchAt(
 
 function extractReturnTypeValue(
   source: string,
-  start: number
+  start: number,
+  work?: TransformWork,
+  original = source,
+  regexMemo?: RegexScanMemo
 ): { type: string; endPos: number } | null {
   let i = start
   let depth = 0
@@ -1314,6 +1430,7 @@ function extractReturnTypeValue(
   })
 
   while (i < source.length) {
+    charge(work, 1, original)
     const char = source[i]
 
     // A REGEX LITERAL is a legitimate example value — `s: /^\d+$/` denotes a RegExp under
@@ -1323,8 +1440,12 @@ function extractReturnTypeValue(
     // not parse. Every TypeScript function returning a RegExp failed to convert; the
     // parameter position handled it correctly all along, so the two disagreed.
     if (!inString && char === '/') {
-      const end = findRegexEnd(source, i)
-      if (end !== -1 && isRegexStart(source.slice(start, i))) {
+      const end = findRegexEnd(source, i, regexMemo)
+      if (
+        end !== -1 &&
+        (charge(work, i - start, original),
+        isRegexStart(source.slice(start, i)))
+      ) {
         i = end + 1
         // Flags (`/x/gi`).
         while (i < source.length && /[a-z]/.test(source[i])) i++
@@ -1731,6 +1852,7 @@ function processParamString(
     safeFunctions: Set<string>
     maxParenDepth?: number
     parenDepth?: number
+    work?: TransformWork
   },
   trackRequired: boolean
 ): string {
@@ -1745,6 +1867,7 @@ function processParamString(
     // the bound.
     maxParenDepth: ctx.maxParenDepth,
     parenDepth: (ctx.parenDepth ?? 0) + 1,
+    work: ctx.work,
   }).source
 
   // Now split and process each parameter

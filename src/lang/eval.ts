@@ -181,7 +181,8 @@ export interface EvalOptions {
 
 /** Default source-length cap. What bounds the work behind it is that every preprocess pass is
  * LINEAR on hostile input — measured at the cap (2026-09-26) over the shapes and the generated
- * token grid in `src/admission.test.ts`, the worst is ~111ms (30-deep nests of distinct substrings). It used to claim "well under a
+ * token and token-PAIR grids in `src/admission.test.ts`, the worst is ~114ms; and the AJS
+ * transform carries a work budget, so a scan nobody has found yet is refused, not trusted. It used to claim "well under a
  * tenth of a second" while passes were quadratic, and 32KB of `//` lines took 21.7s (0.14.0
  * final re-reviews 4-6) — a size cap bounds nothing unless the work behind it is linear. */
 export { DEFAULT_MAX_SOURCE_BYTES }
