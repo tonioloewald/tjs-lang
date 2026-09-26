@@ -569,8 +569,8 @@ describe('what the recursion records', () => {
   })
 
   it('a 20,000-deep payload: valid is ACCEPTED, a bad leaf is REJECTED, nothing throws', () => {
-    // It used to overflow and fail closed — rejecting VALID deep data. Deferral past a fixed
-    // ref depth took the JS stack out of the verdict (see example-kinds-oracle.test.ts).
+    // It used to overflow and fail closed — rejecting VALID deep data. The checker no longer
+    // recurses into the data at all (see example-kinds-oracle.test.ts).
     withRecords((rt) => {
       const code = tjs(
         'Type D { example: { id: 0, child: D | undefined } }\nfunction f(d: D):! 0 { return 1 }'
@@ -684,5 +684,51 @@ describe('a Type defined only in terms of itself is an error', () => {
   it('real recursion and a plain alias are fine (controls)', () => {
     expect(() => tjs('Type N { example: { next: N | null } }')).not.toThrow()
     expect(() => tjs('Type A = B\nType B { example: { v: 0 } }')).not.toThrow()
+  })
+})
+
+describe('a type expression may span lines (re-review 3, M-1)', () => {
+  // A top-level newline used to END the member unconditionally, so a multi-line union was
+  // silently truncated to its first line — and `Type X = 'a' |\n 0` became the NUMBER 0.
+  const ROWS: Array<[string, unknown[], unknown[]]> = [
+    ["Type X {\n  example: 'a'\n  | 0\n}", ['x', 0], [true]],
+    ["Type X = 'a' |\n  0", ['x', 0], [true]],
+    ["Type X =\n  | 'a'\n  | 'b'", ['a', 'b'], ['c']],
+    [
+      "Type X {\n  example: { a: 0 }\n    | { b: '' }\n}",
+      [{ b: 'x' }, { a: 1 }],
+      [5],
+    ],
+    ["Type X = { a: 0 } |\n  { b: '' }", [{ b: 'x' }], [5]],
+  ]
+  for (const [src, good, bad] of ROWS)
+    it(JSON.stringify(src), () => {
+      const [X] = load(src, ['X'], false)
+      for (const v of good)
+        expect({ v, ok: X.check(v) }).toEqual({ v, ok: true })
+      for (const v of bad)
+        expect({ v, ok: X.check(v) }).toEqual({ v, ok: false })
+    })
+
+  it('a member on the next line still ENDS the example (control)', () => {
+    const [X] = load(
+      "Type X {\n  example: 'a'\n  predicate(x) { return x.length > 0 }\n}",
+      ['X'],
+      false
+    )
+    expect(X.check('x')).toBe(true)
+    expect(X.check('')).toBe(false)
+  })
+
+  it('the Generic reader (a sibling site) spans lines too', () => {
+    expect(() =>
+      tjs(
+        "Generic Box<T> {\n  description: 'box'\n  example: { value: 0 }\n    | null\n  predicate(o, T) { return o === null || T(o.value) }\n}"
+      )
+    ).not.toThrow()
+  })
+
+  it('an unreadable `=` default is an error, not a fallthrough', () => {
+    expect(() => tjs('Type X = 1 +* 2')).toThrow(/could not be read/)
   })
 })

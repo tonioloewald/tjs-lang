@@ -2608,6 +2608,15 @@ export function transformTypeDeclarations(
         // `Opt` was the number 0), an object default stopped at its FIRST `}`, and a negative
         // number or a type name matched nothing at all.
         const extracted = readTypeExpression(source, j)
+        // Unreadable is an ERROR, as for `example:` — falling through to the legacy one-token
+        // regex is how `Type X = 'a' |\n 0` became `Type(…, 'a') | 0`.
+        if (!extracted)
+          throw new SyntaxError(
+            `\`${typeName}\` has a \`= …\` default that could not be read as one ` +
+              `expression, so the type would check the wrong thing. A default is a value, a ` +
+              `type name, or a union of them: \`Type X = 0\`, \`Type X = A | null\`.`,
+            locAt(source, i)
+          )
         if (extracted) {
           defaultValue = extracted.value
           j = extracted.end
@@ -4233,6 +4242,9 @@ function readTypeExpression(
   // on the masked view, so a delimiter inside a string or a nested object does not end it.
   // (Parsing straight from `start` let acorn read `0, default: 5` as a comma EXPRESSION.)
   const masked = maskLiterals(source)
+  // A LEADING `|` — the multi-line union style Prettier writes — belongs to no member.
+  const lead = masked.slice(start).match(/^\s*\|(?!\|)/)
+  if (lead) start += lead[0].length
   let depth = 0
   let end = start
   for (; end < masked.length; end++) {
@@ -4245,8 +4257,16 @@ function readTypeExpression(
     else if (c === ')' || c === ']' || c === '}') {
       if (depth === 0) break
       depth--
-    } else if (depth === 0 && (c === ',' || c === ';' || c === '\n')) break
-    else if (depth === 0 && c === '/' && /[/*]/.test(masked[end + 1] ?? ''))
+    } else if (depth === 0 && (c === ',' || c === ';')) break
+    else if (depth === 0 && c === '\n') {
+      // A newline ends the member only when what came before is already COMPLETE and the
+      // next line does not CONTINUE it. It used to end it unconditionally, so a multi-line
+      // union — `'a'\n | 0`, or Prettier's `A |\n B` — was silently TRUNCATED to its first
+      // line: `Type X = 'a' |\n 0` became the NUMBER 0.
+      const next = masked.slice(end + 1).match(/^\s*(\S)/)?.[1]
+      const continues = next !== undefined && '|&?:.'.includes(next)
+      if (!continues && isOneExpression(source.slice(start, end))) break
+    } else if (depth === 0 && c === '/' && /[/*]/.test(masked[end + 1] ?? ''))
       break
   }
   const value = source.slice(start, end).trim()

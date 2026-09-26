@@ -29,7 +29,9 @@ type Spec =
   | { k: 'ref'; t: number }
   | { k: 'union'; of: Spec[] }
   | { k: 'arr'; of: Spec }
-type System = Array<Record<string, Spec>>
+  | { k: 'obj'; fields: Record<string, Spec> }
+/** Each type's EXAMPLE — usually an object shape, sometimes a union of shapes. */
+type System = Spec[]
 
 /** mulberry32 — small, seeded, good enough to explore. */
 function rng(seed: number) {
@@ -43,27 +45,38 @@ function rng(seed: number) {
 }
 
 function randomSystem(r: () => number): System {
-  const n = 1 + Math.floor(r() * 3)
+  // Wide on purpose: the counterexample that broke the previous design needed five types
+  // and a top-level union of object SHAPES, which a 3-type generator never produced.
+  const n = 1 + Math.floor(r() * 6)
   const leaf = (): Spec =>
     [{ k: 'int' }, { k: 'num' }, { k: 'str' }][Math.floor(r() * 3)] as Spec
+  const obj = (depth: number): Spec => {
+    const fields: Record<string, Spec> = {}
+    const count = 1 + Math.floor(r() * 4)
+    for (let i = 0; i < count; i++) fields[`f${i}`] = spec(depth + 1)
+    return { k: 'obj', fields }
+  }
   const spec = (depth: number): Spec => {
     const p = r()
-    if (p < 0.3) return leaf()
-    if (p < 0.6) return { k: 'ref', t: Math.floor(r() * n) }
-    if (p < 0.85 && depth < 2)
+    if (p < 0.25) return leaf()
+    if (p < 0.55) return { k: 'ref', t: Math.floor(r() * n) }
+    if (p < 0.8 && depth < 3) {
+      const width = 2 + Math.floor(r() * 2) // 2- and 3-way unions
       return {
         k: 'union',
-        of: [spec(depth + 1), r() < 0.5 ? { k: 'null' } : spec(depth + 1)],
+        of: Array.from({ length: width }, () =>
+          r() < 0.2 ? ({ k: 'null' } as Spec) : spec(depth + 1)
+        ),
       }
-    if (depth < 2) return { k: 'arr', of: spec(depth + 1) }
+    }
+    if (p < 0.9 && depth < 3) return { k: 'arr', of: spec(depth + 1) }
+    if (depth < 2) return obj(depth)
     return leaf()
   }
-  return Array.from({ length: n }, () => {
-    const fields: Record<string, Spec> = {}
-    const count = 1 + Math.floor(r() * 3)
-    for (let i = 0; i < count; i++) fields[`f${i}`] = spec(0)
-    return fields
-  })
+  return Array.from(
+    { length: n },
+    () => (r() < 0.8 ? obj(0) : { k: 'union', of: [obj(1), obj(1)] as Spec[] }) // a union of SHAPES
+  )
 }
 
 function render(sys: System): string {
@@ -83,16 +96,13 @@ function render(sys: System): string {
         return s.of.map(ex).join(' | ')
       case 'arr':
         return `[${ex(s.of)}]`
+      case 'obj':
+        return `{ ${Object.entries(s.fields)
+          .map(([k, f]) => `${k}: ${ex(f)}`)
+          .join(', ')} }`
     }
   }
-  return sys
-    .map(
-      (fields, i) =>
-        `Type T${i} { example: { ${Object.entries(fields)
-          .map(([k, s]) => `${k}: ${ex(s)}`)
-          .join(', ')} } }`
-    )
-    .join('\n')
+  return sys.map((t, i) => `Type T${i} { example: ${ex(t)} }`).join('\n')
 }
 
 /** The oracle: path-based coinduction. Exact, exponential, fine for small graphs. */
@@ -138,30 +148,42 @@ function oracle(sys: System, x: unknown, t: number): boolean {
       }
       case 'arr':
         return Array.isArray(v) && v.every((e) => holds(e, s.of))
+      case 'obj':
+        return (
+          !!v &&
+          typeof v === 'object' &&
+          !Array.isArray(v) &&
+          Object.entries(s.fields).every(
+            ([k, f]) => k in (v as object) && holds((v as any)[k], f)
+          )
+        )
       case 'ref':
         return isType(v, s.t)
     }
   }
+  // Coinduction on (value, type) pairs: a pair already on the current path holds.
   const isType = (v: unknown, ti: number): boolean => {
-    if (!v || typeof v !== 'object' || Array.isArray(v)) return false
-    const seen = onPath.get(v)
-    if (seen?.has(ti)) return true
-    const set = seen ?? new Set<number>()
-    onPath.set(v, set)
-    set.add(ti)
+    const key = v !== null && typeof v === 'object' ? v : null
+    if (key) {
+      const seen = onPath.get(key)
+      if (seen?.has(ti)) return true
+    }
+    const set = key ? onPath.get(key) ?? new Set<number>() : null
+    if (key && set) {
+      onPath.set(key, set)
+      set.add(ti)
+    }
     try {
-      return Object.entries(sys[ti]).every(
-        ([k, s]) => k in (v as object) && holds((v as any)[k], s)
-      )
+      return holds(v, sys[ti])
     } finally {
-      set.delete(ti)
+      if (set) set.delete(ti)
     }
   }
   return isType(x, t)
 }
 
 function randomGraph(sys: System, r: () => number): object[] {
-  const n = 1 + Math.floor(r() * 6)
+  const n = 1 + Math.floor(r() * 12)
   const nodes: any[] = Array.from({ length: n }, () => ({}))
   const pick = () => nodes[Math.floor(r() * n)]
   const value = (s: Spec): unknown => {
@@ -182,11 +204,21 @@ function randomGraph(sys: System, r: () => number): object[] {
         return value(s.of[Math.floor(r() * s.of.length)])
       case 'arr':
         return Array.from({ length: Math.floor(r() * 3) }, () => value(s.of))
+      case 'obj': {
+        const o: any = {}
+        for (const [k, f] of Object.entries(s.fields))
+          if (r() < 0.95) o[k] = value(f)
+        return o
+      }
     }
   }
+  // Each node takes the shape of a random type (a union picks one member).
+  const shapeOf = (s: Spec): Spec =>
+    s.k === 'union' ? shapeOf(s.of[Math.floor(r() * s.of.length)]) : s
   for (const node of nodes) {
-    const fields = sys[Math.floor(r() * sys.length)]
-    for (const [k, s] of Object.entries(fields))
+    const shape = shapeOf(sys[Math.floor(r() * sys.length)])
+    if (shape.k !== 'obj') continue
+    for (const [k, s] of Object.entries(shape.fields))
       if (r() < 0.95) node[k] = value(s)
   }
   return nodes
@@ -212,68 +244,54 @@ function describeGraph(nodes: any[]): string {
     .join(' ')
 }
 
-function load(
-  src: string,
-  names: string[],
-  withRuntime: boolean,
-  depth?: number
-) {
+function load(src: string, names: string[], withRuntime: boolean) {
   const saved = (globalThis as any).__tjs
   if (withRuntime) (globalThis as any).__tjs = createRuntime()
   else delete (globalThis as any).__tjs
-  // Test-only: the ref depth past which a pair is DEFERRED is read when the module loads.
-  // Forcing it to 1–2 makes almost every check go through deferral, episodes and the
-  // failure cascade — the machinery a normal-depth run barely touches.
-  if (depth !== undefined) (globalThis as any).__TJS_KIND_DEPTH__ = depth
   try {
     return new Function(tjs(src).code + `\nreturn [${names.join(',')}]`)()
   } finally {
     ;(globalThis as any).__tjs = saved
-    delete (globalThis as any).__TJS_KIND_DEPTH__
   }
 }
 
 describe('the recursive checker agrees with the oracle', () => {
-  for (const depth of [undefined, 2, 1])
-    it(`on 400 random type systems and graphs (defer depth ${
-      depth ?? 'default'
-    })`, () => {
-      const r = rng(20260926)
-      let checks = 0
-      let accepted = 0
-      const disagreements: string[] = []
-      for (let trial = 0; trial < 400; trial++) {
-        const sys = randomSystem(r)
-        const src = render(sys)
-        const types = load(
-          src,
-          sys.map((_, i) => `T${i}`),
-          trial % 2 === 1,
-          depth
-        )
-        for (let g = 0; g < 3; g++) {
-          const nodes = randomGraph(sys, r)
-          for (const node of nodes)
-            for (let t = 0; t < sys.length; t++) {
-              const want = oracle(sys, node, t)
-              const got = types[t].check(node) === true
-              checks++
-              if (want) accepted++
-              if (want !== got && disagreements.length < 5)
-                disagreements.push(
-                  `trial ${trial}: T${t} want ${want} got ${got}\n${src}\nnode ${nodes.indexOf(
-                    node
-                  )} of ${nodes.length}: ${describeGraph(nodes)}`
-                )
-            }
-        }
+  it('on 400 random type systems and graphs', () => {
+    const r = rng(20260926)
+    let checks = 0
+    let accepted = 0
+    const disagreements: string[] = []
+    for (let trial = 0; trial < 400; trial++) {
+      const sys = randomSystem(r)
+      const src = render(sys)
+      const types = load(
+        src,
+        sys.map((_, i) => `T${i}`),
+        trial % 2 === 1
+      )
+      for (let g = 0; g < 3; g++) {
+        const nodes = randomGraph(sys, r)
+        for (const node of nodes)
+          for (let t = 0; t < sys.length; t++) {
+            const want = oracle(sys, node, t)
+            const got = types[t].check(node) === true
+            checks++
+            if (want) accepted++
+            if (want !== got && disagreements.length < 5)
+              disagreements.push(
+                `trial ${trial}: T${t} want ${want} got ${got}\n${src}\nnode ${nodes.indexOf(
+                  node
+                )} of ${nodes.length}: ${describeGraph(nodes)}`
+              )
+          }
       }
-      expect(disagreements).toEqual([])
-      // Apparatus: both verdicts are exercised in volume, or agreement means nothing.
-      expect(checks).toBeGreaterThan(2000)
-      expect(accepted).toBeGreaterThan(checks / 10)
-      expect(checks - accepted).toBeGreaterThan(checks / 10)
-    })
+    }
+    expect(disagreements).toEqual([])
+    // Apparatus: both verdicts are exercised in volume, or agreement means nothing.
+    expect(checks).toBeGreaterThan(2000)
+    expect(accepted).toBeGreaterThan(checks / 10)
+    expect(checks - accepted).toBeGreaterThan(checks / 10)
+  })
 })
 
 describe('the oracle agrees when ONE validation covers many nodes', () => {
@@ -281,57 +299,61 @@ describe('the oracle agrees when ONE validation covers many nodes', () => {
   // same validation meets a node again — which the per-node queries above never do. Here
   // every node goes through one `{ items: [...] }` check, against each type and against a
   // union of two types (so a failed alternative's work is REUSED by the next one).
-  for (const depth of [undefined, 2, 1])
-    it(`on 400 random systems, each checked as one batch (defer depth ${
-      depth ?? 'default'
-    })`, () => {
-      const r = rng(9_2026)
-      let batches = 0
-      let accepted = 0
-      const disagreements: string[] = []
-      for (let trial = 0; trial < 400; trial++) {
-        const sys = randomSystem(r)
-        const n = sys.length
-        const wrappers: string[] = []
-        const queries: Array<{ name: string; ok: (node: unknown) => boolean }> =
-          []
-        for (let t = 0; t < n; t++) {
-          wrappers.push(`Type W${t} { example: { items: [T${t}] } }`)
-          queries.push({ name: `W${t}`, ok: (node) => oracle(sys, node, t) })
-          const u = (t + 1) % n
-          wrappers.push(`Type U${t} { example: { items: [T${t} | T${u}] } }`)
-          queries.push({
-            name: `U${t}`,
-            ok: (node) => oracle(sys, node, t) || oracle(sys, node, u),
-          })
-        }
-        const types = load(
-          render(sys) + '\n' + wrappers.join('\n'),
-          queries.map((q) => q.name),
-          trial % 2 === 1,
-          depth
+  it('on 400 random systems, each checked as one batch', () => {
+    const r = rng(9_2026)
+    let batches = 0
+    let accepted = 0
+    const disagreements: string[] = []
+    for (let trial = 0; trial < 400; trial++) {
+      const sys = randomSystem(r)
+      const n = sys.length
+      const wrappers: string[] = []
+      const queries: Array<{ name: string; ok: (node: unknown) => boolean }> =
+        []
+      for (let t = 0; t < n; t++) {
+        wrappers.push(`Type W${t} { example: { items: [T${t}] } }`)
+        queries.push({ name: `W${t}`, ok: (node) => oracle(sys, node, t) })
+        // 3-way: a failed alternative's work must not leak into the next one.
+        const u = (t + 1) % n
+        const w = (t + 2) % n
+        wrappers.push(
+          `Type U${t} { example: { items: [T${t} | T${u} | T${w}] } }`
         )
-        for (let g = 0; g < 3; g++) {
-          const nodes = randomGraph(sys, r)
-          queries.forEach((q, qi) => {
-            const want = nodes.every(q.ok)
-            const got = types[qi].check({ items: nodes }) === true
-            batches++
-            if (want) accepted++
-            if (want !== got && disagreements.length < 5)
-              disagreements.push(
-                `trial ${trial}: ${q.name} want ${want} got ${got}\n${render(
-                  sys
-                )}\n${describeGraph(nodes)}`
-              )
-          })
-        }
+        queries.push({
+          name: `U${t}`,
+          ok: (node) =>
+            oracle(sys, node, t) ||
+            oracle(sys, node, u) ||
+            oracle(sys, node, w),
+        })
       }
-      expect(disagreements).toEqual([])
-      expect(batches).toBeGreaterThan(2000)
-      expect(accepted).toBeGreaterThan(batches / 20)
-      expect(batches - accepted).toBeGreaterThan(batches / 20)
-    })
+      const types = load(
+        render(sys) + '\n' + wrappers.join('\n'),
+        queries.map((q) => q.name),
+        trial % 2 === 1
+      )
+      for (let g = 0; g < 3; g++) {
+        const nodes = randomGraph(sys, r)
+        queries.forEach((q, qi) => {
+          const want = nodes.every(q.ok)
+          const got = types[qi].check({ items: nodes }) === true
+          batches++
+          if (want) accepted++
+          if (want !== got && disagreements.length < 5)
+            disagreements.push(
+              `trial ${trial}: ${q.name} want ${want} got ${got}\n${render(
+                sys
+              )}\n${describeGraph(nodes)}`
+            )
+        })
+      }
+    }
+    expect(disagreements).toEqual([])
+    expect(batches).toBeGreaterThan(2000)
+    // A whole batch is valid less often than one node, so the floor is absolute.
+    expect(accepted).toBeGreaterThan(150)
+    expect(batches - accepted).toBeGreaterThan(batches / 20)
+  })
 })
 
 describe('a success that leaned on a REFUTED assumption is not kept', () => {
@@ -444,9 +466,9 @@ describe('the recursive checker does bounded work', () => {
 describe('depth is not bounded by the JS stack — in NODE, whose stack is ~8x smaller', () => {
   // A recursive checker overflows at a data depth set by the engine: Bun allows ~80k plain
   // frames, Node ~9k, and a ref level costs ~20. Failing closed there rejected a VALID
-  // list a few hundred deep on Node. Past a fixed ref depth the checker DEFERS the pair and
-  // verifies it from an empty stack once the outer check is done. Run in a real `node`,
-  // because Bun's stack would hide the regression.
+  // list a few hundred deep on Node. The checker now never recurses into the data (iterative
+  // refinement over a worklist). Run in a real `node`, because Bun's stack would hide a
+  // regression.
   it('accepts a 50,000-deep valid list and rejects a bad leaf at that depth', async () => {
     const { writeFileSync, mkdtempSync, rmSync } = await import('node:fs')
     const { join } = await import('node:path')
@@ -480,5 +502,102 @@ console.log(JSON.stringify([check(mk(50000)), check(mk(50000, true)), check(mk(3
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('re-review 3 repros', () => {
+  it('B-1: a failure is not hidden by a sibling that reused its stack slot (no wrong true)', () => {
+    const [Elem, U] = load(
+      'Type R { example: { a: A, b: B, bad: 0 } }\n' +
+        'Type A { example: { r: R, e: E } }\n' +
+        'Type E { example: { a: A } }\n' +
+        'Type B { example: { e: E } }\n' +
+        "Type K { example: { bad: '' } }\n" +
+        'Type Elem { example: { p: R } | { q: B } }\n' +
+        'Type U { example: { items: [R | K | B] } }',
+      ['Elem', 'U'],
+      false
+    )
+    const rv: any = { bad: 'x' }
+    const av: any = { r: rv }
+    const ev: any = { a: av }
+    av.e = ev
+    const bv: any = { e: ev }
+    rv.a = av
+    rv.b = bv
+    // B holds only if E does, E only if A does, A only if R does — and R fails (`bad`).
+    expect(Elem.check({ p: rv, q: bv })).toBe(false)
+    expect(U.check({ items: [rv, bv] })).toBe(false)
+  })
+
+  /**
+   * Time for two sizes 4x apart; linear is ~4x, quadratic ~16x. BEST of three at each size:
+   * a single sample is GC-noisy enough that 2x the input once measured FASTER.
+   */
+  const ratio = (run: (n: number) => void, small: number) => {
+    const best = (n: number) => {
+      let min = Infinity
+      for (let i = 0; i < 3; i++) {
+        const t = performance.now()
+        run(n)
+        min = Math.min(min, performance.now() - t)
+      }
+      return min
+    }
+    run(small) // warm
+    return best(small * 4) / Math.max(best(small), 0.5)
+  }
+
+  it('B-2(a): a 128-deep spine with many first-alternative failures stays linear', () => {
+    const [T] = load(
+      "Type T { example: { v: 0, kids: [T | { x: '' }] } }",
+      ['T'],
+      false
+    )
+    const build = (k: number) => {
+      let spine: any = { v: 0, kids: [] }
+      const bottom = spine
+      for (let i = 0; i < 129; i++) spine = { v: i, kids: [spine] }
+      for (let i = 0; i < k; i++) bottom.kids.push({ x: 'valid via alt' })
+      return spine
+    }
+    expect(T.check(build(8000))).toBe(true) // it used to REJECT this, valid, after ~12s
+    expect(ratio((k) => T.check(build(k)), 2000)).toBeLessThan(9)
+  })
+
+  it('B-2(b): many deep chains valid only via the second alternative are ACCEPTED', () => {
+    const [Arr] = load(
+      'Type C { example: { next: C | null, k: 0 } }\n' +
+        'Type Arr { example: { items: [C | { alt: 0 }] } }',
+      ['Arr'],
+      false
+    )
+    const chain = () => {
+      let c: any = { next: null, k: 'BAD', alt: 1 }
+      for (let i = 0; i < 200; i++) c = { next: c, k: i, alt: 1 }
+      return c
+    }
+    const build = (m: number) => ({ items: Array.from({ length: m }, chain) })
+    expect(Arr.check(build(400))).toBe(true) // ~1.2MB; it used to be rejected
+    expect(ratio((m) => Arr.check(build(m)), 50)).toBeLessThan(9)
+  })
+
+  it('B-2(c): lists valid as B, 160 of them 129+ deep, accepted in linear time', () => {
+    const [L] = load(
+      "Type A { example: { next: T | null, a: '' } }\n" +
+        'Type B { example: { next: T | null, b: 0 } }\n' +
+        'Type T { example: A | B }\n' +
+        'Type L { example: { lists: [T] } }',
+      ['L'],
+      false
+    )
+    const list = () => {
+      let v: any = null
+      for (let i = 0; i < 140; i++) v = { next: v, b: i }
+      return v
+    }
+    const build = (k: number) => ({ lists: Array.from({ length: k }, list) })
+    expect(L.check(build(160))).toBe(true)
+    expect(ratio((k) => L.check(build(k)), 40)).toBeLessThan(9)
   })
 })

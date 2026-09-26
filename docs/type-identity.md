@@ -151,11 +151,12 @@ byte-identical code.
 ### Recursive types — what `.check` does, and what the schema does not (yet)
 
 A `ref` (another Type named in an example) is checked coinductively — cyclic data is
-accepted when every node satisfies its type — with each (value, type) pair evaluated about
-once per validation, to any depth: past a fixed ref depth a pair is deferred and verified
-from an empty stack, so the JS stack (Node's is ~8x smaller than Bun's) never decides the
-verdict. It is checked against a brute-force oracle on random cyclic, shared graphs, at the
-default depth and with deferral forced on every step (`example-kinds-oracle.test.ts`).
+accepted when every node satisfies its type — by iterative refinement: inside a check every
+nested match is a lookup of a (value, subexample) pair, assumed true until its own shape
+fails, with failures propagated to the pairs that consulted it. There is no recursion into the
+data, so any depth works (a 50,000-deep list, on Node as on Bun), in time linear in the data.
+Checked against a brute-force oracle on wide random cyclic, shared graphs
+(`example-kinds-oracle.test.ts`).
 
 `toJSONSchema()` of a recursive type is NOT yet faithful: it truncates to `{}` at the
 recursion point, so a JSON-Schema validator accepts values `.check` rejects. `$defs` + `$ref`
