@@ -548,9 +548,9 @@ deployed after the publish.
     schema helper and name fallback), so collapsing needs a decision on which is right, not
     a mechanical merge. Owner: next session, before 0.14.1. (Practices: a structural twin is
     not deferred silently; this is the recorded keep.)
-  - File acorn's quadratic block-nesting cost upstream (acornjs/acorn; repro in the report)
-    and add an UPSTREAM.md row naming the 8KB cap as the local workaround. Owner's call —
-    filing on a third-party repo is outward-facing.
+  - ~~File acorn's quadratic block-nesting cost upstream~~ — replicated in plain Node on
+    acorn 8.18.0 (cause: `currentVarScope`/`currentThisScope` scope-stack walks) and filed as
+    a performance note, acornjs/acorn#1461, with Tonio's go-ahead; mirrored in UPSTREAM.md.
   - Before the functions deploy: query Firestore for stored functions / RBAC rules over 8KB;
     they start failing on deploy otherwise.
   - A host `capabilities.agent.run(id)` that transpiles must apply the cap itself — document.
