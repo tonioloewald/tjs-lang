@@ -128,7 +128,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 
 ## Tracking and process
 
-- [TODO.md](https://github.com/tonioloewald/tjs-lang/blob/main/TODO.md) — the live backlog, organized by area.
+- [TODO.md](https://github.com/tonioloewald/tjs-lang/blob/main/TODO.md) — a pointer: open work lives on the Virta board (https://virta.tosijs.net/host/#?virta.scope=tjs-lang) since 2026-09-26
 - [TODO-ARCHIVE.md](https://github.com/tonioloewald/tjs-lang/blob/main/TODO-ARCHIVE.md) — shipped/completed history moved out of TODO.md (CHANGELOG is the authoritative shipped record).
 - [PLAN.md](https://github.com/tonioloewald/tjs-lang/blob/main/PLAN.md) — roadmap (north star: the predicate-types / `$predicate` direction).
 - [CHANGELOG.md](CHANGELOG.md) — per-release notes (Keep a Changelog). Add an entry under a new version at release time.

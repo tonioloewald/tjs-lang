@@ -1041,7 +1041,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `TJS-FOR-TS.md` — TJS guide for TypeScript developers (migration, interop)
 - `CONTEXT.md` — Architecture deep dive
 - `AGENTS.md` — Agent workflow instructions (session-completion checklist, push-before-done rule)
-- `TODO.md` — Open work, organized by area; move items to the **Completed** section when done
+- `TODO.md` — a POINTER to the Virta board (see Tracking Work); the backlog moved there on 2026-09-26
 - `PLAN.md` — Roadmap
 - `DOCS-WASM.md` — Canonical WASM reference: inline blocks, `wasm function` declarations, memory model, cross-file composition, `tjs-lang/linalg`, current limitations
 - `wasm-library-plan.md` — Cross-file WASM library design (composable `wasm function` declarations, transpile-time module composition, linalg stdlib). **Shipped in v0.8.0** — all phases (0.5, 0.75, 1, 1.5, 2, 3, 4, 5 MVP, 6) complete. See the plan for what's deferred (linalg expansion, i32/f32/v128 return types, etc.).
@@ -1066,7 +1066,7 @@ Skip stale-prone precision (exact line counts, file sizes) — they drift silent
 
 ### Tracking Work
 
-Work is tracked in plain markdown: open items live in `TODO.md` (organized by area). **GitHub issues are also live, for a different job** — items filed by CONSUMERS of the package, and findings we owe an upstream repo. That distinction is the whole rule: our own work goes in markdown, someone else's report goes in an issue. Every open issue carries a dated disposition; per-release review findings are tracked in `docs/reviews/`, and `TODO.md`'s open-findings section names the deferrals rather than all of them. When you start a task, find or add the relevant entry; when you finish, check the box and (for substantial work) move it to the Completed section with a short note.
+Work is tracked on the **Virta board** since 2026-09-26: https://virta.tosijs.net/host/#?virta.scope=tjs-lang. `virta brief` runs at session start (a SessionStart hook from `virta init`); `virta ls "project:tjs-lang status:ready"`, `virta show #n`, `virta work #n`, `virta review #n "…"`, `virta create "…" --project tjs-lang`. `TODO.md` is a pointer; its 583 items were imported at `dd34dc3`, and older comments across the repo that say "tracked in TODO.md" mean the card imported from that line. **GitHub issues are also live, for a different job** — items filed by CONSUMERS of the package, and findings we owe an upstream repo. That distinction is the whole rule: our own work goes on the board, someone else's report goes in an issue. Every open issue carries a dated disposition; per-release review findings are tracked in `docs/reviews/`, and their deferrals become cards. `UPSTREAM.md` stays a file (the practices' file-don't-fix convention) and each entry also gets a card.
 
 ### Landing the Plane (Session Completion Checklist)
 

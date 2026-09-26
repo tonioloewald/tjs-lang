@@ -2,21 +2,21 @@
 
 # Agent Instructions
 
-This project tracks its OWN work in plain markdown files (`TODO.md`, `PLAN.md`). GitHub issues are used, but for a different job: items filed by CONSUMERS of the package, and upstream findings we owe someone else. Both are live — `gh issue list` is not empty, and every open one carries a dated disposition.
+This project tracks its OWN work on the **Virta board** (https://virta.tosijs.net/host/#?virta.scope=tjs-lang; `virta brief` from a shell — the SessionStart hook runs it for you). `TODO.md` is now a pointer. GitHub issues are used, but for a different job: items filed by CONSUMERS of the package, and upstream findings we owe someone else. Both are live — `gh issue list` is not empty, and every open one carries a dated disposition.
 
 ## Where Work Lives
 
-- **`TODO.md`** — open work, organized by area (Playground, Language Features, Editor, Documentation, Infrastructure). Move items to the **Completed** section when done.
+- **The Virta board** — open work. `virta ls "project:tjs-lang status:ready"`, `virta show #n`, `virta work #n`, `virta review #n "…"`, `virta done #n "…"`, `virta create "…" --project tjs-lang`. Imported from `TODO.md` on 2026-09-26.
 - **`PLAN.md`** — roadmap and longer-term direction.
 - **`CLAUDE.md`** — repo conventions, commands, architecture for AI assistants.
 
-When you start a task, find or add the relevant entry in `TODO.md`. When you finish, check the box and (for substantial work) move it to the Completed section with a short note.
+When you start a task, find or create its card and `virta work` it. When you finish, `virta review` it (or `virta done` with the reason), and file a card for any follow-up, with a body that says why.
 
 ## Landing the Plane (Session Completion)
 
 When ending a work session that touched code, complete **all** steps below in order. Work is NOT complete until `git push` succeeds.
 
-1. **Update `TODO.md`** — check off completed items, add follow-ups for anything left undone, note blockers.
+1. **Update the board** — close or hand finished cards to review, file cards for follow-ups, note blockers on the card.
 2. **Run quality gates** — if code changed:
    ```bash
    bun run format       # ESLint fix + Prettier
