@@ -202,6 +202,45 @@ export function extractParamMarkers(src: string): {
   return { source: chunks.join(''), required, typeName }
 }
 
+/**
+ * Deepest parenthesis nesting the parameter transform accepts.
+ *
+ * The transform RECURSES on each non-arrow paren group's content (as a new string), so N
+ * nested parens are N levels, each copying and re-scanning everything inside it — quadratic
+ * in time and in bytes copied. 64KB of `(` took ~44s before fuel could apply, and the size
+ * cap on source bounds nothing while the work behind it is super-linear (0.14.0 final
+ * re-review 4, B-2). Measured 2026-09-26: the deepest nesting across 3,372 real code files
+ * (this repo and the compat corpus — effect, kysely, zod, …) is 19. At 64, the worst LEGAL
+ * source at the 64KB cap (64-deep nests, repeated) transpiles in ~105ms; at 256 it was
+ * ~477ms.
+ */
+export const MAX_PAREN_DEPTH = 64
+
+/**
+ * Refuse source nesting parentheses deeper than MAX_PAREN_DEPTH, in ONE linear pass over the
+ * literal-masked view (a `(` in a string or comment does not count). Called once, at each
+ * parser's entry, before the transform — never inside it, where it would run per level.
+ */
+export function assertParenDepth(
+  source: string,
+  originalSource = source
+): void {
+  const masked = maskLiterals(source)
+  let depth = 0
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked.charCodeAt(i)
+    if (c === 40) {
+      if (++depth > MAX_PAREN_DEPTH)
+        throw new SyntaxError(
+          `Parentheses nest more than ${MAX_PAREN_DEPTH} deep. That is refused before ` +
+            `parsing, which is super-linear in nesting depth.`,
+          locAt(originalSource, Math.min(i, originalSource.length - 1)),
+          originalSource
+        )
+    } else if (c === 41 && depth > 0) depth--
+  }
+}
+
 export function transformParenExpressions(
   source: string,
   ctx: {
@@ -644,43 +683,50 @@ export function transformParenExpressions(
     // `result`. A `result.trimEnd()` here was O(len(result)) per candidate and turned the
     // scan quadratic — the dogfood ratchet went from ~90s to 223s and timed out. In a pass
     // that already has one unlocated quadratic, a look-back must not allocate.
-    let prevIdx = -1
-    for (let k = result.length - 1; k >= 0; k--) {
-      if (!/\s/.test(result[k])) {
-        prevIdx = k
-        break
+    // Computed ONLY where it is consumed: a method head in a class body. It ran for every
+    // character, and its look-back walks back through whitespace — which is most of a
+    // body once comments have been blanked — so the pass was QUADRATIC: 64KB of `//`
+    // lines took 54s before fuel could apply (0.14.0 final re-review 4, B-2).
+    let isMethodDecl = false
+    if (methodMatch && isInClassBody()) {
+      let prevIdx = -1
+      for (let k = result.length - 1; k >= 0; k--) {
+        if (!/\s/.test(result[k])) {
+          prevIdx = k
+          break
+        }
       }
+      const prevNonWs = prevIdx < 0 ? '\n' : result[prevIdx] // '\n' = start of input
+      // The preceding WORD, when the preceding character is an identifier character. A
+      // single-character look-back cannot tell `new E(` from a method named `E`: the character
+      // before `E` is `w`, which is in none of the exclusions below, so `new E({ x: 1 })` in a
+      // static field initializer read as a method declaration and its ARGUMENT was rewritten as
+      // a parameter list — `{ x: 1 }` became `{ x = 1 }`, a shorthand-assignment pattern outside
+      // a pattern position, which acorn rejects. Two effect files failed on exactly this.
+      //
+      // Every keyword here introduces an EXPRESSION, so what follows is a call, never a
+      // declaration. `new` is the one that occurs in a class body directly (field initializers
+      // are the only expressions there); the rest cost nothing and remove a whole shape of bug
+      // rather than the one instance of it.
+      let prevWord = ''
+      if (prevIdx >= 0 && /[A-Za-z0-9_$]/.test(prevNonWs)) {
+        let w = prevIdx
+        while (w >= 0 && /[A-Za-z0-9_$]/.test(result[w])) w--
+        prevWord = result.slice(w + 1, prevIdx + 1)
+      }
+      // Method declarations can follow almost anything (property, }, ;, etc.)
+      // Function CALLS in expressions specifically follow: = => , [ (
+      isMethodDecl =
+        !EXPRESSION_PREFIX_KEYWORDS.has(prevWord) &&
+        prevNonWs !== '=' &&
+        prevNonWs !== ',' &&
+        prevNonWs !== '(' &&
+        prevNonWs !== '[' &&
+        // A method name cannot follow a dot — `Equal.symbol(` is a member call, never a
+        // declaration. Without this the tail of a computed name read as a method name.
+        prevNonWs !== '.' &&
+        prevNonWs !== '>' // catches =>
     }
-    const prevNonWs = prevIdx < 0 ? '\n' : result[prevIdx] // '\n' = start of input
-    // The preceding WORD, when the preceding character is an identifier character. A
-    // single-character look-back cannot tell `new E(` from a method named `E`: the character
-    // before `E` is `w`, which is in none of the exclusions below, so `new E({ x: 1 })` in a
-    // static field initializer read as a method declaration and its ARGUMENT was rewritten as
-    // a parameter list — `{ x: 1 }` became `{ x = 1 }`, a shorthand-assignment pattern outside
-    // a pattern position, which acorn rejects. Two effect files failed on exactly this.
-    //
-    // Every keyword here introduces an EXPRESSION, so what follows is a call, never a
-    // declaration. `new` is the one that occurs in a class body directly (field initializers
-    // are the only expressions there); the rest cost nothing and remove a whole shape of bug
-    // rather than the one instance of it.
-    let prevWord = ''
-    if (prevIdx >= 0 && /[A-Za-z0-9_$]/.test(prevNonWs)) {
-      let w = prevIdx
-      while (w >= 0 && /[A-Za-z0-9_$]/.test(result[w])) w--
-      prevWord = result.slice(w + 1, prevIdx + 1)
-    }
-    // Method declarations can follow almost anything (property, }, ;, etc.)
-    // Function CALLS in expressions specifically follow: = => , [ (
-    const isMethodDecl =
-      !EXPRESSION_PREFIX_KEYWORDS.has(prevWord) &&
-      prevNonWs !== '=' &&
-      prevNonWs !== ',' &&
-      prevNonWs !== '(' &&
-      prevNonWs !== '[' &&
-      // A method name cannot follow a dot — `Equal.symbol(` is a member call, never a
-      // declaration. Without this the tail of a computed name read as a method name.
-      prevNonWs !== '.' &&
-      prevNonWs !== '>' // catches =>
     if (methodMatch && isInClassBody() && !isMethodDecl) {
       // Not a method declaration (it's a function call in an expression).
       // Skip past the identifier to prevent re-matching a suffix
@@ -768,35 +814,42 @@ export function transformParenExpressions(
     // back in `result` (what has been EMITTED), this one in `source` at the scan position.
     // They answer the same question about different strings, and collapsing them would be a
     // subtle change to whichever guard lost its own look-back.
-    let argPrevIdx = i - 1
-    while (argPrevIdx >= 0 && /\s/.test(source[argPrevIdx])) argPrevIdx--
-    const prevTok = argPrevIdx < 0 ? '' : source[argPrevIdx]
-    // The preceding WORD, when the preceding character is part of one. Reading only the
-    // CHARACTER cannot tell a callee from a keyword, so the `n` of `return` and the `t` of
-    // `default` both read as a callee and the arrow's parameters were never transformed:
-    //
-    //     return (x: 0) => x          -> Unexpected token
-    //     export default (x: 0) => x  -> Unexpected token
-    //     throw (x: 0) => x           -> Unexpected token
-    //     const f = (a: 0) => { return (b: 0) => a + b }   -> Unexpected token
-    //
-    // A regression I introduced in this cycle, fixing the ternary shape below. The compat
-    // corpus structurally cannot catch it: `fromTS` emits `return (x) => x + 1`, because
-    // `tsc` has already stripped the inner annotation before our parser sees it.
-    //
-    // This is the SECOND guard in this file to need the same word-awareness — the method-head
-    // guard learned it earlier, and grew `EXPRESSION_PREFIX_KEYWORDS` for the purpose. Both
-    // now consult the one set, so the next keyword only has to be added once.
-    let argPrevWord = ''
-    if (/[A-Za-z0-9_$]/.test(prevTok)) {
-      let w = argPrevIdx
-      while (w >= 0 && /[A-Za-z0-9_$]/.test(source[w])) w--
-      argPrevWord = source.slice(w + 1, argPrevIdx + 1)
+    // Only at a `(` — the one place `isCallArgs` is read. See the method-head guard above:
+    // this look-back ran for every character too, and was the other half of the quadratic.
+    let isCallArgs = false
+    if (source[i] === '(') {
+      let argPrevIdx = i - 1
+      while (argPrevIdx >= 0 && /\s/.test(source[argPrevIdx])) argPrevIdx--
+      const prevTok = argPrevIdx < 0 ? '' : source[argPrevIdx]
+      // The preceding WORD, when the preceding character is part of one. Reading only the
+      // CHARACTER cannot tell a callee from a keyword, so the `n` of `return` and the `t` of
+      // `default` both read as a callee and the arrow's parameters were never transformed:
+      //
+      //     return (x: 0) => x          -> Unexpected token
+      //     export default (x: 0) => x  -> Unexpected token
+      //     throw (x: 0) => x           -> Unexpected token
+      //     const f = (a: 0) => { return (b: 0) => a + b }   -> Unexpected token
+      //
+      // A regression I introduced in this cycle, fixing the ternary shape below. The compat
+      // corpus structurally cannot catch it: `fromTS` emits `return (x) => x + 1`, because
+      // `tsc` has already stripped the inner annotation before our parser sees it.
+      //
+      // This is the SECOND guard in this file to need the same word-awareness — the method-head
+      // guard learned it earlier, and grew `EXPRESSION_PREFIX_KEYWORDS` for the purpose. Both
+      // now consult the one set, so the next keyword only has to be added once.
+      let argPrevWord = ''
+      if (/[A-Za-z0-9_$]/.test(prevTok)) {
+        let w = argPrevIdx
+        while (w >= 0 && /[A-Za-z0-9_$]/.test(source[w])) w--
+        argPrevWord = source.slice(w + 1, argPrevIdx + 1)
+      }
+      isCallArgs =
+        /[A-Za-z0-9_$)\]]/.test(prevTok) &&
+        !EXPRESSION_PREFIX_KEYWORDS.has(argPrevWord) &&
+        !/(^|[^A-Za-z0-9_$])async\s*$/.test(
+          source.slice(Math.max(0, i - 12), i)
+        )
     }
-    const isCallArgs =
-      /[A-Za-z0-9_$)\]]/.test(prevTok) &&
-      !EXPRESSION_PREFIX_KEYWORDS.has(argPrevWord) &&
-      !/(^|[^A-Za-z0-9_$])async\s*$/.test(source.slice(Math.max(0, i - 12), i))
     if (source[i] === '(' && !isCallArgs) {
       // First, find the matching ) without consuming any safety marker
       // We'll check for safety marker only if this is actually an arrow function

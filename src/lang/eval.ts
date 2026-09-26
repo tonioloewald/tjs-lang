@@ -8,6 +8,7 @@
  */
 
 import { AgentVM, setTranspiler } from '../vm/vm'
+import { sourceBytesOver, DEFAULT_MAX_SOURCE_BYTES } from '../vm/admission'
 import { transpile } from './core'
 import { parseAgentSource } from './parser-agent'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
@@ -170,12 +171,20 @@ export interface EvalOptions {
    * is trusted, e.g. compiled from your own repository at build time.
    */
   maxSourceBytes?: number
+  /**
+   * Maximum bytes of ARGUMENT data accepted (default 4MB — `DEFAULT_ARGS_MAX_BYTES`). Context
+   * values / arguments are copied into the sandbox before any code runs, so they are capped
+   * like source. Strings count two bytes per character. Raise it only for trusted data.
+   */
+  argsMaxBytes?: number
 }
 
-/** Default source-length cap. 64 KB is far above any hand-written agent and transpiles in
- * well under a tenth of a second; the smallest payload that showed material cost was ~10×
- * this. */
-export const DEFAULT_MAX_SOURCE_BYTES = 64 * 1024
+/** Default source-length cap. Measured at the cap (2026-09-26), hostile shapes included: 64KB of
+ * `//` lines ~46ms, blank lines ~14ms, 64-deep nested parens (the deepest allowed) ~105ms. It
+ * used to claim "well under a tenth of a second" while one pass was quadratic, and 32KB of
+ * `//` lines took 21.7s (0.14.0 final re-review 4, B-2) — a size cap bounds nothing unless
+ * the work behind it is linear, which `admission.test.ts` now pins per shape. */
+export { DEFAULT_MAX_SOURCE_BYTES }
 
 /**
  * Refuse oversized source before it reaches the transpiler.
@@ -185,8 +194,10 @@ export const DEFAULT_MAX_SOURCE_BYTES = 64 * 1024
  */
 function checkSourceSize(code: string, max: number, what: string): void {
   if (max <= 0) return
-  const bytes = Buffer.byteLength(code, 'utf8')
-  if (bytes > max) {
+  // The shared, length-first measure (src/vm/admission.ts) — one reading of "too big" for
+  // every entry that transpiles caller text.
+  const bytes = sourceBytesOver(code, max)
+  if (bytes !== null) {
     throw new Error(
       `${what} is ${bytes} bytes, over the ${max}-byte limit. Transpilation runs BEFORE ` +
         `fuel and timeout apply, so oversized source is refused rather than metered. ` +
@@ -210,6 +221,7 @@ export async function Eval(options: EvalOptions): Promise<{
     timeoutMs,
     capabilities = {},
     maxSourceBytes = DEFAULT_MAX_SOURCE_BYTES,
+    argsMaxBytes,
   } = options
 
   const vm = getVM()
@@ -280,6 +292,7 @@ export async function Eval(options: EvalOptions): Promise<{
       fuel,
       timeoutMs,
       capabilities,
+      argsMaxBytes,
     })
 
     // Unwrap the boxed result
@@ -317,6 +330,12 @@ export interface SafeFunctionOptions {
   capabilities?: SafeCapabilities
   /** Max bytes of `body` accepted, refused before transpilation. See EvalOptions. */
   maxSourceBytes?: number
+  /**
+   * Maximum bytes of ARGUMENT data accepted (default 4MB — `DEFAULT_ARGS_MAX_BYTES`). Context
+   * values / arguments are copied into the sandbox before any code runs, so they are capped
+   * like source. Strings count two bytes per character. Raise it only for trusted data.
+   */
+  argsMaxBytes?: number
 }
 
 /**
@@ -336,6 +355,7 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
     timeoutMs,
     capabilities = {},
     maxSourceBytes = DEFAULT_MAX_SOURCE_BYTES,
+    argsMaxBytes,
   } = options
 
   const vm = getVM()
@@ -364,6 +384,7 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
         fuel,
         timeoutMs,
         capabilities,
+        argsMaxBytes,
       })
 
       // Unwrap the boxed result

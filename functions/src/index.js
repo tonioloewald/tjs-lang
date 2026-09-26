@@ -7,7 +7,7 @@ function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolea
 return {__ub,__proj,__ac,TypeOf,toBool};
 })();
 const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
+const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
 const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__tjs_rt.__proj(v)) };
 /*#
 # TJS Platform Cloud Functions
@@ -153,8 +153,8 @@ export const agentRun = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'code must be a non-empty string')
   }
 
-  if (__tjs.toBool(fuel > 10000)) {
-    throw new HttpsError('invalid-argument', 'fuel limit cannot exceed 10000')
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))(__tjs_rt.TypeOf(fuel) !== 'number'))))) {
+    throw new HttpsError('invalid-argument', 'fuel must be a number from 1 to 10000')
   }
 
   const startTime = Date.now()
@@ -254,8 +254,8 @@ export const run = onRequest(async (req, res) => {
     return res.status(400).json({ error: 'code must be a non-empty string' })
   }
 
-  if (__tjs.toBool(fuel > 10000)) {
-    return res.status(400).json({ error: 'fuel limit cannot exceed 10000' })
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))(__tjs_rt.TypeOf(fuel) !== 'number'))))) {
+    return res.status(400).json({ error: 'fuel must be a number from 1 to 10000' })
   }
 
   const startTime = Date.now()

@@ -1,4 +1,10 @@
 /*{"parent": "ajs.md", "order": 9}*/
+import {
+  checkedCost,
+  timerMs,
+  sourceBytesOver,
+  DEFAULT_MAX_SOURCE_BYTES,
+} from './admission'
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
 import { reDoSRisk, alternationOverlapRisk } from '../redos'
@@ -2678,8 +2684,13 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // 2. Deduct Fuel (check for cost overrides first)
       const overrideCost = ctx.costOverrides?.[op]
       const baseCost = overrideCost !== undefined ? overrideCost : cost
-      const currentCost =
-        typeof baseCost === 'function' ? baseCost(inputData, ctx) : baseCost
+      // Through `checkedCost`, at the one place every charge happens: a negative cost MINTED
+      // fuel (a -400 override gave fuelUsed -398 at fuel 1), and a NaN one poisoned the
+      // meter. Checked here because a function cost only exists at call time.
+      const currentCost = checkedCost(
+        typeof baseCost === 'function' ? baseCost(inputData, ctx) : baseCost,
+        op
+      )
       if ((ctx.fuel.current -= currentCost) <= 0) {
         ctx.error = new AgentError('Out of Fuel', op)
         return
@@ -2689,21 +2700,24 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       const overrideTimeout = ctx.timeoutOverrides?.[op]
       const baseTimeout =
         overrideTimeout !== undefined ? overrideTimeout : timeoutMs
-      const effectiveTimeout =
+      // `timerMs`: 0 and Infinity mean none, and a NaN (from a function override) is refused
+      // rather than read as `NaN > 0` — false, which silently disabled the timeout.
+      const armedTimeout = timerMs(
         typeof baseTimeout === 'function'
           ? baseTimeout(inputData, ctx)
           : baseTimeout
+      )
       let timer: any
       const execute = async () => fn(step as I, ctx)
 
       result =
-        effectiveTimeout > 0
+        armedTimeout !== undefined
           ? await Promise.race([
               execute(),
               new Promise<never>((_, reject) => {
                 timer = setTimeout(
                   () => reject(new Error(`Atom '${op}' timed out`)),
-                  effectiveTimeout
+                  armedTimeout
                 )
               }),
             ]).finally(() => clearTimeout(timer))
@@ -4192,15 +4206,11 @@ export const agentRun = defineAtom(
  * the cap has more bytes too, so a huge one is refused without being encoded), then charged
  * per character like any other operand. The cap matches `Eval`'s default.
  */
-const MAX_TRANSPILE_SOURCE_BYTES = 64 * 1024
+const MAX_TRANSPILE_SOURCE_BYTES = DEFAULT_MAX_SOURCE_BYTES
 
 function admitSource(ctx: RuntimeContext, code: unknown, op: string): string {
   if (typeof code !== 'string') throw new Error(`${op}: code must be a string`)
-  const bytes =
-    code.length > MAX_TRANSPILE_SOURCE_BYTES
-      ? code.length
-      : new TextEncoder().encode(code).length
-  if (bytes > MAX_TRANSPILE_SOURCE_BYTES)
+  if (sourceBytesOver(code, MAX_TRANSPILE_SOURCE_BYTES) !== null)
     throw new Error(
       `${op}: source is over the ${MAX_TRANSPILE_SOURCE_BYTES}-byte limit. Transpilation runs ` +
         `before fuel can stop it, so oversized source is refused rather than metered.`

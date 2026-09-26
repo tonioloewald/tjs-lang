@@ -64,6 +64,22 @@ options bags. But every validated function used to begin with a pre-check that r
   `membraneMaxBytes` or `maxHeapBytes` that is not a non-negative number is an `AgentError`
   ("Invalid run option fuel: …"). `fuel: 'abc'` made the argument budget `NaN`, which no
   size ever exceeds, so the walk it bounds ran unbounded.
+- **Admission is one module (`src/vm/admission.ts`), and every entry path goes through it.**
+  The release cycle blocked five times on one class — work proportional to caller input,
+  done before any budget could stop it — because each fix guarded one door. Now:
+  `vm.run(source)` is capped like `Eval` (new `maxSourceBytes` run option, default 64KB), and
+  its options are checked before the source is even resolved; cost, timeout and quota
+  overrides are validated too (a negative cost override MINTED fuel; a `NaN` quota read as
+  unlimited; a `NaN` timeout disabled the timeout; `timeoutMs: Infinity` fired after 1ms and
+  now means no timer). `src/admission.test.ts` runs every hostile shape through every entry
+  path and asserts each is cheap — a new entry path belongs in that table.
+- **The parser's parameter pass is linear.** Two look-backs ran for every character and
+  scanned back through whitespace — most of a body once comments are blanked — so 64KB of
+  `//` lines took 54 seconds before fuel applied (now ~46ms). Parentheses may nest at most 64
+  deep (the deepest in 3,372 real files, the compat corpus included, is 19): the pass recurses
+  per nesting level, and 20,000 nested `(` took 35 seconds.
+- **`Eval` and `SafeFunction` take `argsMaxBytes`**, so a host can raise the new 4MB
+  argument ceiling through the safe-eval API (strings count two bytes per character).
 - **`runCode` and `transpileCode` refuse guest-built source over 64KB** before the host's
   transpiler sees it, and charge per character. Transpilation is super-linear and runs
   before fuel or timeout can stop it: 160KB of generated comments took 284 seconds.

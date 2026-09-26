@@ -535,6 +535,26 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 4 — dispositions** (docs/reviews/0.14.0-final-rereview-4.md;
+      B-1, B-2, M-1, M-2 FIXED — admission module, linear parameter pass + paren-depth limit,
+      argsMaxBytes on the safe-eval API, packed-tarball verification in the shared tooling).
+      Open minors:
+  - `fuel: Infinity` reports `fuelUsed: NaN` (Infinity − Infinity).
+  - A refused-args result charges the whole admission budget, even for an early refusal;
+    charge the bytes actually walked, and assert exact charges.
+  - Missing tests: the functions endpoints' fuel 400s; `admitSource` via transpileCode's
+    per-character charge.
+  - Tracked `functions/src/*.js` drift from `.tjs`: add them to CI's generated-artifacts
+    check, or stop tracking them. Record publish → functions lockfile refresh →
+    `functions:deploy` → read back `/health` in the release steps.
+  - Confirm no rbac context field other than `doc` can carry a Firestore class instance.
+  - Bundle-size delta for this cycle (vm +~0.6KB gz): fold into the build.ts delta item.
+  - Pin the `.practices` checkout in publish.yml (shared template), or document that the
+    verifier deliberately tracks `main`.
+  - **A6 may be solved.** After the look-back gating, effect's 459KB `Effect.ts` converts
+    and transpiles in ~1.4s (fromTS 1.0s + tjs 0.4s); `test:compat-scan` still skips it and
+    three larger files as "preprocess is quadratic". Re-measure the four, and lift the
+    400KB skip (with the ratchet) if they are now linear.
 - [ ] **The membrane should COPY while it walks — and fuel should be calibrated to CPU**
       (split out 2026-09-26 under the stop rule, after the same security lens blocked four
       times in one cycle on pre-budget work; docs/reviews/0.14.0-final-rereview-3.md).

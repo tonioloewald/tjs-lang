@@ -14,6 +14,12 @@ import {
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
+import {
+  validateRunOptions,
+  sourceBytesOver,
+  timerMs,
+  DEFAULT_MAX_SOURCE_BYTES,
+} from './admission'
 
 /**
  * The transpiler, INJECTED rather than imported.
@@ -183,10 +189,21 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
-      argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default 64MB); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
+      argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default DEFAULT_ARGS_MAX_BYTES); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
+      maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES); transpiling runs before any budget
       maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
     } = {}
   ): Promise<RunResult> {
+    // ADMISSION, before anything is computed from the options or done with the input: every
+    // budget is derived from these numbers, and `fuel: 'abc'` made the argument budget NaN
+    // (0.14.0 final re-review 3, B-1). It ran AFTER the source-string transpile, so an
+    // unbounded compile preceded even this check (re-review 4, B-1). See ./admission.ts.
+    const invalid = validateRunOptions(options)
+    if (invalid) {
+      const error = new AgentError(invalid, 'vm.run')
+      return { result: error, error, fuelUsed: 0, warnings: undefined }
+    }
+
     // Resolve string input to AST
     let ast: BaseNode
     if (typeof astOrToken === 'string') {
@@ -206,6 +223,19 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
               `    await vm.run(ast, args)\n\n` +
               `If you want the VM to parse for you, import 'tjs-lang/vm' instead.`
           )
+        // Capped like every other source entry (Eval, SafeFunction, runCode): transpilation
+        // runs before fuel or timeout, and `tjs-lang/vm` documents that it accepts source.
+        const maxSource = options.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES
+        const over = sourceBytesOver(astOrToken, maxSource)
+        if (over !== null) {
+          const error = new AgentError(
+            `Source is ${over} bytes, over the ${maxSource}-byte limit. Transpilation runs ` +
+              `BEFORE fuel and timeout apply, so oversized source is refused rather than ` +
+              `metered. Raise maxSourceBytes if the source is trusted.`,
+            'vm.run'
+          )
+          return { result: error, error, fuelUsed: 0, warnings: undefined }
+        }
         try {
           ast = transpileImpl(astOrToken).ast as BaseNode
         } catch (e: any) {
@@ -219,30 +249,6 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     }
 
     const startFuel = options.fuel ?? 1000
-
-    // Every budget is COMPUTED from these, so each must be a real, non-negative number.
-    // `fuel: 'abc'` made the argument budget NaN, and `bytes > NaN` is never true — the
-    // walk it exists to bound ran unbounded (0.14.0 final re-review 3, B-1). Checked once,
-    // here, before anything is computed from them; refused rather than defaulted, because a
-    // caller who passed nonsense did not ask for the default. (Infinity stays legal.)
-    for (const [name, v] of [
-      ['fuel', startFuel],
-      ['timeoutMs', options.timeoutMs],
-      ['argsMaxBytes', options.argsMaxBytes],
-      ['membraneMaxBytes', options.membraneMaxBytes],
-      ['maxHeapBytes', options.maxHeapBytes],
-    ] as const) {
-      if (v === undefined && name !== 'fuel') continue
-      if (typeof v !== 'number' || Number.isNaN(v) || v < 0) {
-        const error = new AgentError(
-          `Invalid run option ${name}: ${
-            JSON.stringify(v) ?? String(v)
-          } — it must be a non-negative number`,
-          'vm.run'
-        )
-        return { result: error, error, fuelUsed: 0, warnings: undefined }
-      }
-    }
 
     // Run-level wall-clock timeout. Agents are typically IO-bound; the default
     // is derived from the registered atoms (slowest × 2) so it always covers the
@@ -373,7 +379,12 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
 
     // Create abort controller for timeout enforcement
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    // `timerMs`: 0 and Infinity mean no timer; `setTimeout` turned Infinity into 1ms.
+    const armed = timerMs(timeoutMs)
+    const timeout =
+      armed === undefined
+        ? undefined
+        : setTimeout(() => controller.abort(), armed)
 
     // Link external signal if provided.
     //

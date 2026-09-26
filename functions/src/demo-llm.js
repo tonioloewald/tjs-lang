@@ -7,7 +7,7 @@ function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolea
 return {__ub,__proj,__ac,LegacyDate,TypeOf,toBool};
 })();
 const LegacyDate = __tjs_rt.LegacyDate;const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
+const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
 const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__tjs_rt.__proj(v)) };
 /*#
 # Demo LLM — our key, their sign-in, a daily cap

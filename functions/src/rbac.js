@@ -7,7 +7,7 @@ function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolea
 return {__ub,__proj,__ac,TypeOf,toBool};
 })();
 const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
+const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
 const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__tjs_rt.__proj(v)) };
 /*#
 # RBAC Security Rules
@@ -32,6 +32,60 @@ Rules are stored in `securityRules/{collection}` and evaluated before each opera
 import { getFirestore } from 'firebase-admin/firestore'
 import { validateSchema } from './schema.js'
 
+/*#
+## Firestore values become plain data before a rule sees them
+
+Since tjs-lang 0.14 the sandbox refuses a class instance at its boundary rather than copying
+only its own fields. A copy would drop what lives on the prototype, so a Timestamp's
+`seconds` read as `undefined`, and a negated rule over it flipped deny to allow. Firestore
+hands back class instances, so they are converted here, keeping the fields rules already
+read:
+
+- Timestamp → `{ seconds, nanoseconds }`
+- GeoPoint → `{ latitude, longitude }`
+- DocumentReference → `{ id, path }`
+
+Anything else that is not plain data is left as it is, so the boundary refuses it and the
+rule DENIES. Unknown shapes fail closed.
+*/
+export function plainData(v, depth = 0) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(depth > 64))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(v) !== 'object'))(v === null)))) return v
+  if (__tjs.toBool(Array.isArray(v))) return v.map((x) => plainData(x, depth + 1))
+  if (__tjs.toBool(v instanceof Date)) return v
+  const proto = Object.getPrototypeOf(v)
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(proto === null))(proto === Object.prototype))) {
+    const out = {}
+    for (const k of Object.keys(v)) out[k] = plainData(v[k], depth + 1)
+    return out
+  }
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(v.seconds) === 'number'):__tjs__t)(__tjs_rt.TypeOf(v.toMillis) === 'function')))
+    return { seconds: v.seconds, nanoseconds: v.nanoseconds }
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(v.longitude) === 'number'):__tjs__t)(__tjs_rt.TypeOf(v.latitude) === 'number')))
+    return { latitude: v.latitude, longitude: v.longitude }
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(v.id) === 'string'):__tjs__t)(__tjs_rt.TypeOf(v.path) === 'string')))
+    return { id: v.id, path: v.path }
+  return v
+}
+plainData.__tjs = {
+  "params": {
+    "v": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    },
+    "depth": {
+      "type": {
+        "kind": "integer"
+      },
+      "required": false,
+      "default": 0
+    }
+  },
+  "unsafe": true,
+  "source": "rbac.tjs:40"
+}
+
 let _db = null
 function db() {
   if (__tjs.toBool(!__tjs.toBool(_db))) _db = getFirestore()
@@ -40,7 +94,7 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "rbac.tjs:25"
+  "source": "rbac.tjs:60"
 }
 
 const securityRulesCache = {
@@ -77,7 +131,7 @@ getSecurityRule.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:36"
+  "source": "rbac.tjs:71"
 }
 
 /*#
@@ -157,7 +211,7 @@ evaluateAccessShortcut.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:70"
+  "source": "rbac.tjs:105"
 }
 
 /*#
@@ -224,7 +278,8 @@ export async function evaluateSecurityRule(rule, context) {
 
       const result = await Eval({
         code: codeToRun,
-        context,
+
+        context: { ...context, doc: plainData(context.doc) },
         fuel,
         timeoutMs,
         capabilities: {}                                      
@@ -275,7 +330,7 @@ evaluateSecurityRule.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:136"
+  "source": "rbac.tjs:171"
 }
 
 /*#
@@ -306,5 +361,5 @@ loadUserRoles.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:232"
+  "source": "rbac.tjs:268"
 }

@@ -5,7 +5,7 @@ function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolea
 return {__ub,__proj,__ac,toBool};
 })();
 const toBool = __tjs_rt.toBool;
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? {toBool:__tjs_rt.toBool};
+const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {toBool:__tjs_rt.toBool};
 const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__tjs_rt.__proj(v)) };
 /*#
 # URL Routing

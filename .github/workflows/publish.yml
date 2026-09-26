@@ -163,13 +163,6 @@ jobs:
             console.log(`✅ build reproduces every shipped tracked file (${changed.length} unshipped file(s) differ, ignored)`)
           ' "$RUNNER_TEMP/files.json" "$RUNNER_TEMP/changed.txt"
 
-      # A tag carrying release-attestation.json vouches for a build made and tested LOCALLY
-      # (tools/attest.ts). The build above must reproduce it file for file, so what ships is
-      # exactly what was signed off, and the suite never has to run here.
-      - name: Build reproduces the attested build
-        if: ${{ !inputs.verify_only && hashFiles('release-attestation.json') != '' }}
-        run: bun .practices/tools/attest.ts --verify-shipped
-
       - name: Pack
         id: pack
         run: |
@@ -180,6 +173,15 @@ jobs:
           INTEGRITY=$(node -p "require('$RUNNER_TEMP/pack.json')[0].integrity")
           echo "tarball=$RUNNER_TEMP/pack/$FILE" >> "$GITHUB_OUTPUT"
           echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
+
+      # A tag carrying release-attestation.json vouches for a build made and tested LOCALLY
+      # (tools/attest.ts). The tarball just packed must contain exactly the files recorded
+      # there, so what is staged is what was signed off, and the suite never runs here.
+      - name: Tarball matches the attested build
+        if: ${{ !inputs.verify_only && hashFiles('release-attestation.json') != '' }}
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: bun .practices/tools/attest.ts --verify-shipped "${{ steps.pack.outputs.tarball }}"
 
       # What an adopter's install exercises, against the exact bytes about to ship. Uses the
       # repo's own `test-consumer` if it has one (it must print the tarball path), else a

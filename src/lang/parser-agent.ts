@@ -52,7 +52,11 @@ import {
   stripLineComments,
 } from '../strip-comments'
 import { SyntaxError } from './types'
-import { transformParenExpressions, extractParamMarkers } from './parser-params'
+import {
+  transformParenExpressions,
+  extractParamMarkers,
+  assertParenDepth,
+} from './parser-params'
 
 export interface AgentParseOptions {
   filename?: string
@@ -124,6 +128,7 @@ export function preprocessAgentSource(
   // (`b: Box<int>`) require a `Type`/`Generic` declaration, and AJS has neither. An
   // annotation of that shape is left alone here and fails at acorn or in the AST emitter,
   // which is the honest outcome for syntax the language does not have.
+  assertParenDepth(source, originalSource)
   const { source: transformed, returnType } = transformParenExpressions(
     source,
     {
