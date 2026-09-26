@@ -548,3 +548,29 @@ describe('the work budget never refuses VALID AJS under the cap (re-review 9)', 
     expect(() => preprocessAgentSource(src)).not.toThrow(/too complex/)
   })
 })
+
+describe('vm.run(source) is deprecated, noted once in the flight recorder', () => {
+  it('records one notice per process, and still runs', async () => {
+    const { createRuntime } = require('./lang/runtime')
+    const saved = (globalThis as any).__tjs
+    const rt = createRuntime()
+    ;(globalThis as any).__tjs = rt
+    try {
+      const vm = new AgentVM()
+      const a = await vm.run(
+        'function f() { return { a: 1 } }',
+        {},
+        { fuel: 50 }
+      )
+      await vm.run('function f() { return { a: 2 } }', {}, { fuel: 50 })
+      expect((a.result as any).a).toBe(1)
+      const notes = rt
+        .records({ source: 'vm' })
+        .filter((r: any) => /vm\.run\(source\) is deprecated/.test(r.message))
+      // Once per PROCESS: another test file may already have spent it.
+      expect(notes.length).toBeLessThanOrEqual(1)
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  })
+})

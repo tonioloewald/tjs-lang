@@ -29,6 +29,14 @@ untrusted callers, take an AST instead:** transpile on the caller's side
 which has no parser in it at all — the parse cost then lands on whoever sent the source, and
 what remains on the host is linear.
 
+**Deprecated: `vm.run(source)` — the VM parsing AJS.** It still works (capped at 8KB) and
+notes itself once in the flight recorder. The VM should never be the thing that parses:
+transpile separately (`transpile` from `tjs-lang/lang`, in a worker, another process, or on the
+caller's machine) and run the AST with `tjs-lang/vm-ast`, which contains no parser — so a bad
+payload can only take down the step that parsed it, never the endpoint. `Eval` and
+`SafeFunction` keep taking source: they are for source you trust, or a process you can afford
+to lose.
+
 **A language release.** The tosijs-ui-hosted site was what 0.14.0 was originally reserved for;
 that work is real but lands separately, as a non-breaking change to build tooling that does not
 touch the published surface. The version number follows the narrative rather than a name

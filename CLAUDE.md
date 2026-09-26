@@ -326,10 +326,11 @@ import { Agent, AgentVM, ajs, tjs } from 'tjs-lang' // Main entry
 import { Eval, SafeFunction } from 'tjs-lang/eval' // Safe eval utilities
 import { tjs, transpile } from 'tjs-lang/lang' // Language tools only
 import { fromTS } from 'tjs-lang/lang/from-ts' // TypeScript transpilation
-import { AgentVM } from 'tjs-lang/vm' // VM + atoms; accepts SOURCE or AST (~221KB — the transpiler is 75% of it)
+import { AgentVM } from 'tjs-lang/vm' // VM + atoms; accepts SOURCE or AST (~221KB — the transpiler is 75% of it). Passing SOURCE is DEPRECATED (0.14.0): transpile separately and use vm-ast
 // The same AgentVM with NO PARSER in the bundle (~56KB, no acorn). Takes an AST only;
-// transpile on the caller's side. Prefer this when embedding — a sandbox that cannot parse
-// has no parser defect to reach. `tjs-lang/vm` is unchanged; this was added, not swapped.
+// transpile on the caller's side. THE RECOMMENDED VM (0.14.0): a sandbox that cannot parse has
+// no parser defect to reach, and a host that transpiles in a separate step can lose only that
+// step to a bad payload. The 0.14.0 reviews spent nine rounds on parse-time DoS shapes.
 import { AgentVM as AstVM } from 'tjs-lang/vm-ast'
 import { batteryAtoms } from 'tjs-lang/batteries' // LM Studio batteries
 import { dot, norm_sq } from 'tjs-lang/linalg' // SIMD linear-algebra kernels

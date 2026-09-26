@@ -633,6 +633,14 @@ deployed after the publish.
     since a JSON AST is now the untrusted input.
   - Docs: Safe Eval chapter, README, `vm-ast` entry — prefer ASTs for untrusted callers.
     After this, the source cap (8KB default since 0.14.0) is defence in depth, not the bound.
+  - **The AST is the contract, so front ends are plugins** (Tonio, 2026-09-26: "want to just
+    transpile go or whatever to the AST? No problem"). AJS becomes the first front end of
+    several; the sandbox guarantees live in the VM, not the parser. That makes three
+    existing items load-bearing: **Formalise the AJS AST** (a published schema + op
+    semantics, versioned by the existing `$ajs` root field), **golden fixtures** (AST in,
+    expected result out — the conformance suite any front end runs; docs/ajs-native-vm.md
+    constraint #4), and the **AST v2** decision (explicit literals, declare vs assign), best
+    made before anyone else targets v1.
 - [ ] **(DX, no longer the security fix — see ASTs at the boundary) The paren/parameter transform should be a PARSER, not a rescanning text pass** (Tonio,
       2026-09-26: "the parenthesis counting sounds like a regex that should be a parser
       problem"). Every bound added this cycle exists because `transformParenExpressions`

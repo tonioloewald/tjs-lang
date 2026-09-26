@@ -10,6 +10,7 @@ import {
   isProcedureToken,
   resolveProcedureToken,
   membraneValueFrom,
+  recordVmEvent,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
@@ -71,6 +72,9 @@ const MIN_DEFAULT_RUN_TIMEOUT_MS = 60_000
  * and no work in a run is unbudgeted.
  */
 export const ARG_BYTES_PER_FUEL = 8000
+
+/** The source-parsing path's deprecation is noted once per process. */
+let deprecationNoted = false
 
 /**
  * Ceiling on run arguments whatever the fuel — the same 4MB the capability direction takes.
@@ -168,6 +172,16 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     }))
   }
 
+  /**
+   * Run an agent: an AST, or a stored-procedure token.
+   *
+   * **Passing AJS SOURCE here is deprecated (0.14.0).** It still works, but the VM should never
+   * be the thing that parses: parsing is the one step whose worst case is caller-controlled
+   * and happens before any budget. Transpile separately — `transpile` from `tjs-lang/lang`, in
+   * a worker, another process, or on the caller's machine — and run the AST with
+   * `tjs-lang/vm-ast`, which contains no parser, so a bad payload can take down only the step
+   * that parsed it. Source is capped at 8KB (`maxSourceBytes`) meanwhile.
+   */
   async run(
     astOrToken: BaseNode | string,
     args: Record<string, any> = {},
@@ -235,6 +249,23 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
             'vm.run'
           )
           return { result: error, error, fuelUsed: 0, warnings: undefined }
+        }
+        // DEPRECATED path (0.14.0): the VM should never be the thing that parses. Parsing is
+        // the one step whose worst case is caller-controlled and pre-budget, so a host serving
+        // untrusted callers transpiles SEPARATELY (a worker, a separate process, the caller's
+        // machine) and hands the AST to `tjs-lang/vm-ast`, which has no parser at all — a bad
+        // payload can then take down only the step that parsed it. Still works; noted once per
+        // process in the flight recorder (never on the console, never changing behaviour).
+        if (!deprecationNoted) {
+          deprecationNoted = true
+          recordVmEvent({
+            source: 'vm',
+            severity: 'notice',
+            message:
+              'vm.run(source) is deprecated: transpile separately (tjs-lang/lang `transpile`) and ' +
+              'run the AST with tjs-lang/vm-ast, so parsing untrusted source can never take the VM ' +
+              'host down with it.',
+          })
         }
         try {
           ast = transpileImpl(astOrToken).ast as BaseNode

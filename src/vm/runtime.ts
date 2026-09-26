@@ -72,7 +72,7 @@ function eqValue(a: unknown, b: unknown): boolean {
  * behind it. No runtime installed → no-op. A throwing recorder is swallowed —
  * recording must never change the behavior of the program it records.
  */
-function recordVmEvent(entry: {
+export function recordVmEvent(entry: {
   source: string
   severity: string
   message: string
