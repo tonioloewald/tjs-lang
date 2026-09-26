@@ -844,3 +844,140 @@ describe('re-review 13: every run option is classified, and quotaUsed is a count
     }
   })
 })
+
+describe('re-review 14: a table is checked over exactly the set its reads resolve', () => {
+  const counted = () => {
+    const calls: number[] = []
+    const ping = defineAtom(
+      'ping',
+      undefined,
+      undefined,
+      async () => {
+        calls.push(1)
+      },
+      { effects: 'pure' }
+    )
+    return { calls, vm: new AgentVM({ ping }) }
+  }
+  const fivePings = {
+    op: 'seq',
+    steps: [1, 2, 3, 4, 5].map(() => ({ op: 'ping' })),
+  } as any
+  const nonEnumerable = (value: unknown) =>
+    Object.defineProperty({}, 'ping', { value, enumerable: false })
+  const getter = (first: unknown, then: unknown) => {
+    let reads = 0
+    return Object.defineProperty({}, 'ping', {
+      get: () => (reads++ === 0 ? first : then),
+      enumerable: true,
+    })
+  }
+
+  // Every shape re-review 14 reproduced making all 5 calls against a cap of 2.
+  const hostile: Record<string, Record<string, unknown>> = {
+    'quotas as a Map': { quotas: new Map([['ping', 2]]) },
+    'quotas inheriting NaN': { quotas: Object.create({ ping: NaN }) },
+    'quotas with a non-enumerable NaN': { quotas: nonEnumerable(NaN) },
+    'quotas behind a getter': { quotas: getter(2, NaN) },
+    'quotaUsed inheriting -100': {
+      quotas: { ping: 2 },
+      quotaUsed: Object.create({ ping: -100 }),
+    },
+    'quotaUsed with a non-enumerable -100': {
+      quotas: { ping: 2 },
+      quotaUsed: nonEnumerable(-100),
+    },
+    'quotaUsed behind a getter': {
+      quotas: { ping: 2 },
+      quotaUsed: getter(0, -100),
+    },
+  }
+  for (const [label, options] of Object.entries(hostile))
+    it(`${label} is refused before any call`, async () => {
+      const { calls, vm } = counted()
+      const r = await vm.run(fivePings, {}, options)
+      expect(reasonOf(r)).toMatch(/Invalid run option quota/)
+      expect(calls.length).toBe(0)
+    })
+
+  it('the baseline still stops at the cap', async () => {
+    const { calls, vm } = counted()
+    const r = await vm.run(fivePings, {}, { quotas: { ping: 2 } })
+    expect(reasonOf(r)).toMatch(/Quota exceeded/)
+    expect(calls.length).toBe(2)
+  })
+
+  it('a quotas table changed AFTER admission changes nothing — the VM reads a snapshot', async () => {
+    const { calls, vm } = counted()
+    const quotas: Record<string, number> = { ping: 2 }
+    const bump = defineAtom('bump', undefined, undefined, async () => {
+      quotas.ping = NaN
+    })
+    const vm2 = new AgentVM({ ping: (vm as any).atoms.ping, bump })
+    const ast = {
+      op: 'seq',
+      steps: [{ op: 'bump' }, ...fivePings.steps],
+    } as any
+    const r = await vm2.run(ast, {}, { quotas })
+    expect(reasonOf(r)).toMatch(/Quota exceeded/)
+    expect(calls.length).toBe(2)
+  })
+
+  it('a shared quotaUsed corrupted MID-RUN refuses the next step', async () => {
+    const { calls } = counted()
+    const quotaUsed: Record<string, any> = {}
+    const corrupt = defineAtom('corrupt', undefined, undefined, async () => {
+      quotaUsed.ping = -100
+    })
+    const ping = defineAtom(
+      'ping',
+      undefined,
+      undefined,
+      async () => {
+        calls.push(1)
+      },
+      { effects: 'pure' }
+    )
+    const ast = {
+      op: 'seq',
+      steps: [{ op: 'ping' }, { op: 'corrupt' }, ...fivePings.steps],
+    } as any
+    const r = await new AgentVM({ ping, corrupt }).run(
+      ast,
+      {},
+      {
+        quotas: { ping: 2 },
+        quotaUsed,
+      }
+    )
+    expect(reasonOf(r)).toMatch(/Invalid quotaUsed\.ping/)
+    expect(calls.length).toBe(1)
+  })
+
+  it("an atom named like an Object.prototype member is not charged by the prototype's function", async () => {
+    const toString = defineAtom(
+      'toString',
+      undefined,
+      undefined,
+      async () => 1,
+      {
+        effects: 'pure',
+        cost: 1,
+      }
+    )
+    const r = await new AgentVM({ toString }).run(
+      { op: 'seq', steps: [{ op: 'toString' }] } as any,
+      {},
+      { costOverrides: {}, fuel: 10 }
+    )
+    expect(reasonOf(r)).toBe('')
+  })
+
+  it('a function timeoutMs on defineAtom is still supported (its result is checked per call)', () => {
+    expect(() =>
+      defineAtom('slow', undefined, undefined, async () => 1, {
+        timeoutMs: (() => 50) as any,
+      })
+    ).not.toThrow()
+  })
+})

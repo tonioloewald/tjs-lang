@@ -122,6 +122,17 @@ never reads a value directly". That one could be mechanised — a test asserting
 walk contains no `v[k]`-style reads would convert a habit into a property, and would have
 caught the array-index case before it was written.
 
+Two prompts from the 0.14.0 admission cycle, where five re-reviews blocked on one class:
+
+> **Any list of names that decides what gets checked: is it closed by the TYPE SYSTEM, or by
+> memory?** A `Record<keyof Options, Kind>` fails to compile when an option is missing; a
+> list of budget names silently omits the next one (`quotaUsed`, re-review 13).
+>
+> **Does the check walk the same set the read resolves?** `Object.entries` sees own
+> enumerable keys; `table[op]` also sees inherited ones, non-enumerable ones and getters, and
+> sees the value at the time of the READ, not the check (re-review 14). Snapshot what you
+> checked, or check at the read.
+
 ---
 
 ## Why "anything you'd like to double-check?" works

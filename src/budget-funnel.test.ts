@@ -34,9 +34,14 @@
  *    (`{ ...ctx, fuel: … }`) is checked: an overriding budget must come from a context or a
  *    funnel.
  *
- * KNOWN BLIND SPOTS (review 13, F-1) — say them rather than claim more: reassigning the
- * options object after validating it; computed keys (`o[k]`, `Object.entries(o)`); budgets
- * under names not in BUDGET_NAMES; files outside `src/**\/*.ts` (`.tjs`, `bin/`, `scripts/`).
+ * KNOWN BLIND SPOTS (reviews 13-14) — say them rather than claim more: reassigning the
+ * options object after validating it; a parameter or local that SHADOWS the validated name
+ * (dominance matches by text); a wrapper counted as a funnel although it uses the value
+ * before handing it on; computed keys (`o[k]`, `Object.entries(o)`); budgets under names
+ * not in BUDGET_NAMES; files outside `src/` TypeScript (`.tjs`, `bin/`, `scripts/`). The
+ * runtime does not rely on this test for run options: those are classified by type, and
+ * their tables snapshotted at admission (`snapshotTable`) or checked at each read
+ * (`quotaCount`).
  *
  * A read the rules cannot accept goes in ALLOWED with a written reason, and an entry that
  * stops matching anything fails, so the list cannot rot into slack.
@@ -69,6 +74,7 @@ const FUNNELS: Record<string, number> = {
   timerMs: 0,
   checkedCost: 0,
   budgetOption: 1,
+  budgetOrFunction: 1,
   guestSourceCap: 0,
 }
 
@@ -162,15 +168,25 @@ function acted(
   after: readonly ts.Statement[]
 ): boolean {
   if (!RETURNS_REASON.has(calleeName(call) ?? '')) return true
-  if (!ts.isVariableStatement(st)) return false
+  // `const`, one declarator: a `let` reason can be reassigned to null before it is tested.
+  if (
+    !ts.isVariableStatement(st) ||
+    !(st.declarationList.flags & ts.NodeFlags.Const) ||
+    st.declarationList.declarations.length !== 1
+  )
+    return false
   const d = st.declarationList.declarations[0]
   if (!ts.isIdentifier(d.name)) return false
   const name = d.name.text
-  const leaves = (n: ts.Node): boolean =>
-    ts.isReturnStatement(n) ||
-    ts.isThrowStatement(n) ||
-    (!ts.isFunctionLike(n) &&
-      !!ts.forEachChild(n, (c) => leaves(c) || undefined))
+  // The branch must LEAVE unconditionally: a `return`/`throw` as the branch, or as a
+  // top-level statement of its block — not one nested under a further condition.
+  const leaves = (b: ts.Statement): boolean =>
+    ts.isReturnStatement(b) ||
+    ts.isThrowStatement(b) ||
+    (ts.isBlock(b) &&
+      b.statements.some(
+        (x) => ts.isReturnStatement(x) || ts.isThrowStatement(x)
+      ))
   return after.some(
     (a) =>
       ts.isIfStatement(a) &&
@@ -464,29 +480,37 @@ export function scan(fileName: string, text: string): Violation[] {
   return out
 }
 
-/** A budget override in a spread context is fine only if it is read from a RuntimeContext or
- * produced by a funnel. */
+/**
+ * A budget override in a spread context is fine only if every value in it is read from a
+ * RuntimeContext, produced by a funnel, or a literal. `{ current: o.limit }` is neither
+ * (re-review 14: object literals used to be accepted wholesale).
+ */
 function budgetFromValidated(e: ts.Expression, funnels: Funnels): boolean {
   let ok = true
-  let sawSource = false
   const visit = (n: ts.Node) => {
-    if (ts.isPropertyAccessExpression(n) && BUDGET_NAMES.has(n.name.text)) {
-      sawSource = true
-      if (!(ts.isIdentifier(n.expression) && isRuntimeContext(n.expression)))
-        ok = false
+    if (!ok) return
+    if (ts.isCallExpression(n)) {
+      if (!funnels.has(calleeName(n) ?? '')) ok = false
       return
     }
-    if (ts.isCallExpression(n) && funnels.has(calleeName(n) ?? '')) {
-      sawSource = true
+    if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
+      let root: ts.Expression = n
+      while (
+        ts.isPropertyAccessExpression(root) ||
+        ts.isElementAccessExpression(root)
+      )
+        root = root.expression
+      if (!(ts.isIdentifier(root) && isRuntimeContext(root))) ok = false
+      return
+    }
+    if (ts.isIdentifier(n) && !isPropertyName(n)) {
+      if (!isRuntimeContext(n)) ok = false
       return
     }
     ts.forEachChild(n, visit)
   }
   visit(e)
-  return (
-    ok &&
-    (sawSource || ts.isLiteralExpression(e) || ts.isObjectLiteralExpression(e))
-  )
+  return ok
 }
 
 function sourceFiles(dir: string): string[] {
@@ -518,6 +542,10 @@ describe('budget funnel', () => {
       comparedBeforeFunnel: `function f(a) { const t = a.fuel; if (t > 0) go(); budgetOption('t', t, 1) }`,
       ignoredReason: `function f(o) { validateRunOptions(o); return o.fuel > 1 }`,
       keptButUnused: `function f(o) { const bad = validateRunOptions(o); return o.fuel > 1 }`,
+      letReason: `function f(o) { let bad = validateRunOptions(o); bad = null; if (bad) throw 1; return o.fuel > 1 }`,
+      nestedLeave: `function f(o, a) { const bad = validateRunOptions(o); if (bad) { if (a) throw 1 } return o.fuel > 1 }`,
+      spreadRenamed: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.limit } }) }`,
+      spreadCounter: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, quotaUsed: { llm: o.n } }) }`,
       untypedCtx: `function f(ctx) { return ctx.maxHeapBytes > 0 }`,
       spreadCtx: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.fuel } }) }`,
       renamedForward: `function f(o) { return g({ limit: o.fuel }) }`,

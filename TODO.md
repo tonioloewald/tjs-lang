@@ -535,6 +535,27 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 14 — dispositions** (docs/reviews/0.14.0-final-rereview-14.md;
+      BLOCK: quota tables validated over own enumerable entries but read through `[op]` — a
+      Map, inherited, non-enumerable, getter or mid-run value switched the quota off). Fixed by
+      the principle, not the shapes: `tableEntries` walks exactly what a read resolves (plain
+      object, `Reflect.ownKeys`, data properties); the runtime reads a frozen null-prototype
+      `snapshotTable` of `quotas`/`costOverrides`/`timeoutOverrides`; the shared `quotaUsed`
+      is checked at every read (`quotaCount`). Seven hostile rows plus mid-run and snapshot
+      rows; mutation-checked (reverting the walk fails 7, reverting the use-site check fails
+      the mid-run row). Side effect fixed: an atom named `toString` was charged by
+      `Object.prototype.toString`. Function `timeoutMs` on `defineAtom` restored
+      (`budgetOrFunction`). Guard: `acted()` requires `const` + an unconditional leave;
+      spread-context overrides must come from a context, a funnel or a literal; remaining
+      blind spots named in its header. CHANGELOG rewritten from a 0.13 upgrader's view.
+      Lessons written back: `docs/review-lenses.md` §5, practices `testing.md`. Open:
+  - [ ] `Eval`/`SafeFunction` report `fuelUsed: fuel` on the error path — an invalid fuel is
+        echoed back as "used". Decide the accounting (0, or the validated budget).
+  - [ ] Should `Eval`/`SafeFunction` expose `quotas` / `maxHeapBytes`? (G-7 family.)
+  - [ ] CI untracked-output step: confirm a failing `build:transpile` fails the step, and that
+        `functions/.gitignore` cannot hide a new output from `--exclude-standard`.
+  - [ ] Bundle deltas this round (index +157 B, vm-ast +94, vm +72, eval +72, lang/browser
+        +23 gz) → the per-target size-delta item.
 - [ ] **0.14.0 final re-review 13 — dispositions** (docs/reviews/0.14.0-final-rereview-13.md;
       BLOCK on `quotaUsed` unvalidated — the FOURTH budget to fail open by being off a list).
       Root cause addressed, not the site: `RUN_OPTION_KINDS` in `src/vm/admission.ts` is keyed

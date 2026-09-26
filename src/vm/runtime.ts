@@ -4,7 +4,8 @@ import {
   timerMs,
   sourceBytesOver,
   guestSourceCap,
-  budgetOption,
+  budgetOrFunction,
+  quotaCount,
 } from './admission'
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
@@ -2655,7 +2656,13 @@ export function defineAtom<I extends Record<string, any>, O = any>(
   } = typeof options === 'string' ? { docs: options } : options
   // A static timeout is checked when the atom is DEFINED, so a bad one fails where it was
   // written instead of on its first call.
-  const atomTimeout = budgetOption(`timeoutMs of atom '${op}'`, timeoutMs, 1000)
+  // A function timeout is supported, as it is in `timeoutOverrides`; its result goes
+  // through `timerMs` per call (re-review 14: 350a30d briefly refused it).
+  const atomTimeout = budgetOrFunction(
+    `timeoutMs of atom '${op}'`,
+    timeoutMs,
+    1000
+  ) as number
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
     const { op: _op, result: _res, ...inputData } = step
@@ -2672,10 +2679,13 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     try {
       // 2a. Quota — checked BEFORE fuel and before execution, so an exhausted quota
       // costs nothing and cannot have already made the call it was meant to prevent.
+      // `ctx.quotas` is the admission SNAPSHOT (frozen, null-prototype), so `[op]` reads
+      // exactly what was validated.
       const quota = ctx.quotas?.[op]
       if (quota !== undefined) {
         if (!ctx.quotaUsed) ctx.quotaUsed = {}
-        const used = ctx.quotaUsed[op] ?? 0
+        // Checked at the READ: the counter is shared, so it can change after admission.
+        const used = quotaCount(ctx.quotaUsed, op)
         if (used >= quota) {
           ctx.error = new AgentError(
             `Quota exceeded for '${op}': ${quota} call${

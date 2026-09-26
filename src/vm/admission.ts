@@ -129,13 +129,10 @@ export function validateRunOptions(
         )} — it must be a non-negative number`
       continue
     }
-    // Per-op tables. A negative cost MINTED fuel (fuelUsed −398 at fuel 1), a NaN quota read
-    // as unlimited (`used >= NaN` is never true), a NaN timeout override disabled the timeout.
-    if (!v || typeof v !== 'object' || Array.isArray(v))
-      return `Invalid run option ${name}: ${describe(
-        v
-      )} — it must be an object of per-op values`
-    for (const [op, x] of Object.entries(v)) {
+    const entries = tableEntries(v)
+    if (typeof entries === 'string')
+      return `Invalid run option ${name}: ${entries}`
+    for (const [op, x] of entries) {
       // Cost and timeout overrides may be functions of the input; their RESULT is checked
       // where it is used (the atom charge, `timerMs`), since it only exists then.
       if (
@@ -157,6 +154,90 @@ export function validateRunOptions(
     }
   }
   return null
+}
+
+/**
+ * A table's entries — EXACTLY the set an `[op]` read of it can resolve — or why it has none.
+ *
+ * The check must walk the set the read resolves (re-review 14). `Object.entries` walks own
+ * ENUMERABLE keys, while `table[op]` also reaches inherited keys, non-enumerable ones and
+ * getters. So `quotas: new Map(...)`, `Object.create({ ping: NaN })`, a non-enumerable
+ * `ping: NaN` and a getter all passed admission and switched the quota off. So: a PLAIN
+ * object (prototype `Object.prototype` or `null`), every own key (`Reflect.ownKeys`), string
+ * keys only, data properties only — an accessor is host code, refused as the membrane refuses
+ * it. Anything the runtime then reads comes from {@link snapshotTable}, not from the caller's
+ * object, so it cannot change after this check.
+ */
+function tableEntries(v: unknown): Array<[string, unknown]> | string {
+  if (!v || typeof v !== 'object' || Array.isArray(v))
+    return `${describe(v)} — it must be an object of per-op values`
+  const proto = Object.getPrototypeOf(v)
+  if (proto !== Object.prototype && proto !== null)
+    return `it must be a plain object (a Map or class instance is read differently than it is checked)`
+  const out: Array<[string, unknown]> = []
+  for (const key of Reflect.ownKeys(v)) {
+    if (typeof key === 'symbol') return `symbol keys are not per-op values`
+    const d = Object.getOwnPropertyDescriptor(v, key)!
+    if (!('value' in d))
+      return `'${key}' is an accessor — per-op values must be data, not getters`
+    out.push([key, d.value])
+  }
+  return out
+}
+
+/**
+ * The table the runtime READS: a frozen, null-prototype copy of a validated one. Frozen so a
+ * value cannot change after admission; null-prototype so `table.toString` is `undefined`
+ * rather than a function a custom atom named `toString` would have been charged by.
+ */
+export function snapshotTable<T>(
+  table: Record<string, T> | undefined
+): Readonly<Record<string, T>> | undefined {
+  if (table === undefined) return undefined
+  const out: Record<string, T> = Object.create(null)
+  for (const key of Reflect.ownKeys(table) as string[])
+    out[key] = Object.getOwnPropertyDescriptor(table, key)!.value
+  return Object.freeze(out)
+}
+
+/**
+ * How many times `op` has run, read from the SHARED counter at the moment of use.
+ *
+ * `quotaUsed` cannot be snapshotted: it is shared across nested runs by design, so it is
+ * written to during a run and may be written by a capability or a sibling run too. So every
+ * read is checked here, against exactly what the read sees — an own data property, a finite
+ * non-negative count — and anything else refuses the step (re-review 14).
+ */
+export function quotaCount(table: Record<string, number>, op: string): number {
+  const d = Object.getOwnPropertyDescriptor(table, op)
+  if (!d) return 0
+  if (!('value' in d))
+    throw new Error(
+      `Invalid quotaUsed.${op}: an accessor — counts must be data`
+    )
+  const v = d.value
+  if (!(isBudget(v) && Number.isFinite(v)))
+    throw new Error(
+      `Invalid quotaUsed.${op}: ${describe(
+        v
+      )} — it must be a finite non-negative number`
+    )
+  return v
+}
+
+/**
+ * A budget that may instead be a FUNCTION of the call (an atom's `timeoutMs`): a function
+ * passes through — its RESULT is checked where it is called, by `timerMs` — and anything
+ * else goes through {@link budgetOption}.
+ */
+export function budgetOrFunction(
+  name: string,
+  value: unknown,
+  fallback: number
+): number | ((...args: any[]) => unknown) {
+  return typeof value === 'function'
+    ? (value as (...args: any[]) => unknown)
+    : budgetOption(name, value, fallback)
 }
 
 /**

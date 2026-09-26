@@ -138,18 +138,27 @@ options bags. But every validated function used to begin with a pre-check that r
   `compilePredicate` splices only verified names into its generated function. `defineAtom`
   refuses an invalid static `timeoutMs` where it is written, and an atom with `timeoutMs:
 Infinity` no longer makes every run on its VM unbounded. Refusals name the bad value
-  (`NaN`, not `null`). **`quotaUsed` is validated**: a `NaN`, negative or string counter
-  switched the quota off (`NaN >= 3` is false; `-100` granted a hundred extra calls), so a
-  corrupted shared counter turned `llmPredict: 3` into unlimited model spend. It must be an
-  object of finite, non-negative counts. **Every `vm.run` option is now classified** in a
-  table keyed by the options type, so an option added without saying whether it is a budget
-  fails to compile — the class blocked this release four review rounds running, each time on
-  a budget missing from a list. `src/budget-funnel.test.ts` also parses the source and fails
-  on budget-named option reads that do not reach the funnel; it is a second line, and its
-  known blind spots are listed in the file. Also: `new AgentVM` refuses a hand-built atom
-  with an invalid `timeoutMs` (it used to throw out of `vm.run`); `compilePredicate` throws
-  on an export name the verifier did not certify; `emitVerifiedPredicate` refuses
-  `fuel: Infinity`, because emitted code runs in someone else's program.
+  (`NaN`, not `null`). **Quota tables are checked over exactly what the VM reads.** A `NaN`,
+  negative or string `quotaUsed` counter switched the quota off (`NaN >= 3` is false; `-100`
+  granted a hundred extra calls), and so did a `quotas` or `quotaUsed` table whose bad value
+  was inherited, non-enumerable or behind a getter — validation walked own enumerable keys
+  while `table[op]` reads through the prototype. **`quotas`, `costOverrides`,
+  `timeoutOverrides` and `quotaUsed` must now be plain objects of data properties** (a `Map`
+  or class instance is refused; a `Map` never worked — `map[op]` is `undefined`, so it
+  silently meant "no quota"). The VM reads a frozen copy of the first three, so changing them
+  after `vm.run` starts has no effect; the shared `quotaUsed` counter is checked at every
+  read, so one corrupted mid-run refuses the next step. A custom atom named like an
+  `Object.prototype` member (`toString`) is no longer charged by that member's function.
+  **Every `vm.run` option is classified** in a table keyed by the options type, so an option
+  added without saying whether it is a budget fails to compile — the class blocked this
+  release five review rounds running. `src/budget-funnel.test.ts` is a second line for
+  budgets read outside a run, and names its blind spots. **`new AgentVM` now throws** on a
+  hand-built atom (one not made with `defineAtom`) whose `timeoutMs` is not a number or a
+  function — in 0.13 a `null` quietly took the 1000ms default and `NaN` disabled the
+  atom's timeout; build the VM inside a try if its atoms come from configuration.
+  `compilePredicate` throws on an export name the verifier did not certify;
+  `emitVerifiedPredicate` refuses `fuel: Infinity`, because emitted code runs in someone
+  else's program.
 - **`runCode` and `transpileCode` refuse guest-built source over the source cap (8KB)** before the host's
   transpiler sees it, and charge per character. Transpilation is super-linear and runs
   before fuel or timeout can stop it: 160KB of generated comments took 284 seconds.
