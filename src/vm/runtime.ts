@@ -2665,8 +2665,11 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // 4. Result - always set if step.result is specified (even for undefined values)
       if (step.result) {
         assertSafeProperty(step.result) // an atom result bound to __proto__/constructor would corrupt the scope
-        if (ctx.consts.has(step.result)) {
+        if (isConstBinding(ctx, step.result)) {
           throw new Error(`Cannot reassign const variable '${step.result}'`)
+        }
+        if (step.resultConst && own(ctx.state, step.result)) {
+          throw new Error(`Cannot redeclare variable '${step.result}' as const`)
         }
         // Capability-boundary membrane: an io atom's return value is host data
         // crossing into guest state. Deep-copy pure data (rejecting functions /
@@ -2711,9 +2714,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // shape every divergence in this codebase started as.
         if (!setStateVar(ctx, step.result, result, op)) return
         // Mark as const if resultConst is set
-        if (step.resultConst) {
-          ctx.consts.add(step.result)
-        }
+        if (step.resultConst) markConst(ctx, step.result)
       }
     } catch (e: any) {
       error = e.message || String(e)
@@ -2988,6 +2989,31 @@ export const errorAtom = defineAtom(
   { docs: 'Trigger error flow', cost: 0.1 }
 )
 
+/**
+ * `const` is a property of a BINDING, and a binding belongs to a SCOPE — so const-ness is
+ * recorded per scope object, not as one set of names for the whole run. With one set, an
+ * inner `{ const x = 5 }` made an unrelated OUTER `x` unassignable for the rest of the run.
+ */
+const CONST_BINDINGS = new WeakMap<object, Set<string>>()
+
+function markConst(ctx: RuntimeContext, key: string): void {
+  let set = CONST_BINDINGS.get(ctx.state)
+  if (!set) CONST_BINDINGS.set(ctx.state, (set = new Set()))
+  set.add(key)
+  ctx.consts.add(key) // kept for readers of the context shape; never consulted for rules
+}
+
+/** Is the binding `key` resolves to — the NEAREST scope that owns it — a `const`? */
+function isConstBinding(ctx: RuntimeContext, key: string): boolean {
+  let o: any = ctx.state
+  while (o != null && o !== Object.prototype) {
+    if (Object.prototype.hasOwnProperty.call(o, key))
+      return CONST_BINDINGS.get(o)?.has(key) ?? false
+    o = Object.getPrototypeOf(o)
+  }
+  return false
+}
+
 // 2. State (Low cost: 0.1)
 export const varSet = defineAtom(
   'varSet',
@@ -2995,7 +3021,7 @@ export const varSet = defineAtom(
   undefined,
   async ({ key, value }, ctx) => {
     assertSafeProperty(key) // a variable named __proto__/constructor would mutate the scope object's prototype
-    if (ctx.consts.has(key)) {
+    if (isConstBinding(ctx, key)) {
       throw new Error(`Cannot reassign const variable '${key}'`)
     }
     const v = resolveValue(value, ctx)
@@ -3010,15 +3036,20 @@ export const constSet = defineAtom(
   undefined,
   async ({ key, value }, ctx) => {
     assertSafeProperty(key)
-    if (ctx.consts.has(key)) {
-      throw new Error(`Cannot reassign const variable '${key}'`)
-    }
-    if (key in ctx.state) {
-      throw new Error(`Cannot redeclare variable '${key}' as const`)
+    // Redeclaration is an error in the SAME scope only. `key in ctx.state` walked the scope
+    // chain, so any OUTER binding — an imported argument included — made a block-level
+    // `const` impossible: `Eval` code declaring `const total` failed whenever the caller
+    // passed a `total` (0.14.0 final re-review, M-1). A block `const` shadows, as in JS.
+    if (own(ctx.state, key)) {
+      throw new Error(
+        isConstBinding(ctx, key)
+          ? `Cannot reassign const variable '${key}'`
+          : `Cannot redeclare variable '${key}' as const`
+      )
     }
     const cv = resolveValue(value, ctx)
     if (!setStateVar(ctx, key, cv, 'constSet')) return undefined
-    ctx.consts.add(key)
+    markConst(ctx, key)
   },
   { docs: 'Set Const Variable (immutable)', cost: 0.1 }
 )
@@ -3232,6 +3263,25 @@ export const callLocal = defineAtom(
 
 // 3. List (Cost 1)
 
+/**
+ * The scope a `map`/`reduce` CALLBACK body runs in. A callback is a function: its `return`
+ * returns from the callback, and may return a scalar. It ran as a plain child scope, so a
+ * block-bodied callback's `return` hit the AGENT's "must return an object" rule and failed
+ * the run — `[1, 2].map(v => { return v * 3 })` — and a returned object was ignored because
+ * only `state.result` was read (`[null, null]`). Only expression-bodied arrows worked.
+ */
+function callbackScope(ctx: RuntimeContext): RuntimeContext {
+  const child = createChildScope(ctx)
+  child.localCall = true
+  child.output = undefined
+  return child
+}
+
+/** What a callback produced: its `return`, else the `result` an expression body binds. */
+function callbackResult(ctx: RuntimeContext): unknown {
+  return ctx.output !== undefined ? ctx.output : ctx.state['result']
+}
+
 /*#
 ## for...of / map
 
@@ -3260,12 +3310,12 @@ export const map = defineAtom(
     for (const item of resolvedItems) {
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
-      const scopedCtx = createChildScope(ctx)
+      const scopedCtx = callbackScope(ctx)
       try {
         if (!setStateVar(scopedCtx, as, item, 'map', { alias: true }))
           return undefined
         await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-        results.push(scopedCtx.state['result'] ?? null)
+        results.push(callbackResult(scopedCtx) ?? null)
       } finally {
         releaseScope(scopedCtx)
       }
@@ -3362,7 +3412,7 @@ export const reduce = defineAtom(
     for (const item of resolvedItems) {
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
-      const scopedCtx = createChildScope(ctx)
+      const scopedCtx = callbackScope(ctx)
       try {
         // Only when it is the SAME object — a body that rebuilds the accumulator (`map`
         // style) gets a fresh measurement, which is correct: it is a different value.
@@ -3377,7 +3427,7 @@ export const reduce = defineAtom(
         if (!setStateVar(scopedCtx, accumulator, acc, 'reduce'))
           return undefined
         await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-        acc = scopedCtx.state['result'] ?? acc
+        acc = callbackResult(scopedCtx) ?? acc
         accEntry = scopedCtx.heapPerKey?.get(accumulator)
       } finally {
         releaseScope(scopedCtx)

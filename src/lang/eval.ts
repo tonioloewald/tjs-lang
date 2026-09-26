@@ -9,7 +9,9 @@
 
 import { AgentVM, setTranspiler } from '../vm/vm'
 import { transpile } from './core'
+import { parseAgentSource } from './parser-agent'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
+import { parse as parseJS } from 'acorn'
 import { maskLiterals } from '../strip-comments'
 import { builtins } from '../vm/runtime'
 import { BUILTIN_GLOBALS, BUILTIN_OBJECTS } from './emitters/ast'
@@ -40,12 +42,22 @@ function wrapReturnValues(node: any): void {
   if (node.op === 'return' && 'value' in node) {
     node.value = { __result: node.value }
   }
-  // Recurse into steps (seq), branches (if/else), etc.
+  // A CALLBACK's `return` returns from the callback, not from the snippet, and boxing it
+  // handed `map` a `{ __result }` per element: `[1, 2].map(v => { return v * k })` came back
+  // `[null, null]`. Only the snippet's own control flow is walked.
+  if (CALLBACK_OPS.has(node.op)) return
+  // Recurse into steps (seq, scope, loops), branches (if/else), try/catch, etc. `try` and
+  // `catch` were missing, so a `return` inside either went unboxed.
   if (node.steps) wrapReturnValues(node.steps)
   if (node.then) wrapReturnValues(node.then)
   if (node.else) wrapReturnValues(node.else)
   if (node.body) wrapReturnValues(node.body)
+  if (node.try) wrapReturnValues(node.try)
+  if (node.catch) wrapReturnValues(node.catch)
 }
+
+/** Ops whose `steps` are a callback body, with a `return` of their own. */
+const CALLBACK_OPS = new Set(['map', 'reduce'])
 
 /** Capabilities that can be injected into SafeFunction/Eval */
 export interface SafeCapabilities {
@@ -72,8 +84,48 @@ export interface SafeCapabilities {
 
 /** A context key that can be declared as a parameter name. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
-/** Every identifier-shaped token in a source (run over the literal-masked view). */
-const IDENTIFIER_TOKEN = /[A-Za-z_$][A-Za-z0-9_$]*/g
+/**
+ * Every name used as an IDENTIFIER in a parsed program — references and bindings, including
+ * inside template interpolations. Not a non-computed member property (`a.config`) or object
+ * key (`{ config: 1 }`), which name no variable, and never a string literal. Iterative, so a
+ * deeply nested (but size-capped) program cannot overflow the stack.
+ */
+function identifiersIn(program: unknown): Set<string> {
+  const names = new Set<string>()
+  const stack: any[] = [program]
+  while (stack.length) {
+    const n = stack.pop()
+    if (!n || typeof n !== 'object') continue
+    if (Array.isArray(n)) {
+      for (const x of n) stack.push(x)
+      continue
+    }
+    if (n.type === 'Identifier') names.add(n.name)
+    for (const k of Object.keys(n)) {
+      if (k === 'loc' || k === 'start' || k === 'end') continue
+      if (
+        !n.computed &&
+        ((n.type === 'MemberExpression' && k === 'property') ||
+          (n.type === 'Property' && k === 'key' && !n.shorthand))
+      )
+        continue
+      const v = n[k]
+      if (v && typeof v === 'object') stack.push(v)
+    }
+  }
+  return names
+}
+
+/** Does `code` parse, on its own, as ONE JavaScript expression? */
+function parsesAsExpression(code: string): boolean {
+  try {
+    parseJS(`(\n${code}\n)`, { ecmaVersion: 'latest' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Names a context key may never rebind: global values and the VM's builtins. */
 const SHADOW_PROOF = new Set([
   'NaN',
@@ -161,54 +213,26 @@ export async function Eval(options: EvalOptions): Promise<{
 
   const vm = getVM()
 
-  // Wrap code in a function - detect if it's an expression or has return.
-  //
-  // The context keys are DECLARED as a destructured parameter. The wrapper used to take no
-  // parameters, so context values reached plain expressions (`items.length`) through a fallback
-  // but not ATOMS: `items.filter(…)` failed with "filter: items is not an array", because atoms
-  // resolve names from declared variables. `SafeFunction` declares its params and never had the
-  // problem; every documented example happened to avoid it (0.14.0 docs review). Only keys usable
-  // as identifiers can be declared — any other key was never nameable in the code anyway — and
-  // the forbidden prototype keys never become variables.
-  //
-  // Only keys the code NAMES are declared (0.14.0 final review, B-1 + m-1). Declaring every key
-  // put caller-controlled text into the transpiled source with nothing measuring it — 80k keys
-  // and a one-line body took 7–22s to transpile, before fuel or timeout applied, and hosted
-  // endpoints pass request arguments as the context. A key the code never names is unreachable
-  // anyway; with this filter each declared name appears in `code`, so the signature is bounded
-  // by the source the size cap already measures. Names are found on the literal-masked view, so
-  // a key mentioned only inside a string is not declared.
-  //
-  // A key never shadows a builtin (`Math`, `JSON`, `parseInt`…) or a global value (`NaN`,
-  // `undefined`): a request argument named `Math` must not replace `Math` inside stored code.
-  const masked = maskLiterals(code)
-  const named = new Set(masked.match(IDENTIFIER_TOKEN) ?? [])
-  const params = Object.keys(context).filter(
-    (k) =>
-      named.has(k) &&
-      IDENTIFIER.test(k) &&
-      !RESERVED.has(k) &&
-      !FORBIDDEN_KEYS_SET.has(k) &&
-      !SHADOW_PROOF.has(k) &&
-      !(k in builtins)
-  )
-  const signature = params.length ? `{ ${params.join(', ')} }` : ''
-  // Tested on the masked view: `'return'` inside a string is not a return statement.
-  const hasReturn = /\breturn\b/.test(masked)
-  // Statements go in their own BLOCK, so the code may declare a local with a context key's name
-  // (`let y = 2` with `context: { y }`) and shadow it, as it could before keys were declared.
-  const wrappedCode = hasReturn
-    ? `function __eval(${signature}) { {\n${code}\n} }`
-    : `function __eval(${signature}) { return (\n${code}\n) }`
-
   try {
-    // Inside the try, so an oversized payload comes back as `{ error }` like every other
-    // rejection from this function. `Eval` does not throw — the hosted endpoints call it and
-    // return `result.error` to the client — so a size check that threw would turn a refusal
-    // into a 500 and, worse, into an unhandled rejection for anyone who never wrote a catch.
-    // Deliberate asymmetry with `SafeFunction`, which throws on bad input already.
+    // FIRST, and inside the try. Nothing may look at caller-supplied source before this line:
+    // the previous fix scanned `code` for names before the gate, so a refused 10MB payload
+    // cost ~1.5s of CPU and pinned ~316MB in the literal memos — the pre-fuel DoS the gate
+    // exists to close, reintroduced by the fix for it (0.14.0 final re-review, B-1). Inside
+    // the try because `Eval` does not throw: the hosted endpoints return `result.error` to the
+    // client, so a throw would be a 500 (and an unhandled rejection for anyone without a catch).
+    if (typeof code !== 'string') throw new Error('Eval code must be a string')
     checkSourceSize(code, maxSourceBytes, 'Eval source')
 
+    // Expression or statements? An expression is anything that parses as one — which a body
+    // containing `return` inside an arrow does, so a `return` token alone cannot decide it.
+    // Statement form only when it will NOT parse as an expression and does return.
+    const statements =
+      !parsesAsExpression(code) && /\breturn\b/.test(maskLiterals(code))
+    // Statements run in their own BLOCK, so code may declare a local — `let` or `const` —
+    // with a context key's name and shadow it.
+    const wrappedCode = statements
+      ? `function __eval() { {\n${code}\n} }`
+      : `function __eval() { return (\n${code}\n) }`
     const { ast } = transpile(wrappedCode)
 
     // Box return values in objects for VM strict-return compliance.
@@ -216,10 +240,38 @@ export async function Eval(options: EvalOptions): Promise<{
     // { op: 'return', value: { __result: originalValue } }
     wrapReturnValues(ast)
 
-    // Only the DECLARED keys: the VM validates arguments against the declared parameters, so an
-    // undeclared key (not an identifier, or a forbidden prototype key) would reject the whole
-    // call — and no code could name one anyway.
-    const args = Object.fromEntries(params.map((key) => [key, context[key]]))
+    // The context reaches the code as VARIABLES, imported at the AST level — never as text.
+    //
+    // Context values must be declared: atoms resolve names from declared variables, so with a
+    // bare wrapper `items.filter(…)` failed with "items is not an array" (0.14.0 docs review).
+    // Declaring them as a destructured parameter put caller-controlled key text into the
+    // transpiled source, unmeasured by the size cap (80k keys: 76s of pre-fuel transpile). Then
+    // a TEXT scan for names ran before the gate, missed names inside template interpolations,
+    // and could not see scopes (0.14.0 final re-review, B-1/M-1/M-2). Now: `varsImport`, the
+    // step every attempt compiled to, emitted directly — no source to grow.
+    //
+    // Only keys the code uses as IDENTIFIERS, read from the parse (after the gate), which sees
+    // template interpolations and does not see string literals. Importing EVERY key would be
+    // worse than it looks: an AJS v1 AST stores a string literal and a variable reference the
+    // same way, so a literal equal to an in-scope name reads the variable — with every request
+    // argument imported, `?config=…` would redirect `storeGet('config')` in stored code.
+    // (That ambiguity is the language's, tracked in TODO.md; this keeps Eval from widening it.)
+    //
+    // Never a reserved word, a forbidden prototype key, a builtin (`Math`, `JSON`,
+    // `parseInt`…) or a global value (`NaN`, `undefined`): a request argument named `Math`
+    // must not replace `Math` in stored code.
+    const used = identifiersIn(parseAgentSource(wrappedCode).ast)
+    const keys = Object.keys(context).filter(
+      (k) =>
+        used.has(k) &&
+        IDENTIFIER.test(k) &&
+        !RESERVED.has(k) &&
+        !FORBIDDEN_KEYS_SET.has(k) &&
+        !SHADOW_PROOF.has(k) &&
+        !(k in builtins)
+    )
+    if (keys.length) (ast as any).steps.unshift({ op: 'varsImport', keys })
+    const args = Object.fromEntries(keys.map((key) => [key, context[key]]))
     const vmResult = await vm.run(ast, args, {
       fuel,
       timeoutMs,

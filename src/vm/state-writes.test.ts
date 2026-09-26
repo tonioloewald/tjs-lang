@@ -89,10 +89,10 @@ describe('child scopes own and release their heap ledger', () => {
   const lines = source.split('\n')
 
   const callsTo = (name: string) =>
-    // Definition sites (`function name(`) are not calls.
-    (source.match(new RegExp(`(?<!function )\\b${name}\\(`, 'g')) ?? [])
-      .length -
-    (source.match(new RegExp(`function ${name}\\(`, 'g')) ?? []).length
+    // Definition sites (`function name(`) are not calls — the lookbehind excludes them.
+    // (This also subtracted the definition count, excluding each definition TWICE: every
+    // name was undercounted by one, harmless only while both sides of the comparison were.)
+    (source.match(new RegExp(`(?<!function )\\b${name}\\(`, 'g')) ?? []).length
 
   /**
    * A `{ ...ctx, … state: … }` object literal is a child scope by another name, and the
@@ -113,7 +113,15 @@ describe('child scopes own and release their heap ledger', () => {
     // Count SCOPE SITES, not `createChildScope` calls: three of them are hand-built and
     // do not go through the helper, which is precisely how `callLocal` kept the shared
     // ledger after the helper was fixed.
-    const sites = callsTo('createChildScope') + handBuilt.length
+    //
+    // A WRAPPER that returns a child scope (`callbackScope`) moves the site to its callers:
+    // its own internal `createChildScope` releases nothing, each call of it must release.
+    const WRAPPERS = ['callbackScope']
+    const sites =
+      callsTo('createChildScope') -
+      WRAPPERS.length +
+      WRAPPERS.reduce((n, w) => n + callsTo(w), 0) +
+      handBuilt.length
     expect(
       sites,
       'the scan found no child scopes — apparatus failure'

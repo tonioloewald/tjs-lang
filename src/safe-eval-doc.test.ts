@@ -197,3 +197,45 @@ describe('context keys are bounded by the code, not by the caller (0.14.0 final 
     expect((await Eval({ code: 'return 3 // three' })).result).toBe(3)
   })
 })
+
+describe('Eval remediation, re-review (0.14.0 final re-review B-1, M-1, M-2)', () => {
+  it('B-1: an oversized payload is refused BEFORE any scan — cheaply', async () => {
+    const code = "'a',".repeat(2_500_000) // 10MB, literal-heavy
+    const t = performance.now()
+    const r = await Eval({ code, context: { a: 1 } })
+    expect(performance.now() - t).toBeLessThan(200)
+    expect(r.error?.message).toContain('byte limit')
+  })
+
+  it('B-1: a non-string `code` is an error result, never a throw', async () => {
+    const r = await Eval({ code: 42 as any })
+    expect(r.error?.message).toMatch(/string/)
+  })
+
+  it('M-1: code may declare a CONST that shares a context key’s name', async () => {
+    const r = await Eval({
+      code: 'const total = 9\nreturn total',
+      context: { total: 'X' },
+    })
+    expect(r.error).toBeUndefined()
+    expect(r.result).toBe(9)
+  })
+
+  it('M-2: a key used only inside a template interpolation is visible', async () => {
+    expect(
+      (await Eval({ code: '`hi ${name}`', context: { name: 'bob' } })).result
+    ).toBe('hi bob')
+    expect(
+      (await Eval({ code: 'return `hi ${name}`', context: { name: 'bob' } }))
+        .result
+    ).toBe('hi bob')
+  })
+
+  it('an EXPRESSION containing an arrow with `return` stays an expression', async () => {
+    const r = await Eval({
+      code: '[1, 2].map(v => { return v * k })',
+      context: { k: 3 },
+    })
+    expect(r.result).toEqual([3, 6])
+  })
+})

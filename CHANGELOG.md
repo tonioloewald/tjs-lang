@@ -365,12 +365,27 @@ Predicate` to "callable and boolean-ish".
   no parameters, so `context` reached plain expressions but not atoms: `items.filter(…)`
   failed with "items is not an array". Context keys are now declared parameters. Found by
   running the README's own example, which the rewritten Safe Eval chapter now executes along
-  with every example in it. Only the keys the code actually NAMES are declared: declaring
-  every key put caller-controlled text into the transpiled source, where `maxSourceBytes`
-  never measured it, and 80k keys with a one-line body took over a minute to transpile
-  before fuel or timeout applied (the hosted endpoints pass request arguments as context).
-  A key never rebinds a builtin or a global value (`Math`, `JSON`, `NaN`, `undefined`…), and
-  code may declare a local that shares a key's name, which shadows it.
+  with every example in it. The keys are imported as variables at the AST level (a
+  `varsImport` step), never spliced into source: declaring them as parameters put
+  caller-controlled text into the transpiled source, where `maxSourceBytes` never measured
+  it, and 80k keys took over a minute to transpile before fuel or timeout applied (the
+  hosted endpoints pass request arguments as context). Only keys the code uses as
+  IDENTIFIERS are imported — read from the parse, after the size gate, so a name inside a
+  template interpolation counts and a string literal does not. A key never rebinds a builtin
+  or a global value (`Math`, `JSON`, `NaN`, `undefined`…), and code may declare a local
+  (`let` or `const`) that shares a key's name, which shadows it. A non-string `code` is an
+  error result, not a throw, and an expression containing a callback with `return`
+  (`xs.map(v => { return v * k })`) is treated as an expression.
+- **AJS: a block-bodied callback works.** `[1, 2].map(v => { return v * 3 })` failed the
+  whole run with "Agent must return an object" — the callback's `return` was held to the
+  AGENT's rule — and a returned object was dropped (`[null, null]`), because `map` and
+  `reduce` read only the `result` an expression body binds. Only expression-bodied arrows
+  worked. A callback body now runs as a function: its `return`, early or not, is its value.
+- **AJS: `const` is per binding, per scope.** A block-level `const` could not shadow ANY
+  outer binding (redeclaration was checked up the whole scope chain), and an inner `const x`
+  made an unrelated outer `x` unassignable for the rest of the run (const-ness was one set of
+  names). Redeclaration is now refused in the same scope only, and reassignment only when the
+  binding a write resolves to is a `const`.
 
 - **`fromTS` class metadata keeps what the code erases**: OVERLOAD signatures — of methods,
   static methods AND constructors — and `abstract`. Both are rightly erased from the emitted
