@@ -16,8 +16,12 @@ import { AgentVM } from './vm/vm'
 import { Eval, SafeFunction } from './lang/eval'
 import { transpile, tjs } from './lang/index'
 
-const CAP = 60_000 // just under the 64KB source default
+// Just under the 8KB source default (0.14.0) — the cap IS the bound on parse work for
+// untrusted AJS; see DEFAULT_MAX_SOURCE_BYTES.
+const CAP = 8 * 1024 - 256
 const BOUND_MS = 1500
+/** Nesting that still fits under the cap, far past the 64-deep limit. */
+const DEEP = Math.floor(CAP / 2) - 64
 
 /** Hostile SOURCE shapes: each was measured super-linear or unbounded at some point. */
 const SOURCES: Record<string, string> = {
@@ -27,14 +31,14 @@ const SOURCES: Record<string, string> = {
     const nest = '('.repeat(64) + '1' + ')'.repeat(64)
     return (nest + ' + ').repeat(Math.floor(CAP / (nest.length + 3))) + '1'
   })(),
-  'parens nested 20000 deep': '('.repeat(20_000) + '1' + ')'.repeat(20_000),
+  'parens nested to the cap': '('.repeat(DEEP) + '1' + ')'.repeat(DEEP),
   // The two shapes that walked past a guard reading a different lexical view (re-review 5):
   // the masker blanks `${…}` and reads `/` after `}` as a regex; the transform recursed into
   // the one and divided by the other.
-  'parens nested 20000 deep inside a template ${}':
-    '`${' + '('.repeat(20_000) + '1' + ')'.repeat(20_000) + '}`',
-  'parens nested 20000 deep after `}` as division': (() => {
-    const deep = '('.repeat(20_000) + '1' + ')'.repeat(20_000)
+  'parens nested to the cap inside a template ${}':
+    '`${' + '('.repeat(DEEP) + '1' + ')'.repeat(DEEP) + '}`',
+  'parens nested to the cap after `}` as division': (() => {
+    const deep = '('.repeat(DEEP) + '1' + ')'.repeat(DEEP)
     return `(() => { if (1) {} return 1 })() /${deep}/ 1`
   })(),
   'a megabyte of source': 'x + ' + '1 + '.repeat(250_000) + '1',
@@ -47,6 +51,15 @@ const SOURCES: Record<string, string> = {
   'many ternary colons in one expression': '(): '.repeat(CAP / 4) + '1',
   // >24 nested DISTINCT substrings: thrashed any size-bounded global cache the passes relied
   // on for linearity (the ternary memo held 16; re-review 7, M-1). A cache is not a bound.
+  // Re-review 9's four, each super-linear with no refusal until the cap bounded them:
+  'regexes in return types (B-1)':
+    '[' + '(a): [x/] => 1,'.repeat(Math.floor(CAP / 15)) + '/]',
+  'nested destructuring (B-2)': (() => {
+    const d = Math.floor(CAP / 8)
+    return `(function (${'{a: '.repeat(d)}b${' }'.repeat(d)}) { return 1 })`
+  })(),
+  'function head + whitespace run (B-3)': 'function' + ' '.repeat(CAP - 20),
+  'brace nesting (B-4)': '{a;'.repeat(Math.floor(CAP / 3)),
   'nested distinct sub-sources, 30 deep': (() => {
     const unit = '('.repeat(30) + 'a' + '):0'.repeat(30) + ','
     return unit.repeat(Math.floor(CAP / unit.length))
@@ -122,10 +135,10 @@ const EXPECT: Record<string, RegExp | null> = {
   'blank lines at the cap': null,
   '64-deep parens, repeated to the cap': null,
   // Either bound may fire first: the depth limit, or the work budget (64 levels × 40KB copied).
-  'parens nested 20000 deep': /nest more than 64 deep|too complex to transpile/,
-  'parens nested 20000 deep inside a template ${}':
+  'parens nested to the cap': /nest more than 64 deep|too complex to transpile/,
+  'parens nested to the cap inside a template ${}':
     /nest more than 64 deep|too complex to transpile/,
-  'parens nested 20000 deep after `}` as division':
+  'parens nested to the cap after `}` as division':
     /nest more than 64 deep|too complex to transpile/,
   'a megabyte of source': /over the \d+-byte limit/,
   'unbalanced ( to the cap': null,
@@ -134,6 +147,10 @@ const EXPECT: Record<string, RegExp | null> = {
   "unbalanced (' to the cap": null,
   'many ternary colons in one expression': null,
   'nested distinct sub-sources, 30 deep': null,
+  'regexes in return types (B-1)': null,
+  'nested destructuring (B-2)': null,
+  'function head + whitespace run (B-3)': null,
+  'brace nesting (B-4)': null,
 }
 
 /** Whatever an entry produced, as a message: a thrown error, an `{ error }` result, or ''. */
@@ -512,5 +529,22 @@ describe('the transform work budget (TransformWork)', () => {
     }
     // Measured 2026-09-26 across 1,368 files: median 2.0, p99 3.5, max 8.8.
     expect(worst).toBeLessThan(WORK_PER_CHAR / 4)
+  })
+})
+
+describe('the work budget never refuses VALID AJS under the cap (re-review 9)', () => {
+  const { preprocessAgentSource } = require('./lang/parser-agent')
+  it('a return type holding hundreds of regex literals', () => {
+    const regexes = Array.from({ length: 600 }, (_, i) => `/a${i}/`).join(', ')
+    const src = `function f(a: 1): [${regexes}] { return [] }`
+    expect(src.length).toBeLessThan(CAP)
+    expect(() => preprocessAgentSource(src)).not.toThrow(/too complex/)
+  })
+  it('deep grouping parens around real content', () => {
+    const src = `function f() { return ${'('.repeat(40)}${'1 + '.repeat(
+      300
+    )}1${')'.repeat(40)} }`
+    expect(src.length).toBeLessThan(CAP)
+    expect(() => preprocessAgentSource(src)).not.toThrow(/too complex/)
   })
 })

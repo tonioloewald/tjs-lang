@@ -22,8 +22,22 @@
 /** `setTimeout` clamps anything above this to 1ms: an `Infinity` timeout fired at once. */
 export const MAX_TIMER_MS = 2 ** 31 - 1
 
-/** Default source cap for every entry that transpiles caller-supplied text. */
-export const DEFAULT_MAX_SOURCE_BYTES = 64 * 1024
+/**
+ * Default source cap for every entry that transpiles caller-supplied text: 8KB.
+ *
+ * This cap IS the bound on pre-budget parse work for untrusted AJS, and says so. Nine
+ * release-review rounds (0.14.0 final re-reviews 1-9) each found another shape the
+ * preprocessor or acorn handles super-linearly — nested destructuring (19s at 60KB), a
+ * `function` head followed by whitespace (2.9s: regex backtracking), brace nesting in acorn,
+ * uncharged regex scans. Patching them one at a time did not converge, and a work meter
+ * cannot see regex-engine or acorn work. A quadratic cost shrinks with the SQUARE of the
+ * cap: at 8KB the worst shape known is ~250ms (at 64KB it was ~19s), and one nobody has found
+ * yet shrinks the same way. The largest AJS example in this repo is ~1.1KB; stored agents and
+ * RBAC rules are far smaller than 8KB. Raise it per call (`maxSourceBytes`) for trusted
+ * source. The structural fix — a single-pass AJS parser whose complexity is provable, and
+ * optionally a worker with a hard wall clock — is tracked in TODO.md. (Tonio, 2026-09-26.)
+ */
+export const DEFAULT_MAX_SOURCE_BYTES = 8 * 1024
 
 const isBudget = (v: unknown): v is number =>
   typeof v === 'number' && !Number.isNaN(v) && v >= 0

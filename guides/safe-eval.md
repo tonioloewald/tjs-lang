@@ -103,9 +103,10 @@ Be precise here: a security claim you cannot cash is worse than none.
   unit of fuel) backs it up, and a stopped run cancels any request it had in flight.
 - **Bounded memory.** The VM caps how much the guest can hold live at once (64 MB by default),
   separately from fuel, which bounds only how much work it does.
-- **Bounded input.** Source over 64 KB is refused _before_ it is transpiled, because
+- **Bounded input.** Source over 8 KB is refused _before_ it is transpiled, because
   transpiling runs before fuel and the timeout apply. Raise or disable the cap with
-  `maxSourceBytes` for trusted source.
+  `maxSourceBytes` for trusted source. Serving untrusted callers? Have them send an AST
+  (transpiled on their side) and run it with `tjs-lang/vm-ast`, which contains no parser.
 - **No ambient authority.** The VM has no IO by default; the only way out is a capability you
   inject, and every atom that touches one is tagged as IO — a tagging that is itself tested, so
   the list of ways out can be enumerated.

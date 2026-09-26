@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > resolve cleanly. That rc verified PEER RESOLUTION; the `Type`-example and `TjsStrict` changes
 > below came after it, through several review rounds (`docs/reviews/0.14.0-*`).
 
+**Untrusted AJS source is capped at 8KB by default (was 64KB) — and the real answer is to not
+accept source at all.** `maxSourceBytes` for `Eval`, `SafeFunction`, `vm.run(source)`,
+`runCode` and `transpileCode` now defaults to 8KB. Nine review rounds in this release each found
+another input shape that the AJS preprocessor or acorn parses super-linearly — nested
+destructuring took 19s at 60KB, a `function` head followed by whitespace 2.9s — and patching
+them did not converge. A quadratic cost shrinks with the square of the cap: at 8KB the worst
+known shape is ~250ms. Raise it per call for trusted source. **If you run agents from
+untrusted callers, take an AST instead:** transpile on the caller's side
+(`tjs-lang/browser` or `tjs-lang/lang`), send the AST, and run it with `tjs-lang/vm-ast`,
+which has no parser in it at all — the parse cost then lands on whoever sent the source, and
+what remains on the host is linear.
+
 **A language release.** The tosijs-ui-hosted site was what 0.14.0 was originally reserved for;
 that work is real but lands separately, as a non-breaking change to build tooling that does not
 touch the published surface. The version number follows the narrative rather than a name
@@ -67,7 +79,7 @@ options bags. But every validated function used to begin with a pre-check that r
 - **Admission is one module (`src/vm/admission.ts`), and every entry path goes through it.**
   The release cycle blocked five times on one class — work proportional to caller input,
   done before any budget could stop it — because each fix guarded one door. Now:
-  `vm.run(source)` is capped like `Eval` (new `maxSourceBytes` run option, default 64KB), and
+  `vm.run(source)` is capped like `Eval` (new `maxSourceBytes` run option, default 8KB), and
   its options are checked before the source is even resolved; cost, timeout and quota
   overrides are validated too (a negative cost override MINTED fuel; a `NaN` quota read as
   unlimited; a `NaN` timeout disabled the timeout; `timeoutMs: Infinity` fired after 1ms and
@@ -91,7 +103,8 @@ options bags. But every validated function used to begin with a pre-check that r
   proven fail, so a line of `/[/[…` or `/\/\…` no longer rescans per `/`.
   `src/admission.test.ts` pushes every hostile shape it knows, a GENERATED grid of 41 tokens
   and a grid of 289 token PAIRS, each repeated to the cap, through the source entries; the
-  worst measured at the 64KB cap is ~114ms.
+  worst measured at the old 64KB cap was ~114ms for the gridded shapes (see the 8KB cap above
+  for the shapes that were not).
 - **An aborted run takes no further step.** Every atom now checks the run's abort signal
   before it runs, so after a deadline or a caller's abort no capability is called and no
   guest code continues — `vm.run` used to stop WAITING while straight-line steps carried on
@@ -101,7 +114,7 @@ options bags. But every validated function used to begin with a pre-check that r
   abort is reported as "Execution aborted by the caller", no longer as a timeout.
 - **`Eval` and `SafeFunction` take `argsMaxBytes`**, so a host can raise the new 4MB
   argument ceiling through the safe-eval API (strings count two bytes per character).
-- **`runCode` and `transpileCode` refuse guest-built source over 64KB** before the host's
+- **`runCode` and `transpileCode` refuse guest-built source over the source cap (8KB)** before the host's
   transpiler sees it, and charge per character. Transpilation is super-linear and runs
   before fuel or timeout can stop it: 160KB of generated comments took 284 seconds.
 - **Emitted code uses an installed `globalThis.__tjs` only if it speaks the same runtime ABI**

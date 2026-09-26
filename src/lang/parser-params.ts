@@ -239,12 +239,20 @@ export interface TransformWork {
   limit: number
 }
 
-/** Work allowed per character of source, and a floor for tiny inputs. */
+/** Linear work allowed per character, on top of the n²/4 allowance, and a floor. */
 export const WORK_PER_CHAR = 64
 export const WORK_FLOOR = 200_000
 
 export function transformWorkFor(source: string): TransformWork {
-  return { used: 0, limit: source.length * WORK_PER_CHAR + WORK_FLOOR }
+  // Up to QUADRATIC work is allowed (n²/4): the source cap (8KB by default) is what bounds
+  // quadratic cost, and a tighter linear limit refused VALID AJS — a return type holding a
+  // few hundred regex literals, or deep grouping parens (re-review 9). The budget's job is
+  // the catastrophic case: anything worse than quadratic is refused at a bounded cost.
+  const n = source.length
+  return {
+    used: 0,
+    limit: n * WORK_PER_CHAR + Math.floor((n * n) / 4) + WORK_FLOOR,
+  }
 }
 
 function charge(

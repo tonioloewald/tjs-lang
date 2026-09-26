@@ -34,7 +34,9 @@ const bigSource = (kb: number): string => {
 
 describe('Eval refuses oversized source before transpiling it', () => {
   it('has a default cap', () => {
-    expect(DEFAULT_MAX_SOURCE_BYTES).toBe(64 * 1024)
+    // 8KB since 0.14.0 (was 64KB): the cap bounds super-linear parse work on hostile shapes
+    // until untrusted callers send ASTs — see DEFAULT_MAX_SOURCE_BYTES.
+    expect(DEFAULT_MAX_SOURCE_BYTES).toBe(8 * 1024)
   })
 
   it('refuses a 300KB payload, and does so promptly', async () => {
@@ -59,7 +61,12 @@ describe('Eval refuses oversized source before transpiling it', () => {
 
   it('measures BYTES, not string length', async () => {
     // A multi-byte payload must not buy several times the budget. Each emoji is 4 bytes.
-    const justOverInBytes = '"' + '😀'.repeat(20_000) + '"\nreturn 1' // ~80KB, ~20K chars
+    // Derived from the cap: 2 UTF-16 units but 4 bytes per emoji, so under it by length and
+    // over it by bytes.
+    const justOverInBytes =
+      '"' +
+      '😀'.repeat(Math.floor(DEFAULT_MAX_SOURCE_BYTES / 3)) +
+      '"\nreturn 1'
     expect(justOverInBytes.length).toBeLessThan(DEFAULT_MAX_SOURCE_BYTES)
     expect(Buffer.byteLength(justOverInBytes, 'utf8')).toBeGreaterThan(
       DEFAULT_MAX_SOURCE_BYTES

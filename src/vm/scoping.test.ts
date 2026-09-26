@@ -149,7 +149,7 @@ describe('guest-built source is admitted before it is transpiled (0.14.0 final r
       { src },
       { fuel: 10_000, capabilities: { code } }
     )
-    expect(r.error?.message).toMatch(/over the 65536-byte limit/)
+    expect(r.error?.message).toMatch(/over the 8192-byte limit/)
     expect(transpiled).toBe(0)
     expect(performance.now() - t).toBeLessThan(100)
   })

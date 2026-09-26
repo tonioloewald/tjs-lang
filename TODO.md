@@ -617,7 +617,23 @@ deployed after the publish.
     and transpiles in ~1.4s (fromTS 1.0s + tjs 0.4s); `test:compat-scan` still skips it and
     three larger files as "preprocess is quadratic". Re-measure the four, and lift the
     400KB skip (with the ratchet) if they are now linear.
-- [ ] **The paren/parameter transform should be a PARSER, not a rescanning text pass** (Tonio,
+- [ ] **ASTs at the boundary: untrusted callers send an AST, never source** (Tonio,
+      2026-09-26: "isn't the real solution to provide the ajs transpiler to the caller as a
+      convenient package?"). The primary fix for the class nine 0.14.0 review rounds chased:
+      a host that accepts only ASTs never parses untrusted text, so no hostile shape can cost
+      it anything — the parse lands on whoever sent the source. What remains server-side is
+      linear (JSON parse bounded by body size, AST version/shape checks, the membrane).
+      Pieces that exist: `tjs-lang/vm-ast` (the VM with no parser), the AJS transpiler in
+      `tjs-lang/browser` and `tjs-lang/lang`. Still to do:
+  - A small, obvious caller-side entry (`compileAgent(source) → ast`, versioned), documented
+    as THE way to ship an agent to a server; the pair with `AgentVM` from `vm-ast`.
+  - `functions/`: the endpoints accept `ast`; stored functions store ASTs; source only as a
+    trusted/owner fallback (or not at all). Validate AST version + shape on entry.
+  - A size/depth admission for ASTs (JSON nesting depth, node count) in the admission module,
+    since a JSON AST is now the untrusted input.
+  - Docs: Safe Eval chapter, README, `vm-ast` entry — prefer ASTs for untrusted callers.
+    After this, the source cap (8KB default since 0.14.0) is defence in depth, not the bound.
+- [ ] **(DX, no longer the security fix — see ASTs at the boundary) The paren/parameter transform should be a PARSER, not a rescanning text pass** (Tonio,
       2026-09-26: "the parenthesis counting sounds like a regex that should be a parser
       problem"). Every bound added this cycle exists because `transformParenExpressions`
       recurses on SUBSTRINGS: nesting is quadratic, and a guard over another lexical view
