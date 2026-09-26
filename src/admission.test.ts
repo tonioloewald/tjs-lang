@@ -15,6 +15,8 @@ import { describe, it, expect } from 'bun:test'
 import { AgentVM } from './vm/vm'
 import { Eval, SafeFunction } from './lang/eval'
 import { transpile, tjs } from './lang/index'
+import { compilePredicate, emitVerifiedPredicate } from './lang/predicate'
+import { defineAtom } from './vm/runtime'
 
 // Just under the 8KB source default (0.14.0) — the cap IS the bound on parse work for
 // untrusted AJS; see DEFAULT_MAX_SOURCE_BYTES.
@@ -616,9 +618,9 @@ describe('re-review 10: caps that were fail-open or unreachable', () => {
       /over the \d+-byte limit/
     )
   })
-  it("runCode honours the run's maxSourceBytes (the CHANGELOG said it could be raised)", async () => {
+  it('runCode honours a LOWER run maxSourceBytes (re-review 12: it may only lower the guest cap)', async () => {
     const code = { transpile: (s: string) => transpile(s).ast }
-    const src = 'function f() { return { v: 1 } }\n' + '// pad\n'.repeat(1500) // ~10KB
+    const src = 'function f() { return { v: 1 } }\n' + '// pad\n'.repeat(500) // ~3.5KB
     const ast = {
       op: 'seq',
       steps: [
@@ -626,22 +628,18 @@ describe('re-review 10: caps that were fail-open or unreachable', () => {
         { op: 'return', value: {} },
       ],
     } as any
-    const refused = await new AgentVM().run(
+    const admitted = await new AgentVM().run(
       ast,
       { src },
       { fuel: 10_000, capabilities: { code } }
     )
-    expect(reasonOf(refused)).toMatch(/over the 8192-byte limit/)
-    const raised = await new AgentVM().run(
+    expect(reasonOf(admitted)).toBe('')
+    const lowered = await new AgentVM().run(
       ast,
       { src },
-      {
-        fuel: 10_000,
-        maxSourceBytes: 16 * 1024,
-        capabilities: { code },
-      }
+      { fuel: 10_000, maxSourceBytes: 2048, capabilities: { code } }
     )
-    expect(reasonOf(raised)).toBe('')
+    expect(reasonOf(lowered)).toMatch(/over the 2048-byte limit/)
   })
 })
 
@@ -667,25 +665,111 @@ describe('re-review 11: the cap is validated in the funnel, and the guest path i
         transpile('function f() { return { a: 1 } }', { maxSourceBytes: off })
       ).not.toThrow()
   })
-  it("disabling the run's cap (0) does NOT uncap guest-built source for runCode", async () => {
-    const code = { transpile: (src: string) => transpile(src).ast }
-    const src = 'function f() { return { v: 1 } }\n' + '// pad\n'.repeat(1500) // ~10KB
-    const ast = {
-      op: 'seq',
-      steps: [
-        { op: 'runCode', code: { $kind: 'arg', path: 'src' }, result: 'r' },
-        { op: 'return', value: {} },
-      ],
-    } as any
+  // 0 and Infinity disable the run's cap; 64KB raises it. None of them may reach the guest
+  // path — text the guest builds can come from llmPredict output (re-reviews 11 and 12).
+  it.each([0, Infinity, 64 * 1024])(
+    'a run maxSourceBytes of %p does NOT widen guest-built source for runCode',
+    async (runMax) => {
+      const code = { transpile: (src: string) => transpile(src).ast }
+      const src = 'function f() { return { v: 1 } }\n' + '// pad\n'.repeat(1500) // ~10KB
+      const ast = {
+        op: 'seq',
+        steps: [
+          { op: 'runCode', code: { $kind: 'arg', path: 'src' }, result: 'r' },
+          { op: 'return', value: {} },
+        ],
+      } as any
+      const r = await new AgentVM().run(
+        ast,
+        { src },
+        {
+          fuel: 10_000,
+          maxSourceBytes: runMax,
+          capabilities: { code },
+        }
+      )
+      expect(reasonOf(r)).toMatch(/over the 8192-byte limit/)
+    }
+  )
+})
+
+describe('re-review 12: every budget option is read through the funnel', () => {
+  // exponential recursion: 2^40 calls unless fuel stops it
+  const RUNAWAY = `
+    function b(n) { if (n <= 0) return false; return b(n - 1) || b(n - 1) }
+    function spin(x) { return b(40) }`
+
+  it('compilePredicate stops a runaway at a real budget, and refuses a budget that is not one', () => {
+    const t = performance.now()
+    const { spin } = compilePredicate(RUNAWAY, ['spin'], { fuel: 1000 })
+    expect(() => spin(1)).toThrow(/fuel budget \(1000\)/)
+    expect(performance.now() - t).toBeLessThan(BOUND_MS)
+    // NaN made `--fuel < 0` never true: the call ran unbounded (reproduced at >10s).
+    for (const bad of [NaN, -1, null, '1; x()'] as any[])
+      expect(() => compilePredicate(RUNAWAY, ['spin'], { fuel: bad })).toThrow(
+        /Invalid fuel/
+      )
+  })
+
+  it('emitVerifiedPredicate refuses the same values, before any of them reaches emitted source', () => {
+    for (const bad of [NaN, -1, null, '1; x()'] as any[])
+      expect(() =>
+        emitVerifiedPredicate(RUNAWAY, 'spin', { fuel: bad })
+      ).toThrow(/Invalid fuel/)
+    // A real budget: the runaway returns false (a guard answers a boolean question).
+    const r = emitVerifiedPredicate(RUNAWAY, 'spin', { fuel: 1000 })
+    const guard = new Function(`return ${r.code}`)()
+    const t = performance.now()
+    expect(guard(1)).toBe(false)
+    expect(performance.now() - t).toBeLessThan(BOUND_MS)
+  })
+
+  it('Infinity is an explicit "no limit" — accepted, as it is for every other ceiling', () => {
+    const ok = `function isPos(x) { return x > 0 }`
+    expect(compilePredicate(ok, ['isPos'], { fuel: Infinity }).isPos(1)).toBe(
+      true
+    )
+    expect(emitVerifiedPredicate(ok, 'isPos', { fuel: Infinity }).safe).toBe(
+      true
+    )
+  })
+
+  it('compilePredicate splices only VERIFIED names into generated source', () => {
+    const ok = `function isPos(x) { return x > 0 }`
+    expect(() =>
+      compilePredicate(ok, ['isPos }; globalThis.pwned = 1; ({ x'])
+    ).toThrow(/not a predicate in the verified cluster/)
+    expect((globalThis as any).pwned).toBeUndefined()
+  })
+
+  it('an atom with an invalid static timeoutMs is refused where it is defined', () => {
+    for (const bad of [NaN, -1, '10'] as any[])
+      expect(() =>
+        defineAtom('bad', undefined, undefined, async () => 1, {
+          timeoutMs: bad,
+        })
+      ).toThrow(/Invalid timeoutMs of atom 'bad'/)
+  })
+
+  it('an atom with timeoutMs: Infinity does not make every run on the VM unbounded', () => {
+    const forever = defineAtom('forever', undefined, undefined, async () => 1, {
+      timeoutMs: Infinity,
+    })
+    const vm = new AgentVM({ forever })
+    expect(Number.isFinite(vm.defaultRunTimeout)).toBe(true)
+  })
+
+  it('a refusal names the bad value (JSON rendered NaN as "null")', async () => {
     const r = await new AgentVM().run(
-      ast,
-      { src },
+      { op: 'seq', steps: [] } as any,
+      {},
       {
-        fuel: 10_000,
-        maxSourceBytes: 0,
-        capabilities: { code },
+        fuel: NaN,
       }
     )
-    expect(reasonOf(r)).toMatch(/over the 8192-byte limit/)
+    expect(reasonOf(r)).toMatch(/fuel: NaN/)
+    expect(() => transpile('1', { maxSourceBytes: -Infinity })).toThrow(
+      /-Infinity/
+    )
   })
 })

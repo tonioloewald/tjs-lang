@@ -535,6 +535,29 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 12 — dispositions** (docs/reviews/0.14.0-final-rereview-12.md;
+      BLOCK on predicate fuel read outside the funnel). Fixed as a CLASS, not a site: one
+      `budgetOption` validator in `src/vm/admission.ts` and `src/budget-funnel.test.ts`, which
+      parses `src/` and fails on any budget-named option read that does not reach the funnel
+      (mutation-checked on three reverted sites; on its first run it found one the review had
+      not: `defineAtom`'s static `timeoutMs`). Also fixed: guest source cap may only be LOWERED
+      by the run option (`guestSourceCap`, rows for 0/Infinity/64KB); refusals print `NaN` not
+      `null`; `compilePredicate` splices only verified names; an atom's `timeoutMs: Infinity` no
+      longer unbounds every run; trusted-only JSDoc on `ajs`/`createAgent`/`tjs` and their
+      index.ts twins (orphan removed); `functions/src/index.js` regenerated, and CI's
+      generated-artifacts step now re-transpiles `functions/src`. Open:
+  - [ ] **The guard is scoped to `src/`, and to property NAMES.** A budget passed under another
+        name (e.g. a vector-search `limit`, an LLM `maxTokens`) is not covered; `functions/*.tjs`
+        is not scanned (it hands its values to `vm.run`, which validates). Extend
+        `BUDGET_NAMES` when a new budget appears; consider a type-level brand if names prove
+        leaky.
+  - [ ] **Release-process gaps named by the critic**: stale `.release-gate` (run
+        `release:ready`); unpushed history; `functions/` pin `^0.13.11` needs a package.json
+        edit + install + deploy + `/health`; tosijs-ui peer range must admit 0.14.0 before the
+        FINAL (an rc is how it verifies) — `prepublish-check` refuses otherwise.
+  - [ ] `admitSource` throwing inside `runCode`/`transpileCode` surfaces as an `AgentError` —
+        covered by the admission table's EXPECT rows for both entries; confirm a dedicated
+        invalid-cap row is not needed now that `guestSourceCap` validates.
 - [ ] **0.14.0 final re-review 10 — dispositions** (docs/reviews/0.14.0-final-rereview-10.md;
       B-1 FIXED — the deprecation notice says WHERE to parse and how to cap it, and
       `transpile(source, { maxSourceBytes })` is the opt-in funnel for in-process use; the

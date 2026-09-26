@@ -12,6 +12,8 @@
  * - {@link validateRunOptions}: every budget a run is computed from is a real number.
  * - {@link sourceBytesOver}: the length-first source measure every source entry uses.
  * - {@link timerMs}: the one reading of a timeout, so `NaN` never silently disables one.
+ * - {@link budgetOption}: the one reading of any other budget option (predicate fuel, …).
+ * - {@link guestSourceCap}: the cap on guest-built source, which a run option can only lower.
  *
  * Its consumers — `vm.run`, `Eval`, `SafeFunction`, `runCode`, `transpileCode`, and every
  * atom charge — are enumerated by `src/admission.test.ts`, which runs each hostile shape
@@ -135,7 +137,56 @@ export function checkedCost(cost: unknown, op: string): number {
   return cost
 }
 
+/**
+ * A budget option's value: the fallback when ABSENT, the value when it is a non-negative
+ * number, and a thrown error otherwise. THE way to read a budget-shaped option outside a
+ * run (a run reads its options through {@link validateRunOptions} first).
+ *
+ * Every budget is compared against a counter, and every comparison with `NaN` is false — so
+ * a `NaN` budget is not a small or large budget, it is NO budget: `--fuel < 0` never trips,
+ * `bytes > NaN` never refuses. The 0.14.0 cycle blocked on that shape three times running
+ * (`Eval`'s cap, `transpile`'s cap, the predicate compiler's fuel), each time one directory
+ * over from the last fix. `src/budget-funnel.test.ts` now PARSES the source and fails on any
+ * budget-named option read that does not reach a funnel, so the next site is found by a test
+ * rather than by a review.
+ *
+ * `null` is refused: only an absent option takes the default. `Infinity` is legal — a ceiling
+ * of Infinity is an explicit "no limit", not an accident.
+ */
+export function budgetOption(
+  name: string,
+  value: unknown,
+  fallback: number
+): number {
+  if (value === undefined) return fallback
+  if (!isBudget(value))
+    throw new Error(
+      `Invalid ${name}: ${describe(value)} — it must be a non-negative number`
+    )
+  return value
+}
+
+/**
+ * The cap on source a GUEST builds and hands to `runCode`/`transpileCode`.
+ *
+ * Two trust domains share one run option. `maxSourceBytes` exists so a host can run a large
+ * agent it TRUSTS; text the guest assembles at run time can come from `llmPredict` output or
+ * run arguments, which it does not. So the run's option may only LOWER the guest cap, never
+ * raise or disable it: disabling it (re-review 11) or raising it to 64KB (re-review 12, ~19s
+ * of pre-fuel parse on the worst known shape) would uncap exactly the input the cap exists
+ * for. A host that genuinely wants guest-built source larger than 8KB should transpile it
+ * outside the run and hand the VM an AST.
+ */
+export function guestSourceCap(runMax: number | undefined): number {
+  const max = budgetOption('maxSourceBytes', runMax, DEFAULT_MAX_SOURCE_BYTES)
+  return max > 0 && max < DEFAULT_MAX_SOURCE_BYTES
+    ? max
+    : DEFAULT_MAX_SOURCE_BYTES
+}
+
 function describe(v: unknown): string {
+  // JSON renders NaN and ±Infinity as `null`, which named the wrong value in every refusal.
+  if (typeof v === 'number') return String(v)
   try {
     return JSON.stringify(v) ?? String(v)
   } catch {

@@ -154,10 +154,17 @@ jobs:
           #
           # The directory covers every committed artifact under it, including
           # `vscode/syntaxes`, and cannot silently narrow when a file moves.
+          #
+          # `functions/src/*.js` too: they are transpiled from the adjacent `.tjs` and are
+          # what the functions bundle is built from. `index.js` sat on a 64KB source cap for
+          # a week after `index.tjs` moved to 8KB (0.14.0 final re-review 12). The transpile
+          # needs only this repo's CLI, not the functions tree's dependencies.
+          (cd functions && bun run build:transpile) > /dev/null
           if ! git diff --exit-code -- \
             demo/docs.json \
             docs/tjs-vs-typescript.md \
-            editors; then
-            echo "::error::'bun run make' changed committed artifacts. Run it locally and commit the result."
+            editors \
+            functions/src; then
+            echo "::error::'bun run make' (or functions' build:transpile) changed committed artifacts. Run it locally and commit the result."
             exit 1
           fi

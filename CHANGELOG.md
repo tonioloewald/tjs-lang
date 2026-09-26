@@ -24,8 +24,10 @@ another input shape that the AJS preprocessor or acorn parses super-linearly —
 destructuring took 19s at 60KB, a `function` head followed by whitespace 2.9s — and patching
 them did not converge. A quadratic cost shrinks with the square of the cap: at 8KB the worst
 known shape is ~455ms (densely nested destructuring, measured 2026-09-26). Raise it per call
-for trusted source — `vm.run`'s `maxSourceBytes` also governs `runCode`/`transpileCode`, and
-`transpile(source, { maxSourceBytes })` (new, opt-in) caps an in-process transpile. **If you
+for trusted source, and `transpile(source, { maxSourceBytes })` (new, opt-in) caps an
+in-process transpile. For source the GUEST builds (`runCode`/`transpileCode`), `vm.run`'s
+`maxSourceBytes` can only **lower** the 8KB cap, never raise or disable it: that text can come
+from `llmPredict` output, and one option cannot speak for two trust domains. **If you
 run agents from untrusted callers, take an AST instead:** transpile on the caller's side
 (`tjs-lang/browser` or `tjs-lang/lang`) or in a worker or process you can afford to lose, send
 the AST, and run it with `tjs-lang/vm-ast`, which has no parser in it at all — the parse cost
@@ -128,6 +130,17 @@ options bags. But every validated function used to begin with a pre-check that r
   abort is reported as "Execution aborted by the caller", no longer as a timeout.
 - **`Eval` and `SafeFunction` take `argsMaxBytes`**, so a host can raise the new 4MB
   argument ceiling through the safe-eval API (strings count two bytes per character).
+- **Every budget option is validated, including outside a run.** `compilePredicate` and
+  `emitVerifiedPredicate` read `fuel` raw, so `fuel: NaN` removed the runaway guard (`--fuel <
+0` is never true for NaN — an exponentially recursive predicate ran unbounded) and
+  `emitVerifiedPredicate` spliced the unvalidated value into emitted source. Both now refuse
+  a `fuel` that is not a non-negative number (`Infinity` means no limit), and
+  `compilePredicate` splices only verified names into its generated function. `defineAtom`
+  refuses an invalid static `timeoutMs` where it is written, and an atom with `timeoutMs:
+Infinity` no longer makes every run on its VM unbounded. Refusals name the bad value
+  (`NaN`, not `null`). `src/budget-funnel.test.ts` parses the source and fails on any
+  budget-named option read that does not pass through the admission funnel — the class
+  blocked this release three review rounds running, each time one directory over.
 - **`runCode` and `transpileCode` refuse guest-built source over the source cap (8KB)** before the host's
   transpiler sees it, and charge per character. Transpilation is super-linear and runs
   before fuel or timeout can stop it: 160KB of generated comments took 284 seconds.

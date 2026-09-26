@@ -3,7 +3,8 @@ import {
   checkedCost,
   timerMs,
   sourceBytesOver,
-  DEFAULT_MAX_SOURCE_BYTES,
+  guestSourceCap,
+  budgetOption,
 } from './admission'
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
@@ -271,7 +272,7 @@ export interface RuntimeContext {
    */
   quotaUsed?: Record<string, number>
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
-  maxSourceBytes?: number // Cap on guest-built source for runCode/transpileCode (the run's `maxSourceBytes`; default DEFAULT_MAX_SOURCE_BYTES, 0 disables)
+  maxSourceBytes?: number // The run's `maxSourceBytes`. For guest-built source (runCode/transpileCode) it can only LOWER the 8KB cap — see `guestSourceCap`
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
   membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default MEMBRANE_MAX_BYTES)
   maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default MAX_HEAP_BYTES). Fuel bounds work; this bounds peak memory.
@@ -2652,6 +2653,11 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     // opposite is true.
     effects = 'io',
   } = typeof options === 'string' ? { docs: options } : options
+  // A static timeout is checked when the atom is DEFINED, so a bad one fails where it was
+  // written instead of on its first call (a function timeout can only be checked per call,
+  // which `timerMs` does).
+  if (typeof timeoutMs !== 'function')
+    budgetOption(`timeoutMs of atom '${op}'`, timeoutMs, 1000)
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
     const { op: _op, result: _res, ...inputData } = step
@@ -4215,22 +4221,14 @@ export const agentRun = defineAtom(
  * re-review 3, M-1) — the same class as `Eval`'s `maxSourceBytes`, reached from inside a run.
  * Refused over the cap BEFORE any work (a length check first: a string of more chars than
  * the cap has more bytes too, so a huge one is refused without being encoded), then charged
- * per character like any other operand. The cap matches `Eval`'s default.
+ * per character like any other operand. The cap is `guestSourceCap` (admission.ts).
  */
-const MAX_TRANSPILE_SOURCE_BYTES = DEFAULT_MAX_SOURCE_BYTES
 
 function admitSource(ctx: RuntimeContext, code: unknown, op: string): string {
   if (typeof code !== 'string') throw new Error(`${op}: code must be a string`)
-  // The RUN's `maxSourceBytes`, so a host can raise it per call — the CHANGELOG said it could,
-  // and it was a module constant (0.14.0 final re-review 10).
-  // A FINITE raise carries over; disabling does not. Guest-built text can come from
-  // `llmPredict` output or run args, so turning the cap off to run a large TRUSTED agent must
-  // not also uncap what the guest builds (re-review 11: one option, two trust domains).
-  const raised = ctx.maxSourceBytes
-  const max =
-    raised !== undefined && raised > 0 && Number.isFinite(raised)
-      ? raised
-      : MAX_TRANSPILE_SOURCE_BYTES
+  // The run's `maxSourceBytes` may LOWER this cap, never raise or disable it: one option, two
+  // trust domains (re-reviews 10-12). The rule lives in the funnel — see `guestSourceCap`.
+  const max = guestSourceCap(ctx.maxSourceBytes)
   if (sourceBytesOver(code, max) !== null)
     throw new Error(
       `${op}: source is over the ${max}-byte limit. Transpilation runs ` +

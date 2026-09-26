@@ -42,11 +42,12 @@ export function transpile(
 ): TranspileResult {
   // Opt-in admission for in-process transpiles of UNTRUSTED source — the path vm.run(source)'s
   // deprecation recommends had no cap at all (0.14.0 final re-review 10).
-  if (options.maxSourceBytes !== undefined) {
-    const over = sourceBytesOver(source, options.maxSourceBytes)
+  const maxSourceBytes = options.maxSourceBytes
+  if (maxSourceBytes !== undefined) {
+    const over = sourceBytesOver(source, maxSourceBytes)
     if (over !== null)
       throw new Error(
-        `Source is ${over} bytes, over the ${options.maxSourceBytes}-byte limit (maxSourceBytes). ` +
+        `Source is ${over} bytes, over the ${maxSourceBytes}-byte limit (maxSourceBytes). ` +
           `Parsing runs before any budget, so oversized untrusted source is refused.`
       )
   }
@@ -79,12 +80,11 @@ export function transpile(
 }
 
 /**
- * Transpile AsyncJS source and return just the AST
- */
-/**
- * Transpile AJS to an AST. For TRUSTED source (your own): it takes no size cap. Transpile
- * untrusted source with `transpile(source, { maxSourceBytes })`, outside the VM host — see the
- * Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
+ * Transpile AJS source and return just the AST.
+ *
+ * TRUSTED source only (your own): no size cap applies. For untrusted source, use
+ * `transpile(source, { maxSourceBytes })` OUTSIDE the VM host, and run the AST with
+ * `tjs-lang/vm-ast` — see the Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
  */
 export function ajs(strings: TemplateStringsArray, ...values: any[]): SeqNode
 export function ajs(source: string): SeqNode
@@ -104,7 +104,11 @@ export function ajs(
 }
 
 /**
- * Create a function with attached signature for introspection
+ * Create a function with attached signature for introspection.
+ *
+ * TRUSTED source only (your own): no size cap applies. For untrusted source, use
+ * `transpile(source, { maxSourceBytes })` OUTSIDE the VM host, and run the AST with
+ * `tjs-lang/vm-ast` — see the Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
  */
 export function createAgent(
   source: string,
@@ -222,6 +226,10 @@ export function getToolDefinitions(
 /**
  * Transpile TJS source to JavaScript with type metadata.
  * Works as both a function and a tagged template literal.
+ *
+ * TRUSTED source only (your own): no size cap applies. For untrusted source, use
+ * `transpile(source, { maxSourceBytes })` OUTSIDE the VM host, and run the AST with
+ * `tjs-lang/vm-ast` — see the Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
  */
 export function tjs(
   strings: TemplateStringsArray,

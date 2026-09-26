@@ -25,6 +25,7 @@ import * as walk from 'acorn-walk'
 // ReDoS star-height detection lives in the shared, dependency-free `src/redos.ts`
 // so the predicate verifier and the VM's regexMatch reject the same shapes.
 import { reDoSRisk } from '../redos'
+import { budgetOption } from '../vm/admission'
 import { RT_NS } from './rt-namespace'
 import { brandPredicate } from '../types/predicate-brand'
 
@@ -655,6 +656,9 @@ export function suggest(
   return opts.limit ? filtered.slice(0, opts.limit) : filtered
 }
 
+/** Default fuel per top-level predicate call. */
+const DEFAULT_PREDICATE_FUEL = 1_000_000
+
 /** Thrown when a predicate exceeds its fuel budget (likely a pathological input). */
 export class PredicateFuelExhausted extends Error {
   constructor(budget: number) {
@@ -717,13 +721,22 @@ export function compilePredicate(
   exportNames: string[],
   opts: CompilePredicateOptions = {}
 ): Record<string, (...args: any[]) => any> {
+  // Through the funnel, FIRST: `--fuel < 0` is never true for NaN, so an unvalidated budget
+  // was no budget at all (0.14.0 final re-review 12, B-1).
+  const budget = budgetOption('fuel', opts.fuel, DEFAULT_PREDICATE_FUEL)
   const result = verifyPredicate(source, opts)
   if (!result.safe)
     throw new Error(
       `Not predicate-safe:\n${formatPredicateDiagnostics(result.diagnostics)}`
     )
+  // The export names are spliced into `new Function` source below, so only names the
+  // verifier certified may appear there — anything else is code built from an argument.
+  for (const name of exportNames)
+    if (!result.predicates.includes(name))
+      throw new Error(
+        `compilePredicate: '${name}' is not a predicate in the verified cluster`
+      )
 
-  const budget = opts.fuel ?? 1_000_000
   const instrumented = injectFuel(source)
 
   // Shadow the effectful globals to undefined (defense-in-depth under the
@@ -827,6 +840,8 @@ export function emitVerifiedPredicate(
   entryName: string,
   opts: CompilePredicateOptions = {}
 ): EmitPredicateResult {
+  // Validated before it is interpolated into emitted source (re-review 12, B-1).
+  const budget = budgetOption('fuel', opts.fuel, DEFAULT_PREDICATE_FUEL)
   const result = verifyPredicate(source, opts)
   if (!result.safe) {
     return { safe: false, diagnostics: result.diagnostics }
@@ -845,7 +860,6 @@ export function emitVerifiedPredicate(
     }
   }
 
-  const budget = opts.fuel ?? 1_000_000
   const instrumented = injectFuel(source)
 
   // A self-contained IIFE: fuel counter in a closure, guard entry re-armed per

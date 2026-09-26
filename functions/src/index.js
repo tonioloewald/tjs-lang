@@ -168,7 +168,7 @@ export const agentRun = onCall(async (request) => {
 
     result = await Eval({
 
-      maxSourceBytes: 64 * 1024,
+      maxSourceBytes: 8 * 1024,
       code,
       context: args,
       fuel,
@@ -269,7 +269,7 @@ export const run = onRequest(async (req, res) => {
 
     result = await Eval({
 
-      maxSourceBytes: 64 * 1024,
+      maxSourceBytes: 8 * 1024,
       code,
       context: args,
       fuel,

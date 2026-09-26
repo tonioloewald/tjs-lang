@@ -212,6 +212,10 @@ export { transpile }
  *   }
  * `
  * ```
+ *
+ * TRUSTED source only (your own): no size cap applies. For untrusted source, use
+ * `transpile(source, { maxSourceBytes })` OUTSIDE the VM host, and run the AST with
+ * `tjs-lang/vm-ast` — see the Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
  */
 export function ajs(strings: TemplateStringsArray, ...values: any[]): SeqNode
 export function ajs(source: string): SeqNode
@@ -261,6 +265,13 @@ import {
   type TJSTranspileOptions,
 } from './emitters/js'
 
+/**
+ * Transpile TJS source to JavaScript (see the documentation above).
+ *
+ * TRUSTED source only (your own): no size cap applies. For untrusted source, use
+ * `transpile(source, { maxSourceBytes })` OUTSIDE the VM host, and run the AST with
+ * `tjs-lang/vm-ast` — see the Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
+ */
 export function tjs(
   strings: TemplateStringsArray,
   ...values: any[]
@@ -417,6 +428,10 @@ export async function tjsWithCache(
  * // Execute
  * const result = await search({ query: 'hello' })
  * ```
+ *
+ * TRUSTED source only (your own): no size cap applies. For untrusted source, use
+ * `transpile(source, { maxSourceBytes })` OUTSIDE the VM host, and run the AST with
+ * `tjs-lang/vm-ast` — see the Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
  */
 export function createAgent(
   source: string,

@@ -17,6 +17,7 @@ import { validate } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
 import {
   validateRunOptions,
+  budgetOption,
   sourceBytesOver,
   timerMs,
   DEFAULT_MAX_SOURCE_BYTES,
@@ -113,9 +114,15 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     if (this._defaultRunTimeout === undefined) {
       let slowest = 0
       for (const atom of Object.values(this.atoms)) {
-        // undefined timeoutMs means the per-atom default (1000ms); 0 means none.
-        const t = (atom as any).timeoutMs ?? 1000
-        if (t > 0 && t > slowest) slowest = t
+        // undefined timeoutMs means the per-atom default (1000ms); 0 means none. A function
+        // timeout exists only per call, and Infinity — like 0 — means "no per-atom limit",
+        // which says nothing about how long a RUN should get: counting it made every run on
+        // this VM unbounded. An invalid value is refused here, by the funnel, rather than
+        // silently skipped.
+        const raw = (atom as any).timeoutMs
+        if (typeof raw === 'function') continue
+        const t = budgetOption(`timeoutMs of atom '${atom.op}'`, raw, 1000)
+        if (t > 0 && Number.isFinite(t) && t > slowest) slowest = t
       }
       this._defaultRunTimeout = Math.max(
         MIN_DEFAULT_RUN_TIMEOUT_MS,
