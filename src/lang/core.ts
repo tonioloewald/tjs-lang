@@ -81,6 +81,11 @@ export function transpile(
 /**
  * Transpile AsyncJS source and return just the AST
  */
+/**
+ * Transpile AJS to an AST. For TRUSTED source (your own): it takes no size cap. Transpile
+ * untrusted source with `transpile(source, { maxSourceBytes })`, outside the VM host — see the
+ * Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
+ */
 export function ajs(strings: TemplateStringsArray, ...values: any[]): SeqNode
 export function ajs(source: string): SeqNode
 export function ajs(

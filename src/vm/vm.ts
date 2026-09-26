@@ -204,7 +204,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
       argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default DEFAULT_ARGS_MAX_BYTES); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
-      maxSourceBytes?: number // Ceiling on SOURCE: passed as a string, or built by the guest for runCode/transpileCode (default DEFAULT_MAX_SOURCE_BYTES; 0 disables — trusted source only); transpiling runs before any budget
+      maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES; 0/Infinity disable — trusted source only). A FINITE value also raises the cap on guest-built source for runCode/transpileCode; disabling never uncaps that path. Transpiling runs before any budget
       maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
     } = {}
   ): Promise<RunResult> {

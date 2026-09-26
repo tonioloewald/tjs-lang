@@ -203,9 +203,10 @@ bun run functions:deploy    # Cloud functions only. WORKS on the global firebase
                             #   on an old version while the registry has a new one:
                             #     curl https://health-ldh7npl2bq-uc.a.run.app
                             #     → {"status":"ok",…,"tjsLang":"0.13.11"}
-                            #   Bumping tjs-lang here is a LOCKFILE refresh (`npm install` in
-                            #   functions/), not just a package.json edit — the caret range
-                            #   already permits newer patches.
+                            #   Bumping tjs-lang here to a new PATCH is a LOCKFILE refresh
+                            #   (`npm install` in functions/) — the caret range permits it. A new
+                            #   0.x MINOR is not: `^0.13.11` EXCLUDES 0.14.0, so edit
+                            #   functions/package.json first, then install, deploy, read /health.
 bun run functions:serve     # Local functions emulator
 ```
 

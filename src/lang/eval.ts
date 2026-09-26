@@ -194,17 +194,10 @@ export { DEFAULT_MAX_SOURCE_BYTES }
  * would otherwise buy several times the intended budget.
  */
 function checkSourceSize(code: string, max: number, what: string): void {
-  // Only a real non-negative number is a cap; 0 (and Infinity) disable it. `NaN` and a negative
-  // used to disable it too — fail-open — where vm.run refuses them (re-review 10).
-  if (typeof max !== 'number' || Number.isNaN(max) || max < 0)
-    throw new Error(
-      `Invalid maxSourceBytes: ${String(
-        max
-      )} — it must be a non-negative number`
-    )
-  if (max === 0) return
   // The shared, length-first measure (src/vm/admission.ts) — one reading of "too big" for
-  // every entry that transpiles caller text.
+  // every entry that transpiles caller text, and the one place the cap itself is VALIDATED
+  // (NaN / negative refused; 0 and Infinity disable). A local copy of that validation here
+  // was what the next caller forgot to write (re-review 11).
   const bytes = sourceBytesOver(code, max)
   if (bytes !== null) {
     throw new Error(

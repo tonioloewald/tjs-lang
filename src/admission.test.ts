@@ -54,11 +54,11 @@ const SOURCES: Record<string, string> = {
   // Re-review 9's four, each super-linear with no refusal until the cap bounded them:
   'regexes in return types (B-1)':
     '[' + '(a): [x/] => 1,'.repeat(Math.floor(CAP / 15)) + '/]',
-  // The DENSEST unit, sized to the cap: the worst shape known at 8KB (~455ms). A sparser
-  // one understated the documented worst case (re-review 10).
+  // (The DENSEST destructuring shape runs once, through Eval, below: all source entries share
+  // one parser, and running it through six of them cost ~2s of fast-lane time for nothing.)
   'nested destructuring (B-2)': (() => {
-    const d = Math.floor((CAP - 40) / 4)
-    return `(function (${'{a:'.repeat(d)}b${'}'.repeat(d)}) { return 1 })`
+    const d = Math.floor(CAP / 8)
+    return `(function (${'{a: '.repeat(d)}b${' }'.repeat(d)}) { return 1 })`
   })(),
   'function head + whitespace run (B-3)': 'function' + ' '.repeat(CAP - 20),
   'brace nesting (B-4)': '{a;'.repeat(Math.floor(CAP / 3)),
@@ -642,5 +642,50 @@ describe('re-review 10: caps that were fail-open or unreachable', () => {
       }
     )
     expect(reasonOf(raised)).toBe('')
+  })
+})
+
+describe('the documented worst case at the cap (densest nested destructuring)', () => {
+  it('through Eval — the figure CHANGELOG and admission.ts quote (~455ms)', async () => {
+    const d = Math.floor((CAP - 40) / 4)
+    const code = `(function (${'{a:'.repeat(d)}b${'}'.repeat(d)}) { return 1 })`
+    const t = performance.now()
+    await Eval({ code, fuel: 10, timeoutMs: 1 })
+    expect(performance.now() - t).toBeLessThan(BOUND_MS)
+  })
+})
+
+describe('re-review 11: the cap is validated in the funnel, and the guest path is never uncapped', () => {
+  it('transpile(source, { maxSourceBytes }) refuses NaN, negative, null and strings', () => {
+    for (const bad of [NaN, -1, null, '8192'] as any[])
+      expect(() =>
+        transpile('function f() { return { a: 1 } }', { maxSourceBytes: bad })
+      ).toThrow(/Invalid maxSourceBytes/)
+    // 0 and Infinity disable it, as documented.
+    for (const off of [0, Infinity])
+      expect(() =>
+        transpile('function f() { return { a: 1 } }', { maxSourceBytes: off })
+      ).not.toThrow()
+  })
+  it("disabling the run's cap (0) does NOT uncap guest-built source for runCode", async () => {
+    const code = { transpile: (src: string) => transpile(src).ast }
+    const src = 'function f() { return { v: 1 } }\n' + '// pad\n'.repeat(1500) // ~10KB
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'runCode', code: { $kind: 'arg', path: 'src' }, result: 'r' },
+        { op: 'return', value: {} },
+      ],
+    } as any
+    const r = await new AgentVM().run(
+      ast,
+      { src },
+      {
+        fuel: 10_000,
+        maxSourceBytes: 0,
+        capabilities: { code },
+      }
+    )
+    expect(reasonOf(r)).toMatch(/over the 8192-byte limit/)
   })
 })

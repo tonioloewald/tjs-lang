@@ -4223,7 +4223,14 @@ function admitSource(ctx: RuntimeContext, code: unknown, op: string): string {
   if (typeof code !== 'string') throw new Error(`${op}: code must be a string`)
   // The RUN's `maxSourceBytes`, so a host can raise it per call — the CHANGELOG said it could,
   // and it was a module constant (0.14.0 final re-review 10).
-  const max = ctx.maxSourceBytes ?? MAX_TRANSPILE_SOURCE_BYTES
+  // A FINITE raise carries over; disabling does not. Guest-built text can come from
+  // `llmPredict` output or run args, so turning the cap off to run a large TRUSTED agent must
+  // not also uncap what the guest builds (re-review 11: one option, two trust domains).
+  const raised = ctx.maxSourceBytes
+  const max =
+    raised !== undefined && raised > 0 && Number.isFinite(raised)
+      ? raised
+      : MAX_TRANSPILE_SOURCE_BYTES
   if (sourceBytesOver(code, max) !== null)
     throw new Error(
       `${op}: source is over the ${max}-byte limit. Transpilation runs ` +

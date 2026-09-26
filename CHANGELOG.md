@@ -30,7 +30,10 @@ run agents from untrusted callers, take an AST instead:** transpile on the calle
 (`tjs-lang/browser` or `tjs-lang/lang`) or in a worker or process you can afford to lose, send
 the AST, and run it with `tjs-lang/vm-ast`, which has no parser in it at all — the parse cost
 then lands on whoever sent the source, and what remains on the host is linear. (This project's
-own hosted endpoints still accept source, capped at 8KB; moving them to ASTs is next.)
+own hosted endpoints still accept source; they get the 8KB cap when `functions/` is bumped to
+0.14 and redeployed — a 0.x minor is outside `^0.13.x` — and moving them to ASTs is next.)
+`ajs`, `createAgent`, `tjs` and the exported parser functions are for TRUSTED source and take
+no cap.
 
 **Deprecated: `vm.run(source)` — the VM parsing AJS.** It still works (capped at 8KB) and
 notes itself once in the flight recorder. The VM should never be the thing that parses:

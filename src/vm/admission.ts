@@ -95,6 +95,16 @@ export function validateRunOptions(
  * without being encoded (encoding it is itself work proportional to the caller's input).
  */
 export function sourceBytesOver(code: string, max: number): number | null {
+  // The cap is VALIDATED HERE, in the funnel, not at each caller. `x > NaN` is never true, so
+  // a NaN cap admitted everything — fixed once in Eval's local check, then reintroduced by the
+  // next caller written (`transpile`'s opt-in cap, re-review 11). A caller cannot skip a check
+  // that lives in the only measure there is.
+  if (!isBudget(max))
+    throw new Error(
+      `Invalid maxSourceBytes: ${describe(
+        max
+      )} — it must be a non-negative number (0 or Infinity disables the cap)`
+    )
   // 0 disables, everywhere (Eval documented it; vm.run read 0 as "refuse all" — re-review 5).
   if (max === Infinity || max === 0) return null
   if (code.length > max) return code.length
