@@ -12,7 +12,7 @@ import type {
   ContextFrame,
 } from './parser-types'
 import { locAt } from './parser-transforms'
-import { isTernaryColon } from './expression-context'
+import { ternaryColons } from './expression-context'
 import {
   isRegexStart,
   findRegexEnd,
@@ -289,6 +289,8 @@ export function transformParenExpressions(
   let i = 0
   /** Paren partners proven so far in THIS source (see extractBalancedContent). */
   const parenMemo = new Map<number, number>()
+  /** Ternary-alternative colons of THIS source, computed on first need (see ternaryColons). */
+  let ternary: Set<number> | undefined
   /** Class-heritage outcomes (the body's `{` index, or -1) proven so far. */
   const classBodyMemo = new Map<number, number>()
   /** Class-heritage bracket partners (close index, or -1), in THAT scan's own view. */
@@ -583,8 +585,9 @@ export function transformParenExpressions(
             opens.push(j)
             d++
           } else if (c === ')' || c === ']') {
-            // No real class header closes a bracket it never opened: bail rather than scan on
-            // at negative depth (acorn rejects such input anyway).
+            // A close bracket at depth 0 is unbalanced in THIS scan's quote-only view (a regex
+            // such as `/\)/` in a heritage expression can look like one): bail rather than scan
+            // on at negative depth. No worse than before — the header was not read then either.
             if (d === 0) {
               j = -1
               break
@@ -747,8 +750,11 @@ export function transformParenExpressions(
     // took ~5s (0.14.0 final re-review 6, M-1). Behaviour-preserving: `methodMatch` is only
     // read inside a class body, and if an identifier followed by `(` does not match at its
     // start, no suffix of it can.
+    // (A `[` computed name may follow an identifier directly — `static[k](…)`, `get[k]()` —
+    // so it is tried wherever it appears; its alternative is length-capped, so still linear.)
     const methodMatch =
-      isInClassBody() && (i === 0 || !/[A-Za-z0-9_$]/.test(source[i - 1]))
+      isInClassBody() &&
+      (source[i] === '[' || i === 0 || !/[A-Za-z0-9_$]/.test(source[i - 1]))
         ? matchAt(RE_METHOD_HEAD, source, i)
         : null
     // Check that the preceding non-whitespace character indicates this is a
@@ -966,7 +972,7 @@ export function transformParenExpressions(
       // consequent is a PARENTHESIZED EXPRESSION rather than a call. `isTernaryColon` asks
       // the question directly instead of inferring it from the neighbouring token.
       let arrowReturnType: string | undefined
-      if (source[j] === ':' && !isTernaryColon(source, j)) {
+      if (source[j] === ':' && !(ternary ??= ternaryColons(source)).has(j)) {
         const colonMarker = source.slice(j, j + 2)
         if (colonMarker === ':?' || colonMarker === ':!') {
           j += 2

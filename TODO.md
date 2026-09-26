@@ -535,6 +535,23 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 7 — dispositions** (docs/reviews/0.14.0-final-rereview-7.md;
+      M-1 FIXED — the ternary colon set lives in the transform's call frame, no process-global
+      memo (it was thrashed by >16 nested distinct substrings, and retained guest sources);
+      M-2 FIXED — an already-aborted caller signal stops the run, and is not called a
+      timeout; M-3 FIXED — tests assert no capability is called; the unspaced
+      `static[k]`/`get[k]`/`set[k]` regression fixed). Open:
+  - **TJS-path quadratics — probably the real A6.** `extend` does
+    `maskedSource.slice(i).match(/^(\s*)extend…/)` at every position (one long literal: 8KB
+    80ms → 64KB ~4s), and the `Is`/`IsNot` infix operand pattern `[\w.\[\]()]*` backtracks
+    from every start (`[a(`×60KB ≈ 2.2s). Not reachable from AJS/Eval. Run the admission
+    grid through `tjs()` and fix each at its cause (sticky match at statement-boundary
+    identifier starts; locate the operator first).
+  - Guest `try/catch` can now observe "Execution aborted" (tryCatch clears ctx.error). Decide
+    whether an abort must be uncatchable — it probably must, like fuel exhaustion.
+  - The differential corpora are raw `.ts` files; add `.tjs` sources and captured
+    intermediate strings (recursive substrings, processParamString inputs). `.compat-tests/`
+    is gitignored, so CI runs ~80 files — make the floor CI-aware.
 - [ ] **0.14.0 final re-review 6 — dispositions** (docs/reviews/0.14.0-final-rereview-6.md;
       B-1 FIXED — partner memo, matched and unmatched, held equal to a fresh scan; M-1 FIXED —
       all five quadratics at their cause, plus `isTernaryColon` as one forward pass held equal

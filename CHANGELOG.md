@@ -85,7 +85,14 @@ options bags. But every validated function used to begin with a pre-check that r
   files is 19); the TJS compiler, which takes the author's own source, has no limit.
   `src/admission.test.ts` pushes every hostile shape it knows, plus a GENERATED grid of 41
   tokens repeated to the cap, through every source entry; the worst measured at the 64KB cap
-  is ~81ms through `Eval`.
+  is ~111ms through `Eval`.
+- **An aborted run takes no further step.** Every atom now checks the run's abort signal
+  before it runs, so after a deadline or a caller's abort no capability is called and no
+  guest code continues — `vm.run` used to stop WAITING while straight-line steps carried on
+  unobserved. A run-level `timeoutMs: 0` fails before the first step (0.13.x let a
+  compute-only agent complete), and a caller `signal` that is ALREADY aborted stops the run
+  (it was ignored: an `abort` listener never fires for a signal already aborted). A caller's
+  abort is reported as "Execution aborted by the caller", no longer as a timeout.
 - **`Eval` and `SafeFunction` take `argsMaxBytes`**, so a host can raise the new 4MB
   argument ceiling through the safe-eval API (strings count two bytes per character).
 - **`runCode` and `transpileCode` refuse guest-built source over 64KB** before the host's

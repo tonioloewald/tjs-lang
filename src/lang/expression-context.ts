@@ -56,10 +56,16 @@ import { maskLiterals } from '../strip-comments'
 export function isTernaryColon(source: string, colonIndex: number): boolean {
   return ternaryColons(source).has(colonIndex)
 }
+// One query is one O(n) pass. A caller asking about MANY colons in one source must compute
+// `ternaryColons(source)` once and hold it — as `transformParenExpressions` does, in its own
+// call frame. There is deliberately no process-global memo: one keyed by source string and
+// cleared at 16 entries was thrashed by >16 nested distinct substrings, and the colon pass went
+// quadratic again (1.7s at the cap; 0.14.0 final re-review 7, M-1). A cache is not a bound.
+// It also retained up to 17 guest sources across runs and tenants.
 
 /**
- * Every `:` in `source` that is a ternary's alternative, in ONE forward pass — memoized per
- * source string.
+ * Every `:` in `source` that is a ternary's alternative, in ONE forward pass. Hold the result
+ * for as long as you query the same source; it is not cached here (see above).
  *
  * The per-query backward walk (kept below as `isTernaryColonScan`, the reference) visited the
  * whole enclosing expression for every colon, so N colons in one expression cost O(N²): 64KB
@@ -75,10 +81,7 @@ export function isTernaryColon(source: string, colonIndex: number): boolean {
  *
  * Held equal to the backward walk at every `:` of a corpus by expression-context.test.ts.
  */
-const ternaryMemo = new Map<string, Set<number>>()
-function ternaryColons(source: string): Set<number> {
-  const hit = ternaryMemo.get(source)
-  if (hit) return hit
+export function ternaryColons(source: string): Set<number> {
   const masked = maskLiterals(source)
   const out = new Set<number>()
   /** Pending ternary `?`s per bracket frame; the innermost frame is last. */
@@ -112,8 +115,6 @@ function ternaryColons(source: string): Set<number> {
     }
     if (!/\s/.test(c)) prevNonWs = i
   }
-  if (ternaryMemo.size > 16) ternaryMemo.clear()
-  ternaryMemo.set(source, out)
   return out
 }
 

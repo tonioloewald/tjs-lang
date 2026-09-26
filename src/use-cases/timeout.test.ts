@@ -150,7 +150,9 @@ describe('Execution Timeout', () => {
 
     expect(result.error).toBeDefined()
     expect(isAgentError(result.error)).toBe(true)
-    expect(result.error?.message).toContain('timeout')
+    // The CALLER aborted — reported as that, not as a timeout (0.14.0 final re-review 7): a
+    // "timeout" message sent people looking for a timeoutMs to raise, here 60s unused.
+    expect(result.error?.message).toMatch(/aborted by the caller/)
   })
 
   it('should run out of fuel before timeout for compute-bound work', async () => {

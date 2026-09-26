@@ -45,6 +45,12 @@ const SOURCES: Record<string, string> = {
   'unbalanced (? to the cap': '(?'.repeat(CAP / 2),
   "unbalanced (' to the cap": "('".repeat(CAP / 2),
   'many ternary colons in one expression': '(): '.repeat(CAP / 4) + '1',
+  // >24 nested DISTINCT substrings: thrashed any size-bounded global cache the passes relied
+  // on for linearity (the ternary memo held 16; re-review 7, M-1). A cache is not a bound.
+  'nested distinct sub-sources, 30 deep': (() => {
+    const unit = '('.repeat(30) + 'a' + '):0'.repeat(30) + ','
+    return unit.repeat(Math.floor(CAP / unit.length))
+  })(),
 }
 
 /** Every entry that takes caller SOURCE, as `expr → outcome`. */
@@ -124,6 +130,7 @@ const EXPECT: Record<string, RegExp | null> = {
   'unbalanced (? to the cap': null,
   "unbalanced (' to the cap": null,
   'many ternary colons in one expression': null,
+  'nested distinct sub-sources, 30 deep': null,
 }
 
 /** Whatever an entry produced, as a message: a thrown error, an `{ error }` result, or ''. */
@@ -332,5 +339,70 @@ describe('generated grid: every token repeated to the cap is cheap through Eval'
       const t = performance.now()
       await Eval({ code: `let z = ${body}\nreturn z`, fuel: 10, timeoutMs: 1 })
       expect(performance.now() - t).toBeLessThan(BOUND_MS)
+    })
+})
+
+describe('an aborted run takes no step and calls no capability (re-review 7, M-2, M-3)', () => {
+  const ioFirst = () => {
+    const calls: string[] = []
+    const ast = transpile(
+      'function f() { let r = httpFetch({ url: "https://x.test" })\nreturn { r } }'
+    ).ast
+    const fetch = async () => {
+      calls.push('fetch')
+      return { ok: true }
+    }
+    return { calls, ast, capabilities: { fetch } }
+  }
+
+  it('timeoutMs: 0 — the first-step capability is never invoked', async () => {
+    const { calls, ast, capabilities } = ioFirst()
+    const r = await new AgentVM().run(
+      ast,
+      {},
+      { fuel: 100, timeoutMs: 0, capabilities }
+    )
+    await new Promise((res) => setTimeout(res, 20)) // let any detached work surface
+    expect(calls).toEqual([])
+    expect(reasonOf(r)).toMatch(/Execution timeout after 0ms/)
+  })
+
+  it('an ALREADY-aborted caller signal — no capability, and it is not called a timeout', async () => {
+    const { calls, ast, capabilities } = ioFirst()
+    const ac = new AbortController()
+    ac.abort()
+    const r = await new AgentVM().run(
+      ast,
+      {},
+      { fuel: 100, signal: ac.signal, capabilities }
+    )
+    await new Promise((res) => setTimeout(res, 20))
+    expect(calls).toEqual([])
+    expect(reasonOf(r)).toMatch(/aborted/i)
+    expect(reasonOf(r)).not.toMatch(/timeout/i)
+  })
+
+  it('an already-aborted caller signal stops a compute-only agent too', async () => {
+    const ac = new AbortController()
+    ac.abort()
+    const r = await new AgentVM().run(
+      transpile(
+        'function f() { let s = 0\nlet i = 0\nwhile (i < 50) { s = s + i\ni = i + 1 }\nreturn { s } }'
+      ).ast,
+      {},
+      { fuel: 1000, signal: ac.signal }
+    )
+    expect(reasonOf(r)).toMatch(/aborted/i)
+  })
+})
+
+describe('computed method names directly after a keyword (re-review 7 minor)', () => {
+  for (const src of [
+    'class A { static[Symbol.iterator](n: 0) { return n } }',
+    'class A { get[Symbol.toStringTag](): "" { return "a" } }',
+    'class A { set[k](v: 0) {} }',
+  ])
+    it(src, () => {
+      expect(() => tjs(src)).not.toThrow()
     })
 })

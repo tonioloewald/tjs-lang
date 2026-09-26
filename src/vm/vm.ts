@@ -413,6 +413,10 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       options.signal.addEventListener('abort', () => controller.abort(), {
         signal: controller.signal,
       })
+      // An 'abort' listener never fires for a signal that is ALREADY aborted, so a cancelled
+      // caller's run went ahead, capabilities and all (0.14.0 final re-review 7, M-2) — the
+      // sibling of the spent-deadline case above.
+      if (options.signal.aborted) controller.abort()
     }
 
     const ctx: RuntimeContext = {
@@ -468,8 +472,12 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         e.message?.includes('aborted') ||
         controller.signal.aborted
       ) {
+        // A deadline is a timeout; any other abort is the CALLER's signal, and calling that a
+        // timeout sent people looking for a timeoutMs to raise.
         ctx.error = new AgentError(
-          `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`,
+          timedOut || !options.signal?.aborted
+            ? `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`
+            : 'Execution aborted by the caller (options.signal)',
           'vm.run'
         )
       } else {
