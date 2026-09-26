@@ -500,8 +500,11 @@ describe('the recursive checker does bounded work', () => {
       return performance.now() - t
     }
     time(2000) // warm
-    const small = time(4000)
-    const big = time(16000)
+    // Best of 3 per size: a single measurement let one GC pause during the big run push the
+    // ratio past the bound under load (seen in the dogfood lane). The bound is unchanged.
+    const best = (n: number) => Math.min(time(n), time(n), time(n))
+    const small = best(4000)
+    const big = best(16000)
     // 4× the input: linear is ~4×, quadratic ~16×. Generous for noise.
     expect(big / Math.max(small, 0.5)).toBeLessThan(9)
   })

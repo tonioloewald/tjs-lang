@@ -42,7 +42,6 @@ import type {
 
 import {
   transformParenExpressions,
-  assertParenDepth,
   extractParamMarkers,
   type HoistedTypeArg,
 } from './parser-params'
@@ -496,7 +495,6 @@ export function preprocess(
   // Unified paren expression transformer
   // Handles: function params, arrow params, return types, safe/unsafe markers
   // Model: open paren can be ( or (? or (!, close can be ) or )-> or )-? or )-!
-  assertParenDepth(source, originalSource)
   const {
     source: transformedSource,
     returnType,

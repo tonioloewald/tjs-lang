@@ -28,6 +28,15 @@ const SOURCES: Record<string, string> = {
     return (nest + ' + ').repeat(Math.floor(CAP / (nest.length + 3))) + '1'
   })(),
   'parens nested 20000 deep': '('.repeat(20_000) + '1' + ')'.repeat(20_000),
+  // The two shapes that walked past a guard reading a different lexical view (re-review 5):
+  // the masker blanks `${…}` and reads `/` after `}` as a regex; the transform recursed into
+  // the one and divided by the other.
+  'parens nested 20000 deep inside a template ${}':
+    '`${' + '('.repeat(20_000) + '1' + ')'.repeat(20_000) + '}`',
+  'parens nested 20000 deep after `}` as division': (() => {
+    const deep = '('.repeat(20_000) + '1' + ')'.repeat(20_000)
+    return `(() => { if (1) {} return 1 })() /${deep}/ 1`
+  })(),
   'a megabyte of source': 'x + ' + '1 + '.repeat(250_000) + '1',
 }
 
@@ -93,14 +102,95 @@ const SOURCE_ENTRIES: Record<string, (expr: string) => Promise<unknown>> = {
     ),
 }
 
-describe('every source entry × every hostile shape is cheap', () => {
+/** The refusal a row EXPECTS — asserted, not just timed: a time bound alone passed while the
+ * vm.run source cap was deleted (re-review 5, M-2). null = no refusal is required. */
+const EXPECT: Record<string, RegExp | null> = {
+  'line comments at the cap': null,
+  'blank lines at the cap': null,
+  '64-deep parens, repeated to the cap': null,
+  'parens nested 20000 deep': /nest more than 64 deep/,
+  'parens nested 20000 deep inside a template ${}': /nest more than 64 deep/,
+  'parens nested 20000 deep after `}` as division': /nest more than 64 deep/,
+  'a megabyte of source': /over the \d+-byte limit/,
+}
+
+/** Whatever an entry produced, as a message: a thrown error, an `{ error }` result, or ''. */
+function reasonOf(x: any): string {
+  if (x instanceof Error) return x.message
+  const e = x?.error ?? x?.result?.error
+  return e ? String(e.message ?? e) : ''
+}
+
+describe('every source entry × every hostile shape is cheap, and refused for the right reason', () => {
   for (const [entry, run] of Object.entries(SOURCE_ENTRIES))
     for (const [shape, src] of Object.entries(SOURCES))
       it(`${entry} — ${shape}`, async () => {
         const t = performance.now()
-        await run(src)
+        const out = await run(src)
         expect(performance.now() - t).toBeLessThan(BOUND_MS)
+        const want = EXPECT[shape]
+        if (want) expect(reasonOf(out)).toMatch(want)
       })
+})
+
+describe('the source and argument caps are honoured at the value given', () => {
+  const two = 'function f() { return { v: 1 } }\n' + '// x\n'.repeat(400) // ~2KB
+  it('vm.run: maxSourceBytes 1024 refuses 2KB; a higher cap admits it; 0 disables', async () => {
+    const vm = new AgentVM()
+    expect(reasonOf(await vm.run(two, {}, { maxSourceBytes: 1024 }))).toMatch(
+      /over the 1024-byte limit/
+    )
+    expect(reasonOf(await vm.run(two, {}, { maxSourceBytes: 4096 }))).toBe('')
+    expect(reasonOf(await vm.run(two, {}, { maxSourceBytes: 0 }))).toBe('')
+  })
+  it('Eval / SafeFunction: argsMaxBytes refuses, and raising it admits', async () => {
+    const big = 'x'.repeat(3_000_000) // ~6MB at two bytes per character
+    expect(
+      reasonOf(
+        await Eval({ code: 's.length', context: { s: big }, fuel: 10_000 })
+      )
+    ).toMatch(/budget/)
+    const ok = await Eval({
+      code: 's.length',
+      context: { s: big },
+      fuel: 10_000,
+      argsMaxBytes: 16 * 1024 * 1024,
+    })
+    expect(ok.result).toBe(3_000_000)
+    const fn = await SafeFunction({
+      params: ['s'],
+      body: 'return s.length',
+      fuel: 10_000,
+    })
+    expect(reasonOf(await fn(big))).toMatch(/budget/)
+    const fn2 = await SafeFunction({
+      params: ['s'],
+      body: 'return s.length',
+      fuel: 10_000,
+      argsMaxBytes: 16 * 1024 * 1024,
+    })
+    expect((await fn2(big)).result).toBe(3_000_000)
+  })
+})
+
+describe('run-level timeoutMs: 0 means the deadline has passed (re-review 5, M-1)', () => {
+  it('a spent deadline is not an unlimited run', async () => {
+    const r = await new AgentVM().run(
+      transpile(
+        'function f() { let r = httpFetch({ url: "https://x.test" })\nreturn { r } }'
+      ).ast,
+      {},
+      {
+        fuel: 100,
+        timeoutMs: 0,
+        capabilities: {
+          fetch: () =>
+            new Promise((res) => setTimeout(() => res({ ok: true }), 300)),
+        },
+      }
+    )
+    expect(reasonOf(r)).toMatch(/timeout|timed out|abort/i)
+  })
 })
 
 describe('run options that budgets are computed from are refused when they are not numbers', () => {
@@ -153,12 +243,10 @@ describe('run options that budgets are computed from are refused when they are n
   })
 })
 
-describe('the TJS parser applies the same paren-depth limit (TJS ⊇ AJS)', () => {
-  it('refuses parens nested deeper than the limit, cheaply', () => {
-    const t = performance.now()
+describe('the TJS compiler accepts all of JavaScript (JS ⊆ TJS)', () => {
+  it('nesting deeper than the AJS limit compiles — the limit is for untrusted code only', () => {
     expect(() =>
-      tjs(`const a = ${'('.repeat(20_000)}1${')'.repeat(20_000)}`)
-    ).toThrow(/nest more than/)
-    expect(performance.now() - t).toBeLessThan(200)
+      tjs(`const a = ${'('.repeat(100)}1${')'.repeat(100)}`)
+    ).not.toThrow()
   })
 })

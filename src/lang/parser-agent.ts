@@ -55,7 +55,7 @@ import { SyntaxError } from './types'
 import {
   transformParenExpressions,
   extractParamMarkers,
-  assertParenDepth,
+  MAX_PAREN_DEPTH,
 } from './parser-params'
 
 export interface AgentParseOptions {
@@ -128,10 +128,11 @@ export function preprocessAgentSource(
   // (`b: Box<int>`) require a `Type`/`Generic` declaration, and AJS has neither. An
   // annotation of that shape is left alone here and fails at acorn or in the AST emitter,
   // which is the honest outcome for syntax the language does not have.
-  assertParenDepth(source, originalSource)
   const { source: transformed, returnType } = transformParenExpressions(
     source,
     {
+      // AJS takes untrusted code: nesting is bounded in the recursion (see MAX_PAREN_DEPTH).
+      maxParenDepth: MAX_PAREN_DEPTH,
       originalSource,
       requiredParams,
       typeNameOptionals,

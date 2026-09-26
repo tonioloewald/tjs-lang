@@ -190,7 +190,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
       argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default DEFAULT_ARGS_MAX_BYTES); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
-      maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES); transpiling runs before any budget
+      maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES; 0 disables — trusted source only); transpiling runs before any budget
       maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
     } = {}
   ): Promise<RunResult> {
@@ -379,8 +379,11 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
 
     // Create abort controller for timeout enforcement
     const controller = new AbortController()
-    // `timerMs`: 0 and Infinity mean no timer; `setTimeout` turned Infinity into 1ms.
-    const armed = timerMs(timeoutMs)
+    // A RUN timeout of 0 means the deadline has already passed — it always did, and a host
+    // passing its remaining deadline passes 0 once it is spent. Reading it as "no timer" (as
+    // a per-atom override's 0 is documented to mean) made a spent deadline an unlimited run
+    // (0.14.0 final re-review 5, M-1). Infinity is no timer; `setTimeout` turned it into 1ms.
+    const armed = timeoutMs === 0 ? 0 : timerMs(timeoutMs)
     const timeout =
       armed === undefined
         ? undefined

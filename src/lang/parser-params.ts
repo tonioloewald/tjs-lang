@@ -203,43 +203,24 @@ export function extractParamMarkers(src: string): {
 }
 
 /**
- * Deepest parenthesis nesting the parameter transform accepts.
+ * Deepest parenthesis nesting the parameter transform accepts on the AJS path (untrusted code).
  *
- * The transform RECURSES on each non-arrow paren group's content (as a new string), so N
- * nested parens are N levels, each copying and re-scanning everything inside it — quadratic
- * in time and in bytes copied. 64KB of `(` took ~44s before fuel could apply, and the size
- * cap on source bounds nothing while the work behind it is super-linear (0.14.0 final
- * re-review 4, B-2). Measured 2026-09-26: the deepest nesting across 3,372 real code files
- * (this repo and the compat corpus — effect, kysely, zod, …) is 19. At 64, the worst LEGAL
- * source at the 64KB cap (64-deep nests, repeated) transpiles in ~105ms; at 256 it was
- * ~477ms.
+ * The transform RECURSES on each non-arrow paren group's content, so N nested groups are N
+ * levels, each re-scanning what is inside it — quadratic. 64KB of `(` took ~44s before fuel
+ * could apply (0.14.0 final re-review 4, B-2).
+ *
+ * The bound is enforced BY THE RECURSION ITSELF (`parenDepth`, checked on entry to
+ * `transformParenExpressions`), never by a separate pre-scan. The first version counted
+ * parens over `maskLiterals` — a different lexical view — and the two disagreed: the masker
+ * blanks a template `${…}` and reads `/` after `}` as a regex, while the transform recurses
+ * into the one and divides by the other, so 20,000 nested parens inside `${…}` went uncounted
+ * and cost ~45s (re-review 5, B-1). A guard must see exactly what the work it bounds sees.
+ *
+ * AJS only. The TJS compiler takes the author's own source and must accept all of JavaScript
+ * (JS ⊆ TJS, PRINCIPLES.md); AJS may be stricter than TJS, never looser. Measured 2026-09-26:
+ * the deepest nesting across 3,372 real code files (this repo and the compat corpus) is 19.
  */
 export const MAX_PAREN_DEPTH = 64
-
-/**
- * Refuse source nesting parentheses deeper than MAX_PAREN_DEPTH, in ONE linear pass over the
- * literal-masked view (a `(` in a string or comment does not count). Called once, at each
- * parser's entry, before the transform — never inside it, where it would run per level.
- */
-export function assertParenDepth(
-  source: string,
-  originalSource = source
-): void {
-  const masked = maskLiterals(source)
-  let depth = 0
-  for (let i = 0; i < masked.length; i++) {
-    const c = masked.charCodeAt(i)
-    if (c === 40) {
-      if (++depth > MAX_PAREN_DEPTH)
-        throw new SyntaxError(
-          `Parentheses nest more than ${MAX_PAREN_DEPTH} deep. That is refused before ` +
-            `parsing, which is super-linear in nesting depth.`,
-          locAt(originalSource, Math.min(i, originalSource.length - 1)),
-          originalSource
-        )
-    } else if (c === 41 && depth > 0) depth--
-  }
-}
 
 export function transformParenExpressions(
   source: string,
@@ -271,12 +252,25 @@ export function transformParenExpressions(
     hoistedTypeArgs?: HoistedTypeArg[]
     unsafeFunctions: Set<string>
     safeFunctions: Set<string>
+    /** Refuse nesting deeper than this (AJS: MAX_PAREN_DEPTH; TJS: none). */
+    maxParenDepth?: number
+    /** @internal How many recursion levels deep this call is. */
+    parenDepth?: number
   }
 ): {
   source: string
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
 } {
+  // The bound lives HERE, in the recursion it bounds — see MAX_PAREN_DEPTH.
+  const parenDepth = ctx.parenDepth ?? 0
+  if (parenDepth > (ctx.maxParenDepth ?? Infinity))
+    throw new SyntaxError(
+      `Parentheses nest more than ${ctx.maxParenDepth} deep. That is refused before ` +
+        `parsing, which is super-linear in nesting depth.`,
+      locAt(ctx.originalSource, 0),
+      ctx.originalSource
+    )
   let result = ''
   let i = 0
   let firstReturnType: string | undefined
@@ -946,7 +940,10 @@ export function transformParenExpressions(
       } else {
         // Not an arrow function - recursively transform the content for nested arrows
         // but don't process as param declarations (no colon-to-equals transform)
-        const transformed = transformParenExpressions(fullContent, ctx)
+        const transformed = transformParenExpressions(fullContent, {
+          ...ctx,
+          parenDepth: parenDepth + 1,
+        })
         result += `(${transformed.source})`
         i = endPos
       }
@@ -1594,6 +1591,8 @@ function processParamString(
     hoistedTypeArgs?: HoistedTypeArg[]
     unsafeFunctions: Set<string>
     safeFunctions: Set<string>
+    maxParenDepth?: number
+    parenDepth?: number
   },
   trackRequired: boolean
 ): string {
@@ -1604,6 +1603,10 @@ function processParamString(
     typeNameOptionals: ctx.typeNameOptionals,
     unsafeFunctions: ctx.unsafeFunctions,
     safeFunctions: ctx.safeFunctions,
+    // Carried across this re-entry: a fresh ctx here reset the count, a second way around
+    // the bound.
+    maxParenDepth: ctx.maxParenDepth,
+    parenDepth: (ctx.parenDepth ?? 0) + 1,
   }).source
 
   // Now split and process each parameter

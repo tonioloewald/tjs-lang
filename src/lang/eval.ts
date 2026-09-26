@@ -180,10 +180,11 @@ export interface EvalOptions {
 }
 
 /** Default source-length cap. Measured at the cap (2026-09-26), hostile shapes included: 64KB of
- * `//` lines ~46ms, blank lines ~14ms, 64-deep nested parens (the deepest allowed) ~105ms. It
- * used to claim "well under a tenth of a second" while one pass was quadratic, and 32KB of
- * `//` lines took 21.7s (0.14.0 final re-review 4, B-2) — a size cap bounds nothing unless
- * the work behind it is linear, which `admission.test.ts` now pins per shape. */
+ * `//` lines ~12ms, blank lines ~6ms, 64-deep nested parens repeated ~63ms, the same inside
+ * template `${…}` ~72ms. It used to claim "well under a tenth of a second" while one pass was
+ * quadratic, and 32KB of `//` lines took 21.7s (0.14.0 final re-review 4, B-2) — a size cap
+ * bounds nothing unless the work behind it is linear, which `src/admission.test.ts` pins per
+ * shape and per entry. */
 export { DEFAULT_MAX_SOURCE_BYTES }
 
 /**

@@ -81,7 +81,8 @@ export function validateRunOptions(
  * without being encoded (encoding it is itself work proportional to the caller's input).
  */
 export function sourceBytesOver(code: string, max: number): number | null {
-  if (max === Infinity) return null
+  // 0 disables, everywhere (Eval documented it; vm.run read 0 as "refuse all" — re-review 5).
+  if (max === Infinity || max === 0) return null
   if (code.length > max) return code.length
   const bytes = new TextEncoder().encode(code).length
   return bytes > max ? bytes : null

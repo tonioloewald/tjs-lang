@@ -320,12 +320,10 @@ describe('the AJS path runs AJS and nothing else', () => {
         // behaviour reachable through it. Tightening that is tracked in TODO.md.
         './parser-params:transformParenExpressions',
         './parser-params:extractParamMarkers',
-        // A REFUSAL, not a transform: it rewrites nothing and adds no construct, so the bar
-        // above ("does AJS have this construct") does not apply to it. It bounds the
-        // transform above, which recurses once per nesting level and made 64KB of `(` cost
-        // ~44s before fuel could apply (0.14.0 final re-review 4, B-2). TJS's parser applies
-        // the same limit, so TJS ⊇ AJS still holds.
-        './parser-params:assertParenDepth',
+        // A CONSTANT: the nesting bound AJS passes to the transform above (untrusted code
+        // only — TJS passes none, since JS ⊆ TJS). Enforced by the recursion itself; a
+        // separate pre-scan over another lexical view was bypassable (0.14.0 re-review 5).
+        './parser-params:MAX_PAREN_DEPTH',
       ].sort()
     )
   })

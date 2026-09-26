@@ -71,13 +71,17 @@ options bags. But every validated function used to begin with a pre-check that r
   its options are checked before the source is even resolved; cost, timeout and quota
   overrides are validated too (a negative cost override MINTED fuel; a `NaN` quota read as
   unlimited; a `NaN` timeout disabled the timeout; `timeoutMs: Infinity` fired after 1ms and
-  now means no timer). `src/admission.test.ts` runs every hostile shape through every entry
+  now means no timer; a run-level `timeoutMs: 0` still means the deadline has passed). `src/admission.test.ts` runs every hostile shape through every entry
   path and asserts each is cheap — a new entry path belongs in that table.
 - **The parser's parameter pass is linear.** Two look-backs ran for every character and
   scanned back through whitespace — most of a body once comments are blanked — so 64KB of
-  `//` lines took 54 seconds before fuel applied (now ~46ms). Parentheses may nest at most 64
-  deep (the deepest in 3,372 real files, the compat corpus included, is 19): the pass recurses
-  per nesting level, and 20,000 nested `(` took 35 seconds.
+  `//` lines took 54 seconds before fuel applied (now ~12ms). The pass also recurses once per
+  nested paren group, so **AJS** code may nest parentheses at most 64 deep, enforced by the
+  recursion itself (the deepest in 3,372 real files, the compat corpus included, is 19).
+  A first version checked depth with a separate scan over a different lexical view, which a
+  template `${…}` or a `/` after `}` walked straight past (~45s). The TJS compiler has no such
+  limit: it compiles the author's own source, and must accept all of JavaScript.
+  Measured at the 64KB cap, hostile shapes included: ≤ ~72ms through `Eval`.
 - **`Eval` and `SafeFunction` take `argsMaxBytes`**, so a host can raise the new 4MB
   argument ceiling through the safe-eval API (strings count two bytes per character).
 - **`runCode` and `transpileCode` refuse guest-built source over 64KB** before the host's

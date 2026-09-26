@@ -535,6 +535,26 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 5 — dispositions** (docs/reviews/0.14.0-final-rereview-5.md;
+      B-1 FIXED — the depth bound moved INTO the recursion, AJS only, so JS ⊆ TJS holds again
+      (m-1); M-1 run-level timeoutMs 0 = expired; M-2 refusal reasons asserted and the caps'
+      honoured values tested; m-2 `maxSourceBytes: 0` disables everywhere; m-3 argsMaxBytes
+      tested). Open:
+  - m-5: admission inventory membership is a comment. Add a guard (compat-lane style) over
+    the public entry points taking caller source/args, and rows for AstVM, nested
+    `capabilities.agent.run`, and agentRun procedure-token / inline-AST sub-runs.
+  - Refusal shape: vm.run returns an AgentError for oversize/invalid options but THROWS
+    "AJS transpilation failed" for a parse-time refusal (depth, syntax). Pick one contract.
+  - m-4: build prints no size deltas (≈ +0.3KB gz on vm/vm-ast/eval this round).
+  - functions/: the lockfile still resolves tjs-lang 0.13.11, so the deployed sandbox has none
+    of this cycle's admission work until the publish → lockfile refresh → deploy; the
+    stored-function endpoint passes no explicit maxSourceBytes. Add a freshness gate for
+    functions `.js` against `.tjs`.
+  - Pin publish.yml's `.practices` checkout (shared template). The sibling practices checkout
+    also had uncommitted edits (tools/release-doctor.ts, practices/cross-project.md) that are
+    not mine — the owner's call.
+  - practices/review.md: add the standing question "does any guard read a different view
+    (masked/lexed) than the pass it bounds?" — it produced this cycle's sixth block.
 - [ ] **0.14.0 final re-review 4 — dispositions** (docs/reviews/0.14.0-final-rereview-4.md;
       B-1, B-2, M-1, M-2 FIXED — admission module, linear parameter pass + paren-depth limit,
       argsMaxBytes on the safe-eval API, packed-tarball verification in the shared tooling).
@@ -555,6 +575,17 @@ deployed after the publish.
     and transpiles in ~1.4s (fromTS 1.0s + tjs 0.4s); `test:compat-scan` still skips it and
     three larger files as "preprocess is quadratic". Re-measure the four, and lift the
     400KB skip (with the ratchet) if they are now linear.
+- [ ] **The paren/parameter transform should be a PARSER, not a rescanning text pass** (Tonio,
+      2026-09-26: "the parenthesis counting sounds like a regex that should be a parser
+      problem"). Every bound added this cycle exists because `transformParenExpressions`
+      recurses on SUBSTRINGS: nesting is quadratic, and a guard over another lexical view
+      (maskLiterals) disagreed with it twice (template `${…}`, `/` after `}`). 0.14.0 ships a
+      depth bound enforced inside the recursion (AJS only, MAX_PAREN_DEPTH 64). The real fix
+      is the syntactic layer `docs/parser-primitives.md` proposes: one pass, one stack,
+      offsets into ONE source, each character read once — so there is no depth limit to set
+      and no second view to disagree. Retire MAX_PAREN_DEPTH when it lands. Gate: the
+      literal-blindness, param-markers and dogfood suites byte-identical, compat-scan
+      unchanged, and the admission table's shapes linear with no limit.
 - [ ] **The membrane should COPY while it walks — and fuel should be calibrated to CPU**
       (split out 2026-09-26 under the stop rule, after the same security lens blocked four
       times in one cycle on pre-budget work; docs/reviews/0.14.0-final-rereview-3.md).
