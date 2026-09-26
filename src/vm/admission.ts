@@ -109,24 +109,74 @@ export const RUN_OPTION_KINDS: {
 }
 
 /**
- * The reason a run's options are unusable, or null.
+ * A run's options as ADMITTED: every value read ONCE from the caller's object, checked, and
+ * frozen. `vm.run` reads only this — never the caller's options again.
  *
- * Refused rather than defaulted: a caller who passed nonsense did not ask for the default.
- * `fuel: null` is refused too — only an ABSENT option takes the default. `Infinity` stays
- * legal everywhere a budget is a ceiling.
+ * Re-review 15: `vm.run` validated the options object and then read it a second time at each
+ * use, so a getter (`get quotas() { … }`) handed the check `{ ping: 1 }` and the run
+ * `{ ping: NaN }`, and the quota failed open. Re-review 14 had found the same thing one level
+ * down, in the tables. "Snapshot what you checked" applies to the CONTAINER as well as its
+ * entries: the record is built from the values the check saw, not by reading again.
  */
-export function validateRunOptions(
-  options: Record<string, any>
-): string | null {
+export interface AdmittedRunOptions {
+  readonly fuel?: number
+  readonly timeoutMs?: number
+  readonly argsMaxBytes?: number
+  readonly membraneMaxBytes?: number
+  readonly maxHeapBytes?: number
+  readonly maxSourceBytes?: number
+  readonly costOverrides?: Readonly<Record<string, CostOverride>>
+  readonly timeoutOverrides?: Readonly<Record<string, TimeoutOverride>>
+  readonly quotas?: Readonly<Record<string, number>>
+  /** The SHARED counter — deliberately the caller's own object (see {@link quotaCount}). */
+  readonly quotaUsed?: Record<string, number>
+  readonly capabilities?: Capabilities
+  readonly trace?: boolean
+  readonly signal?: AbortSignal
+  readonly context?: Record<string, any>
+}
+
+/**
+ * One read of `name` from the options object: the first DATA descriptor on its prototype
+ * chain (so an options object built with `Object.create(defaults)` still works), or a reason
+ * if it is an accessor — a getter is host code, and one that answers differently on the
+ * second read is exactly the defect this exists to close.
+ */
+function readOnce(bag: object, name: string): { value: unknown } | string {
+  for (let o: object | null = bag; o && o !== Object.prototype; ) {
+    const d = Object.getOwnPropertyDescriptor(o, name)
+    if (d) {
+      if (!('value' in d))
+        return `Invalid run option ${name}: an accessor — run options must be data, read once`
+      return { value: d.value }
+    }
+    o = Object.getPrototypeOf(o)
+  }
+  return { value: undefined }
+}
+
+/** Admit a run's options, or say why they are unusable. See {@link AdmittedRunOptions}. */
+export function admitRunOptions(
+  options: RunOptions | undefined
+): AdmittedRunOptions | string {
+  const bag: object =
+    options && typeof options === 'object' ? options : ({} as object)
+  const out: Record<string, unknown> = Object.create(null)
   for (const [name, kind] of Object.entries(RUN_OPTION_KINDS)) {
-    if (kind === 'opaque') continue
-    const v = options[name]
+    const read = readOnce(bag, name)
+    if (typeof read === 'string') return read
+    const v = read.value
     if (v === undefined) continue
+    if (kind === 'opaque') {
+      out[name] = v
+      continue
+    }
     if (kind === 'budget') {
       if (!isBudget(v))
         return `Invalid run option ${name}: ${describe(
           v
         )} — it must be a non-negative number`
+      out[name] = v
       continue
     }
     const entries = tableEntries(v)
@@ -152,8 +202,38 @@ export function validateRunOptions(
           kind === 'counterTable' ? 'finite ' : ''
         }non-negative number`
     }
+    if (kind === 'counterTable') {
+      // The shared counter is written back on every counted call. A frozen or sealed object,
+      // or a read-only entry, would fail there with an engine TypeError that names nothing;
+      // refuse it here, naming it (re-review 15, m-2).
+      if (!Object.isExtensible(v))
+        return `Invalid run option ${name}: it must be extensible — the VM writes counts back to it`
+      for (const key of Reflect.ownKeys(v as object)) {
+        const d = Object.getOwnPropertyDescriptor(v, key)!
+        if (!d.writable)
+          return `Invalid run option ${name}.${String(
+            key
+          )}: read-only — the VM writes counts back to it`
+      }
+      out[name] = v // shared by design; every read is checked by `quotaCount`
+      continue
+    }
+    // Built from the entries the check SAW — never by reading the caller's table again (a
+    // Proxy answered 1 to the check and NaN to the copy; re-review 15, M-1). Frozen and
+    // null-prototype, so `[op]` reads exactly these keys, for the whole run.
+    const table = Object.create(null)
+    for (const [op, x] of entries) table[op] = x
+    out[name] = Object.freeze(table)
   }
-  return null
+  return Object.freeze(out) as AdmittedRunOptions
+}
+
+/** The reason a run's options are unusable, or null. (`admitRunOptions`, keeping the result.) */
+export function validateRunOptions(
+  options: Record<string, any>
+): string | null {
+  const admitted = admitRunOptions(options)
+  return typeof admitted === 'string' ? admitted : null
 }
 
 /**
@@ -165,8 +245,7 @@ export function validateRunOptions(
  * `ping: NaN` and a getter all passed admission and switched the quota off. So: a PLAIN
  * object (prototype `Object.prototype` or `null`), every own key (`Reflect.ownKeys`), string
  * keys only, data properties only — an accessor is host code, refused as the membrane refuses
- * it. Anything the runtime then reads comes from {@link snapshotTable}, not from the caller's
- * object, so it cannot change after this check.
+ * it. The runtime then reads a table built from THESE entries, not the caller's object.
  */
 function tableEntries(v: unknown): Array<[string, unknown]> | string {
   if (!v || typeof v !== 'object' || Array.isArray(v))
@@ -185,19 +264,16 @@ function tableEntries(v: unknown): Array<[string, unknown]> | string {
   return out
 }
 
-/**
- * The table the runtime READS: a frozen, null-prototype copy of a validated one. Frozen so a
- * value cannot change after admission; null-prototype so `table.toString` is `undefined`
- * rather than a function a custom atom named `toString` would have been charged by.
- */
-export function snapshotTable<T>(
-  table: Record<string, T> | undefined
-): Readonly<Record<string, T>> | undefined {
-  if (table === undefined) return undefined
-  const out: Record<string, T> = Object.create(null)
-  for (const key of Reflect.ownKeys(table) as string[])
-    out[key] = Object.getOwnPropertyDescriptor(table, key)!.value
-  return Object.freeze(out)
+/** A quota as read in the exec wrapper: the admitted value, checked AGAIN at the read — a
+ * second line under admission, as `checkedCost` is for costs. */
+export function checkedQuota(quota: unknown, op: string): number {
+  if (!isBudget(quota))
+    throw new Error(
+      `Invalid quota for '${op}': ${describe(
+        quota
+      )} — it must be a non-negative number`
+    )
+  return quota
 }
 
 /**

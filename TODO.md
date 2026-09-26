@@ -535,6 +535,22 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 15 — dispositions** (docs/reviews/0.14.0-final-rereview-15.md;
+      BLOCK: `vm.run` validated the options bag, then read it again at each use — a getter
+      answered the check `{ping:1}` and the run `{ping:NaN}`). The class, one level up from
+      re-review 14, fixed at the container: `admitRunOptions` reads each option ONCE (first
+      data descriptor on the chain; accessors refused), checks it, and returns a frozen record
+      whose tables are built from the checked entries; `vm.run` reads nothing else (the guard
+      learned rule 6 for it). `checkedQuota` re-checks at the read. Frozen/read-only
+      `quotaUsed` refused at admission; a throwing write-back ends the run cleanly; quota
+      order pinned (spent before fuel — conservative); function `timeoutMs` now tested to
+      actually time out; the ~56KB vm-ast figure removed. `quotaUsed` threat model written
+      down (CLAUDE.md Security Model): trusted host state, per-run floor, trusted across
+      nested runs. Mutation-checked: re-reading `options.quotas` fails 2; dropping the
+      accessor refusal fails 2. Open:
+  - [ ] Derived contexts built WITHOUT `vm.run` (direct runtime use) get a lazily-created
+        `quotaLocal` not shared with a parent. Every in-repo derived context spreads `ctx`, so
+        it is shared; a direct-runtime embedder would need to pass one.
 - [ ] **0.14.0 final re-review 14 — dispositions** (docs/reviews/0.14.0-final-rereview-14.md;
       BLOCK: quota tables validated over own enumerable entries but read through `[op]` — a
       Map, inherited, non-enumerable, getter or mid-run value switched the quota off). Fixed by

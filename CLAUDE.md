@@ -328,7 +328,7 @@ import { Eval, SafeFunction } from 'tjs-lang/eval' // Safe eval utilities
 import { tjs, transpile } from 'tjs-lang/lang' // Language tools only
 import { fromTS } from 'tjs-lang/lang/from-ts' // TypeScript transpilation
 import { AgentVM } from 'tjs-lang/vm' // VM + atoms; accepts SOURCE or AST (~221KB — the transpiler is 75% of it). Passing SOURCE is DEPRECATED (0.14.0): transpile separately and use vm-ast
-// The same AgentVM with NO PARSER in the bundle (~56KB, no acorn). Takes an AST only;
+// The same AgentVM with NO PARSER in the bundle (no acorn). Takes an AST only;
 // transpile on the caller's side. THE RECOMMENDED VM (0.14.0): a sandbox that cannot parse has
 // no parser defect to reach, and a host that transpiles in a separate step can lose only that
 // step to a bad payload. The 0.14.0 reviews spent nine rounds on parse-time DoS shapes.
@@ -471,7 +471,7 @@ fn('a', 'b') // Returns { error: 'type mismatch', ... }
 - **`methodCall` allowlist**: guest method calls are restricted to standard built-in methods (`src/vm/runtime.ts` `SAFE_METHOD_NAMES`); `call`/`apply`/`bind` (Function.prototype-only) are rejected
 - **Fuel metering**: Every atom has a cost; execution stops when fuel exhausted. Fuel meters _work_, so it is the **time** budget
 - **Live-heap ceiling**: `maxHeapBytes` (default 64MB) is the **space** budget. Fuel bounds how much a program allocates over its lifetime but says nothing about how much it holds at once; a run that exhausts host memory has taken the process down however honestly it paid
-- **Per-atom call quotas**: `quotas: { llmPredict: 3 }` caps how many times an op may run — fuel is denominated in VM work and cannot express "at most 3 model calls". Absent op ⇒ unlimited. **A quota counts calls within ONE run**: a capability that starts a _new_ `vm.run` gets a fresh counter, so an agent able to trigger re-entrancy can multiply its allowance. To hold a cap across nested runs, pass the **same `quotaUsed` object** to each. Across a process or network boundary no such enforcement is possible — budget does not travel, only tokens and data do
+- **Per-atom call quotas**: `quotas: { llmPredict: 3 }` caps how many times an op may run — fuel is denominated in VM work and cannot express "at most 3 model calls". Absent op ⇒ unlimited. **A quota counts calls within ONE run**: a capability that starts a _new_ `vm.run` gets a fresh counter, so an agent able to trigger re-entrancy can multiply its allowance. To hold a cap across nested runs, pass the **same `quotaUsed` object** to each. That object is **trusted host state**: it is checked at every read (own, writable, finite, non-negative) and a run never counts below its own tally, but a nested run believes it — so do not build it from anything a guest or a remote party can write. All other run options are read ONCE by `admitRunOptions` into a frozen record; an accessor on the options object is refused. Across a process or network boundary no such enforcement is possible — budget does not travel, only tokens and data do
 - **Timeout enforcement**: Default `fuel × 10ms`; explicit `timeoutMs` overrides. Every exit path aborts outbound work, so a timed-out run never leaves a live `fetch` behind
 - **Monadic errors**: Errors wrapped in `AgentError` (VM) / `MonadicError` (TJS), not thrown (prevents exception exploits). Use `isMonadicError()` to check — `isError()` is deprecated
 - **Expression sandboxing**: ExprNode AST evaluation, blocked prototype access

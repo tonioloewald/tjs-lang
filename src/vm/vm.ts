@@ -13,9 +13,8 @@ import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
 import {
-  validateRunOptions,
+  admitRunOptions,
   budgetOption,
-  snapshotTable,
   type RunOptions,
   sourceBytesOver,
   timerMs,
@@ -207,9 +206,11 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // budget is derived from these numbers, and `fuel: 'abc'` made the argument budget NaN
     // (0.14.0 final re-review 3, B-1). It ran AFTER the source-string transpile, so an
     // unbounded compile preceded even this check (re-review 4, B-1). See ./admission.ts.
-    const invalid = validateRunOptions(options)
-    if (invalid) {
-      const error = new AgentError(invalid, 'vm.run')
+    // Read ONCE into a frozen record; nothing below reads `options` again (re-review 15: a
+    // getter answered the check one way and the run another).
+    const admitted = admitRunOptions(options)
+    if (typeof admitted === 'string') {
+      const error = new AgentError(admitted, 'vm.run')
       return { result: error, error, fuelUsed: 0, warnings: undefined }
     }
 
@@ -234,7 +235,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
           )
         // Capped like every other source entry (Eval, SafeFunction, runCode): transpilation
         // runs before fuel or timeout, and `tjs-lang/vm` documents that it accepts source.
-        const maxSource = options.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES
+        const maxSource = admitted.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES
         const over = sourceBytesOver(astOrToken, maxSource)
         if (over !== null) {
           const error = new AgentError(
@@ -276,15 +277,15 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       ast = astOrToken
     }
 
-    const startFuel = options.fuel ?? 1000
+    const startFuel = admitted.fuel ?? 1000
 
     // Run-level wall-clock timeout. Agents are typically IO-bound; the default
     // is derived from the registered atoms (slowest × 2) so it always covers the
     // slowest atom's own budget. See `defaultRunTimeout`.
-    const timeoutMs = options.timeoutMs ?? this.defaultRunTimeout
+    const timeoutMs = admitted.timeoutMs ?? this.defaultRunTimeout
 
     // Default Capabilities
-    const capabilities = options.capabilities ?? {}
+    const capabilities = admitted.capabilities ?? {}
 
     // Track warnings
     const warnings: string[] = []
@@ -358,7 +359,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // `argsMaxBytes`; the walk stops the moment it is exceeded, so a refusal is cheap. What
     // crosses is then CHARGED, at the rate binding it costs, so admission is metered like
     // everything else.
-    const argsCap = options.argsMaxBytes ?? DEFAULT_ARGS_MAX_BYTES
+    const argsCap = admitted.argsMaxBytes ?? DEFAULT_ARGS_MAX_BYTES
     const fuelBytes = startFuel * ARG_BYTES_PER_FUEL
     const argsBudget = Math.min(argsCap, fuelBytes)
     const crossed = membraneValueFrom('run argument', args, argsBudget)
@@ -381,7 +382,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         fuelUsed: outOfFuel
           ? startFuel
           : Math.min(startFuel, argsBudget / ARG_BYTES_PER_FUEL),
-        trace: options.trace ? [] : undefined,
+        trace: admitted.trace ? [] : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       }
     }
@@ -400,7 +401,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         fuelUsed: 0,
         // No step ran, so the trace is empty rather than absent when tracing is on —
         // the same value `ctx.trace` carried at this point, which is now created below.
-        trace: options.trace ? [] : undefined,
+        trace: admitted.trace ? [] : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       }
     }
@@ -437,14 +438,14 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // ~2.1KB per run, 41.6MB retained after 20,000 runs against one shared signal (vs
     // 1.59MB with no signal at all). A host that runs many short agents under one
     // cancellation scope is the normal case, not an exotic one.
-    if (options.signal) {
-      options.signal.addEventListener('abort', () => controller.abort(), {
+    if (admitted.signal) {
+      admitted.signal.addEventListener('abort', () => controller.abort(), {
         signal: controller.signal,
       })
       // An 'abort' listener never fires for a signal that is ALREADY aborted, so a cancelled
       // caller's run went ahead, capabilities and all (0.14.0 final re-review 7, M-2) — the
       // sibling of the spent-deadline case above.
-      if (options.signal.aborted) controller.abort()
+      if (admitted.signal.aborted) controller.abort()
     }
 
     const ctx: RuntimeContext = {
@@ -456,20 +457,20 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       resolver: (op) => this.resolve(op),
       output: undefined,
       signal: controller.signal,
-      costOverrides: snapshotTable(options.costOverrides),
-      quotas: snapshotTable(options.quotas),
-      maxSourceBytes: options.maxSourceBytes,
-      quotaUsed: options.quotaUsed ?? {},
+      costOverrides: admitted.costOverrides,
+      quotas: admitted.quotas,
+      maxSourceBytes: admitted.maxSourceBytes,
+      quotaUsed: admitted.quotaUsed ?? {},
       quotaLocal: Object.create(null),
-      timeoutOverrides: snapshotTable(options.timeoutOverrides),
-      context: options.context,
-      membraneMaxBytes: options.membraneMaxBytes,
-      maxHeapBytes: options.maxHeapBytes,
+      timeoutOverrides: admitted.timeoutOverrides,
+      context: admitted.context,
+      membraneMaxBytes: admitted.membraneMaxBytes,
+      maxHeapBytes: admitted.maxHeapBytes,
       warnings, // Shared warnings array
       helpers: (ast as any).helpers, // Local helper bodies, called by name via callLocal
     }
 
-    if (options.trace) {
+    if (admitted.trace) {
       ctx.trace = []
     }
 
@@ -505,7 +506,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         // A deadline is a timeout; any other abort is the CALLER's signal, and calling that a
         // timeout sent people looking for a timeoutMs to raise.
         ctx.error = new AgentError(
-          timedOut || !options.signal?.aborted
+          timedOut || !admitted.signal?.aborted
             ? `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`
             : 'Execution aborted by the caller (options.signal)',
           'vm.run'
@@ -520,7 +521,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       // own deadline, say so, in the words hosts already detect.
       if (
         !timedOut &&
-        options.signal?.aborted &&
+        admitted.signal?.aborted &&
         ctx.error?.message === 'Execution aborted'
       )
         ctx.error = new AgentError(

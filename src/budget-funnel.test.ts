@@ -70,6 +70,7 @@ const BUDGET_NAMES = new Set([
  * `max`, not `code`. */
 const FUNNELS: Record<string, number> = {
   validateRunOptions: 0,
+  admitRunOptions: 0,
   sourceBytesOver: 1,
   timerMs: 0,
   checkedCost: 0,
@@ -385,6 +386,36 @@ function isRuntimeContext(id: ts.Identifier): boolean {
   return false
 }
 
+/**
+ * Rule 6: a read on the ADMITTED record — a `const` bound to `admitRunOptions(…)` in an
+ * enclosing block. Its values were read once, checked and frozen; the type (`string |
+ * AdmittedRunOptions`) forces the refusal to be handled before a field can be read.
+ */
+function isAdmitted(id: ts.Identifier): boolean {
+  let child: ts.Node = id
+  let p: ts.Node | undefined = id.parent
+  while (p) {
+    if (ts.isBlock(p) || ts.isSourceFile(p))
+      for (const st of p.statements) {
+        if (st === child) break
+        if (
+          ts.isVariableStatement(st) &&
+          st.declarationList.flags & ts.NodeFlags.Const
+        )
+          for (const d of st.declarationList.declarations)
+            if (ts.isIdentifier(d.name) && d.name.text === id.text)
+              return (
+                !!d.initializer &&
+                ts.isCallExpression(d.initializer) &&
+                calleeName(d.initializer) === 'admitRunOptions'
+              )
+      }
+    child = p
+    p = p.parent
+  }
+  return false
+}
+
 export function scan(fileName: string, text: string): Violation[] {
   const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true)
   const funnels = derivedWrappers(sf)
@@ -418,6 +449,7 @@ export function scan(fileName: string, text: string): Violation[] {
         p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
         p.operatorToken.kind <= ts.SyntaxKind.LastAssignment
       const onCtx = ts.isIdentifier(obj) && isRuntimeContext(obj) // rule 5
+      const onAdmitted = ts.isIdentifier(obj) && isAdmitted(obj) // rule 6
       const funneled = ts.isCallExpression(p) && isFunnelArg(p, n, funnels) // rule 1
       const objText = obj.getText()
       const exprText = n.getText()
@@ -435,6 +467,7 @@ export function scan(fileName: string, text: string): Violation[] {
       if (
         !isWrite &&
         !onCtx &&
+        !onAdmitted &&
         !isPresenceCheck(n) &&
         !funneled &&
         !isForward(n) && // rule 2
@@ -546,6 +579,7 @@ describe('budget funnel', () => {
       nestedLeave: `function f(o, a) { const bad = validateRunOptions(o); if (bad) { if (a) throw 1 } return o.fuel > 1 }`,
       spreadRenamed: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.limit } }) }`,
       spreadCounter: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, quotaUsed: { llm: o.n } }) }`,
+      notAdmitted: `function f(o) { const admitted = o; return admitted.fuel > 1 }`,
       untypedCtx: `function f(ctx) { return ctx.maxHeapBytes > 0 }`,
       spreadCtx: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.fuel } }) }`,
       renamedForward: `function f(o) { return g({ limit: o.fuel }) }`,
@@ -575,6 +609,7 @@ describe('budget funnel', () => {
       sameNameProperty: `function f(o) { const fuel = o.fuel; budgetOption('f', fuel, 1); return fuel }`,
       presenceThenChecked: `function f(o) { const m = o.maxSourceBytes; if (m !== undefined) sourceBytesOver('x', m) }`,
       destructuredThenChecked: `function f(o) { const { timeoutMs = 1 } = o; budgetOption('t', timeoutMs, 1); return () => arm(timeoutMs) }`,
+      admitted: `function f(o) { const a = admitRunOptions(o); if (typeof a === 'string') return; return a.fuel > 1 }`,
       ctx: `function f(ctx: RuntimeContext) { return ctx.maxHeapBytes ?? 1 }`,
       atomBody: `defineAtom('x', s, o, async (step, ctx) => ctx.fuel.current)`,
       derivedCtx: `function f(ctx: RuntimeContext) { return run({ ...ctx, fuel: ctx.fuel }) }`,
@@ -628,7 +663,9 @@ describe('budget funnel', () => {
           // DOMINATED by the validation, not merely after it in the text.
           const validated = dominated(
             n,
-            (c) => calleeName(c) === 'validateRunOptions'
+            (c) =>
+              calleeName(c) === 'validateRunOptions' ||
+              calleeName(c) === 'admitRunOptions'
           )
           const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1
           builders.push(`${relative(ROOT, f)}:${line} validated=${validated}`)

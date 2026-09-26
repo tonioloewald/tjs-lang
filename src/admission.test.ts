@@ -1007,3 +1007,141 @@ describe("re-review 14 (pre-empted): a lying shared counter cannot lower this ru
     expect(calls.length).toBe(2)
   })
 })
+
+describe('re-review 15: the options are read ONCE, and the run reads only what was checked', () => {
+  const setup = () => {
+    const calls: number[] = []
+    const ping = defineAtom(
+      'ping',
+      undefined,
+      undefined,
+      async () => {
+        calls.push(1)
+      },
+      { effects: 'pure' }
+    )
+    return { calls, vm: new AgentVM({ ping }) }
+  }
+  const fourPings = {
+    op: 'seq',
+    steps: [1, 2, 3, 4].map(() => ({ op: 'ping' })),
+  } as any
+
+  it('a getter-backed quotas is refused — it answered the check {ping:1} and the run {ping:NaN}', async () => {
+    const { calls, vm } = setup()
+    let m = 0
+    const options = {
+      get quotas() {
+        return m++ === 0 ? { ping: 1 } : { ping: NaN }
+      },
+    }
+    const r = await vm.run(fourPings, {}, options as any)
+    expect(reasonOf(r)).toMatch(/Invalid run option quotas: an accessor/)
+    expect(calls.length).toBe(0)
+  })
+
+  it('a getter-backed fuel is refused', async () => {
+    const { calls, vm } = setup()
+    let m = 0
+    const options = {
+      get fuel() {
+        return m++ === 0 ? 1 : NaN
+      },
+    }
+    const r = await vm.run(fourPings, {}, options as any)
+    expect(reasonOf(r)).toMatch(/Invalid run option fuel: an accessor/)
+    expect(calls.length).toBe(0)
+  })
+
+  it('an options object built on defaults (Object.create) still works', async () => {
+    const { calls, vm } = setup()
+    const defaults = { quotas: { ping: 2 } }
+    const r = await vm.run(fourPings, {}, Object.create(defaults))
+    expect(reasonOf(r)).toMatch(/Quota exceeded/)
+    expect(calls.length).toBe(2)
+  })
+
+  it('a Proxy table that answers the check 1 and a later read NaN is held to 1', async () => {
+    const { calls, vm } = setup()
+    let n = 0
+    const table = new Proxy({} as Record<string, number>, {
+      ownKeys: () => ['ping'],
+      getOwnPropertyDescriptor: () => ({
+        value: n++ === 0 ? 1 : NaN,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      }),
+      get: () => NaN,
+    })
+    const r = await vm.run(fourPings, {}, { quotas: table })
+    expect(reasonOf(r)).toMatch(/Quota exceeded/)
+    expect(calls.length).toBe(1)
+  })
+
+  it('a frozen or read-only quotaUsed is refused at admission, naming it', async () => {
+    const { vm } = setup()
+    for (const quotaUsed of [
+      Object.freeze({}),
+      Object.defineProperty({}, 'ping', {
+        value: 0,
+        writable: false,
+        enumerable: true,
+      }),
+    ]) {
+      const r = await vm.run(fourPings, {}, { quotas: { ping: 2 }, quotaUsed })
+      expect(reasonOf(r)).toMatch(
+        /Invalid run option quotaUsed.*(extensible|read-only)/
+      )
+    }
+  })
+
+  it('a quotaUsed whose write-back throws ends the run with a clean AgentError', async () => {
+    const { calls, vm } = setup()
+    const throwing = new Proxy({} as Record<string, number>, {
+      set: () => {
+        throw new Error('storage offline')
+      },
+    })
+    const r = await vm.run(
+      fourPings,
+      {},
+      { quotas: { ping: 2 }, quotaUsed: throwing }
+    )
+    expect(r.error).toBeDefined()
+    expect(reasonOf(r)).toMatch(/storage offline/)
+    expect(calls.length).toBe(0)
+  })
+
+  it('quota accounting order is pinned: a step refused for fuel still spends its quota slot', async () => {
+    // Deliberate and conservative: the quota is checked and counted BEFORE fuel, so a quota'd
+    // call can never have happened without being counted. The cost is that a step refused for
+    // fuel spends a slot it did not use.
+    const quotaUsed: Record<string, number> = {}
+    const { vm } = setup()
+    await vm.run(
+      { op: 'seq', steps: [{ op: 'ping' }] } as any,
+      {},
+      { quotas: { ping: 5 }, quotaUsed, costOverrides: { ping: 1000 }, fuel: 1 }
+    )
+    expect(quotaUsed.ping).toBe(1)
+  })
+
+  it('a function timeoutMs on defineAtom is USED: its result times the atom out', async () => {
+    const slow = defineAtom(
+      'slow',
+      undefined,
+      undefined,
+      () => new Promise((resolve) => setTimeout(resolve, 300)),
+      { timeoutMs: (() => 20) as any }
+    )
+    const t = performance.now()
+    const r = await new AgentVM({ slow }).run(
+      { op: 'seq', steps: [{ op: 'slow' }] } as any,
+      {},
+      { timeoutMs: 5000 }
+    )
+    expect(reasonOf(r)).toMatch(/timed out/)
+    expect(performance.now() - t).toBeLessThan(250)
+  })
+})

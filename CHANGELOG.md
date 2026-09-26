@@ -145,9 +145,16 @@ Infinity` no longer makes every run on its VM unbounded. Refusals name the bad v
   while `table[op]` reads through the prototype. **`quotas`, `costOverrides`,
   `timeoutOverrides` and `quotaUsed` must now be plain objects of data properties** (a `Map`
   or class instance is refused; a `Map` never worked — `map[op]` is `undefined`, so it
-  silently meant "no quota"). The VM reads a frozen copy of the first three, so changing them
-  after `vm.run` starts has no effect; the shared `quotaUsed` counter is checked at every
-  read, so one corrupted mid-run refuses the next step. A custom atom named like an
+  silently meant "no quota"). **`vm.run` reads its options exactly once**: each option is
+  read a single time (an accessor on the options object is refused — a getter could answer
+  the check one way and the run another), checked, and frozen, and the run reads only that
+  record. The three static tables are built from the entries the check saw, so changing them
+  after `vm.run` starts has no effect. `quotaUsed` is shared by design, so it is the caller's
+  own object, checked at every read: a corrupted value refuses the next step, a frozen or
+  read-only counter is refused up front, and a run never counts BELOW its own tally — a
+  shared counter can raise a run's count (that is how a quota holds across nested runs) but
+  not lower it. Across nested runs the shared counter is trusted: it is host code. A quota
+  slot is spent before the fuel check, so a call can never happen uncounted. A custom atom named like an
   `Object.prototype` member (`toString`) is no longer charged by that member's function.
   **Every `vm.run` option is classified** in a table keyed by the options type, so an option
   added without saying whether it is a budget fails to compile — the class blocked this
@@ -638,7 +645,7 @@ AST>}` ran its body, with no capability required, and `runCode` ran whatever a h
 ### Added
 
 - **`tjs-lang/vm-ast` — the VM with no parser in the bundle.** The same `AgentVM`, built
-  without the transpiler wiring: **56 KB against 221 KB**, and no acorn. It takes an **AST**;
+  without the transpiler wiring: **56 KB against 221 KB** (measured at the time; ~65 KB raw / ~21 KB gzipped at 0.14.0 rc), and no acorn. It takes an **AST**;
   transpile on the caller's side with `tjs-lang/lang` and send the AST.
 
   ```ts

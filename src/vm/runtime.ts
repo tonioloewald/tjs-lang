@@ -6,6 +6,7 @@ import {
   guestSourceCap,
   budgetOrFunction,
   quotaCount,
+  checkedQuota,
 } from './admission'
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
@@ -2682,10 +2683,11 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     try {
       // 2a. Quota — checked BEFORE fuel and before execution, so an exhausted quota
       // costs nothing and cannot have already made the call it was meant to prevent.
-      // `ctx.quotas` is the admission SNAPSHOT (frozen, null-prototype), so `[op]` reads
-      // exactly what was validated.
-      const quota = ctx.quotas?.[op]
-      if (quota !== undefined) {
+      // `ctx.quotas` is the ADMITTED table (frozen, null-prototype, built from the entries the
+      // check saw), so `[op]` reads exactly what was validated — and is checked again here.
+      const admittedQuota = ctx.quotas?.[op]
+      if (admittedQuota !== undefined) {
+        const quota = checkedQuota(admittedQuota, op)
         if (!ctx.quotaUsed) ctx.quotaUsed = {}
         // Checked at the READ: the counter is shared, so it can change after admission. And
         // never below what THIS run has counted itself: a host object can only raise the
