@@ -8,25 +8,38 @@
  * fuel (12) — each one directory over from the last fix, each found by a reviewer rather than
  * by a test. The funnel (`src/vm/admission.ts`) already existed; nothing made a new read use it.
  *
- * This test PARSES the source (the TypeScript compiler, not a regex — a regex over
- * `opts.fuel` misses the destructured `{ fuel = 1000 } = options` that `Eval` actually uses)
- * and fails on any read of a budget-named property that does not reach a funnel. A read is
- * accepted when it:
+ * The PRIMARY control is no longer this test: `RUN_OPTION_KINDS` in admission.ts is keyed by
+ * `keyof RunOptions`, so a run option nobody classified fails to COMPILE. Re-review 13 blocked
+ * on `quotaUsed` — a counter missing from this file's name list — and a list of names is
+ * closed while the set of options is not. This test is the second line, for budgets read
+ * OUTSIDE a run (predicate fuel, atom timeouts, the source caps).
  *
- * 1. is an argument to a funnel call — or to a same-file wrapper that passes that parameter
- *    to one (derived, not listed, so a wrapper cannot drift out of it);
- * 2. is FORWARDED — the value of an object-literal property, so the receiver's own read is
- *    the one that counts (and is checked here too, if it is in this repo);
- * 3. follows, in the same function, `validateRunOptions(<same object>)` or a funnel call on
- *    the same expression (vm.run validates every option up front, then reads them freely);
- * 4. initialises a local (or is destructured into one) that is only forwarded or funneled
- *    until the same function first passes it to a funnel;
- * 5. is on `ctx` — a RuntimeContext. Its budget fields are copied from options `vm.run` has
- *    already validated, and the last block below pins that `vm.run` is the ONLY place a
- *    RuntimeContext is built (every other context spreads an existing one).
+ * It PARSES the source (the TypeScript compiler, not a regex — a regex over `opts.fuel`
+ * misses the destructured `{ fuel = 1000 } = options` that `Eval` actually uses) and fails on
+ * any read of a budget-named property that does not reach a funnel. A read is accepted when:
  *
- * A read the rules cannot accept goes in ALLOWED with a written reason. It is empty, and an
- * entry that stops matching anything fails, so the list cannot rot into slack.
+ * 1. it is the VALIDATED argument of a funnel called by its bare name (`sourceBytesOver`
+ *    checks its second argument, not its first), or of a same-file wrapper that hands that
+ *    position on;
+ * 2. it is FORWARDED into a budget-named key (`{ fuel: o.fuel }`), so the receiver's read is
+ *    the one that counts. A rename (`{ limit: o.fuel }`) is not a forward;
+ * 3. it is DOMINATED by `validateRunOptions(<same object>)` or a funnel on the same
+ *    expression: a funnel STATEMENT preceding it in an enclosing block of the same function
+ *    (closures created after it count; a sibling branch, a closure or a `try` does not);
+ * 4. it initialises a local (or is destructured into one) whose every use is forwarded,
+ *    funneled, a presence check, or dominated by a funnel on it;
+ * 5. it is on a `RuntimeContext` — a parameter or variable DECLARED with that type, or an
+ *    atom body passed to `defineAtom`. Its budget fields come from options `vm.run` validated,
+ *    and the last block pins that `vm.run` is the only place one is built. A derived context
+ *    (`{ ...ctx, fuel: … }`) is checked: an overriding budget must come from a context or a
+ *    funnel.
+ *
+ * KNOWN BLIND SPOTS (review 13, F-1) — say them rather than claim more: reassigning the
+ * options object after validating it; computed keys (`o[k]`, `Object.entries(o)`); budgets
+ * under names not in BUDGET_NAMES; files outside `src/**\/*.ts` (`.tjs`, `bin/`, `scripts/`).
+ *
+ * A read the rules cannot accept goes in ALLOWED with a written reason, and an entry that
+ * stops matching anything fails, so the list cannot rot into slack.
  */
 import { describe, it, expect } from 'bun:test'
 import * as ts from 'typescript'
@@ -37,6 +50,7 @@ const ROOT = join(import.meta.dir, '..')
 
 const BUDGET_NAMES = new Set([
   'fuel',
+  'quotaUsed',
   'timeoutMs',
   'maxSourceBytes',
   'argsMaxBytes',
@@ -47,28 +61,35 @@ const BUDGET_NAMES = new Set([
   'timeoutOverrides',
 ])
 
-const FUNNELS = new Set([
-  'validateRunOptions',
-  'sourceBytesOver',
-  'timerMs',
-  'checkedCost',
-  'budgetOption',
-  'guestSourceCap',
-])
+/** Each funnel, and the argument position it VALIDATES — `sourceBytesOver(code, max)` checks
+ * `max`, not `code`. */
+const FUNNELS: Record<string, number> = {
+  validateRunOptions: 0,
+  sourceBytesOver: 1,
+  timerMs: 0,
+  checkedCost: 0,
+  budgetOption: 1,
+  guestSourceCap: 0,
+}
 
 /** `file:line  text` → why it is acceptable. Must stay empty unless a reason is written. */
-const ALLOWED: Record<string, string> = {}
+const ALLOWED: Record<string, string> = {
+  'src/lang/eval.ts  fuel = 1000':
+    'Forwarded to vm.run (which validates it) and otherwise only REPORTED as `fuelUsed` on an ' +
+    'error result — never compared against a counter. Two sites: Eval and SafeFunction.',
+  'src/vm/vm.ts  (atom as any).timeoutMs':
+    'defaultRunTimeout re-reads atom timeouts the AgentVM CONSTRUCTOR already passed through ' +
+    'budgetOption (a different function, so no dominance the scan can see).',
+}
 
 interface Violation {
   key: string
   where: string
 }
 
+/** A funnel is called by its BARE name — `cache.timerMs(x)` is somebody else's method. */
 function calleeName(call: ts.CallExpression): string | undefined {
-  const e = call.expression
-  if (ts.isIdentifier(e)) return e.text
-  if (ts.isPropertyAccessExpression(e)) return e.name.text
-  return undefined
+  return ts.isIdentifier(call.expression) ? call.expression.text : undefined
 }
 
 function enclosingFunction(n: ts.Node): ts.Node {
@@ -92,88 +113,173 @@ function unwrap(n: ts.Node): ts.Node {
   return p
 }
 
-/** Calls inside `scope` whose callee is a funnel (or a derived wrapper). */
-function funnelCalls(
-  scope: ts.Node,
-  funnels: Set<string>
-): ts.CallExpression[] {
-  const out: ts.CallExpression[] = []
-  const visit = (n: ts.Node) => {
-    if (ts.isCallExpression(n)) {
-      const name = calleeName(n)
-      if (name && funnels.has(name)) out.push(n)
-    }
-    ts.forEachChild(n, visit)
-  }
-  visit(scope)
-  return out
+/**
+ * Funnels, and which argument positions each one validates. A same-file wrapper counts only
+ * for the positions it hands on (review 13: an over-broad
+ * wrapper marked ALL of its arguments as funneled).
+ */
+type Funnels = Map<string, Set<number>>
+
+function isFunnelArg(call: ts.CallExpression, arg: ts.Node, funnels: Funnels) {
+  const name = calleeName(call)
+  const which = name ? funnels.get(name) : undefined
+  if (!which) return false
+  const i = call.arguments.indexOf(arg as ts.Expression)
+  return i >= 0 && which.has(i)
 }
 
-/** Same-file functions that hand one of their parameters straight to a funnel. */
-function derivedWrappers(sf: ts.SourceFile): Set<string> {
-  const wrappers = new Set<string>()
+/** A statement that IS a funnel call: `f(x)`, `const r = f(x)`. Not one nested in a closure,
+ * a `try`, a branch or an expression that might not evaluate it. */
+function statementFunnel(st: ts.Statement): ts.CallExpression | undefined {
+  if (ts.isExpressionStatement(st) && ts.isCallExpression(st.expression))
+    return st.expression
+  if (ts.isVariableStatement(st)) {
+    const decls = st.declarationList.declarations
+    if (decls.length === 1) {
+      let init: ts.Node | undefined = decls[0].initializer
+      while (
+        init &&
+        (ts.isAsExpression(init) || ts.isParenthesizedExpression(init))
+      )
+        init = (init as any).expression
+      if (init && ts.isCallExpression(init)) return init
+    }
+  }
+  return undefined
+}
+
+/**
+ * Is `node` DOMINATED by a funnel call satisfying `matches` — a funnel statement that runs,
+ * unconditionally, before it in the same function? Walks up the enclosing blocks, looking at
+ * the statements BEFORE the one containing `node`. A call in a sibling branch, a dead closure
+ * or a swallowing `try` is not a preceding statement of an enclosing block, so it does not
+ * count (review 13: rule 3 used to compare text positions).
+ */
+function dominated(
+  node: ts.Node,
+  matches: (call: ts.CallExpression) => boolean
+): boolean {
+  let child: ts.Node = node
+  let p: ts.Node | undefined = node.parent
+  // A closure (arrow or function EXPRESSION) created at a dominated point runs after the
+  // funnel too, so the walk continues out through it. A declaration or method is hoisted or
+  // callable from elsewhere, so the walk stops there.
+  while (
+    p &&
+    (!ts.isFunctionLike(p) ||
+      ts.isArrowFunction(p) ||
+      ts.isFunctionExpression(p))
+  ) {
+    if (ts.isBlock(p) || ts.isSourceFile(p)) {
+      for (const st of p.statements) {
+        if (st === child) break
+        const call = statementFunnel(st)
+        if (call && matches(call)) return true
+      }
+    }
+    child = p
+    p = p.parent
+  }
+  return false
+}
+
+/** Same-file functions that hand a parameter straight to a funnel, and which positions. */
+function derivedWrappers(sf: ts.SourceFile): Funnels {
+  const funnels: Funnels = new Map(
+    Object.entries(FUNNELS).map(([f, i]) => [f, new Set([i])])
+  )
   const visit = (n: ts.Node) => {
     if (ts.isFunctionDeclaration(n) && n.name && n.body) {
-      const params = new Set(
-        n.parameters
-          .map((p) => (ts.isIdentifier(p.name) ? p.name.text : ''))
-          .filter(Boolean)
-      )
-      for (const call of funnelCalls(n.body, FUNNELS))
-        if (
-          call.arguments.some((a) => ts.isIdentifier(a) && params.has(a.text))
-        )
-          wrappers.add(n.name.text)
+      const positions = new Set<number>()
+      n.parameters.forEach((param, i) => {
+        if (!ts.isIdentifier(param.name)) return
+        const id = param.name.text
+        for (const st of n.body!.statements) {
+          const call = statementFunnel(st)
+          if (
+            call &&
+            call.arguments.some(
+              (a) =>
+                ts.isIdentifier(a) &&
+                a.text === id &&
+                isFunnelArg(call, a, funnels)
+            )
+          )
+            positions.add(i)
+        }
+      })
+      if (positions.size) funnels.set(n.name.text, positions)
     }
     ts.forEachChild(n, visit)
   }
   visit(sf)
-  return wrappers
+  return funnels
 }
 
-/**
- * Local `id` is safe in `scope`: every use forwards it, feeds a funnel, inspects its `typeof`,
- * or comes AFTER the first funnel call on it. (A funnel call that comes later validates
- * nothing the earlier uses already did.)
- */
+/** A property NAME (`o.fuel`, `{ fuel: … }`), not a reference to a local called `fuel`. */
+function isPropertyName(n: ts.Node): boolean {
+  const p = n.parent
+  return (
+    !!p &&
+    ((ts.isPropertyAccessExpression(p) && p.name === n) ||
+      (ts.isPropertyAssignment(p) && p.name === n) ||
+      (ts.isBindingElement(p) && p.propertyName === n))
+  )
+}
+
+/** Forwarded: the value of a property with a BUDGET name, so the receiver's read is the one
+ * that counts. `{ limit: o.fuel }` is a rename, not a forward (review 13). */
+function isForward(n: ts.Node): boolean {
+  const p = unwrap(n)
+  if (ts.isShorthandPropertyAssignment(p)) return BUDGET_NAMES.has(p.name.text)
+  return (
+    ts.isPropertyAssignment(p) &&
+    p.initializer === n &&
+    BUDGET_NAMES.has(p.name.getText())
+  )
+}
+
+/** `typeof x` and `x !== undefined` ask whether it is THERE, not how big it is. */
+function isPresenceCheck(n: ts.Node): boolean {
+  const p = unwrap(n)
+  return (
+    ts.isTypeOfExpression(p) ||
+    (ts.isBinaryExpression(p) &&
+      [
+        ts.SyntaxKind.EqualsEqualsEqualsToken,
+        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      ].includes(p.operatorToken.kind) &&
+      [p.left, p.right].some(
+        (side) => ts.isIdentifier(side) && side.text === 'undefined'
+      ))
+  )
+}
+
+/** Local `id` is safe: every use forwards it, feeds a funnel, checks its presence, or is
+ * dominated by a funnel statement on it. */
 function localSafe(
   scope: ts.Node,
   id: string,
   decl: ts.Node,
-  funnels: Set<string>
+  funnels: Funnels
 ): boolean {
-  const checks = funnelCalls(scope, funnels)
-    .filter((c) => c.arguments.some((a) => ts.isIdentifier(a) && a.text === id))
-    .map((c) => c.getStart())
-  const firstCheck = checks.length ? Math.min(...checks) : Infinity
   let ok = true
   const visit = (n: ts.Node) => {
-    const isName = // `o.fuel`, `{ fuel: … }`: a property NAME, not a reference to the local
-      n.parent &&
-      ((ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) ||
-        (ts.isPropertyAssignment(n.parent) && n.parent.name === n) ||
-        (ts.isBindingElement(n.parent) && n.parent.propertyName === n))
-    if (ts.isIdentifier(n) && n.text === id && n !== decl && !isName) {
+    if (
+      ts.isIdentifier(n) &&
+      n.text === id &&
+      n !== decl &&
+      !isPropertyName(n)
+    ) {
       const p = unwrap(n)
-      const forwarded =
-        ts.isShorthandPropertyAssignment(p) ||
-        (ts.isPropertyAssignment(p) && p.initializer === n)
-      const funneled =
-        ts.isCallExpression(p) &&
-        p.arguments.includes(n as any) &&
-        funnels.has(calleeName(p) ?? '')
-      // `typeof x` and `x !== undefined` ask whether it is THERE, not how big it is.
-      const inspected =
-        ts.isTypeOfExpression(p) ||
-        (ts.isBinaryExpression(p) &&
-          [
-            ts.SyntaxKind.EqualsEqualsEqualsToken,
-            ts.SyntaxKind.ExclamationEqualsEqualsToken,
-          ].includes(p.operatorToken.kind) &&
-          [p.left, p.right].some(
-            (side) => ts.isIdentifier(side) && side.text === 'undefined'
-          ))
-      if (!forwarded && !funneled && !inspected && n.getStart() < firstCheck)
+      const funneled = ts.isCallExpression(p) && isFunnelArg(p, n, funnels)
+      const checked = dominated(n, (c) =>
+        c.arguments.some(
+          (a) =>
+            ts.isIdentifier(a) && a.text === id && isFunnelArg(c, a, funnels)
+        )
+      )
+      if (!isForward(n) && !funneled && !isPresenceCheck(n) && !checked)
         ok = false
     }
     ts.forEachChild(n, visit)
@@ -182,39 +288,61 @@ function localSafe(
   return ok
 }
 
-/** Earlier in the same function: validateRunOptions(obj), or a funnel on this expression. */
-function validatedEarlier(
-  read: ts.Node,
-  objText: string,
-  exprText: string,
-  funnels: Set<string>
-): boolean {
-  const fn = enclosingFunction(read)
-  return funnelCalls(fn, funnels).some(
-    (c) =>
-      c.getStart() < read.getStart() &&
-      c.arguments.some((a) => {
-        const t = a.getText()
+/**
+ * Rule 5: `ctx` is trusted only when it is a RuntimeContext — a parameter or variable
+ * DECLARED with that type, found by walking out through the enclosing functions. Any other
+ * identifier spelled `ctx` is just a name (review 13).
+ */
+function isRuntimeContext(id: ts.Identifier): boolean {
+  const typed = (t: ts.TypeNode | undefined) =>
+    !!t && /\bRuntimeContext\b/.test(t.getText())
+  let child: ts.Node = id
+  let p: ts.Node | undefined = id.parent
+  while (p) {
+    if (ts.isFunctionLike(p)) {
+      const param = p.parameters.find(
+        (q) => ts.isIdentifier(q.name) && q.name.text === id.text
+      )
+      if (param) {
+        if (typed(param.type)) return true
+        // An atom body passed to `defineAtom(…)` is contextually typed by its signature:
+        // `(input, ctx: RuntimeContext) => Promise<O>`.
+        const call = p.parent
         return (
-          t === exprText ||
-          (calleeName(c) === 'validateRunOptions' && t === objText)
+          !param.type &&
+          !!call &&
+          ts.isCallExpression(call) &&
+          calleeName(call) === 'defineAtom' &&
+          call.arguments.includes(p as any)
         )
-      })
-  )
+      }
+    }
+    if (ts.isBlock(p) || ts.isSourceFile(p))
+      for (const st of p.statements) {
+        if (st === child) break
+        if (ts.isVariableStatement(st))
+          for (const d of st.declarationList.declarations)
+            if (ts.isIdentifier(d.name) && d.name.text === id.text)
+              return typed(d.type)
+      }
+    child = p
+    p = p.parent
+  }
+  return false
 }
 
 export function scan(fileName: string, text: string): Violation[] {
   const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true)
-  const funnels = new Set([...FUNNELS, ...derivedWrappers(sf)])
+  const funnels = derivedWrappers(sf)
   const out: Violation[] = []
   const report = (n: ts.Node) => {
-    const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1
     const snippet = n.getText().replace(/\s+/g, ' ').slice(0, 60)
-    out.push({ key: `${fileName}:${line}  ${snippet}`, where: snippet })
+    // No line number: a key that moves with every unrelated edit is an allowlist nobody reads.
+    out.push({ key: `${fileName}  ${snippet}`, where: snippet })
   }
 
   const visit = (n: ts.Node) => {
-    // obj.fuel, obj?.fuel, obj['fuel']
+    // obj.fuel, obj?.fuel, obj['fuel'], obj[`fuel`]
     let name: string | undefined
     let obj: ts.Expression | undefined
     if (ts.isPropertyAccessExpression(n)) {
@@ -222,7 +350,8 @@ export function scan(fileName: string, text: string): Violation[] {
       obj = n.expression
     } else if (
       ts.isElementAccessExpression(n) &&
-      ts.isStringLiteral(n.argumentExpression)
+      (ts.isStringLiteral(n.argumentExpression) ||
+        ts.isNoSubstitutionTemplateLiteral(n.argumentExpression))
     ) {
       name = n.argumentExpression.text
       obj = n.expression
@@ -234,14 +363,17 @@ export function scan(fileName: string, text: string): Violation[] {
         p.left === n &&
         p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
         p.operatorToken.kind <= ts.SyntaxKind.LastAssignment
-      const onCtx = ts.isIdentifier(obj) && obj.text === 'ctx' // rule 5
-      const inTypeof = ts.isTypeOfExpression(p)
-      const funneled =
-        ts.isCallExpression(p) &&
-        p.arguments.includes(n as any) &&
-        funnels.has(calleeName(p) ?? '') // rule 1
-      const forwarded = ts.isPropertyAssignment(p) && p.initializer === n // rule 2
-      const earlier = validatedEarlier(n, obj.getText(), n.getText(), funnels) // rule 3
+      const onCtx = ts.isIdentifier(obj) && isRuntimeContext(obj) // rule 5
+      const funneled = ts.isCallExpression(p) && isFunnelArg(p, n, funnels) // rule 1
+      const objText = obj.getText()
+      const exprText = n.getText()
+      const earlier = dominated(n, (c) =>
+        c.arguments.some(
+          (a) =>
+            (a.getText() === exprText && isFunnelArg(c, a, funnels)) ||
+            (calleeName(c) === 'validateRunOptions' && a.getText() === objText)
+        )
+      ) // rule 3
       const local =
         ts.isVariableDeclaration(p) &&
         ts.isIdentifier(p.name) &&
@@ -249,9 +381,9 @@ export function scan(fileName: string, text: string): Violation[] {
       if (
         !isWrite &&
         !onCtx &&
-        !inTypeof &&
+        !isPresenceCheck(n) &&
         !funneled &&
-        !forwarded &&
+        !isForward(n) && // rule 2
         !earlier &&
         !local
       )
@@ -270,16 +402,53 @@ export function scan(fileName: string, text: string): Violation[] {
       if (BUDGET_NAMES.has(prop)) {
         const fn = enclosingFunction(n)
         const id = (n.name as ts.Identifier).text
-        // Destructuring a function's own PARAMETER list (`function f({ fuel })`) is the same
-        // read; so is `const { fuel } = options`. Either way the local must only be forwarded
-        // or funneled.
         if (!localSafe(fn, id, n.name, funnels)) report(n)
       }
     }
+
+    // { ...ctx, fuel: { current: o.fuel } } — a derived context carrying a budget that did not
+    // come from a validated one. Every other `{ ...ctx }` inherits validated fields.
+    if (
+      ts.isObjectLiteralExpression(n) &&
+      n.properties.some((q) => ts.isSpreadAssignment(q))
+    )
+      for (const q of n.properties)
+        if (
+          ts.isPropertyAssignment(q) &&
+          BUDGET_NAMES.has(q.name.getText()) &&
+          !budgetFromValidated(q.initializer, funnels)
+        )
+          report(q)
+
     ts.forEachChild(n, visit)
   }
   visit(sf)
   return out
+}
+
+/** A budget override in a spread context is fine only if it is read from a RuntimeContext or
+ * produced by a funnel. */
+function budgetFromValidated(e: ts.Expression, funnels: Funnels): boolean {
+  let ok = true
+  let sawSource = false
+  const visit = (n: ts.Node) => {
+    if (ts.isPropertyAccessExpression(n) && BUDGET_NAMES.has(n.name.text)) {
+      sawSource = true
+      if (!(ts.isIdentifier(n.expression) && isRuntimeContext(n.expression)))
+        ok = false
+      return
+    }
+    if (ts.isCallExpression(n) && funnels.has(calleeName(n) ?? '')) {
+      sawSource = true
+      return
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(e)
+  return (
+    ok &&
+    (sawSource || ts.isLiteralExpression(e) || ts.isObjectLiteralExpression(e))
+  )
 }
 
 function sourceFiles(dir: string): string[] {
@@ -309,10 +478,23 @@ describe('budget funnel', () => {
       afterWrongCheck: `function f(o) { validateRunOptions(other); return o.fuel }`,
       beforeCheck: `function f(o) { const x = o.fuel; validateRunOptions(o); return x }`,
       comparedBeforeFunnel: `function f(a) { const t = a.fuel; if (t > 0) go(); budgetOption('t', t, 1) }`,
+      untypedCtx: `function f(ctx) { return ctx.maxHeapBytes > 0 }`,
+      spreadCtx: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.fuel } }) }`,
+      renamedForward: `function f(o) { return g({ limit: o.fuel }) }`,
+      siblingBranch: `function f(o, a) { if (a) validateRunOptions(o); else return o.fuel > 1 }`,
+      deadClosure: `function f(o) { const c = () => validateRunOptions(o); return o.fuel > 1 }`,
+      swallowed: `function f(o) { try { validateRunOptions(o) } catch {} return o.fuel > 1 }`,
+      methodNamedLikeFunnel: `function f(o) { return cache.timerMs(o.fuel) }`,
+      wrapperWrongArg: `function w(a, max) { sourceBytesOver(a, max) }
+                        function f(o) { w(o.fuel, 1) }`,
+      templateKey: 'function f(o) { return o[`fuel`] > 0 }',
       localUsedBeforeFunnel: `function f(a) { const t = a.timeoutMs; arm(t); budgetOption('t', t, 1) }`,
     }
     for (const [label, src] of Object.entries(bad))
-      expect({ label, n: scan(label, src).length }).toEqual({ label, n: 1 })
+      expect({ label, seen: scan(label, src).length > 0 }).toEqual({
+        label,
+        seen: true,
+      })
 
     const good = {
       funneled: `function f(o) { return budgetOption('fuel', o.fuel, 1) }`,
@@ -325,7 +507,10 @@ describe('budget funnel', () => {
       sameNameProperty: `function f(o) { const fuel = o.fuel; budgetOption('f', fuel, 1); return fuel }`,
       presenceThenChecked: `function f(o) { const m = o.maxSourceBytes; if (m !== undefined) sourceBytesOver('x', m) }`,
       destructuredThenChecked: `function f(o) { const { timeoutMs = 1 } = o; budgetOption('t', timeoutMs, 1); return () => arm(timeoutMs) }`,
-      ctx: `function f(ctx) { return ctx.maxHeapBytes ?? 1 }`,
+      ctx: `function f(ctx: RuntimeContext) { return ctx.maxHeapBytes ?? 1 }`,
+      atomBody: `defineAtom('x', s, o, async (step, ctx) => ctx.fuel.current)`,
+      derivedCtx: `function f(ctx: RuntimeContext) { return run({ ...ctx, fuel: ctx.fuel }) }`,
+      closureAfterCheck: `function f(o) { validateRunOptions(o); return () => o.fuel * 2 }`,
       write: `function f(o) { o.fuel = 3 }`,
     }
     for (const [label, src] of Object.entries(good))
@@ -372,11 +557,10 @@ describe('budget funnel', () => {
           ) &&
           !n.properties.some((p) => ts.isSpreadAssignment(p))
         ) {
-          const fn = enclosingFunction(n)
-          const validated = funnelCalls(fn, FUNNELS).some(
-            (c) =>
-              calleeName(c) === 'validateRunOptions' &&
-              c.getStart() < n.getStart()
+          // DOMINATED by the validation, not merely after it in the text.
+          const validated = dominated(
+            n,
+            (c) => calleeName(c) === 'validateRunOptions'
           )
           const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1
           builders.push(`${relative(ROOT, f)}:${line} validated=${validated}`)

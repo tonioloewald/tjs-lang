@@ -840,8 +840,15 @@ export function emitVerifiedPredicate(
   entryName: string,
   opts: CompilePredicateOptions = {}
 ): EmitPredicateResult {
-  // Validated before it is interpolated into emitted source (re-review 12, B-1).
+  // Validated before it is interpolated into emitted source (re-review 12, B-1). FINITE, too:
+  // emitted code outlives the call that chose its budget and runs in someone else's program,
+  // where an unbounded guard is a hang nobody decided on (re-review 13, G-11). compilePredicate
+  // keeps Infinity — its caller is the one who runs it.
   const budget = budgetOption('fuel', opts.fuel, DEFAULT_PREDICATE_FUEL)
+  if (!Number.isFinite(budget))
+    throw new Error(
+      `Invalid fuel: ${budget} — an emitted predicate's budget must be finite`
+    )
   const result = verifyPredicate(source, opts)
   if (!result.safe) {
     return { safe: false, diagnostics: result.diagnostics }

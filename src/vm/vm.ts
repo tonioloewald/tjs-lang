@@ -1,10 +1,7 @@
 import {
   type Atom,
-  type Capabilities,
   type RunResult,
   type RuntimeContext,
-  type CostOverride,
-  type TimeoutOverride,
   coreAtoms,
   AgentError,
   isProcedureToken,
@@ -18,6 +15,7 @@ import { checkAstVersion } from './ast-version'
 import {
   validateRunOptions,
   budgetOption,
+  type RunOptions,
   sourceBytesOver,
   timerMs,
   DEFAULT_MAX_SOURCE_BYTES,
@@ -90,6 +88,8 @@ let deprecationNoted = false
  */
 export const DEFAULT_ARGS_MAX_BYTES = 4 * 1024 * 1024
 
+export type { RunOptions } from './admission'
+
 export class AgentVM<M extends Record<string, Atom<any, any>>> {
   readonly atoms: typeof coreAtoms & M
 
@@ -97,6 +97,15 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
 
   constructor(customAtoms: M = {} as M) {
     this.atoms = { ...coreAtoms, ...customAtoms }
+    // Every static atom timeout is checked where the VM is BUILT. `defineAtom` checks its own,
+    // but an atom object can be written by hand; checking here means a bad one fails at
+    // construction — a configuration error, reported where it was made — rather than as a
+    // throw out of `vm.run` (re-review 13, F-2).
+    for (const atom of Object.values(this.atoms)) {
+      const raw = (atom as any).timeoutMs
+      if (typeof raw !== 'function')
+        budgetOption(`timeoutMs of atom '${atom.op}'`, raw, 1000)
+    }
   }
 
   /**
@@ -117,11 +126,10 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         // undefined timeoutMs means the per-atom default (1000ms); 0 means none. A function
         // timeout exists only per call, and Infinity — like 0 — means "no per-atom limit",
         // which says nothing about how long a RUN should get: counting it made every run on
-        // this VM unbounded. An invalid value is refused here, by the funnel, rather than
-        // silently skipped.
+        // this VM unbounded. Validity was established by the constructor.
         const raw = (atom as any).timeoutMs
         if (typeof raw === 'function') continue
-        const t = budgetOption(`timeoutMs of atom '${atom.op}'`, raw, 1000)
+        const t: number = raw ?? 1000
         if (t > 0 && Number.isFinite(t) && t > slowest) slowest = t
       }
       this._defaultRunTimeout = Math.max(
@@ -192,28 +200,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
   async run(
     astOrToken: BaseNode | string,
     args: Record<string, any> = {},
-    options: {
-      fuel?: number
-      capabilities?: Capabilities
-      trace?: boolean
-      timeoutMs?: number // Wall-clock cap on the whole run (default: slowest atom × 2, min 60s — see defaultRunTimeout)
-      signal?: AbortSignal // External abort signal (e.g., from caller)
-      costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
-      /** Per-atom call quotas — caps work summoned OUTSIDE the VM, which fuel cannot see. */
-      quotas?: Record<string, number>
-      /**
-       * Shared quota counters. Pass the same object to nested runs to make a quota hold
-       * through re-entrancy — otherwise each run starts fresh and a capability that calls
-       * back into the VM multiplies its allowance.
-       */
-      quotaUsed?: Record<string, number>
-      timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
-      context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
-      membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
-      argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default DEFAULT_ARGS_MAX_BYTES); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
-      maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES; 0/Infinity disable — trusted source only). A FINITE value also raises the cap on guest-built source for runCode/transpileCode; disabling never uncaps that path. Transpiling runs before any budget
-      maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
-    } = {}
+    options: RunOptions = {}
   ): Promise<RunResult> {
     // ADMISSION, before anything is computed from the options or done with the input: every
     // budget is derived from these numbers, and `fuel: 'abc'` made the argument budget NaN

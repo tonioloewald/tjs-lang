@@ -160,6 +160,14 @@ jobs:
           # a week after `index.tjs` moved to 8KB (0.14.0 final re-review 12). The transpile
           # needs only this repo's CLI, not the functions tree's dependencies.
           (cd functions && bun run build:transpile) > /dev/null
+          # `git diff` cannot see an UNTRACKED file, so a new .tjs whose .js was never
+          # committed would pass (re-review 13, G-8). `version.js` needs the functions tree's
+          # node_modules to regenerate, so it is checked at deploy (`/health`), not here.
+          untracked=$(git ls-files --others --exclude-standard -- functions/src)
+          if [ -n "$untracked" ]; then
+            echo "::error::functions' build:transpile produced files that are not committed: $untracked"
+            exit 1
+          fi
           if ! git diff --exit-code -- \
             demo/docs.json \
             docs/tjs-vs-typescript.md \

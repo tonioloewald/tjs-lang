@@ -729,9 +729,10 @@ describe('re-review 12: every budget option is read through the funnel', () => {
     expect(compilePredicate(ok, ['isPos'], { fuel: Infinity }).isPos(1)).toBe(
       true
     )
-    expect(emitVerifiedPredicate(ok, 'isPos', { fuel: Infinity }).safe).toBe(
-      true
-    )
+    // ...but not in EMITTED code, which runs in someone else's program (re-review 13, G-11).
+    expect(() =>
+      emitVerifiedPredicate(ok, 'isPos', { fuel: Infinity })
+    ).toThrow(/must be finite/)
   })
 
   it('compilePredicate splices only VERIFIED names into generated source', () => {
@@ -771,5 +772,75 @@ describe('re-review 12: every budget option is read through the funnel', () => {
     expect(() => transpile('1', { maxSourceBytes: -Infinity })).toThrow(
       /-Infinity/
     )
+  })
+})
+
+describe('re-review 13: every run option is classified, and quotaUsed is a counter', () => {
+  const ping = defineAtom('ping', undefined, undefined, async () => 1, {
+    effects: 'pure',
+  })
+  const fourPings = {
+    op: 'seq',
+    steps: [1, 2, 3, 4].map(() => ({ op: 'ping' })),
+  } as any
+
+  it('a corrupted quotaUsed is refused — it used to switch the quota off', async () => {
+    // NaN: `NaN >= 1` is false, so every call ran. -100 granted a hundred extra calls. A
+    // string concatenated ('x1111'). Infinity is a corrupted COUNT, not "no limit".
+    for (const bad of [NaN, -100, 'x', Infinity, null] as any[]) {
+      const calls: number[] = []
+      const counted = defineAtom(
+        'ping',
+        undefined,
+        undefined,
+        async () => {
+          calls.push(1)
+        },
+        { effects: 'pure' }
+      )
+      const r = await new AgentVM({ ping: counted }).run(
+        fourPings,
+        {},
+        {
+          quotas: { ping: 1 },
+          quotaUsed: { ping: bad },
+        }
+      )
+      expect(reasonOf(r)).toMatch(/Invalid run option quotaUsed\.ping/)
+      expect(calls.length).toBe(0)
+    }
+    for (const bad of [[], 'counts', 3] as any[]) {
+      const r = await new AgentVM({ ping }).run(
+        fourPings,
+        {},
+        {
+          quotaUsed: bad,
+        }
+      )
+      expect(reasonOf(r)).toMatch(/Invalid run option quotaUsed/)
+    }
+  })
+
+  it('a valid shared counter still holds the quota across runs', async () => {
+    const quotaUsed = {}
+    const vm = new AgentVM({ ping })
+    const one = { op: 'seq', steps: [{ op: 'ping' }] } as any
+    expect(
+      reasonOf(await vm.run(one, {}, { quotas: { ping: 1 }, quotaUsed }))
+    ).toBe('')
+    expect(
+      reasonOf(await vm.run(one, {}, { quotas: { ping: 1 }, quotaUsed }))
+    ).toMatch(/[Qq]uota/)
+  })
+
+  it('a hand-built atom with an invalid timeoutMs is refused when the VM is BUILT', () => {
+    // defineAtom checks its own; an atom object written by hand used to reach vm.run and throw
+    // out of the defaultRunTimeout getter (re-review 13, F-2).
+    for (const bad of [NaN, -1, '10'] as any[]) {
+      const handBuilt = { ...ping, op: 'handBuilt', timeoutMs: bad }
+      expect(() => new AgentVM({ handBuilt } as any)).toThrow(
+        /Invalid timeoutMs of atom 'handBuilt'/
+      )
+    }
   })
 })

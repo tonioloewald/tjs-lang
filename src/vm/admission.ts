@@ -1,3 +1,5 @@
+import type { Capabilities, CostOverride, TimeoutOverride } from './runtime'
+
 /**
  * ADMISSION — the one place caller-sized input and caller-set budgets are checked, before any
  * work proportional to them is done.
@@ -44,48 +46,114 @@ export const DEFAULT_MAX_SOURCE_BYTES = 8 * 1024
 const isBudget = (v: unknown): v is number =>
   typeof v === 'number' && !Number.isNaN(v) && v >= 0
 
+/** The options `vm.run` accepts. Declared here, beside {@link RUN_OPTION_KINDS}, so the two
+ * cannot be edited apart. */
+export interface RunOptions {
+  fuel?: number
+  capabilities?: Capabilities
+  trace?: boolean
+  timeoutMs?: number // Wall-clock cap on the whole run (default: slowest atom × 2, min 60s — see defaultRunTimeout)
+  signal?: AbortSignal // External abort signal (e.g., from caller)
+  costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
+  /** Per-atom call quotas — caps work summoned OUTSIDE the VM, which fuel cannot see. */
+  quotas?: Record<string, number>
+  /**
+   * Shared quota counters. Pass the same object to nested runs to make a quota hold
+   * through re-entrancy — otherwise each run starts fresh and a capability that calls
+   * back into the VM multiplies its allowance.
+   */
+  quotaUsed?: Record<string, number>
+  timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
+  context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
+  membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
+  argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default DEFAULT_ARGS_MAX_BYTES); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
+  maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES; 0/Infinity disable — trusted source only). For guest-built source (runCode/transpileCode) it can only LOWER the cap — see guestSourceCap
+  maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
+}
+
+/**
+ * How each run option is validated — EVERY option, not a list of the ones someone thought
+ * were budgets.
+ *
+ * The 0.14.0 cycle blocked four re-reviews running on a budget that failed open because it
+ * was not on a list: `Eval`'s cap, `transpile`'s cap, predicate fuel, then `quotaUsed` — a
+ * counter compared against a quota, where `NaN >= 3` is false and `-100` granted a hundred
+ * extra calls (re-review 13). A list of budget NAMES is closed; the set of options is not. So
+ * this is keyed by `keyof RunOptions`: adding an option without saying what it is fails to
+ * COMPILE, and the only way to leave one unvalidated is to write `'opaque'` next to it.
+ *
+ * - `budget`: a non-negative number (`Infinity` = no limit).
+ * - `budgetTable`: an object of per-op budgets (a function value is checked where it is called).
+ * - `counterTable`: an object of per-op COUNTS — finite, non-negative. A counter of Infinity
+ *   is not "no limit", it is a corrupted count.
+ * - `opaque`: not a number the run compares against anything (capabilities, a signal, …).
+ */
+type OptionKind = 'budget' | 'budgetTable' | 'counterTable' | 'opaque'
+export const RUN_OPTION_KINDS: {
+  readonly [K in keyof Required<RunOptions>]: OptionKind
+} = {
+  fuel: 'budget',
+  timeoutMs: 'budget',
+  argsMaxBytes: 'budget',
+  membraneMaxBytes: 'budget',
+  maxHeapBytes: 'budget',
+  maxSourceBytes: 'budget',
+  costOverrides: 'budgetTable',
+  timeoutOverrides: 'budgetTable',
+  quotas: 'budgetTable',
+  quotaUsed: 'counterTable',
+  capabilities: 'opaque',
+  trace: 'opaque',
+  signal: 'opaque',
+  context: 'opaque',
+}
+
 /**
  * The reason a run's options are unusable, or null.
  *
  * Refused rather than defaulted: a caller who passed nonsense did not ask for the default.
- * `fuel: null` is refused too — only an ABSENT fuel takes the default. `Infinity` stays
+ * `fuel: null` is refused too — only an ABSENT option takes the default. `Infinity` stays
  * legal everywhere a budget is a ceiling.
  */
 export function validateRunOptions(
   options: Record<string, any>
 ): string | null {
-  const scalars = [
-    'fuel',
-    'timeoutMs',
-    'argsMaxBytes',
-    'membraneMaxBytes',
-    'maxHeapBytes',
-    'maxSourceBytes',
-  ]
-  for (const name of scalars) {
-    if (!(name in options) || options[name] === undefined) continue
-    if (!isBudget(options[name]))
-      return `Invalid run option ${name}: ${describe(
-        options[name]
-      )} — it must be a non-negative number`
-  }
-  // Per-op tables. A negative cost MINTED fuel (fuelUsed −398 at fuel 1), a NaN quota read
-  // as unlimited (`used >= NaN` is never true), a NaN timeout override disabled the timeout.
-  for (const table of ['costOverrides', 'timeoutOverrides', 'quotas']) {
-    const t = options[table]
-    if (t === undefined) continue
-    if (!t || typeof t !== 'object')
-      return `Invalid run option ${table}: ${describe(
-        t
-      )} — it must be an object of per-op values`
-    for (const [op, v] of Object.entries(t)) {
-      // Cost and timeout overrides may be functions of the input; their RESULT is checked
-      // where it is used (the atom charge, `timerMs`), since it only exists then.
-      if (typeof v === 'function' && table !== 'quotas') continue
+  for (const [name, kind] of Object.entries(RUN_OPTION_KINDS)) {
+    if (kind === 'opaque') continue
+    const v = options[name]
+    if (v === undefined) continue
+    if (kind === 'budget') {
       if (!isBudget(v))
-        return `Invalid run option ${table}.${op}: ${describe(
+        return `Invalid run option ${name}: ${describe(
           v
         )} — it must be a non-negative number`
+      continue
+    }
+    // Per-op tables. A negative cost MINTED fuel (fuelUsed −398 at fuel 1), a NaN quota read
+    // as unlimited (`used >= NaN` is never true), a NaN timeout override disabled the timeout.
+    if (!v || typeof v !== 'object' || Array.isArray(v))
+      return `Invalid run option ${name}: ${describe(
+        v
+      )} — it must be an object of per-op values`
+    for (const [op, x] of Object.entries(v)) {
+      // Cost and timeout overrides may be functions of the input; their RESULT is checked
+      // where it is used (the atom charge, `timerMs`), since it only exists then.
+      if (
+        kind === 'budgetTable' &&
+        typeof x === 'function' &&
+        name !== 'quotas'
+      )
+        continue
+      const ok =
+        kind === 'counterTable'
+          ? isBudget(x) && Number.isFinite(x)
+          : isBudget(x)
+      if (!ok)
+        return `Invalid run option ${name}.${op}: ${describe(
+          x
+        )} — it must be a ${
+          kind === 'counterTable' ? 'finite ' : ''
+        }non-negative number`
     }
   }
   return null

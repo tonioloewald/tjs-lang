@@ -2654,10 +2654,8 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     effects = 'io',
   } = typeof options === 'string' ? { docs: options } : options
   // A static timeout is checked when the atom is DEFINED, so a bad one fails where it was
-  // written instead of on its first call (a function timeout can only be checked per call,
-  // which `timerMs` does).
-  if (typeof timeoutMs !== 'function')
-    budgetOption(`timeoutMs of atom '${op}'`, timeoutMs, 1000)
+  // written instead of on its first call.
+  const atomTimeout = budgetOption(`timeoutMs of atom '${op}'`, timeoutMs, 1000)
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
     const { op: _op, result: _res, ...inputData } = step
@@ -2716,7 +2714,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // 3. Execution with Timeout (per-atom override > atom default)
       const overrideTimeout = ctx.timeoutOverrides?.[op]
       const baseTimeout =
-        overrideTimeout !== undefined ? overrideTimeout : timeoutMs
+        overrideTimeout !== undefined ? overrideTimeout : atomTimeout
       // `timerMs`: 0 and Infinity mean none, and a NaN (from a function override) is refused
       // rather than read as `NaN > 0` — false, which silently disabled the timeout.
       const armedTimeout = timerMs(
@@ -2822,7 +2820,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     outputSchema,
     exec,
     docs,
-    timeoutMs,
+    timeoutMs: atomTimeout,
     cost,
     effects,
     create: (input: I) => ({ op, ...input }),

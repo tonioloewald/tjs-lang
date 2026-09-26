@@ -535,6 +535,29 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 13 — dispositions** (docs/reviews/0.14.0-final-rereview-13.md;
+      BLOCK on `quotaUsed` unvalidated — the FOURTH budget to fail open by being off a list).
+      Root cause addressed, not the site: `RUN_OPTION_KINDS` in `src/vm/admission.ts` is keyed
+      by `keyof RunOptions` (the options type moved there), so an unclassified run option does
+      not compile; `quotaUsed` is a `counterTable` (finite, non-negative). Mutation-checked:
+      dropping it from the table fails `tsc`; reclassifying it `opaque` fails the behaviour
+      test. The guard was hardened for F-1 shapes 1–4, 6–9 (dominance, budget-named forwards,
+      spread contexts, positional wrappers, bare-name funnels, typed `ctx`, template keys),
+      each an apparatus row; its header now lists what it cannot see. F-2: `new AgentVM`
+      validates hand-built atom timeouts. G-8: CI fails on untracked `functions/src` output.
+      G-10: safe-eval.md reworded. G-11: `emitVerifiedPredicate` refuses `fuel: Infinity`;
+      CHANGELOG names the `compilePredicate` export-name check. Open:
+  - [ ] **F-1 shape 5 and computed keys**: reassigning options after validation, `o[k]`,
+        `Object.entries(o)` — named as blind spots in the guard's header, not caught.
+  - [ ] **G-6 guard scope**: `.tjs` sources, `bin/`, `scripts/` are not scanned. The
+        `functions/*.tjs` consumer hands its values to `vm.run`, whose options are covered by
+        the typed registry.
+  - [ ] **G-7 budget-shaped values outside `vm.run` options**: predicate `suggest`'s `limit`
+        (a slice bound, no safety effect), `storeSearch`'s `k` (charged via `checkedCost`),
+        the CLI's `timeout`/`maxWarnings`. Consider a typed registry for `CompilePredicateOptions`
+        and the Eval/SafeFunction options too, if a second options type grows a budget.
+  - [ ] **F-3 bundle growth** +80–170 B gz across 9 bundles (predicate.ts → admission.ts);
+        record with the per-target size-delta item.
 - [ ] **0.14.0 final re-review 12 — dispositions** (docs/reviews/0.14.0-final-rereview-12.md;
       BLOCK on predicate fuel read outside the funnel). Fixed as a CLASS, not a site: one
       `budgetOption` validator in `src/vm/admission.ts` and `src/budget-funnel.test.ts`, which
