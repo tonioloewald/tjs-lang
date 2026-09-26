@@ -10,6 +10,7 @@
  * This runtime is attached to globalThis.__tjs and shared across modules.
  */
 
+import { RUNTIME_ABI } from './runtime-abi'
 import { validate, s } from 'tosijs-schema'
 import { functionMetaToJSONSchema } from './json-schema'
 import {
@@ -84,6 +85,8 @@ export {
 const pkg = require('../../package.json') as { version: string }
 
 export const TJS_VERSION: string = pkg.version
+
+export { RUNTIME_ABI }
 
 /**
  * Well-known symbol for custom equality.
@@ -269,11 +272,49 @@ function comparePrerelease(a: string, b: string): -1 | 0 | 1 {
 }
 
 /**
+ * The first MonadicError CARRIED inside a failed argument — `{ x: err }`, `{ kids: [err] }`.
+ *
+ * Called only when a check has already FAILED, so the happy path never pays. Inline shape
+ * checks found such an error member by member; a declared `Type` checks the whole value at
+ * once, so `p: Pt` called with `{ x: err }` returned a NEW "Expected Pt" error and lost the
+ * caller's (0.14.0 final review, m-2). Plain objects and arrays only, own DATA properties only
+ * (a getter is never run), cycle-safe, and bounded: a failure path must not become a walk of
+ * an arbitrarily large value. The inline runtime carries the same logic (`__carried`),
+ * pinned by a differential test.
+ */
+export function findCarriedError(v: unknown): MonadicError | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const seen = new Set<unknown>()
+  const queue: unknown[] = [v]
+  for (let i = 0; i < queue.length && i < 1000; i++) {
+    const o = queue[i] as any
+    const proto = Object.getPrototypeOf(o)
+    if (!Array.isArray(o) && proto !== Object.prototype && proto !== null)
+      continue
+    for (const k of Object.keys(o)) {
+      const d = Object.getOwnPropertyDescriptor(o, k)
+      if (!d || !('value' in d)) continue
+      const x = d.value
+      if (isMonadicError(x)) return x as MonadicError
+      if (x && typeof x === 'object' && !seen.has(x)) {
+        seen.add(x)
+        queue.push(x)
+      }
+    }
+  }
+  return undefined
+}
+
+/**
  * Check if two versions are compatible (same major version)
  */
 export function versionsCompatible(a: string, b: string): boolean {
   const va = parseVersion(a)
   const vb = parseVersion(b)
+  // Semver: below 1.0 a MINOR bump is the breaking one, so 0.13 and 0.14 are not
+  // interchangeable (0.14.0 final review, m-6).
+  if (va.major === 0 || vb.major === 0)
+    return va.major === vb.major && va.minor === vb.minor
   return va.major === vb.major
 }
 
@@ -441,6 +482,8 @@ export function typeError(
   // (`{ x: err }`) propagates too, the same way whichever form checked it.
   if (root !== undefined && isMonadicError(root)) return root
   if (isMonadicError(value)) return value
+  const carried = findCarriedError(root !== undefined ? root : value)
+  if (carried) return carried
   // `typeof []` is 'object', which made every array failure report "got object" — least
   // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
   // the only honest answer here.
@@ -2166,6 +2209,8 @@ export function createRuntime() {
     // Already a TJS error: propagate it (see `typeError`, including `root`).
     if (root !== undefined && isMonadicError(root)) return root
     if (isMonadicError(value)) return value
+    const carried = findCarriedError(root !== undefined ? root : value)
+    if (carried) return carried
     // `typeof []` is 'object', which made every array failure report "got object" — least
     // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
     // the only honest answer here.
@@ -2251,6 +2296,7 @@ export function createRuntime() {
 
   return {
     version: TJS_VERSION,
+    abi: RUNTIME_ABI,
     // Monadic error handling
     MonadicError,
     typeError: instanceTypeError,
@@ -2364,6 +2410,7 @@ export type TJSRuntime = ReturnType<typeof createRuntime>
  */
 export const runtime = {
   version: TJS_VERSION,
+  abi: RUNTIME_ABI,
   // Monadic error handling (new)
   MonadicError,
   typeError,
@@ -2492,9 +2539,9 @@ export function installRuntime(): typeof runtime {
         )
       }
     } else {
-      // Different major version - breaking change potential
+      // Incompatible (a different major, or a different minor below 1.0)
       console.warn(
-        `TJS runtime version conflict: ${existingVersion} vs ${TJS_VERSION} (major version mismatch)`
+        `TJS runtime version conflict: ${existingVersion} vs ${TJS_VERSION} (incompatible versions)`
       )
       // Use the newer one but warn about potential issues
       if (comparison > 0) {

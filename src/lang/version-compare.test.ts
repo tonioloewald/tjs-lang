@@ -88,3 +88,15 @@ describe('prerelease ordering follows semver §11', () => {
     expect(compareVersions('0.13.0-beta.1', '0.13.0-beta.1')).toBe(0)
   })
 })
+
+describe('versionsCompatible follows semver below 1.0 (0.14.0 final review, m-6)', () => {
+  it('a 0.x MINOR bump is breaking; a patch is not', () => {
+    expect(versionsCompatible('0.13.13', '0.14.0')).toBe(false)
+    expect(versionsCompatible('0.14.0', '0.14.3')).toBe(true)
+    expect(versionsCompatible('0.14.0-rc.1', '0.14.0')).toBe(true)
+  })
+  it('from 1.0, the major decides', () => {
+    expect(versionsCompatible('1.2.0', '1.9.1')).toBe(true)
+    expect(versionsCompatible('1.2.0', '2.0.0')).toBe(false)
+  })
+})

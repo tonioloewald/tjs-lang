@@ -171,6 +171,33 @@ describe('the three typeError copies agree (differential)', () => {
       (r) => r === e,
     ],
     [
+      'an error CARRIED in the failed value propagates',
+      ['p', 'x', { a: 1, b: [2, { c: e }] }],
+      (r) => r === e,
+    ],
+    [
+      'a carried error behind a getter is not read',
+      [
+        'p',
+        'x',
+        Object.defineProperty({}, 'g', { get: () => e, enumerable: true }),
+      ],
+      (r) => isMonadicError(r) && r !== e,
+    ],
+    [
+      'a cyclic value without an error terminates with a new error',
+      [
+        'p',
+        'x',
+        (() => {
+          const o: any = {}
+          o.o = o
+          return o
+        })(),
+      ],
+      (r) => isMonadicError(r) && r !== e,
+    ],
+    [
       'null root, plain value: a new error',
       ['p', 'x', 5, undefined, null],
       (r) => isMonadicError(r) && r !== e,
@@ -247,5 +274,83 @@ describe('the cases the boundary exists for (need NESTING to reach)', () => {
       tag: {},
     }
     expect(Tree.check(bad)).toBe(false)
+  })
+})
+
+describe('an OLDER installed runtime does not change what emitted code returns (m-6)', () => {
+  // A 0.13-shaped global: no `abi`, and a typeError that ignores `root` and never
+  // propagates. 0.14 code used it whenever it existed, so the caller's error came back
+  // replaced by a new "got object" one.
+  it('emitted code falls back to its inline runtime, and the error propagates', () => {
+    const saved = (globalThis as any).__tjs
+    const stale: any = {
+      version: '0.13.13',
+      typeError: (p: string) => new MonadicError('stale ' + p, p, 'x', 'y'),
+      isMonadicError,
+    }
+    stale.createRuntime = () => stale
+    ;(globalThis as any).__tjs = stale
+    try {
+      const f = new Function(
+        tjs('function f(o: { x: 0 }):! 0 { return 1 }').code + '\nreturn f'
+      )()
+      const e = upstream()
+      expect(f({ x: e })).toBe(e)
+      expect(f(e)).toBe(e)
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  })
+
+  it('a current runtime is still used when installed', () => {
+    const saved = (globalThis as any).__tjs
+    const rt = createRuntime()
+    ;(globalThis as any).__tjs = rt
+    try {
+      const code = tjs('function f(x: 0):! 0 { return x }').code
+      expect(code).toContain('abi >=')
+      expect(rt.abi).toBeGreaterThanOrEqual(2)
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  })
+})
+
+describe('a declared Type parameter propagates a carried error (m-2)', () => {
+  it('p: Pt called with { x: err } returns err, and a recursive Type too', () => {
+    const [pt, tree] = load(
+      'Type Pt { example: { x: 0, y: 0 } }\nType T { example: { v: 0, kids: [T] } }\n' +
+        'function pt(p: Pt):! 0 { return 1 }\nfunction tree(t: T):! 0 { return 1 }',
+      ['pt', 'tree']
+    )
+    const e = upstream()
+    expect(pt({ x: e, y: 1 })).toBe(e)
+    expect(tree({ v: 1, kids: [{ v: 2, kids: [e] }] })).toBe(e)
+    expect(pt({ x: 1, y: 2 })).toBe(1)
+    expect(isMonadicError(pt({ x: 'no', y: 2 }))).toBe(true)
+  })
+})
+
+describe('a stack overflow inside a nested runtime check is recorded, not silent', () => {
+  it('rejects, and leaves a flight-recorder entry', () => {
+    const saved = (globalThis as any).__tjs
+    const rt = createRuntime()
+    ;(globalThis as any).__tjs = rt
+    try {
+      const T = new Function(
+        tjs(
+          'function loop(x) { return loop(x) }\n' +
+            'Type Bad {\n  example: {}\n  predicate(x) { return loop(x) }\n}\n' +
+            'Type T { example: { next: T | null, b: Bad } }'
+        ).code + '\nreturn T'
+      )()
+      rt.clearRecords()
+      expect(T.check({ next: { next: null, b: {} }, b: {} })).toBe(false)
+      expect(
+        rt.records().some((r: any) => /ran out of stack/.test(r.message))
+      ).toBe(true)
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
   })
 })

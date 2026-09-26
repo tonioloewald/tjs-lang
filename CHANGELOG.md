@@ -41,6 +41,12 @@ options bags. But every validated function used to begin with a pre-check that r
 - **A `MonadicError` is never an object shape**, so `o: {}` or an all-optional shape
   propagates it instead of running on it; an error inside an options bag (`{ x: err }`)
   propagates the same way in every parameter form.
+- **Emitted code uses an installed `globalThis.__tjs` only if it speaks the same runtime ABI**
+  (`abi`, now 2); otherwise it uses its own inline runtime. A 0.13 runtime's `typeError`
+  ignores the propagation argument, so 0.14 code running under one replaced the caller's
+  error with a fresh "got object" error. `versionsCompatible` now follows semver below 1.0,
+  so 0.13 and 0.14 count as incompatible. **Embedders that pin tjs-lang in more than one
+  place (tosijs-ui pins it twice) should bump every pin together.**
 
 **What may newly REJECT something** — each is a fix, and each can turn a value that used to
 pass into a returned `MonadicError`:
@@ -69,11 +75,18 @@ pass into a returned `MonadicError`:
 - **A `.tjs` template literal is no longer rewritten.** The first-assignment auto-`const` ran
   over raw source, so a template line like `Red = 'red'` got `const ` written into the STRING.
 - An anonymous `export default function` is reported as `default` in `result.types` (it was
-  `anonymous`, attached to a binding that did not exist).
-- Size, measured against the previous build: the transpiler bundle (`tjs-lang/lang`) grew by
-  2.1 KB gzipped, `tjs-lang/browser` by 2.0 KB, `tjs-lang/lang/from-ts` by 0.4 KB. An emitted
-  file whose `Type` examples need the new markers carries about 3.1 KB (1.2 KB gzipped) more
-  inline runtime; a file that doesn't, carries nothing.
+  `anonymous`, attached to a binding that did not exist), with its return type in
+  `result.types` and the `.d.ts`, and `default` in its error paths.
+- Size, measured against the published v0.13.13 (KiB, zlib default — the README's method):
+  `tjs-lang/lang` grew 6.2 KB gzipped (98.2 → 104.4), the full `tjs-lang` entry 7.5 KB,
+  `tjs-lang/browser` 6.2 KB, `tjs-lang/lang/from-ts` 1.7 KB, `tjs-lang/eval` 1.0 KB and
+  `tjs-lang/vm` 0.9 KB. (An earlier draft of this entry said +2.1 KB, measured against a
+  build that already had some of the growth.) In EMITTED code: a file whose `Type` examples
+  carry a marker (`0.0`, a union, `+0`) carries ~1.7 KB (0.7 KB gzipped) more inline
+  runtime, and only a file with a recursive reference also carries the solver, ~5.8 KB
+  (2.1 KB gzipped) in all; a file with no marker carries nothing. Per call, a marked
+  non-recursive Type measured ~15% slower than an unmarked one (0.039 vs 0.034 µs), and a
+  recursive Type ~5× an unmarked one — the price of checking a value that can recurse.
 
 ### Changed
 

@@ -294,13 +294,18 @@ function load(src: string, names: string[], withRuntime: boolean) {
   }
 }
 
+// The fast lane runs a quarter of the sweep with the same fixed seeds (a prefix of the full
+// one); plain `bun test` — the release gate — runs all of it. At 400 each the file cost ~5s
+// of `test:fast` (0.14.0 final review, m-7).
+const TRIALS = process.env.SKIP_BENCHMARKS ? 100 : 400
+
 describe('the recursive checker agrees with the oracle', () => {
-  it('on 400 random type systems and graphs', () => {
+  it(`on ${TRIALS} random type systems and graphs`, () => {
     const r = rng(20260926)
     let checks = 0
     let accepted = 0
     const disagreements: string[] = []
-    for (let trial = 0; trial < 400; trial++) {
+    for (let trial = 0; trial < TRIALS; trial++) {
       const sys = randomSystem(r)
       const src = render(sys)
       const types = load(
@@ -327,7 +332,7 @@ describe('the recursive checker agrees with the oracle', () => {
     }
     expect(disagreements).toEqual([])
     // Apparatus: both verdicts are exercised in volume, or agreement means nothing.
-    expect(checks).toBeGreaterThan(2000)
+    expect(checks).toBeGreaterThan(5 * TRIALS)
     expect(accepted).toBeGreaterThan(checks / 10)
     expect(checks - accepted).toBeGreaterThan(checks / 10)
   })
@@ -338,12 +343,12 @@ describe('the oracle agrees when ONE validation covers many nodes', () => {
   // same validation meets a node again — which the per-node queries above never do. Here
   // every node goes through one `{ items: [...] }` check, against each type and against a
   // union of two types (so a failed alternative's work is REUSED by the next one).
-  it('on 400 random systems, each checked as one batch', () => {
+  it(`on ${TRIALS} random systems, each checked as one batch`, () => {
     const r = rng(9_2026)
     let batches = 0
     let accepted = 0
     const disagreements: string[] = []
-    for (let trial = 0; trial < 400; trial++) {
+    for (let trial = 0; trial < TRIALS; trial++) {
       const sys = randomSystem(r)
       const n = sys.length
       const wrappers: string[] = []
@@ -388,9 +393,9 @@ describe('the oracle agrees when ONE validation covers many nodes', () => {
       }
     }
     expect(disagreements).toEqual([])
-    expect(batches).toBeGreaterThan(2000)
+    expect(batches).toBeGreaterThan(5 * TRIALS)
     // A whole batch is valid less often than one node, so the floor is absolute.
-    expect(accepted).toBeGreaterThan(150)
+    expect(accepted).toBeGreaterThan((150 * TRIALS) / 400)
     expect(batches - accepted).toBeGreaterThan(batches / 20)
   })
 })

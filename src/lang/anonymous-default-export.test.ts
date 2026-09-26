@@ -93,3 +93,31 @@ describe('anonymous export default — what it publishes', () => {
     expect(f(1)).toBe(2)
   })
 })
+
+describe('anonymous export default keeps its RETURN type (0.14.0 final review, m-3)', () => {
+  it('in types.default, in the .d.ts, and error paths say `default`', async () => {
+    const { generateDTS } = await import('./emitters/dts')
+    const src = 'export default function (a: 0): 0 { return a }'
+    const r = tjs(src)
+    expect(JSON.stringify((r.types as any).default.returns)).toContain(
+      'integer'
+    )
+    expect((r.types as any).default.name).toBe('default')
+    expect(generateDTS(r, src).trim()).toBe(
+      'export default function(a: number): number;'
+    )
+    const saved = (globalThis as any).__tjs
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      const f = new Function(
+        r.code.replace(/export default /, '') + '\nreturn __tjs_default'
+      )()
+      const e = f('x')
+      expect(isMonadicError(e)).toBe(true)
+      expect(e.message).toContain('default.a')
+      expect(e.message).not.toContain('__tjs_default')
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  })
+})

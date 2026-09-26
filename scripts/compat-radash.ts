@@ -310,8 +310,19 @@ async function main() {
     // above: zod reported "551/552 passed" while most of its suites threw on import.
     // Suites are counted separately — minus the ones classified as upstream, which fail as
     // whole suites by definition.
-    const suitesFailed =
+    // COUNTED, not subtracted: a subtraction lets a newly failing suite cancel against an
+    // upstream one, and relies on the upstream list being a subset of this run's failures
+    // (0.14.0 final review, n-1). A suite vitest reports as failed but never lists is
+    // still a failure, so the reported total is the floor.
+    const listedFailed = (json.testResults ?? []).filter(
+      (s: any) =>
+        s.status === 'failed' &&
+        !upstreamFailures.includes(s.name.replace(RADASH_DIR + '/', ''))
+    ).length
+    const suitesFailed = Math.max(
+      listedFailed,
       (json.numFailedTestSuites ?? 0) - upstreamFailures.length
+    )
     if (suitesFailed > 0)
       console.log(
         `  Suites failed (incl. ones that never loaded): ${suitesFailed}`

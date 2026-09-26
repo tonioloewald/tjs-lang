@@ -46,6 +46,7 @@
  * must stay in sync with the runtime - a symptom of this leaky abstraction.
  */
 
+import { RUNTIME_ABI } from '../runtime-abi'
 import type { FunctionDeclaration, Program } from 'acorn'
 import { parseExpressionAt, parse as acornParse } from 'acorn'
 import * as walk from 'acorn-walk'
@@ -87,7 +88,7 @@ const INLINE_MONADIC_ERROR = `const MonadicError=(globalThis.__tjs_MonadicError_
  * behavior of the program it records.
  */
 const INLINE_TYPE_ERROR = `function __arrKinds(v){if(!v.length)return'empty array';const k=[],n=Math.min(v.length,64);for(let i=0;i<n;i++){const x=v[i],t=x===null?'null':Array.isArray(x)?'array':typeof x;if(!k.includes(t))k.push(t);if(k.length===4)return'array of '+k.join(' | ')+(i+1<v.length?' …':'')}return'array of '+k.join(' | ')+(v.length>64?' …':'')}
-function typeError(p,e,v,r,o){if(o!==undefined&&isMonadicError(o))return o;if(isMonadicError(v))return v;const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
+function __carried(v){if(!v||typeof v!=='object')return;const s=new Set(),q=[v];for(let i=0;i<q.length&&i<1000;i++){const o=q[i],pr=Object.getPrototypeOf(o);if(!Array.isArray(o)&&pr!==Object.prototype&&pr!==null)continue;for(const k of Object.keys(o)){const d=Object.getOwnPropertyDescriptor(o,k);if(!d||!('value' in d))continue;const x=d.value;if(isMonadicError(x))return x;if(x&&typeof x==='object'&&!s.has(x)){s.add(x);q.push(x)}}}}function typeError(p,e,v,r,o){if(o!==undefined&&isMonadicError(o))return o;if(isMonadicError(v))return v;const cr=__carried(o!==undefined?o:v);if(cr)return cr;const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
 import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
@@ -876,11 +877,26 @@ function transformReturnDefaults(str: string): string {
  * Scans a MASKED view so a signature quoted in a string or comment is not one, and matches
  * the parameter list by balanced parens rather than by "characters that are not `)`".
  */
+/** The local binding an anonymous `export default function (…)` is given. */
+const ANONYMOUS_DEFAULT = '__tjs_default'
+
 function findSignatureReturn(
   source: string,
   funcName: string
 ): { type: string | null; safety: 'safe' | 'unsafe' | undefined } {
   const masked = maskLiterals(source)
+  // The anonymous default export has no name in the source to anchor on — its binding is
+  // the emitter's own — so it anchors on the declaration itself (0.14.0 final review, m-3:
+  // its return type was silently dropped from `types.default` and the `.d.ts`).
+  if (funcName === ANONYMOUS_DEFAULT) {
+    for (const m of masked.matchAll(
+      /export\s+default\s+(?:async\s+)?function\s*\*?\s*\(/g
+    )) {
+      const found = readSignatureAt(source, masked, m.index! + m[0].length)
+      if (found.type !== null || found.safety !== undefined) return found
+    }
+    return { type: null, safety: undefined }
+  }
   const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // `function NAME(` or `const/let/var NAME = (` — the second covers arrows and function
   // expressions alike, since both put the parameter list right after the `=`.
@@ -1161,9 +1177,9 @@ export function transpileToJS(
         // On the MASKED view: `export default function /* ( */ (a)` would otherwise put the
         // name inside the comment, and the module would fail to load.
         position: maskLiterals(preprocessed.source).indexOf('(', func.start),
-        text: ' __tjs_default',
+        text: ` ${ANONYMOUS_DEFAULT}`,
       })
-      ;(func as any).id = { type: 'Identifier', name: '__tjs_default' }
+      ;(func as any).id = { type: 'Identifier', name: ANONYMOUS_DEFAULT }
     }
     const funcName = func.id?.name || 'anonymous'
 
@@ -1203,6 +1219,9 @@ export function transpileToJS(
     // Keyed by the name a consumer imports: an anonymous default export is `default`, not
     // the internal binding the emitter gave it.
     allTypes[anonymousDefault ? 'default' : funcName] = types
+    // What a consumer and an error message call it: the binding is internal.
+    const displayName = anonymousDefault ? 'default' : funcName
+    if (anonymousDefault) (types as any).name = displayName
 
     // Cross-reference inference: when a parameter default is a bare
     // identifier referring to a previously-declared TJS function, use that
@@ -1506,7 +1525,7 @@ export function transpileToJS(
     if (!isUnsafe && !isPolymorphicDispatcher) {
       const sourceStr = `${funcLoc.file}:${funcLoc.line}`
       const validation = generateInlineValidationCode(
-        funcName,
+        displayName,
         types,
         sourceStr,
         preprocessed.tjsModes.tjsDictDefaults
@@ -2151,7 +2170,7 @@ export function transpileToJS(
           `const __kUnset={},__kWF=new WeakMap();function __kWarn(h,f,msg){let o=__kWF.get(h);if(!o)__kWF.set(h,o={});if(o[f])return;o[f]=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kOpt(e,d){d=d|0;if(!e||!e.__k||d>32)return false;if(e.__k==='union')return e.arg.some(x=>__kOpt(x,d+1));if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,d+1)}`,
           ...(needsSolver
             ? [
-                `let __kS=null,__kRu=0;const __kBudget=4e6,__kRc=new WeakMap(),__kKc=new WeakMap(),__kIP=new WeakMap();function __kObj(x){return x!==null&&(typeof x==='object'||typeof x==='function')}function __kRec(ex){if(!__kObj(ex))return false;const c=__kRc.get(ex);if(c!==undefined)return c;__kRc.set(ex,true);const u0=__kRu;let r;if(ex.__k==='ref'){const t=ex.peek();if(t===__kUnset){__kRu++;r=false}else r=__kRec(t)}else if(ex.__k==='union')r=ex.arg.some(__kRec);else if(ex.__k)r=false;else if(ex.__runtimeType)r=ex.__ex!==undefined&&__kRec(ex.__ex);else if(Array.isArray(ex))r=ex.some(__kRec);else r=Object.keys(ex).some(k=>__kRec(ex[k]));if(__kRu!==u0)__kRc.delete(ex);else __kRc.set(ex,r);return r}function __kKeys(ex){let k=__kKc.get(ex);if(!k){const a=Object.keys(ex);k=a.filter(x=>!__kRec(ex[x])).concat(a.filter(x=>__kRec(ex[x])));__kKc.set(ex,k)}return k}function __kNorm(t){for(let i=0;i<64&&__kObj(t);i++){if(t.__k==='ref'){const r=t.peek();if(r===__kUnset){__kWarn(t,'wu','A Type example names \\''+t.name+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return __kUnset}t=r}else if(t.__runtimeType&&!t.__k&&t.__ex!==undefined&&!t.__pred)t=t.__ex;else break}return t}function __kExact(key,v,run){if(__kObj(v)){const s=__kIP.get(v);if(s&&s.has(key))return true}const S=__kS;let s;if(__kObj(v)){s=__kIP.get(v);if(!s)__kIP.set(v,s=new Set());s.add(key)}__kS=null;try{return run()===true}catch(e){if(e instanceof RangeError)return false;throw e}finally{__kS=S;if(s)s.delete(key)}}function __kNode(S,x,t){let e=S.m.get(t);if(!e)S.m.set(t,e={o:new WeakMap(),p:new Map()});const tb=__kObj(x)?e.o:e.p;let n=tb.get(x);if(!n){S.w++;n={x,t,ok:true,p:null,ps:null,dirty:false,pv:undefined,pq:false};tb.set(x,n);S.f.push(n)}return n}function __kPar(n,c){if(!c||c===n||n.p===c)return;if(!n.p){n.p=c;return}(n.ps||(n.ps=new Set())).add(c)}function __kFlip(S,n){n.ok=false;const q=p=>{if(p.ok&&!p.dirty){p.dirty=true;S.d.push(p)}};if(n.p)q(n.p);if(n.ps)for(const p of n.ps)q(p)}function __kLeaf(e){e=__kNorm(e);return !(__kObj(e)&&(Array.isArray(e)||e.__k==='union'))}function __kNA(e){e=__kNorm(e);if(!__kObj(e)||Array.isArray(e))return !Array.isArray(e);return e.__k==='union'?e.arg.every(__kNA):true}function __kLook(x,t){t=__kNorm(t);if(t===__kUnset)return true;if(!__kObj(t)||!__kRec(t))return __m0(x,t);if(Array.isArray(t)&&t.length&&__kNA(t[0]))return Array.isArray(x)&&x.every(e=>__match(e,t[0]));if(t.__k==='union'&&t.arg.every(__kLeaf))return t.arg.some(e=>__match(x,e));if(!t.__k&&!t.__runtimeType&&!Array.isArray(t)){if(!x||typeof x!=='object'||Array.isArray(x)||(x instanceof Error&&x.name==='MonadicError'))return false;for(const k of __kKeys(t)){if(__kRec(t[k]))break;if(!(k in x)||!__m0(x[k],t[k]))return false}}const S=__kS,n=__kNode(S,x,t);__kPar(n,S.cur);return n.ok}function __kEval(S,n){const t=n.t;if(t.__pred){const ok=__kLook(n.x,t.__ex);if(ok&&n.pv===undefined&&!n.pq){n.pq=true;S.pend.push(n)}return ok&&n.pv!==false}if(t.__k==='union')return t.arg.some(e=>__match(n.x,e));return __m0(n.x,t)}function __kSolve(v,ex){const t=__kNorm(ex);if(t===__kUnset)return true;const S=__kS={m:new Map(),f:[],d:[],pend:[],cur:null,w:0};try{const root=__kNode(S,v,t);for(;;){while((S.f.length||S.d.length)&&root.ok){const n=S.f.length?S.f.pop():S.d.pop();n.dirty=false;if(!n.ok)continue;if(++S.w>__kBudget){__kWarn(t,'wb','A value too large to check against a recursive Type was REJECTED.');return false}S.cur=n;let ok;try{ok=__kEval(S,n)}finally{S.cur=null}if(!ok)__kFlip(S,n)}if(!root.ok)return false;let ran=false;while(S.pend.length){const n=S.pend.pop();n.pq=false;if(!n.ok||n.pv!==undefined)continue;n.pv=__kExact(n.t,n.x,()=>!!n.t.__pred(n.x));ran=true;if(!n.pv){__kFlip(S,n);break}}if(!ran&&!S.f.length&&!S.d.length)return root.ok}}finally{__kS=null}}`,
+                `let __kS=null,__kRu=0;const __kBudget=4e6,__kRc=new WeakMap(),__kKc=new WeakMap(),__kIP=new WeakMap();function __kObj(x){return x!==null&&(typeof x==='object'||typeof x==='function')}function __kRec(ex){if(!__kObj(ex))return false;const c=__kRc.get(ex);if(c!==undefined)return c;__kRc.set(ex,true);const u0=__kRu;let r;if(ex.__k==='ref'){const t=ex.peek();if(t===__kUnset){__kRu++;r=false}else r=__kRec(t)}else if(ex.__k==='union')r=ex.arg.some(__kRec);else if(ex.__k)r=false;else if(ex.__runtimeType)r=ex.__ex!==undefined&&__kRec(ex.__ex);else if(Array.isArray(ex))r=ex.some(__kRec);else r=Object.keys(ex).some(k=>__kRec(ex[k]));if(__kRu!==u0)__kRc.delete(ex);else __kRc.set(ex,r);return r}function __kKeys(ex){let k=__kKc.get(ex);if(!k){const a=Object.keys(ex);k=a.filter(x=>!__kRec(ex[x])).concat(a.filter(x=>__kRec(ex[x])));__kKc.set(ex,k)}return k}function __kNorm(t){for(let i=0;i<64&&__kObj(t);i++){if(t.__k==='ref'){const r=t.peek();if(r===__kUnset){__kWarn(t,'wu','A Type example names \\''+t.name+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return __kUnset}t=r}else if(t.__runtimeType&&!t.__k&&t.__ex!==undefined&&!t.__pred)t=t.__ex;else break}return t}function __kExact(key,v,run){if(__kObj(v)){const s=__kIP.get(v);if(s&&s.has(key))return true}const S=__kS;let s;if(__kObj(v)){s=__kIP.get(v);if(!s)__kIP.set(v,s=new Set());s.add(key)}__kS=null;try{return run()===true}catch(e){if(e instanceof RangeError){__kWarn(key,'wr','A type check ran out of stack inside a nested runtime check, and the value was REJECTED.');return false}throw e}finally{__kS=S;if(s)s.delete(key)}}function __kNode(S,x,t){let e=S.m.get(t);if(!e)S.m.set(t,e={o:new WeakMap(),p:new Map()});const tb=__kObj(x)?e.o:e.p;let n=tb.get(x);if(!n){S.w++;n={x,t,ok:true,p:null,ps:null,dirty:false,pv:undefined,pq:false};tb.set(x,n);S.f.push(n)}return n}function __kPar(n,c){if(!c||c===n||n.p===c)return;if(!n.p){n.p=c;return}(n.ps||(n.ps=new Set())).add(c)}function __kFlip(S,n){n.ok=false;const q=p=>{if(p.ok&&!p.dirty){p.dirty=true;S.d.push(p)}};if(n.p)q(n.p);if(n.ps)for(const p of n.ps)q(p)}function __kLeaf(e){e=__kNorm(e);return !(__kObj(e)&&(Array.isArray(e)||e.__k==='union'))}function __kNA(e){e=__kNorm(e);if(!__kObj(e)||Array.isArray(e))return !Array.isArray(e);return e.__k==='union'?e.arg.every(__kNA):true}function __kLook(x,t){t=__kNorm(t);if(t===__kUnset)return true;if(!__kObj(t)||!__kRec(t))return __m0(x,t);if(Array.isArray(t)&&t.length&&__kNA(t[0]))return Array.isArray(x)&&x.every(e=>__match(e,t[0]));if(t.__k==='union'&&t.arg.every(__kLeaf))return t.arg.some(e=>__match(x,e));if(!t.__k&&!t.__runtimeType&&!Array.isArray(t)){if(!x||typeof x!=='object'||Array.isArray(x)||(x instanceof Error&&x.name==='MonadicError'))return false;for(const k of __kKeys(t)){if(__kRec(t[k]))break;if(!(k in x)||!__m0(x[k],t[k]))return false}}const S=__kS,n=__kNode(S,x,t);__kPar(n,S.cur);return n.ok}function __kEval(S,n){const t=n.t;if(t.__pred){const ok=__kLook(n.x,t.__ex);if(ok&&n.pv===undefined&&!n.pq){n.pq=true;S.pend.push(n)}return ok&&n.pv!==false}if(t.__k==='union')return t.arg.some(e=>__match(n.x,e));return __m0(n.x,t)}function __kSolve(v,ex){const t=__kNorm(ex);if(t===__kUnset)return true;const S=__kS={m:new Map(),f:[],d:[],pend:[],cur:null,w:0};try{const root=__kNode(S,v,t);for(;;){while((S.f.length||S.d.length)&&root.ok){const n=S.f.length?S.f.pop():S.d.pop();n.dirty=false;if(!n.ok)continue;if(++S.w>__kBudget){__kWarn(t,'wb','A value too large to check against a recursive Type was REJECTED.');return false}S.cur=n;let ok;try{ok=__kEval(S,n)}finally{S.cur=null}if(!ok)__kFlip(S,n)}if(!root.ok)return false;let ran=false;while(S.pend.length){const n=S.pend.pop();n.pq=false;if(!n.ok||n.pv!==undefined)continue;n.pv=__kExact(n.t,n.x,()=>!!n.t.__pred(n.x));ran=true;if(!n.pv){__kFlip(S,n);break}}if(!ran&&!S.f.length&&!S.d.length)return root.ok}}finally{__kS=null}}`,
               ]
             : []),
           `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.name=v;m.peek=()=>{try{return a()}catch(e){if(e instanceof ReferenceError)return __kUnset;throw e}};m.check=x=>{const r=m.peek();if(r===__kUnset){__kWarn(m,'wu','A Type example names \\''+v+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return true}return __match(x,r)};m.opt=false}else{m.value=v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='set'?x=>__oneOf(x,a):t==='union'?x=>a.some(e=>__match(x,e)):()=>true;m.opt=t==='undef'||t==='any'}return m}`,
@@ -2430,7 +2449,9 @@ export function transpileToJS(
     const preamble =
       rtBlock +
       aliasBlock +
-      `const __tjs = globalThis.__tjs?.createRuntime?.() ?? ${fallbackObj};\n` +
+      // An installed runtime is used only if it speaks this file's ABI (`RUNTIME_ABI`):
+      // an older one would silently change what a failed check returns.
+      `const __tjs = (globalThis.__tjs?.abi >= ${RUNTIME_ABI} ? globalThis.__tjs.createRuntime?.() : undefined) ?? ${fallbackObj};\n` +
       // Bind truthiness to THIS FILE's projection table.
       //
       // `__tjs` is a fresh per-module runtime instance, but its `toBool` is the SHARED
