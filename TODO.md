@@ -535,6 +535,25 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 example-kinds re-review 4 — dispositions** (docs/reviews/0.14.0-example-kinds-rereview-4.md;
+      B-1, M-1, M-2, M-3 and the propagation siblings, overloads, arrays, wide unions, the
+      Union/legacy readers, the `needsRuntime` derivation and the differential test are FIXED):
+  - **Class constructors are not validated** (confirmed 2026-09-26; predates 0.14 —
+    `class P { constructor(x: 0) }`, `P('bad')` stores `'bad'`). Emit the same parameter
+    checks as a function; the constructor cannot RETURN a MonadicError, so decide what a
+    failed check does there (throw? record + construct?) — a real language decision.
+  - `any` / `unknown` / unsafe-`!` bodies now receive MonadicErrors SILENTLY. Deliberate
+    (Tonio's rule: a parameter that admits errors gets them); not recorded, because a handler
+    receiving the error it asked for is not an event.
+  - Cross-module solving: each module keeps its own solver state; a recursive type spanning
+    modules is checked by whichever module starts the solve, re-entering the other's
+    optimistically. Termination holds; add a two-module test (hostile DAG + cycle).
+  - `__kRec` caches per example object: an example MUTATED after first use keeps its old
+    verdict. Examples are not mutated in practice; a direct-path overflow falls back to a
+    solve, so the failure mode is a slower check, not a wrong one.
+  - Peak-memory guard: measured by hand (3.4M-object tree rejected at ~330MB RSS growth vs
+    4.3GB before); an in-suite guard needs a memory-capped subprocess — not yet written.
+  - Emitted-size snapshot and a build-time size delta (m-5) remain open.
 - [ ] **0.14.0 example-kinds re-review 2 — deferred items** (docs/reviews/0.14.0-example-kinds-rereview-2.md;
       B-1, M-1, M-2, M-3, m-1, m-2, n-1 are FIXED):
   - m-3: `toJSONSchema()` of a RECURSIVE type truncates to `{}` at the recursion point, so

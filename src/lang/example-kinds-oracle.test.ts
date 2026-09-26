@@ -31,7 +31,15 @@ type Spec =
   | { k: 'arr'; of: Spec }
   | { k: 'obj'; fields: Record<string, Spec> }
 /** Each type's EXAMPLE — usually an object shape, sometimes a union of shapes. */
-type System = Spec[]
+type System = Spec[] & {
+  /**
+   * A PREDICATE on some object-shaped types — the case two re-reviews found broken while
+   * the oracle had none: `deref` reads a field with no guard (it throws if ever run on an
+   * ASSUMED non-object), `neg` negates another Type's `.check` (it failed open when that
+   * check answered optimistically). `N` is the fixed non-recursive type `neg` targets.
+   */
+  preds?: Array<{ kind: 'deref' | 'neg' } | undefined>
+}
 
 /** mulberry32 — small, seeded, good enough to explore. */
 function rng(seed: number) {
@@ -73,11 +81,25 @@ function randomSystem(r: () => number): System {
     if (depth < 2) return obj(depth)
     return leaf()
   }
-  return Array.from(
+  const sys: System = Array.from(
     { length: n },
     () => (r() < 0.8 ? obj(0) : { k: 'union', of: [obj(1), obj(1)] as Spec[] }) // a union of SHAPES
   )
+  sys.preds = sys.map((t) => {
+    if (t.k !== 'obj') return undefined
+    const p = r()
+    return p < 0.3 ? { kind: 'deref' } : p < 0.5 ? { kind: 'neg' } : undefined
+  })
+  return sys
 }
+
+/** `N`: what a `neg` predicate negates — `{ n0: 0 }`, non-recursive. */
+const isN = (w: unknown) =>
+  !!w &&
+  typeof w === 'object' &&
+  !Array.isArray(w) &&
+  'n0' in w &&
+  Number.isInteger((w as any).n0)
 
 function render(sys: System): string {
   const ex = (s: Spec): string => {
@@ -102,7 +124,20 @@ function render(sys: System): string {
           .join(', ')} }`
     }
   }
-  return sys.map((t, i) => `Type T${i} { example: ${ex(t)} }`).join('\n')
+  const preds = sys.preds ?? []
+  return (
+    'Type N { example: { n0: 0 } }\n' +
+    sys
+      .map((t, i) => {
+        const p = preds[i]
+        if (!p) return `Type T${i} { example: ${ex(t)} }`
+        const body = p.kind === 'deref' ? 'x.f0 !== 3' : '!N.check(x.f0)'
+        return `Type T${i} {\n  example: ${ex(
+          t
+        )}\n  predicate(x) { return ${body} }\n}`
+      })
+      .join('\n')
+  )
 }
 
 /** The oracle: path-based coinduction. Exact, exponential, fine for small graphs. */
@@ -174,7 +209,10 @@ function oracle(sys: System, x: unknown, t: number): boolean {
       set.add(ti)
     }
     try {
-      return holds(v, sys[ti])
+      if (!holds(v, sys[ti])) return false
+      const p = sys.preds?.[ti]
+      if (!p) return true
+      return p.kind === 'deref' ? (v as any).f0 !== 3 : !isN((v as any).f0)
     } finally {
       if (set) set.delete(ti)
     }
@@ -188,7 +226,8 @@ function randomGraph(sys: System, r: () => number): object[] {
   const pick = () => nodes[Math.floor(r() * n)]
   const value = (s: Spec): unknown => {
     // Mostly conforming, sometimes wrong — both verdicts must be exercised.
-    if (r() < 0.12) return [1.5, 'x', null, 7, [], pick()][Math.floor(r() * 6)]
+    if (r() < 0.12)
+      return [1.5, 'x', null, 7, [], pick(), 3, { n0: 1 }][Math.floor(r() * 8)]
     switch (s.k) {
       case 'int':
         return Math.floor(r() * 5)

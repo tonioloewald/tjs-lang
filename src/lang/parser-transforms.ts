@@ -2565,8 +2565,7 @@ export function transformTypeDeclarations(
         /^(['"`])([^]*?)\1\s*/d
       )
       const descStringMatch = descHeader?.m ?? null
-      /** The matched text, and the quoted contents, as they appear in the SOURCE. */
-      const descWhole = descHeader ? descHeader.text(0) : ''
+      /** The quoted contents, as they appear in the SOURCE. */
       const descInner = descHeader ? descHeader.text(2) : ''
       if (descStringMatch) {
         const afterString = j + descStringMatch[0].length
@@ -2584,15 +2583,20 @@ export function transformTypeDeclarations(
           descriptionWasExplicit = true
           j = afterString
         } else if (isEndOfStatement) {
-          // Old simple form: Type Name 'value' - value is both example and default
-          const value = descWhole.trim()
-          // Preserve trailing whitespace (newlines) that was consumed by the regex
-          const trailingWs = descWhole.slice(value.length)
+          // Old simple form: Type Name 'value' - value is both example and default.
+          // Read with the SAME reader as every other type expression: it took only the
+          // string, so `Type Foo 'a' + 'b'` emitted `Type('Foo', 'a') + 'b'`.
+          const ext = readTypeExpression(source, j)
+          if (!ext)
+            throw new SyntaxError(
+              `\`${typeName}\` has a value that could not be read as one expression.`,
+              locAt(source, i)
+            )
           declaredTypes?.add(typeName)
           result += `const ${typeName} = ${rt(
             'Type'
-          )}('${typeName}', ${value})${trailingWs}`
-          i = afterString
+          )}('${typeName}', ${markExampleKinds(ext.value)})`
+          i = ext.end
           continue
         }
       }
@@ -2800,9 +2804,15 @@ export function transformTypeDeclarations(
             undefined,
             report
           )
+          // The raw predicate (`__g`) and the structural example (`__ex`) ride on the check
+          // function, so the Type can expose them SEPARATELY to the recursive solver: it
+          // settles the structure first and runs the predicate only on values that are
+          // structurally valid at the fixed point — never on one whose match is merely
+          // assumed (which let `x.n` run on `null` and throw).
+          const expose = emptyExample ? '' : ' __f.__g = __g; __f.__ex = __ex;'
           const fn = guard
-            ? `(__g => { ${schemaMemo} return (${params}) => (${gate} ? __g(${params}) : false) })(${guard})`
-            : `(() => { ${schemaMemo} return (${params}) => { if (!(${gate})) return false; ${body} } })()`
+            ? `(__g => { ${schemaMemo} const __f = (${params}) => (${gate} ? __g(${params}) : false);${expose} return __f })(${guard})`
+            : `(() => { ${schemaMemo} const __g = (${params}) => { ${body} }; const __f = (${params}) => (${gate} ? __g(${params}) : false);${expose} return __f })()`
           declaredTypes?.add(typeName)
           result += `const ${typeName} = ${rt(
             'Type'
@@ -3419,9 +3429,15 @@ export function transformUnionDeclarations(
       } else {
         // Inline form: Union Foo 'desc' 'a' | 'b' | 'c'
         // Find the end of the line or statement
-        let lineEnd = source.indexOf('\n', j)
+        // The same extent rule as every other type expression (`readTypeExpression`): it
+        // ended at the first NEWLINE, so `Union U 'u' 'a'\n | 'b'` silently lost `'b'`.
+        const ext = readTypeExpression(source, j)
+        let lineEnd = ext ? ext.end : source.indexOf('\n', j)
         if (lineEnd === -1) lineEnd = source.length
-        const inlineValues = source.slice(j, lineEnd).trim()
+        const inlineValues = source
+          .slice(j, lineEnd)
+          .trim()
+          .replace(/^\|\s*/, '')
 
         if (inlineValues) {
           const values = parseUnionValues(inlineValues)
@@ -4641,7 +4657,9 @@ export function transformPolymorphicFunctions(
     const dispatcher = `
 ${exportPrefix}${asyncPrefix}function ${name}(...__args) {
 ${branches.join('\n')}
-  return __tjs.typeError('${name}', 'no matching overload', __args)
+  // No overload matched: if an argument is already a MonadicError, THAT propagates — the
+  // same rule every other failed check follows (decided in typeError, via its root arg).
+  return __tjs.typeError('${name}', 'no matching overload', __args, undefined, __args.find((__a) => __tjs.isMonadicError(__a)))
 }
 `
     result += dispatcher

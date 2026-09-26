@@ -437,8 +437,10 @@ export function typeError(
   // body ran, so `describe(e: Error)`, `isErr(x: unknown)` and every catch-handler helper
   // silently handed their argument back. A value that MATCHES the declared type now always
   // reaches the body; a plain `Error` that does not is an honest type error.
-  const arg = root !== undefined ? root : value
-  if (isMonadicError(arg)) return arg
+  // The ARGUMENT first, then the failing value itself: an error carried in an options bag
+  // (`{ x: err }`) propagates too, the same way whichever form checked it.
+  if (root !== undefined && isMonadicError(root)) return root
+  if (isMonadicError(value)) return value
   // `typeof []` is 'object', which made every array failure report "got object" — least
   // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
   // the only honest answer here.
@@ -2162,8 +2164,8 @@ export function createRuntime() {
     root?: unknown
   ): MonadicError {
     // Already a TJS error: propagate it (see `typeError`, including `root`).
-    const arg = root !== undefined ? root : value
-    if (isMonadicError(arg)) return arg
+    if (root !== undefined && isMonadicError(root)) return root
+    if (isMonadicError(value)) return value
     // `typeof []` is 'object', which made every array failure report "got object" — least
     // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
     // the only honest answer here.

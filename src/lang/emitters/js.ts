@@ -87,7 +87,7 @@ const INLINE_MONADIC_ERROR = `const MonadicError=(globalThis.__tjs_MonadicError_
  * behavior of the program it records.
  */
 const INLINE_TYPE_ERROR = `function __arrKinds(v){if(!v.length)return'empty array';const k=[],n=Math.min(v.length,64);for(let i=0;i<n;i++){const x=v[i],t=x===null?'null':Array.isArray(x)?'array':typeof x;if(!k.includes(t))k.push(t);if(k.length===4)return'array of '+k.join(' | ')+(i+1<v.length?' …':'')}return'array of '+k.join(' | ')+(v.length>64?' …':'')}
-function typeError(p,e,v,r,o){const g0=o!==undefined?o:v;if(isMonadicError(g0))return g0;const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
+function typeError(p,e,v,r,o){if(o!==undefined&&isMonadicError(o))return o;if(isMonadicError(v))return v;const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
 import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
@@ -661,9 +661,10 @@ function extractFunctionTypeInfo(
  * Generate inline validation code to be inserted at the start of a function body
  *
  * Implements proper monadic error handling:
- * 1. Check if any param is an Error - if so, pass it through (no work)
- * 2. Check types with fast inline typeof checks
- * 3. On type mismatch, call __tjs.typeError() (only on error path)
+ * 1. Check types with fast inline typeof checks
+ * 2. On type mismatch, call __tjs.typeError() (only on error path), which returns the
+ *    argument unchanged when it is ALREADY a MonadicError — propagation is decided at the
+ *    failed check, so a parameter whose type admits errors receives them.
  *
  * @param funcName - Function name for error paths
  * @param types - Type information for the function
@@ -747,17 +748,14 @@ function generateInlineValidationCode(
   for (const [paramName, param] of params) {
     const path = `${pathPrefix}${funcName}.${paramName}`
 
-    // For array params: if the array contains a MonadicError, propagate
-    // the first one we find instead of failing the type check with
-    // "expected array, got X". This is the "errors propagate, not
-    // accumulate" rule — a function receiving an array of values where
-    // one is an error should surface that error, not say the array's
-    // shape is wrong.
-    if (param.type.kind === 'array') {
-      lines.push(
-        `if (Array.isArray(${paramName})) { for (const __i of ${paramName}) { if (__i instanceof Error && __i.path !== undefined) return __i } }`
-      )
-    }
+    // For array params: when the ELEMENT check fails and an element is already a
+    // MonadicError, that error is what propagates ("errors propagate, not accumulate").
+    // It used to be a pre-check returning any error element before the element check
+    // ran — so `[any]` or `[Error]` parameters could never receive one.
+    const rootExpr =
+      param.type.kind === 'array'
+        ? `, undefined, (Array.isArray(${paramName}) ? ${paramName}.find((__i) => __tjs.isMonadicError(__i)) : undefined)`
+        : ''
 
     const typeCheck = generateTypeCheckExpr(paramName, param.type)
 
@@ -766,7 +764,7 @@ function generateInlineValidationCode(
       const expectedType = expectedLabel(param.type)
       if (param.required) {
         lines.push(
-          `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
+          `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName}${rootExpr});`
         )
         // Stage 0: colon-form object params get member-level checks (the
         // object-ness line above guards these accesses).
@@ -789,7 +787,7 @@ function generateInlineValidationCode(
         )
       } else {
         lines.push(
-          `if (${paramName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
+          `if (${paramName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName}${rootExpr});`
         )
       }
     }
@@ -2096,9 +2094,15 @@ export function transpileToJS(
         // are open now, so they agree.
         `${
           needsKind
-            ? 'function __match(v,ex){if(__kS)return __kLook(v,ex);return __kRec(ex)?__kSolve(v,ex):__m0(v,ex)}function __m0(v,ex){'
+            ? 'function __match(v,ex){if(__kS)return __kLook(v,ex);if(__kRec(ex))return __kSolve(v,ex);try{return __m0(v,ex)}catch(e){if(e instanceof RangeError)return __kSolve(v,ex);throw e}}function __m0(v,ex){'
             : 'function __match(v,ex){'
-        }if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>${
+        }if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ${
+          needsKind
+            ? '__kS&&!ex.__k&&(ex.__ex===undefined||ex.__pred)?__kExact(ex,v,()=>ex.check(v)):'
+            : ''
+        }ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v)||(v instanceof Error&&v.name==='MonadicError'))return false;const ks=${
+          needsKind ? '__kKeys(ex)' : 'Object.keys(ex)'
+        };return ks.every(k=>${
           needsKind
             ? 'k in v?__match(v[k],ex[k]):__kOpt(ex[k])'
             : 'k in v&&__match(v[k],ex[k])'
@@ -2139,7 +2143,7 @@ export function transpileToJS(
           // budget, far above any linear cost, fails CLOSED and is recorded. A user predicate
           // that NEGATES another type's check is non-monotone and can over-reject here.
           // Only a ReferenceError (TDZ, or a name nothing declares) degrades open, recorded.
-          `let __kS=null;const __kUnset={},__kBudget=1e7,__kFlags={};function __kWarn(m,f,msg){if(m[f])return;m[f]=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kOpt(e,d){d=d|0;if(!e||!e.__k||d>32)return false;if(e.__k==='union')return e.arg.some(x=>__kOpt(x,d+1));if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,d+1)}function __kObj(x){return x!==null&&(typeof x==='object'||typeof x==='function')}function __kNode(S,x,t){let e=S.m.get(t);if(!e)S.m.set(t,e={o:new WeakMap(),p:new Map()});const tb=__kObj(x)?e.o:e.p;let n=tb.get(x);if(!n){n={x,t,ok:true,par:null,dirty:false};tb.set(x,n);S.f.push(n)}return n}function __kLook(x,t){if(!__kObj(t))return __m0(x,t);const S=__kS,n=__kNode(S,x,t),c=S.cur;if(c&&c!==n)(n.par||(n.par=new Set())).add(c);return n.ok}const __kRc=new WeakMap();function __kRec(ex){if(!__kObj(ex))return false;let r=__kRc.get(ex);if(r!==undefined)return r;__kRc.set(ex,true);if(ex.__k)r=ex.__k==='ref'||(ex.__k==='union'&&ex.arg.some(__kRec));else if(ex.__runtimeType)r=true;else if(Array.isArray(ex))r=ex.some(__kRec);else r=Object.keys(ex).some(k=>__kRec(ex[k]));__kRc.set(ex,r);return r}function __kSolve(v,ex){const S=__kS={m:new Map(),f:[],d:[],cur:null,w:0};try{const root=__kNode(S,v,ex);while(S.f.length||S.d.length){const n=S.f.length?S.f.pop():S.d.pop();n.dirty=false;if(!n.ok)continue;if(++S.w>__kBudget){__kWarn(__kFlags,'wb','A value too large to check against a recursive Type was REJECTED.');return false}S.cur=n;let ok;try{ok=__m0(n.x,n.t)}finally{S.cur=null}if(!ok){n.ok=false;if(n.par)for(const p of n.par)if(p.ok&&!p.dirty){p.dirty=true;S.d.push(p)}}}return root.ok}finally{__kS=null}}`,
+          `let __kS=null,__kRu=0;const __kUnset={},__kBudget=4e6,__kWF=new WeakMap(),__kRc=new WeakMap(),__kKc=new WeakMap(),__kIP=new WeakMap();function __kWarn(h,f,msg){let o=__kWF.get(h);if(!o)__kWF.set(h,o={});if(o[f])return;o[f]=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kOpt(e,d){d=d|0;if(!e||!e.__k||d>32)return false;if(e.__k==='union')return e.arg.some(x=>__kOpt(x,d+1));if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,d+1)}function __kObj(x){return x!==null&&(typeof x==='object'||typeof x==='function')}function __kRec(ex){if(!__kObj(ex))return false;const c=__kRc.get(ex);if(c!==undefined)return c;__kRc.set(ex,true);const u0=__kRu;let r;if(ex.__k==='ref'){const t=ex.peek();if(t===__kUnset){__kRu++;r=false}else r=__kRec(t)}else if(ex.__k==='union')r=ex.arg.some(__kRec);else if(ex.__k)r=false;else if(ex.__runtimeType)r=ex.__ex!==undefined&&__kRec(ex.__ex);else if(Array.isArray(ex))r=ex.some(__kRec);else r=Object.keys(ex).some(k=>__kRec(ex[k]));if(__kRu!==u0)__kRc.delete(ex);else __kRc.set(ex,r);return r}function __kKeys(ex){let k=__kKc.get(ex);if(!k){const a=Object.keys(ex);k=a.filter(x=>!__kRec(ex[x])).concat(a.filter(x=>__kRec(ex[x])));__kKc.set(ex,k)}return k}function __kNorm(t){for(let i=0;i<64&&__kObj(t);i++){if(t.__k==='ref'){const r=t.peek();if(r===__kUnset){__kWarn(t,'wu','A Type example names \\''+t.name+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return __kUnset}t=r}else if(t.__runtimeType&&!t.__k&&t.__ex!==undefined&&!t.__pred)t=t.__ex;else break}return t}function __kExact(key,v,run){if(__kObj(v)){const s=__kIP.get(v);if(s&&s.has(key))return true}const S=__kS;let s;if(__kObj(v)){s=__kIP.get(v);if(!s)__kIP.set(v,s=new Set());s.add(key)}__kS=null;try{return run()===true}catch(e){if(e instanceof RangeError)return false;throw e}finally{__kS=S;if(s)s.delete(key)}}function __kNode(S,x,t){let e=S.m.get(t);if(!e)S.m.set(t,e={o:new WeakMap(),p:new Map()});const tb=__kObj(x)?e.o:e.p;let n=tb.get(x);if(!n){S.w++;n={x,t,ok:true,p:null,ps:null,dirty:false,pv:undefined,pq:false};tb.set(x,n);S.f.push(n)}return n}function __kPar(n,c){if(!c||c===n||n.p===c)return;if(!n.p){n.p=c;return}(n.ps||(n.ps=new Set())).add(c)}function __kFlip(S,n){n.ok=false;const q=p=>{if(p.ok&&!p.dirty){p.dirty=true;S.d.push(p)}};if(n.p)q(n.p);if(n.ps)for(const p of n.ps)q(p)}function __kLeaf(e){e=__kNorm(e);return !(__kObj(e)&&(Array.isArray(e)||e.__k==='union'))}function __kNA(e){e=__kNorm(e);if(!__kObj(e)||Array.isArray(e))return !Array.isArray(e);return e.__k==='union'?e.arg.every(__kNA):true}function __kLook(x,t){t=__kNorm(t);if(t===__kUnset)return true;if(!__kObj(t)||!__kRec(t))return __m0(x,t);if(Array.isArray(t)&&t.length&&__kNA(t[0]))return Array.isArray(x)&&x.every(e=>__match(e,t[0]));if(t.__k==='union'&&t.arg.every(__kLeaf))return t.arg.some(e=>__match(x,e));if(!t.__k&&!t.__runtimeType&&!Array.isArray(t)){if(!x||typeof x!=='object'||Array.isArray(x)||(x instanceof Error&&x.name==='MonadicError'))return false;for(const k of __kKeys(t)){if(__kRec(t[k]))break;if(!(k in x)||!__m0(x[k],t[k]))return false}}const S=__kS,n=__kNode(S,x,t);__kPar(n,S.cur);return n.ok}function __kEval(S,n){const t=n.t;if(t.__pred){const ok=__kLook(n.x,t.__ex);if(ok&&n.pv===undefined&&!n.pq){n.pq=true;S.pend.push(n)}return ok&&n.pv!==false}if(t.__k==='union')return t.arg.some(e=>__match(n.x,e));return __m0(n.x,t)}function __kSolve(v,ex){const t=__kNorm(ex);if(t===__kUnset)return true;const S=__kS={m:new Map(),f:[],d:[],pend:[],cur:null,w:0};try{const root=__kNode(S,v,t);for(;;){while((S.f.length||S.d.length)&&root.ok){const n=S.f.length?S.f.pop():S.d.pop();n.dirty=false;if(!n.ok)continue;if(++S.w>__kBudget){__kWarn(t,'wb','A value too large to check against a recursive Type was REJECTED.');return false}S.cur=n;let ok;try{ok=__kEval(S,n)}finally{S.cur=null}if(!ok)__kFlip(S,n)}if(!root.ok)return false;let ran=false;while(S.pend.length){const n=S.pend.pop();n.pq=false;if(!n.ok||n.pv!==undefined)continue;n.pv=__kExact(n.t,n.x,()=>!!n.t.__pred(n.x));ran=true;if(!n.pv){__kFlip(S,n);break}}if(!ran&&!S.f.length&&!S.d.length)return root.ok}}finally{__kS=null}}`,
           `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.name=v;m.peek=()=>{try{return a()}catch(e){if(e instanceof ReferenceError)return __kUnset;throw e}};m.check=x=>{const r=m.peek();if(r===__kUnset){__kWarn(m,'wu','A Type example names \\''+v+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return true}return __match(x,r)};m.opt=false}else{m.value=v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='set'?x=>__oneOf(x,a):t==='union'?x=>a.some(e=>__match(x,e)):()=>true;m.opt=t==='undef'||t==='any'}return m}`,
           `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return typeof m.arg[0]==='bigint'?{type:'integer'}:{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.peek();if(r===__kUnset)return{};return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}finally{m.__busy=false}}return{}}`,
           `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='union')return __unk(v.arg[0]);if(v.__k!=='ref')return v.value;const r=v.peek();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`
@@ -2149,7 +2153,11 @@ export function transpileToJS(
       inlineParts.push(
         `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=${dflt(
           'e??null'
-        )}}else{const ex=e??p;t.default=${dflt(
+        )}${
+          needsKind
+            ? ';if(p.__g&&p.__ex!==undefined){t.__pred=p.__g;t.__ex=p.__ex}'
+            : ''
+        }}else{const ex=e??p;t.default=${dflt(
           'ex'
         )};t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}return __pred(t,d)}`
       )
@@ -2359,6 +2367,43 @@ export function transpileToJS(
     const aliasBlock = aliased.length
       ? aliased.map((n) => `const ${n} = ${RT_NS}.${n};`).join('') + '\n'
       : ''
+
+    // Every `__tjs.X(` the emitted code calls must be provided by the fallback. `needsRuntime`
+    // and the `needs*` flags are hand-kept, and a missing one is a ReferenceError at CALL
+    // time in standalone output (`given` → `__tjs.swKey` shipped that way, masked for months
+    // because other lines happened to pull the runtime in). Derived from the code and
+    // enforced here, so the next omission fails the TRANSPILE, not a user's call.
+    // Only the EMITTER's own helper vocabulary: user code may legitimately call the
+    // installed runtime (`__tjs.errors()`, `__tjs.clearErrors()`), and `extend` guards its
+    // `__tjs?.registerExtension` itself.
+    const EMITTED_HELPERS = [
+      'typeError',
+      'isMonadicError',
+      'pushStack',
+      'popStack',
+      'getStack',
+      'Eq',
+      'NotEq',
+      'TypeOf',
+      'Is',
+      'IsNot',
+      'Type',
+      'Generic',
+      'FunctionPredicate',
+      'Enum',
+      'Union',
+      'toBool',
+      'swKey',
+      'checkFnShape',
+      'bang',
+    ]
+    for (const [, name] of code.matchAll(/(?<![\w$.])__tjs\.(\w+)\(/g)) {
+      if (EMITTED_HELPERS.includes(name) && !fallbackEntries.includes(name))
+        throw new Error(
+          `tjs internal error: emitted code calls __tjs.${name}() but the inline runtime ` +
+            `does not provide it — add it to the needs*/fallbackEntries lists in emitters/js.ts`
+        )
+    }
 
     const fallbackObj =
       fallbackEntries.length > 0
@@ -2891,7 +2936,9 @@ function emitDictLevel(
   lines: string[],
   uid: () => string,
   reassignTarget: string,
-  parentChangedVar: string | null
+  parentChangedVar: string | null,
+  /** The dictionary ARGUMENT — error propagation is decided on it (see `typeError`). */
+  root: string = access
 ): void {
   const keys = Object.keys(shape)
   const p = uid()
@@ -2923,7 +2970,7 @@ function emitDictLevel(
 
     if (member.kind === 'object' && member.shape) {
       lines.push(
-        `else if (typeof ${v} !== 'object' || ${v} === null || Array.isArray(${v})) return __tjs.typeError('${mpath}', 'object', ${v});`
+        `else if (typeof ${v} !== 'object' || ${v} === null || Array.isArray(${v}) || __tjs.isMonadicError(${v})) return __tjs.typeError('${mpath}', 'object', ${v}, undefined, ${root});`
       )
       lines.push(`else {`)
       emitDictLevel(
@@ -2934,7 +2981,8 @@ function emitDictLevel(
         lines,
         uid,
         v,
-        `${p}c`
+        `${p}c`,
+        root
       )
       lines.push(`}`)
     } else if (member.kind === 'null') {
@@ -2943,7 +2991,7 @@ function emitDictLevel(
       const check = generateTypeCheckExpr(v, member)
       if (check) {
         lines.push(
-          `else if (${check}) return __tjs.typeError('${mpath}', '${member.kind}', ${v});`
+          `else if (${check}) return __tjs.typeError('${mpath}', '${member.kind}', ${v}, undefined, ${root});`
         )
       }
     }
@@ -3112,8 +3160,10 @@ function generateTypeCheckExpr(
       break
     }
     case 'object':
-      // For nested objects, just check it's an object (deep validation is separate)
-      check = `(typeof ${fieldPath} !== 'object' || ${fieldPath} === null || Array.isArray(${fieldPath}))`
+      // For nested objects, just check it's an object (deep validation is separate). A
+      // MonadicError is an object, but never an object SHAPE: without this, `o: {}` and an
+      // all-optional shape ran their bodies on an upstream error instead of propagating it.
+      check = `(typeof ${fieldPath} !== 'object' || ${fieldPath} === null || Array.isArray(${fieldPath}) || __tjs.isMonadicError(${fieldPath}))`
       break
     case 'function':
       // Shape isn't validated at call time (we don't introspect arity or

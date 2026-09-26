@@ -732,3 +732,16 @@ describe('a type expression may span lines (re-review 3, M-1)', () => {
     expect(() => tjs('Type X = 1 +* 2')).toThrow(/could not be read/)
   })
 })
+
+describe('the Union and legacy readers share the extent rule (siblings of M-1)', () => {
+  it('an inline Union spanning lines keeps every member', () => {
+    const [U] = load("Union U 'u' 'a'\n  | 'b'", ['U'], false)
+    expect(U.check('b')).toBe(true)
+    expect(U.check('c')).toBe(false)
+  })
+  it('the legacy `Type Foo <value>` form reads the whole expression', () => {
+    const [Foo] = load("Type Foo 'a' + 'b'", ['Foo'], false)
+    expect(Foo.default).toBe('ab')
+    expect(Foo.check('x')).toBe(true)
+  })
+})

@@ -190,19 +190,20 @@ Since TJS compiles itself, the playground is the full engine running entirely in
 
 ## Bundle Size
 
-The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.13.10**; each row is
+The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.14.0**; each row is
 a standalone entry point, not an increment (import only what you need):
 
 | Entry point                   | Bundle           | Size   | Gzipped   |
 | ----------------------------- | ---------------- | ------ | --------- |
-| `tjs-lang/vm` (VM only)       | tjs-vm.js        | 218 KB | **66 KB** |
-| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 99 KB  | 32 KB     |
+| `tjs-lang/vm` (VM only)       | tjs-vm.js        | 223 KB | **68 KB** |
+| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 105 KB | 34 KB     |
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
-| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 295 KB | 94 KB     |
-| `tjs-lang` (full, TS support) | index.js         | 386 KB | 123 KB    |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 323 KB | 104 KB    |
+| `tjs-lang` (full, TS support) | index.js         | 416 KB | 135 KB    |
 
-The VM and eval bundles got **23%** and **40%** smaller in 0.13.10, and not by optimising
-anything: giving AJS its own parser (`parseAgentSource`, see the CHANGELOG) meant the VM
+The transpiler grew ~10% in 0.14.0 — `Type` examples are now read for what they mean
+(floats, unions, recursive references) and checked by a real fixed-point solver. The VM and
+eval bundles got **23%** and **40%** smaller in 0.13.10, and not by optimising anything: giving AJS its own parser (`parseAgentSource`, see the CHANGELOG) meant the VM
 stopped bundling ~26 TJS-only source transforms it had no business running. Less code on the
 path that compiles untrusted input is a security property before it is a size one.
 

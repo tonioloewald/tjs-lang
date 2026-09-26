@@ -27,6 +27,21 @@ reserved in advance.
 serialisation improved from _throwing_ to working — so unless you branch on `typeof`, that
 one moves nothing under you.
 
+**What may newly RUN** — error propagation is decided at the type check (native `.tjs` and
+converted code). A `MonadicError` passed where it does not fit a parameter's type is still
+returned unchanged without running the body — including through overloads, arrays and
+options bags. But every validated function used to begin with a pre-check that returned ANY
+`Error` from ANY parameter, whatever its declared type:
+
+- **A function whose parameter admits errors now RUNS with one.** `describe(e: Error)`,
+  `isErr(x: unknown)`, `log(msg: '', detail: any)`, unsafe `!` functions, and every
+  catch-handler helper used to hand their argument straight back; their bodies now run.
+- **A plain `Error` (from `new Error()` or a `catch`) where something else is expected is a
+  new TYPE ERROR** — it used to be passed through as if it were a TJS error, identity intact.
+- **A `MonadicError` is never an object shape**, so `o: {}` or an all-optional shape
+  propagates it instead of running on it; an error inside an options bag (`{ x: err }`)
+  propagates the same way in every parameter form.
+
 **What may newly REJECT something** — each is a fix, and each can turn a value that used to
 pass into a returned `MonadicError`:
 
@@ -48,16 +63,6 @@ pass into a returned `MonadicError`:
 - **`TjsStrict` on converted TypeScript now validates arguments.** A TS `object` parameter is
   checked only loosely (anything is accepted): TJS has no "non-primitive" type yet, and
   under-checking is the safe direction.
-- **Error propagation is decided at the type check** (native `.tjs` and converted code). A
-  `MonadicError` passed where it does not fit a parameter's type is still returned unchanged
-  without running the body. But every validated function used to begin with a pre-check that
-  returned ANY `Error` from ANY parameter, whatever its declared type — so a function that
-  DECLARES it takes an error could never receive one: `describe(e: Error)`, `isErr(x: unknown)`,
-  `log(msg: '', detail: any)` and every catch-handler helper handed their argument straight
-  back. They now run. A plain `Error` (from `new Error()` or a `catch`) passed where something
-  else is expected is now a TYPE ERROR rather than being passed through as if it were a TJS
-  error. A `MonadicError` passed as a defaulted dictionary argument propagates instead of being
-  merged with the defaults.
 - **`Type X = …` reads the whole default expression.** `Type Opt = '' | undefined` used to emit
   `Type(…, '') | undefined` — bitwise OR, so `Opt` was the number 0 — and an object default
   stopped at its first `}`.
