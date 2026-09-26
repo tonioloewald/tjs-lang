@@ -41,6 +41,13 @@ options bags. But every validated function used to begin with a pre-check that r
 - **A `MonadicError` is never an object shape**, so `o: {}` or an all-optional shape
   propagates it instead of running on it; an error inside an options bag (`{ x: err }`)
   propagates the same way in every parameter form.
+- **`vm.run` arguments cross the capability membrane**, like capability returns (so do
+  `Eval` context values and `SafeFunction` arguments, which become them). They arrived
+  LIVE, and `methodCall`'s allowlist filters method NAMES, not owners: a class instance
+  whose class defines `slice` had it invoked by guest code (`svc.slice(0)` ran host code).
+  The guest now gets a copy — the data, without the prototype or its methods — and an own
+  function or getter is refused with an `AgentError`. No byte cap applies to arguments
+  (they are the host's own choice); the live-heap ceiling still bounds what gets bound.
 - **Emitted code uses an installed `globalThis.__tjs` only if it speaks the same runtime ABI**
   (`abi`, now 2); otherwise it uses its own inline runtime. A 0.13 runtime's `typeError`
   ignores the propagation argument, so 0.14 code running under one replaced the caller's

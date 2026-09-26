@@ -529,11 +529,14 @@ const scopeHas = (obj: unknown, key: string): boolean => {
 const MEMBRANE_MAX_BYTES = 4 * 1024 * 1024 // 4MB — generous for data, cheap to reject a runaway
 const MEMBRANE_MAX_DEPTH = 10_000 // reject absurd nesting before it can stack-overflow the walk / clone
 
-type MembraneResult =
+export type MembraneResult =
   | { ok: true; value: unknown }
   | { ok: false; reason: string }
 
-function membraneValue(value: unknown, maxBytes: number): MembraneResult {
+export function membraneValue(
+  value: unknown,
+  maxBytes: number
+): MembraneResult {
   // Fast path: primitives are pure data with no reachable reference.
   if (value === null || value === undefined) return { ok: true, value }
   const t = typeof value
@@ -587,7 +590,7 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     if (depth > MEMBRANE_MAX_DEPTH) {
       return {
         ok: false,
-        reason: 'capability return exceeds membrane depth limit',
+        reason: 'the value exceeds the membrane depth limit',
       }
     }
     if (seen.has(v)) continue // cycle / shared ref — structuredClone preserves it; don't recount
@@ -726,7 +729,7 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
 function overBudget(maxBytes: number): { ok: false; reason: string } {
   return {
     ok: false,
-    reason: `capability return exceeds the ${maxBytes}-byte membrane budget`,
+    reason: `the value exceeds the ${maxBytes}-byte membrane budget`,
   }
 }
 

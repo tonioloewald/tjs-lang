@@ -9,6 +9,7 @@ import {
   AgentError,
   isProcedureToken,
   resolveProcedureToken,
+  membraneValue,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
@@ -260,6 +261,33 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       throw new Error(
         "Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile())."
       )
+
+    // ARGUMENTS cross the same membrane as capability returns: they are host values entering
+    // guest state. Without it a class instance passed as an argument arrived LIVE, and the
+    // `methodCall` allowlist filters method NAMES, not owners — so `svc.slice(0)` on a host
+    // object whose class defines `slice` ran host code (reached through `Eval`'s context,
+    // 0.14.0). The copy keeps the data and drops the prototype, so the methods stay behind;
+    // an own function or getter is rejected. Checked before the schema, which should see
+    // what the guest will see.
+    //
+    // No BYTE cap here: `membraneMaxBytes` guards against a hostile capability flooding the
+    // guest, while arguments are the host's own choice (a hosted endpoint's are bounded by
+    // its request size). The live-heap ceiling still bounds what the guest binds.
+    const crossed = membraneValue(args, Infinity)
+    if (!crossed.ok) {
+      const error = new AgentError(
+        `Capability boundary rejected the run arguments: ${crossed.reason}`,
+        'vm.run'
+      )
+      return {
+        result: error,
+        error,
+        fuelUsed: 0,
+        trace: options.trace ? [] : undefined,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      }
+    }
+    args = crossed.value as Record<string, any>
 
     const inputSchema = (ast as any).inputSchema
     if (inputSchema && !validate(args, inputSchema)) {
