@@ -2089,7 +2089,11 @@ export function transpileToJS(
         // so adding a `predicate` that returns `true` — adding no constraint at all —
         // made a type MORE permissive. A predicate must only ever narrow. Both checkers
         // are open now, so they agree.
-        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>${
+        `${
+          needsKind
+            ? 'function __match(v,ex){if(__kD>0){__kD++;try{return __m0(v,ex)}finally{__kD--}}__kD=1;try{for(;;){const ok=__m0(v,ex),S=__kS;if(!ok||!S||!S.def.length&&!S.redo)return ok;if(__kVerify(S)&&!S.redo)return true;const id=S.eps.length;S.eps[S.outer].dead=true;S.eps.push({cond:false,dead:false});S.outer=id;S.ep=id;S.redo=false}}finally{__kD=0;__kEnd()}}function __m0(v,ex){'
+            : 'function __match(v,ex){'
+        }if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>${
           needsKind
             ? 'k in v?__match(v[k],ex[k]):__kOpt(ex[k])'
             : 'k in v&&__match(v[k],ex[k])'
@@ -2109,19 +2113,39 @@ export function transpileToJS(
           // from `check(undefined)`: an unreadable `ref` accepts everything, and must not make
           // its member optional into the bargain.
           //
-          // A `ref` is checked COINDUCTIVELY, with bounded work. One assumption set per
-          // top-level check: a (value, marker) pair being — or already — proven holds when
-          // met again, and a pair that failed is remembered as failed. Assumptions made inside
-          // a union alternative or a ref that FAILS are rolled back (`__kLog`), so no `true`
-          // rests on a refuted assumption. That makes each pair's cost paid once: the first
-          // version kept only the current PATH, which terminated but was exponential on shared
-          // structure — a 500-byte hostile JSON took minutes. A work budget backstops it.
-          // Stack overflow and an exhausted budget fail CLOSED and are recorded — an overflow
-          // at the TOP-level frame, since the deep frame that caught it has no stack left to
-          // record with (it did, sometimes, which is how the record went missing). Only a
-          // ReferenceError (TDZ, or a name nothing declares) degrades open, also recorded.
-          `let __kA=null,__kF=null,__kLog=null,__kWork=0,__kDeep=null;const __kUnset={},__kBudget=1e6;function __kWarn(m,f,msg){if(m[f])return;m[f]=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kRoll(L){for(let i=__kLog.length-2;i>=L;i-=2){const s=__kA.get(__kLog[i]);if(s)s.delete(__kLog[i+1])}__kLog.length=L}function __kOpt(e,d){if(!e||!e.__k||(d|0)>32)return false;if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,(d|0)+1)}function __kRun(m,x,r){try{return __match(x,r)}catch(e){if(e instanceof RangeError){__kDeep=m;return false}throw e}}`,
-          `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.name=v;m.peek=()=>{try{return a()}catch(e){if(e instanceof ReferenceError)return __kUnset;throw e}};m.check=x=>{const r=m.peek();if(r===__kUnset){__kWarn(m,'wu','A Type example names \\''+v+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return true}if(x===null||typeof x!=='object')return __kRun(m,x,r);const top=!__kA;if(top){__kA=new WeakMap();__kF=new WeakMap();__kLog=[];__kWork=0}try{if(++__kWork>__kBudget){__kWarn(m,'wb','A value too large to check against \\''+v+'\\' was REJECTED.');return false}let s=__kA.get(x);if(s&&s.has(m))return true;let f=__kF.get(x);if(f&&f.has(m))return false;if(!s)__kA.set(x,s=new Set());s.add(m);const L=__kLog.length;__kLog.push(x,m);const ok=__kRun(m,x,r);if(!ok){__kRoll(L);if(!f)__kF.set(x,f=new Set());f.add(m)}return ok}finally{if(top){__kA=null;__kF=null;__kLog=null;if(__kDeep){const d=__kDeep;__kDeep=null;__kWarn(d,'wd','A value nested too deeply to check against \\''+d.name+'\\' was REJECTED.')}}}};m.opt=false}else{m.value=v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='set'?x=>__oneOf(x,a):t==='union'?x=>{for(const e of a){const L=__kLog?__kLog.length:0;if(__match(x,e))return true;if(__kLog)__kRoll(L)}return false}:()=>true;m.opt=t==='undef'||t==='any'||(t==='union'&&a.some(e=>__kOpt(e)))}return m}`,
+          // A `ref` is checked COINDUCTIVELY — the greatest fixed point, so cyclic data is
+          // accepted when every node satisfies its type — with each (value, marker) pair's
+          // body evaluated about ONCE per outermost validation:
+          //   - state opens at the OUTERMOST `__match` (a depth counter), not at the first
+          //     ref, so the elements of one array share it;
+          //   - pairs are keyed by the REFERENT (the Type), not the marker, so every place that
+          //     names a type shares one memo;
+          //   - a pair on the stack is ASSUMED true, and the frame that met it records the
+          //     lowest stack index it leaned on (`low`, as in Tarjan's SCC algorithm);
+          //   - a failed pair is memoized false — always sound, since assumptions only ever
+          //     make answers truer;
+          //   - a frame that succeeds with low >= its own index is the root of its
+          //     component: it, and every tentative success created inside it, become final;
+          //     one that leans lower is a TENTATIVE success, reused while what it rests on is
+          //     still on the stack, and discarded if its frame fails or throws;
+          //   - past a fixed ref DEPTH (128) a pair is DEFERRED — assumed, queued, and
+          //     verified from an empty stack once the outermost check succeeds — so data depth
+          //     is not bounded by the JS stack (Node's is ~8x smaller than Bun's; recursing
+          //     rejected a valid list a few hundred deep). A deferred pair that FAILS drops
+          //     every positive result (it may have leaned on it) and the check re-runs, having
+          //     learned a new failure — failures are always kept;
+          //   - a failed union alternative refutes nothing, so it rolls nothing back (the
+          //     previous design did, and a discriminant declared after a recursive member
+          //     made it quadratic).
+          // Three earlier designs were each wrong in a way example tests could not see; this
+          // one is checked against a brute-force oracle on random cyclic, shared graphs
+          // (`src/lang/example-kinds-oracle.test.ts`). A work budget backstops it. Overflow
+          // and an exhausted budget fail CLOSED and are recorded — an overflow (now only
+          // reachable through deeply nested NON-ref structure) once the outermost check has
+          // unwound, since the frame that caught it had no stack left.
+          // Only a ReferenceError (TDZ, or a name nothing declares) degrades open, recorded.
+          `let __kD=0,__kS=null;const __kUnset={},__kBudget=1e6,__kDepth=typeof globalThis.__TJS_KIND_DEPTH__==='number'?globalThis.__TJS_KIND_DEPTH__:128;function __kWarn(m,f,msg){if(m[f])return;m[f]=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kEnd(){const S=__kS;__kS=null;if(S&&S.deep)__kWarn(S.deep,'wd','A value nested too deeply to check against \\''+S.deep.name+'\\' was REJECTED.')}function __kG(w,x,m){const t=w.get(x);return t?t.get(m):undefined}function __kP(w,x,m,v){let t=w.get(x);if(!t)w.set(x,t=new Map());t.set(m,v)}function __kX(w,x,m){const t=w.get(x);if(t)t.delete(m)}function __kOpt(e,d){d=d|0;if(!e||!e.__k||d>32)return false;if(e.__k==='union')return e.arg.some(x=>__kOpt(x,d+1));if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,d+1)}function __kNew(){return{no:new WeakMap(),yes:new WeakMap(),tent:new WeakMap(),on:new WeakMap(),dset:new WeakMap(),tl:[],st:[],def:[],work:0,deep:null,ep:0,outer:0,redo:false,eps:[{cond:false,dead:false}]}}function __kYes(S,x,r){const e=__kG(S.yes,x,r);return e!==undefined&&(e===S.ep||!S.eps[e].cond)}function __kRef(m,x,r){const S=__kS||(__kS=__kNew());if(__kG(S.no,x,r)!==undefined)return false;if(__kYes(S,x,r))return true;const T=S.st[S.st.length-1];let q=__kG(S.tent,x,r);if(q===undefined)q=__kG(S.on,x,r);if(q!==undefined){if(T&&q<T.low)T.low=q;return true}const d=__kG(S.dset,x,r);if(d!==undefined){d.by.add(S.ep);S.eps[S.ep].cond=true;return true}if(S.st.length>=__kDepth){const n={m,x,r,by:new Set([S.ep]),done:false,ep:-1};__kP(S.dset,x,r,n);S.def.push(n);S.eps[S.ep].cond=true;return true}if(++S.work>__kBudget){__kWarn(m,'wb','A value too large to check against \\''+m.name+'\\' was REJECTED.');return false}const F={i:S.st.length,low:Infinity},t0=S.tl.length;S.st.push(F);__kP(S.on,x,r,F.i);let ok;try{ok=__kRun(m,x,r)}finally{S.st.pop();__kX(S.on,x,r);if(ok!==true){for(let j=t0;j<S.tl.length;j+=2)__kX(S.tent,S.tl[j],S.tl[j+1]);S.tl.length=t0}}if(!ok){__kP(S.no,x,r,1);return false}if(F.low>=F.i){__kP(S.yes,x,r,S.ep);for(let j=t0;j<S.tl.length;j+=2){__kX(S.tent,S.tl[j],S.tl[j+1]);__kP(S.yes,S.tl[j],S.tl[j+1],S.ep)}S.tl.length=t0;return true}__kP(S.tent,x,r,F.low);S.tl.push(x,r);if(T&&F.low<T.low)T.low=F.low;return true}function __kFail(S,d){d.done=true;__kX(S.dset,d.x,d.r);__kP(S.no,d.x,d.r,1);for(const e of d.by){const E=S.eps[e];if(E.dead)continue;if(e===S.outer)S.redo=true;else if(E.root&&!E.root.done){E.dead=true;E.root.ep=-1;S.def.push(E.root)}}}function __kVerify(S){for(;;){if(S.redo)return false;const d=S.def.pop();if(!d)return true;if(d.done||d.ep>=0&&!S.eps[d.ep].dead)continue;if(__kG(S.no,d.x,d.r)!==undefined){__kFail(S,d);continue}__kX(S.dset,d.x,d.r);const id=S.eps.length;S.eps.push({cond:false,dead:false,root:d});const sv=S.ep;S.ep=id;let ok;try{ok=__kRef(d.m,d.x,d.r)}finally{S.ep=sv}if(!ok){__kFail(S,d);continue}d.ep=id;if(S.eps[id].cond)__kP(S.dset,d.x,d.r,d);else d.done=true}}function __kRun(m,x,r){try{return __match(x,r)}catch(e){if(e instanceof RangeError){if(__kS)__kS.deep=m;return false}throw e}}`,
+          `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.name=v;m.peek=()=>{try{return a()}catch(e){if(e instanceof ReferenceError)return __kUnset;throw e}};m.check=x=>{const r=m.peek();if(r===__kUnset){__kWarn(m,'wu','A Type example names \\''+v+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return true}if(x===null||typeof x!=='object')return __kRun(m,x,r);return __kRef(m,x,r)};m.opt=false}else{m.value=v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='set'?x=>__oneOf(x,a):t==='union'?x=>a.some(e=>__match(x,e)):()=>true;m.opt=t==='undef'||t==='any'}return m}`,
           `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return typeof m.arg[0]==='bigint'?{type:'integer'}:{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.peek();if(r===__kUnset)return{};return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}finally{m.__busy=false}}return{}}`,
           `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='union')return __unk(v.arg[0]);if(v.__k!=='ref')return v.value;const r=v.peek();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`
         )

@@ -330,13 +330,25 @@ describe('the schema path agrees with the matcher', () => {
       const m = decl.match(/^Type T (?:\{ example: ([\s\S]*) \}|= ([\s\S]*))$/)
       const example = m && (m[1] ?? m[2])
       if (!example || decl.includes('predicate')) continue
-      const [P] = load(
-        `Type T {\n  example: ${example}\n  predicate(x) { return true }\n}`,
-        ['T'],
-        true
-      )
-      expect({ decl, good: P.check(good) }).toEqual({ decl, good: true })
-      expect({ decl, bad: P.check(bad) }).toEqual({ decl, bad: false })
+      // Both modes: standalone is the DEFAULT emission, and it is where the predicate route
+      // failed open for an unmarked example (re-review 2, M-3).
+      for (const withRuntime of [false, true]) {
+        const [P] = load(
+          `Type T {\n  example: ${example}\n  predicate(x) { return true }\n}`,
+          ['T'],
+          withRuntime
+        )
+        expect({ decl, withRuntime, good: P.check(good) }).toEqual({
+          decl,
+          withRuntime,
+          good: true,
+        })
+        expect({ decl, withRuntime, bad: P.check(bad) }).toEqual({
+          decl,
+          withRuntime,
+          bad: false,
+        })
+      }
       compared++
     }
     // Apparatus: the regex above must actually select rows.
@@ -556,7 +568,9 @@ describe('what the recursion records', () => {
     })
   })
 
-  it('a too-deep payload is REJECTED, recorded, and a validated call RETURNS an error', () => {
+  it('a 20,000-deep payload: valid is ACCEPTED, a bad leaf is REJECTED, nothing throws', () => {
+    // It used to overflow and fail closed — rejecting VALID deep data. Deferral past a fixed
+    // ref depth took the JS stack out of the verdict (see example-kinds-oracle.test.ts).
     withRecords((rt) => {
       const code = tjs(
         'Type D { example: { id: 0, child: D | undefined } }\nfunction f(d: D):! 0 { return 1 }'
@@ -564,13 +578,11 @@ describe('what the recursion records', () => {
       const f = new Function(code + '\nreturn f')()
       let deep: any = { id: 0 }
       for (let i = 0; i < 20000; i++) deep = { id: i, child: deep }
-      const r = f(deep) // must not THROW
-      expect(isMonadicError(r)).toBe(true)
-      expect(
-        rt
-          .records({ severity: 'warning' })
-          .some((x: any) => x.message.includes('REJECTED'))
-      ).toBe(true)
+      expect(f(deep)).toBe(1)
+      let bad: any = { id: 'NOT A NUMBER' }
+      for (let i = 0; i < 20000; i++) bad = { id: i, child: bad }
+      expect(isMonadicError(f(bad))).toBe(true) // RETURNED, not thrown
+      expect(rt.records({ severity: 'warning' })).toEqual([])
     })
   })
 })
@@ -628,5 +640,49 @@ describe('`Type X = …` reads the whole default expression', () => {
     expect(N.check({ a: { b: 'x' } })).toBe(false)
     expect(M.check(2.5)).toBe(true)
     expect(M.default).toBe(-1.5)
+  })
+})
+
+describe('the block form reads the same expressions as `=`', () => {
+  it("`example: A | B`, `example: 0 | ''`, `example: N`", () => {
+    const [T, U, V] = load(
+      "Type N { example: { n: 0 } }\nType M { example: { m: '' } }\n" +
+        'Type T { example: N | M }\n' +
+        "Type U { example: 0 | '' }\n" +
+        'Type V { example: N }',
+      ['T', 'U', 'V'],
+      false
+    )
+    expect(T.check({ m: 'x' })).toBe(true)
+    expect(T.check({ q: 1 })).toBe(false)
+    expect(U.check('x')).toBe(true)
+    expect(U.check(true)).toBe(false)
+    expect(V.check({ n: 1 })).toBe(true)
+    expect(V.check(5)).toBe(false)
+  })
+
+  it('a description holding `example:` is not the member', () => {
+    const [T] = load(
+      "Type T {\n  description: 'see example: nothing'\n  example: 0.0\n}",
+      ['T'],
+      false
+    )
+    expect(T.check(1.5)).toBe(true)
+  })
+})
+
+describe('a Type defined only in terms of itself is an error', () => {
+  // Under coinduction `Type T = T` holds for every object — never what was meant.
+  for (const src of [
+    'Type T = T',
+    'Type T { example: T | null }',
+    'Type A = B\nType B = A',
+  ])
+    it(JSON.stringify(src), () => {
+      expect(() => tjs(src)).toThrow(/defined only in terms of itself/)
+    })
+  it('real recursion and a plain alias are fine (controls)', () => {
+    expect(() => tjs('Type N { example: { next: N | null } }')).not.toThrow()
+    expect(() => tjs('Type A = B\nType B { example: { v: 0 } }')).not.toThrow()
   })
 })

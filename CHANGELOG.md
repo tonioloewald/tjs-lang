@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Published first as **`0.14.0-rc.0`** on the `rc` dist-tag, so tosijs-ui could verify against it
 > before its peer range admitted 0.14 ([tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182)).
 > It did: **tosijs-ui 1.15.2** declares `tjs-lang: ^0.13.1 || ^0.14.0`, so npm consumers of both
-> resolve cleanly. Two review rounds ran between the rc and this release; their fixes are below.
+> resolve cleanly. That rc verified PEER RESOLUTION; the `Type`-example and `TjsStrict` changes
+> below came after it, through several review rounds (`docs/reviews/0.14.0-*`).
 
 **A language release.** The tosijs-ui-hosted site was what 0.14.0 was originally reserved for;
 that work is real but lands separately, as a non-breaking change to build tooling that does not
@@ -33,10 +34,17 @@ pass into a returned `MonadicError`:
   `+N` is non-negative, `'' | undefined` is a union (it was bitwise OR, `0`), type names and
   references to other types are checked, and a recursive type is checked all the way down.
   A value your example only matched by accident may now be rejected; one it wrongly
-  rejected (9.99 against `0.0`) now passes. A value too deeply nested to check against a
-  recursive type is rejected, and recorded — it used to pass.
+  rejected (9.99 against `0.0`) now passes. A recursive type is checked to any depth (a
+  50,000-deep list, on Node as on Bun) in time linear in the data; cyclic data is accepted
+  when every node satisfies its type.
 - **`default:` inside a `Type` block is a transpile error.** It was never read. Write
   `Type T = 0` (or `Type T = 0 { … }`).
+- **An `example:` that cannot be read, and a type defined only in terms of itself
+  (`Type T = T`, `A = B` with `B = A`), are transpile errors.** The first used to become a
+  type that accepted everything; the second accepts every object under coinduction.
+- **A `Type` with a predicate enforces its example with no runtime installed.** Standalone
+  emitted code used to skip the example and run only the predicate, so a predicate wider
+  than its example now rejects what the example rejects.
 - **`TjsStrict` on converted TypeScript now validates arguments** — and with validation comes
   TJS's error propagation: a validated function that receives an `Error` as ANY argument
   returns it without running its body. That includes parameters declared `Error`, `any` or

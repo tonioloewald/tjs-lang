@@ -107,3 +107,30 @@ describe('`Array<T>` means what `T[]` means', () => {
     ).toBe(1)
   })
 })
+
+describe('converted unions and aliases are checked — not dropped (re-review 2, B-1)', () => {
+  // `fromTS` emits the BLOCK form (`Type X { example: … }`) for every TS union and alias, and
+  // the block's example reader took one TOKEN: `A | B`, `Node | null` and a bare alias read
+  // nothing, so the type became `Type('X')` and accepted everything — or read only `''` of
+  // `string | number` and rejected valid numbers.
+  const PRE = 'interface Node { v: number }\ninterface Leaf { leaf: string }\n'
+  const ROWS: Array<[string, unknown, unknown]> = [
+    ['type Id = string | number', 1, true],
+    ['type U = string | undefined', undefined, 5],
+    ['type MaybeNode = Node | null', null, 5],
+    ['type Alias = Node', { v: 1 }, 5],
+    ['type Either = Node | Leaf', { leaf: 'x' }, { v: 'x' }],
+  ]
+  for (const [alias, good, bad] of ROWS)
+    it(alias, () => {
+      const name = alias.match(/type (\w+)/)![1]
+      const ts = `/* @tjs TjsStrict */\n${PRE}${alias}\nfunction f(x: ${name}): number { return 1 }`
+      const f = load(fromTS(ts, { emitTJS: true }).code, 'f')
+      expect(f(good)).toBe(1)
+      expect(isMonadicError(f(bad))).toBe(true)
+    })
+
+  it('an example that cannot be read is an ERROR, not a type that checks nothing', () => {
+    expect(() => tjs('Type T { example: 1 +* 2 }')).toThrow(/could not be read/)
+  })
+})

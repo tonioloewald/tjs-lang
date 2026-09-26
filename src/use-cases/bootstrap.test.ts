@@ -31,6 +31,14 @@ const STRIP_COMMENTS_VALUES = STRIP_COMMENTS_EXPORTS.map(
 import { fromTS as fromTSToTJS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
 import { emitVerifiedPredicate } from '../lang/predicate'
+import * as acorn from 'acorn'
+
+// The parser modules are concatenated with their IMPORTS STRIPPED, so every external name
+// has to be injected. acorn used to "work" here only because `parse` in parser-transforms
+// collided with the TJS parser's own `parse` from parser.ts — the wrong function, which the
+// type-expression readers exposed. It is imported as `parseJS` now, and injected.
+const ACORN_EXPORTS = ['parseJS', 'parseExpressionAt']
+const ACORN_VALUES = [acorn.parse, acorn.parseExpressionAt]
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -213,11 +221,12 @@ describe('Bootstrap Canary', () => {
       // literal-aware scanner, and its imports are stripped for standalone execution.
       const module = new Function(
         ...STRIP_COMMENTS_EXPORTS,
+        ...ACORN_EXPORTS,
         `
         ${strippedCode}
         return { generateDocs };
       `
-      )(...STRIP_COMMENTS_VALUES)
+      )(...STRIP_COMMENTS_VALUES, ...ACORN_VALUES)
       const execTime = performance.now() - execStart
 
       // Test the bootstrapped docs functions
@@ -619,6 +628,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const listed = [
         'parser-types.ts',
+        'inference.ts', // the Type-example reader (markExampleKinds) resolves type names through it
         'rt-namespace.ts',
         'declared-classes.ts',
         'expression-context.ts',
@@ -655,6 +665,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const moduleFiles = [
         'parser-types.ts',
+        'inference.ts', // the Type-example reader (markExampleKinds) resolves type names through it
         'rt-namespace.ts',
         'declared-classes.ts',
         'expression-context.ts',
@@ -685,11 +696,12 @@ describe('Bootstrap Canary', () => {
       const parserModule = new Function(
         'emitVerifiedPredicate',
         ...STRIP_COMMENTS_EXPORTS,
+        ...ACORN_EXPORTS,
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate, ...STRIP_COMMENTS_VALUES)
+      )(emitVerifiedPredicate, ...STRIP_COMMENTS_VALUES, ...ACORN_VALUES)
       const execTime = performance.now() - execStart
 
       expect(typeof parserModule.preprocess).toBe('function')
@@ -789,6 +801,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const moduleFiles = [
         'parser-types.ts',
+        'inference.ts', // the Type-example reader (markExampleKinds) resolves type names through it
         'rt-namespace.ts',
         'declared-classes.ts',
         'expression-context.ts',
@@ -805,11 +818,12 @@ describe('Bootstrap Canary', () => {
       const bootstrappedParser = new Function(
         'emitVerifiedPredicate',
         ...STRIP_COMMENTS_EXPORTS,
+        ...ACORN_EXPORTS,
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate, ...STRIP_COMMENTS_VALUES)
+      )(emitVerifiedPredicate, ...STRIP_COMMENTS_VALUES, ...ACORN_VALUES)
 
       // Import native parser
       const nativeParser = require('../lang/parser')

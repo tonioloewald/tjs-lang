@@ -533,6 +533,20 @@ deployed after the publish.
     Kept MANUAL, not a gate, until the propagation decision: its known-failure list would be
     exactly that decision. Run it whenever `fromTS` or TjsStrict changes, then make it a
     ratchet (`test:dogfood:strict`) once the list is stable.
+- [ ] **0.14.0 example-kinds re-review 2 — deferred items** (docs/reviews/0.14.0-example-kinds-rereview-2.md;
+      B-1, M-1, M-2, M-3, m-1, m-2, n-1 are FIXED):
+  - m-3: `toJSONSchema()` of a RECURSIVE type truncates to `{}` at the recursion point, so
+    a schema consumer accepts what `.check` rejects. Emit `$defs` + `$ref` for named refs.
+    Documented in `docs/type-identity.md` until then.
+  - m-4: before publishing, run tosijs-ui's own suite against an `npm pack` of the FINAL
+    build — the rc verified peer resolution only (CHANGELOG header says so now).
+  - n-2: the type-expression reader parses each candidate member with acorn; measure growth
+    on a 2000-`Type` file and add a linearity row like `param-markers.test.ts`.
+  - gap 2: kind-check state is per FILE — a cycle that crosses modules is checked by each
+    module's own state. Termination holds (each module's on-stack set), but memo sharing
+    does not; add a two-module test with a hostile DAG and a cycle.
+  - gap 3: a user predicate that calls another Type's `.check` and NEGATES it re-enters
+    live kind state; add a test that the answer is the same as with fresh state.
 - [ ] **DECISION NEEDED — error propagation swallows functions that TAKE an error.** Every
       validated function starts `if (p instanceof Error) return p` for EVERY parameter, whatever
       its declared type, and for any `Error` (not only `MonadicError`). So `describe(e: Error)`,

@@ -63,8 +63,10 @@ import type {
   PolyVariant,
   TokenizerState,
 } from './parser-types'
-import { parse } from 'acorn'
-import { extractJSValue } from './parser-params'
+// Aliased: this module is concatenated with `parser.ts` into one scope by the self-hosting
+// canary (`bootstrap.test.ts`), where a bare `parse` is the TJS parser's own — so the
+// type-expression readers got the wrong parser and rejected every example.
+import { parse as parseJS } from 'acorn'
 import { emitVerifiedPredicate, formatPredicateDiagnostics } from './predicate'
 import type { PredicateVerification } from './types'
 import { typeSignatureFor } from './type-signature'
@@ -2110,7 +2112,7 @@ export function genericPredicateFromExample(
   }
 
   try {
-    const parsed = parse(`(${example})`, { ecmaVersion: 2022 }) as any
+    const parsed = parseJS(`(${example})`, { ecmaVersion: 2022 }) as any
     const expr = parsed.body[0]?.expression
     if (!expr) return null
     const body = walk(expr, 'v')
@@ -2224,10 +2226,43 @@ export function normalizePredicateForms(
  * union members. A literal inside a call or a computed key is a value, not a type. An
  * example with nothing to mark comes back byte-identical, so no other emitted code changes.
  */
+/**
+ * The names a Type is an ALIAS for — when its example is nothing but names, `null` and
+ * `undefined` joined by `|` (`Type A = B | null`) — else null. Used to reject a type defined
+ * only in terms of itself: under coinduction `Type T = T` holds for EVERY object, which is
+ * never what was meant. Sound type names (`string`) are not aliases.
+ */
+function aliasTargets(example: string): string[] | null {
+  let ast: any
+  try {
+    ast = parseJS(`(${example})`, { ecmaVersion: 'latest' })
+  } catch {
+    return null
+  }
+  const names: string[] = []
+  const walk = (n: any): boolean => {
+    if (n.type === 'BinaryExpression' && n.operator === '|')
+      return walk(n.left) && walk(n.right)
+    if (n.type === 'Literal' && n.value === null) return true
+    if (n.type === 'Identifier') {
+      if (n.name === 'undefined') return true
+      if (
+        typeNameExample(n.name) !== null ||
+        typeArgumentSource(n.name) !== null
+      )
+        return false
+      names.push(n.name)
+      return true
+    }
+    return false
+  }
+  return walk(ast.body[0]?.expression) && names.length ? names : null
+}
+
 export function markExampleKinds(example: string): string {
   let ast: any
   try {
-    ast = parse(`(${example})`, { ecmaVersion: 'latest' })
+    ast = parseJS(`(${example})`, { ecmaVersion: 'latest' })
   } catch {
     return example // not a plain expression — leave it exactly as it was
   }
@@ -2486,6 +2521,12 @@ export function transformTypeDeclarations(
    */
   declaredTypes?: Set<string>
 ): string {
+  // `Type X = Y` edges, checked for cycles once every declaration has been seen.
+  const aliasOf = new Map<string, { targets: string[]; at: number }>()
+  const noteAlias = (name: string, text: string, at: number) => {
+    const targets = aliasTargets(text)
+    if (targets) aliasOf.set(name, { targets, at })
+  }
   let result = ''
   let i = 0
   // Detection on the masked view; every slice from the real source. See matchDeclHeader.
@@ -2566,7 +2607,7 @@ export function transformTypeDeclarations(
         // `Type Opt = '' | undefined` emitted `Type('Opt', '') | undefined` (bitwise OR, so
         // `Opt` was the number 0), an object default stopped at its FIRST `}`, and a negative
         // number or a type name matched nothing at all.
-        const extracted = extractTypeDefault(source, j)
+        const extracted = readTypeExpression(source, j)
         if (extracted) {
           defaultValue = extracted.value
           j = extracted.end
@@ -2612,13 +2653,20 @@ export function transformTypeDeclarations(
 
         // Extract example value using state machine for nested structures
         let example: string | undefined
-        const exampleKeyword = blockBody.match(/example\s*:\s*/)
+        // Found on the MASKED view, so `example:` inside a description string is not the
+        // member; read with the same reader as the `=` form.
+        const exampleKeyword = maskLiterals(blockBody).match(/\bexample\s*:\s*/)
         if (exampleKeyword) {
           const valueStart = exampleKeyword.index! + exampleKeyword[0].length
-          const extracted = extractJSValue(blockBody, valueStart)
-          if (extracted) {
-            example = extracted.value.trim()
-          }
+          const extracted = readTypeExpression(blockBody, valueStart)
+          if (!extracted)
+            throw new SyntaxError(
+              `\`${typeName}\` has an \`example:\` that could not be read as one ` +
+                `expression, so the type would check NOTHING. An example is a value, a ` +
+                `type name, or a union of them: \`example: { a: 0 } \`, \`example: A | null\`.`,
+              locAt(source, i)
+            )
+          example = extracted.value
         }
 
         // A `default:` MEMBER is not a form — a block's default is written before the
@@ -2718,18 +2766,23 @@ export function transformTypeDeclarations(
           // narrowed NOTHING made the type accept `{ next: 5 }`. A marked example gates on the
           // same coinductive `__match` the example-only form uses; it needs no runtime, so it
           // also stops failing open where none is installed.
+          // EVERY non-empty example gates on `__match` — it needs no runtime. It used to
+          // gate only a MARKED example, so whether a predicate Type enforced its example
+          // standalone depended on `0` vs `0.0`, and a predicate that narrowed nothing widened
+          // the type. The inferred schema stays as an EXTRA check when a runtime is installed
+          // (never for a marked example: `infer` sees values and cannot express a `ref`).
           const marked = markExampleKinds(example)
-          const schemaMemo =
-            emptyExample || marked === example
-              ? emptyExample
-                ? ''
-                : `let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example}) } return __sc };`
-              : `const __ex = ${marked};`
-          // (The unmarked branch derives the schema lazily, once, then caches — see above.)
-          const gate =
-            emptyExample || marked === example
-              ? schemaGate
-              : `${rt('__match')}(${params}, __ex)`
+          const schemaMemo = emptyExample
+            ? ''
+            : `const __ex = ${marked};` +
+              (marked === example
+                ? ` let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example}) } return __sc };`
+                : '')
+          const gate = emptyExample
+            ? 'true'
+            : marked === example
+            ? `(${rt('__match')}(${params}, __ex) && ${schemaGate})`
+            : `${rt('__match')}(${params}, __ex)`
           const guard = verifiedGuardExpr(
             typeName,
             'Type',
@@ -2773,15 +2826,16 @@ export function transformTypeDeclarations(
           // but returned nothing for `0.0` and never looked inside an object or array.
           result += `const ${typeName} = ${rt(
             'Type'
-          )}('${description}', undefined, ${markExampleKinds(
-            example
-          )}${defaultArg})`
+          )}('${description}', undefined, ${
+            (noteAlias(typeName, example, i), markExampleKinds(example))
+          }${defaultArg})`
         } else if (defaultValue) {
           // Default only (infer schema from default)
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = ${rt(
-            'Type'
-          )}('${description}', ${markExampleKinds(defaultValue)})`
+          result += `const ${typeName} = ${rt('Type')}('${description}', ${
+            (noteAlias(typeName, defaultValue, i),
+            markExampleKinds(defaultValue))
+          })`
         } else {
           // A block that declares NOTHING checkable — no example, no predicate, no
           // default — cannot be a type. It was emitted as `Type('Name')`, where the
@@ -2849,9 +2903,9 @@ export function transformTypeDeclarations(
       } else if (defaultValue) {
         // Simple form with default: Type Foo = 'value' or Type Foo 'desc' = 'value'
         declaredTypes?.add(typeName)
-        result += `const ${typeName} = ${rt(
-          'Type'
-        )}('${description}', ${markExampleKinds(defaultValue)})`
+        result += `const ${typeName} = ${rt('Type')}('${description}', ${
+          (noteAlias(typeName, defaultValue, i), markExampleKinds(defaultValue))
+        })`
         i = posAfterDefault // Use position before whitespace was consumed
         continue
       } else if (!descStringMatch) {
@@ -2877,6 +2931,29 @@ export function transformTypeDeclarations(
     i++
   }
 
+  // A cycle of pure aliases (`Type A = B`, `Type B = A`, or `Type T = T | null`) constrains
+  // nothing: the greatest fixed point accepts every object. Reject it by name.
+  for (const [name, { at }] of aliasOf) {
+    const seen = new Set<string>()
+    const stack = [...aliasOf.get(name)!.targets]
+    while (stack.length) {
+      const t = stack.pop()!
+      if (t === name)
+        throw new SyntaxError(
+          `\`${name}\` is defined only in terms of itself (${[
+            ...seen,
+            name,
+          ].join(
+            ' → '
+          )}), so it would accept every object. Give it a shape: an example object, a ` +
+            `primitive, or a predicate.`,
+          locAt(source, at)
+        )
+      if (seen.has(t)) continue
+      seen.add(t)
+      stack.push(...(aliasOf.get(t)?.targets ?? []))
+    }
+  }
   return result
 }
 
@@ -3151,13 +3228,21 @@ export function transformGenericDeclarations(
       // The example is what lets a parameterized type check its parameter without a
       // hand-written predicate restating where that parameter goes.
       let genericExample: string | undefined
-      const exKeyword = parsedBody.match(/example\s*:\s*/)
+      // The same reader as the `Type` sites (`readTypeExpression`) — this was the third
+      // one-token copy, and `example: { value: T } | null` read only the object.
+      const exKeyword = maskLiterals(parsedBody).match(/\bexample\s*:\s*/)
       if (exKeyword) {
-        const extracted = extractJSValue(
+        const extracted = readTypeExpression(
           parsedBody,
           exKeyword.index! + exKeyword[0].length
         )
-        if (extracted) genericExample = extracted.value.trim()
+        if (!extracted)
+          throw new SyntaxError(
+            `\`${genericName}\` has an \`example:\` that could not be read as one ` +
+              `expression, so the generic would check NOTHING.`,
+            locAt(source, i)
+          )
+        genericExample = extracted.value
       }
       const descMatch = parsedBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
       // Same normalisation as the `Type` site. On a generic the type parameters follow
@@ -4128,38 +4213,56 @@ function parseGenericTypeParams(typeParamsStr: string): {
 }
 
 /**
- * A `Type X = …` default: one value, or a `|`-joined chain of them, each a literal the
- * `extractJSValue` state machine can read (nesting, strings, negatives) or a bare name.
+ * A TYPE EXPRESSION in a `Type` declaration — the `= …` default and the block's
+ * `example: …` — read as ONE JavaScript expression, ending at a statement boundary.
+ *
+ * Both sites used to read one TOKEN: `Type Opt = '' | undefined` emitted
+ * `Type(…, '') | undefined` (bitwise OR — `Opt` was the number 0), an object default stopped
+ * at its first `}`, and `example: A | B`, `example: Node`, `example: Exactly('a')` read
+ * NOTHING — so the block became `Type('X')`, which accepts every value. `fromTS` emits the
+ * block form for every TypeScript union and alias, so converted code failed open on
+ * `T | null` and rejected valid input for `string | number`. One reader now serves both
+ * sites, and a declaration whose expression cannot be read is an ERROR, never a type that
+ * silently checks nothing.
  */
-function extractTypeDefault(
+function readTypeExpression(
   source: string,
   start: number
 ): { value: string; end: number } | null {
-  let i = start
-  const one = (): boolean => {
-    const v = extractJSValue(source, i)
-    if (v) {
-      i = v.endPos
-      return true
-    }
-    const name = source.slice(i).match(/^\s*[A-Za-z_$][\w$]*/)
-    if (!name) return false
-    i += name[0].length
-    return true
-  }
-  if (!one()) return null
-  for (;;) {
-    const bar = source.slice(i).match(/^[ \t]*\|(?!\|)\s*/)
-    if (!bar) break
-    const save = i
-    i += bar[0].length
-    if (!one()) {
-      i = save
+  // The member's EXTENT first — to the first top-level `,` `;` newline `}` or comment —
+  // on the masked view, so a delimiter inside a string or a nested object does not end it.
+  // (Parsing straight from `start` let acorn read `0, default: 5` as a comma EXPRESSION.)
+  const masked = maskLiterals(source)
+  let depth = 0
+  let end = start
+  for (; end < masked.length; end++) {
+    const c = masked[end]
+    // `Type T = 0.0 { … }`: at the top level, a `{` after a COMPLETE expression is the
+    // declaration's block, not an object literal — `= { a: 0 }` has nothing before it.
+    if (c === '{' && depth === 0 && isOneExpression(source.slice(start, end)))
       break
-    }
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') {
+      if (depth === 0) break
+      depth--
+    } else if (depth === 0 && (c === ',' || c === ';' || c === '\n')) break
+    else if (depth === 0 && c === '/' && /[/*]/.test(masked[end + 1] ?? ''))
+      break
   }
-  const value = source.slice(start, i).trim()
-  return value ? { value, end: i } : null
+  const value = source.slice(start, end).trim()
+  // …then it must be exactly ONE expression.
+  if (!isOneExpression(value)) return null
+  return { value, end: start + source.slice(start, end).trimEnd().length }
+}
+
+function isOneExpression(text: string): boolean {
+  if (!text.trim()) return false
+  try {
+    const program: any = parseJS(`(${text})`, { ecmaVersion: 'latest' })
+    return program.body.length === 1
+  } catch {
+    return false
+  }
 }
 
 /** Index of the first top-level `=` that introduces a DEFAULT, or -1. */
