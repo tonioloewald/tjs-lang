@@ -37,7 +37,7 @@ import { tjs } from './index'
 function isolateLib(js: string): string {
   const kept = js.split('\n').filter(
     (l) =>
-      !l.startsWith('const __tjs = globalThis.__tjs') &&
+      !l.startsWith('const __tjs = ') &&
       !/^const __tjs(ToBool|SwKey) =/.test(l) &&
       // the ambient-alias line, which would duplicate the other module's
       !/^const \w+ = __tjs_rt\.\w+;/.test(l)

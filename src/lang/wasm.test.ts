@@ -2391,7 +2391,7 @@ export wasm function mul(a: f64, b: f64): f64 { return a * b }
     // the fallback text itself, which held only while every function emitted a
     // per-parameter error pre-check; the wrappers here are unchecked, so they need nothing.)
     if (/\b__tjs\./.test(result.code))
-      expect(result.code).toContain('globalThis.__tjs?.createRuntime?.()')
+      expect(result.code).toContain('globalThis.__tjs.createRuntime?.()')
   })
 
   it('dynamic import of the boundary form gives a working module', async () => {

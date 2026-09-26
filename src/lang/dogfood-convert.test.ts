@@ -256,7 +256,7 @@ const report = (label: string, st: Stage, total: number) => {
  * the whole point of the promote-check is that an unclaimed gain is slack a future regression
  * can occupy without turning anything red.
  */
-const GRADUATION_FLOOR = 114
+const GRADUATION_FLOOR = 116
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

@@ -30,8 +30,8 @@
  *
  * ## Why not just reuse `__tjs`
  *
- * `__tjs` is `globalThis.__tjs?.createRuntime?.() ?? <inline fallback>`, so it is the SHARED
- * runtime whenever one is installed. The inline stubs are deliberately not drop-in
+ * `__tjs` is the installed runtime's `createRuntime()` (when its `abi` matches) or the inline
+ * fallback, so it is the SHARED runtime whenever a compatible one is installed. The inline stubs are deliberately not drop-in
  * equivalents of the real ones — the real `Type` throws where the stub is permissive, the
  * real `FunctionPredicate.check()` returns a message where the stub returns `false` — and
  * emitted code has always called the stubs. Routing these through `__tjs` would therefore

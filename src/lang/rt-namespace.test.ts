@@ -133,6 +133,8 @@ describe('the emitted runtime never lands in the author’s namespace', () => {
     // Each is listed WITH ITS REASON — an unexplained exemption is a silent hole.
     const PRIVATE: Record<string, string> = {
       __arrKinds: 'builds the "array of X | Y" string for typeError',
+      __carried:
+        'finds a MonadicError carried in a failed argument, for typeError',
       __goIs: 'the recursive worker behind Is',
       __ex2js: 'example -> JSON Schema, reached via a Type’s .toJSONSchema()',
       __match: 'structural matcher, reached via Type/Generic .check()',

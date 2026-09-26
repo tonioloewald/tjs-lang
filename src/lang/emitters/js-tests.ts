@@ -399,13 +399,11 @@ export function stripModuleSyntax(code: string): string {
  * - Bundlers that need to deduplicate runtime setup
  */
 export function stripTjsPreamble(code: string): string {
-  // Remove the __tjs runtime setup lines:
-  // const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;
-  // const { Is, IsNot, Eq, NotEq } = __tjs ?? {};
-  let result = code.replace(
-    /^const __tjs = globalThis\.__tjs\?\.createRuntime\?\.\(\) \?\? globalThis\.__tjs;\n?/m,
-    ''
-  )
+  // Remove the __tjs runtime setup line — `const __tjs = <installed runtime> ?? <inline
+  // fallback>;`, always ONE line. This matched one literal spelling of it, which the emitter
+  // stopped producing long ago, so it had silently stripped nothing; it now matches the
+  // declaration, whatever its right-hand side (0.14.0, found when the ABI gate changed it).
+  let result = code.replace(/^const __tjs = [^\n]*\n?/m, '')
   result = result.replace(/^const \{ [\w, ]+ \} = __tjs \?\? \{\};\n?/m, '')
   return result
 }
