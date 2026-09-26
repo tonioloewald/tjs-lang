@@ -107,6 +107,12 @@ export interface FunctionSignature {
 
 /** Options for the transpile function */
 export interface TranspileOptions {
+  /**
+   * @internal The result of `parseAgentSource(source)`, when the caller already has it, so
+   * the source is not parsed twice. `Eval` reads identifiers from the same parse; parsing
+   * twice doubled its pre-fuel work at the size cap (0.14.0 final re-review 2).
+   */
+  parsed?: unknown
   /** Include source locations in output AST */
   sourceMaps?: boolean
   /** Atom registry for validation (optional) */

@@ -725,11 +725,16 @@ function transformForOfStatement(
           Boolean
         ) as BaseNode[])
 
+  // `loop: true`: a for...of BODY is not a callback. `map` runs both, and gave a loop body
+  // callback semantics, so a `return` inside the loop returned from an imagined callback and
+  // the agent carried on (0.14.0 final re-review 2, M-1). With the flag, a `return` ends the
+  // loop AND the agent, as in JavaScript.
   return {
     op: 'map',
     items,
     as: varName,
     steps,
+    loop: true,
   }
 }
 

@@ -45,9 +45,19 @@ options bags. But every validated function used to begin with a pre-check that r
   `Eval` context values and `SafeFunction` arguments, which become them). They arrived
   LIVE, and `methodCall`'s allowlist filters method NAMES, not owners: a class instance
   whose class defines `slice` had it invoked by guest code (`svc.slice(0)` ran host code).
-  The guest now gets a copy — the data, without the prototype or its methods — and an own
-  function or getter is refused with an `AgentError`. No byte cap applies to arguments
-  (they are the host's own choice); the live-heap ceiling still bounds what gets bound.
+  **Migration — what is now refused, loudly, with an `AgentError` naming the argument:**
+  - A CLASS INSTANCE (any prototype but a plain object's, `null`, `Array`, `Date`, `Map`,
+    `Set`, `RegExp`, `Error` or a typed array). Copying only its own data would thin it
+    silently: a Firestore Timestamp's `seconds` getter read as `undefined`, and a negated
+    rule over it flipped deny to allow. Convert it to plain data first (`ts.toMillis()`).
+    The same rule now applies to what a capability RETURNS.
+  - An own function or getter, a Proxy (including a raw tosijs state proxy — pass
+    `.value`), a `URL`, and anything else `structuredClone` cannot copy.
+    **Arguments are metered.** Admission walks the data before any atom runs, so it is
+    budgeted by the run's own fuel — about 8,000 bytes per unit, the rate binding the same
+    data costs — and capped by the new `argsMaxBytes` run option (default 64MB). What crosses
+    is charged to fuel. A host passing large arguments with a small `fuel` will now see them
+    refused at admission: pass fuel in proportion (a 1MB string needs about 250).
 - **Emitted code uses an installed `globalThis.__tjs` only if it speaks the same runtime ABI**
   (`abi`, now 2); otherwise it uses its own inline runtime. A 0.13 runtime's `typeError`
   ignores the propagation argument, so 0.14 code running under one replaced the caller's
@@ -385,7 +395,17 @@ Predicate` to "callable and boolean-ish".
   outer binding (redeclaration was checked up the whole scope chain), and an inner `const x`
   made an unrelated outer `x` unassignable for the rest of the run (const-ness was one set of
   names). Redeclaration is now refused in the same scope only, and reassignment only when the
-  binding a write resolves to is a `const`.
+  binding a write resolves to is a `const`. **Still open:** a `const` inside a `while` body
+  fails on the second iteration, because the body does not get a scope of its own — part
+  of the AJS AST v2 work (TODO), with assignment to an outer variable from inside a block
+  or loop.
+- **AJS: a `for...of` body is a loop, not a callback.** A `return` inside it now ends the
+  agent, as in JavaScript: an object return (`return { allowed: false }`) was silently
+  swallowed and the agent carried on to the code after the loop. The transpiler marks the
+  node `loop: true`; `map` without it keeps callback semantics.
+- **AJS: `memoize` and `cache` bodies are callbacks too** — a scalar `return` is the value,
+  not an agent-rule violation — and a sub-agent or `runCode` started inside a callback is
+  held to the agent rule again (the callback's exemption leaked into it).
 
 - **`fromTS` class metadata keeps what the code erases**: OVERLOAD signatures — of methods,
   static methods AND constructors — and `abstract`. Both are rightly erased from the emitted

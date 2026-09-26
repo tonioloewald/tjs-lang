@@ -23,6 +23,41 @@ safety none
 import { getFirestore } from 'firebase-admin/firestore'
 import { validateSchema } from './schema.js'
 
+/*#
+## Firestore values become plain data before a rule sees them
+
+Since tjs-lang 0.14 the sandbox refuses a class instance at its boundary rather than copying
+only its own fields. A copy would drop what lives on the prototype, so a Timestamp's
+`seconds` read as `undefined`, and a negated rule over it flipped deny to allow. Firestore
+hands back class instances, so they are converted here, keeping the fields rules already
+read:
+
+- Timestamp → `{ seconds, nanoseconds }`
+- GeoPoint → `{ latitude, longitude }`
+- DocumentReference → `{ id, path }`
+
+Anything else that is not plain data is left as it is, so the boundary refuses it and the
+rule DENIES. Unknown shapes fail closed.
+*/
+export function plainData(v, depth = 0) {
+  if (v === null || typeof v !== 'object' || depth > 64) return v
+  if (Array.isArray(v)) return v.map((x) => plainData(x, depth + 1))
+  if (v instanceof Date) return v
+  const proto = Object.getPrototypeOf(v)
+  if (proto === Object.prototype || proto === null) {
+    const out = {}
+    for (const k of Object.keys(v)) out[k] = plainData(v[k], depth + 1)
+    return out
+  }
+  if (typeof v.toMillis === 'function' && typeof v.seconds === 'number')
+    return { seconds: v.seconds, nanoseconds: v.nanoseconds }
+  if (typeof v.latitude === 'number' && typeof v.longitude === 'number')
+    return { latitude: v.latitude, longitude: v.longitude }
+  if (typeof v.path === 'string' && typeof v.id === 'string')
+    return { id: v.id, path: v.path }
+  return v
+}
+
 // Lazy initialization to ensure initializeApp() is called first
 let _db = null
 function db() {
@@ -199,7 +234,7 @@ export async function evaluateSecurityRule(rule, context) {
 
       const result = await Eval({
         code: codeToRun,
-        context,
+        context: plainData(context),
         fuel,
         timeoutMs,
         capabilities: {} // No capabilities for security rules

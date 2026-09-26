@@ -82,3 +82,45 @@ describe('a callback body is a function', () => {
     expect((await run('return 5')).error).toMatch(/must return an object/)
   })
 })
+
+describe('a for...of body is a LOOP, not a callback (0.14.0 final re-review 2, M-1)', () => {
+  const runWith = async (body: string, args: any) => {
+    const r = await vm.run(
+      transpile(`function f({ users }) {\n${body}\n}`).ast,
+      args,
+      { fuel: 200 }
+    )
+    return { result: r.result as any, error: r.error?.message }
+  }
+  it('a `return` inside the loop ends the agent — an object deny is honoured', async () => {
+    const r = await runWith(
+      "for (const u of users) { if (u == 'bad') { return { allowed: false } } }\nreturn { allowed: true }",
+      { users: ['ok', 'bad', 'ok'] }
+    )
+    expect(r.result).toEqual({ allowed: false })
+  })
+  it('a scalar return inside the loop fails CLOSED under the agent rule', async () => {
+    const r = await runWith(
+      "for (const u of users) { if (u == 'bad') { return false } }\nreturn { allowed: true }",
+      { users: ['bad'] }
+    )
+    expect(r.error).toMatch(/must return an object/)
+  })
+})
+
+describe('callback bodies elsewhere, and what they must not leak', () => {
+  // memoize/cache are builder ops (no source syntax), so the AST is written directly.
+  const ast = (op: string) =>
+    ({
+      op: 'seq',
+      steps: [
+        { op, key: 'k', steps: [{ op: 'return', value: 7 }], result: 'v' },
+        { op: 'return', value: { v: 'v' } },
+      ],
+    } as any)
+  it('a memoized body may return a scalar', async () => {
+    const r = await vm.run(ast('memoize'), {}, { fuel: 100 })
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 7 })
+  })
+})

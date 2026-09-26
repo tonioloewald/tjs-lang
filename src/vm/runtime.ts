@@ -530,8 +530,47 @@ const MEMBRANE_MAX_BYTES = 4 * 1024 * 1024 // 4MB — generous for data, cheap t
 const MEMBRANE_MAX_DEPTH = 10_000 // reject absurd nesting before it can stack-overflow the walk / clone
 
 export type MembraneResult =
-  | { ok: true; value: unknown }
+  | { ok: true; value: unknown; bytes?: number }
   | { ok: false; reason: string }
+
+/**
+ * The prototypes plain data may have. Anything else is a CLASS INSTANCE, and the copy keeps
+ * only its own data properties: a getter on the prototype, or a `#private` field, silently
+ * reads as `undefined` on the other side. A Firestore Timestamp's `seconds` is exactly that,
+ * and a negated rule over it flipped deny to ALLOW (0.14.0 final re-review 2, M-2). Refused
+ * loudly instead, as an own getter already is. (Arrays, Date, Map, Set and typed arrays have
+ * their own branches.)
+ */
+const PLAIN_PROTOTYPES = new Set<unknown>([
+  Object.prototype,
+  null,
+  RegExp.prototype,
+  Error.prototype,
+  TypeError.prototype,
+  RangeError.prototype,
+  SyntaxError.prototype,
+  ReferenceError.prototype,
+  EvalError.prototype,
+  URIError.prototype,
+])
+
+/**
+ * `membraneValue` with the refusal naming WHO handed the value over — the party to go and
+ * fix. Every reason is phrased for a capability return, so run arguments said "capability
+ * return contains …" and pointed the host at the wrong code. A wrapper rather than a
+ * parameter threaded through the walk, so the walk stays one function the membrane
+ * invariant test can read whole.
+ */
+export function membraneValueFrom(
+  subject: string,
+  value: unknown,
+  maxBytes: number
+): MembraneResult {
+  const r = membraneValue(value, maxBytes)
+  return r.ok
+    ? r
+    : { ok: false, reason: r.reason.replace(/capability return/g, subject) }
+}
 
 export function membraneValue(
   value: unknown,
@@ -677,6 +716,14 @@ export function membraneValue(
       // Accessors are rejected rather than evaluated: there is no way to learn what
       // one returns without running it, and structuredClone would run it again
       // anyway. A capability must hand over plain data.
+      const proto = Object.getPrototypeOf(v)
+      if (!PLAIN_PROTOTYPES.has(proto)) {
+        const name = proto?.constructor?.name || 'an unnamed class'
+        return {
+          ok: false,
+          reason: `capability return contains an instance of ${name}; only plain data crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
+        }
+      }
       const own = readOwnData(v)
       if (!own.ok) return own
       bytes += own.bytes
@@ -686,7 +733,7 @@ export function membraneValue(
   }
 
   try {
-    return { ok: true, value: structuredClone(value) }
+    return { ok: true, value: structuredClone(value), bytes }
   } catch (e: any) {
     return {
       ok: false,
@@ -3270,8 +3317,13 @@ export const callLocal = defineAtom(
  * the run — `[1, 2].map(v => { return v * 3 })` — and a returned object was ignored because
  * only `state.result` was read (`[null, null]`). Only expression-bodied arrows worked.
  */
-function callbackScope(ctx: RuntimeContext): RuntimeContext {
+function callbackScope(
+  ctx: RuntimeContext,
+  opts: { loop?: boolean } = {}
+): RuntimeContext {
   const child = createChildScope(ctx)
+  // A LOOP body (for...of) is the enclosing code's own: plain child scope, agent rules.
+  if (opts.loop) return child
   child.localCall = true
   child.output = undefined
   return child
@@ -3300,9 +3352,15 @@ for (const item of items) {
 */
 export const map = defineAtom(
   'map',
-  s.object({ items: s.array(s.any), as: s.string, steps: s.array(s.any) }),
+  s.object({
+    items: s.array(s.any),
+    as: s.string,
+    steps: s.array(s.any),
+    // A for...of BODY (set by the transpiler), not a callback: see below.
+    loop: s.boolean.optional,
+  }),
   s.array(s.any),
-  async ({ items, as, steps }, ctx) => {
+  async ({ items, as, steps, loop }, ctx) => {
     const results = []
     const resolvedItems = resolveValue(items, ctx)
     if (!Array.isArray(resolvedItems))
@@ -3310,11 +3368,22 @@ export const map = defineAtom(
     for (const item of resolvedItems) {
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
-      const scopedCtx = callbackScope(ctx)
+      // A LOOP body is the enclosing function's own code: its `return` is the agent's
+      // return, under the agent's rules, and it ends the loop. A CALLBACK body is a function
+      // of its own (see callbackScope). One op served both, and when callbacks gained
+      // function semantics, a `return` inside for...of was silently swallowed.
+      const scopedCtx = callbackScope(ctx, { loop })
       try {
         if (!setStateVar(scopedCtx, as, item, 'map', { alias: true }))
           return undefined
         await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+        if (loop) {
+          if (scopedCtx.output !== undefined) {
+            ctx.output = scopedCtx.output
+            return results
+          }
+          continue
+        }
         results.push(callbackResult(scopedCtx) ?? null)
       } finally {
         releaseScope(scopedCtx)
@@ -4023,6 +4092,9 @@ export const agentRun = defineAtom(
         consts: new Set(),
         output: undefined,
         error: undefined,
+        // A sub-agent is an AGENT, under the agent's return rule — never a callback's
+        // exemption inherited from the `map` it was started in.
+        localCall: false,
         // Own ledger — the spread would share the caller's by reference, and a
         // sub-agent binding a name the caller also uses would free the caller's budget.
         heapPerKey: new Map(),
@@ -4057,6 +4129,9 @@ export const agentRun = defineAtom(
         consts: new Set(),
         output: undefined,
         error: undefined,
+        // A sub-agent is an AGENT, under the agent's return rule — never a callback's
+        // exemption inherited from the `map` it was started in.
+        localCall: false,
         // Own ledger — see the sibling branch above. Here the AST is guest-supplied, so
         // the guest picks the binding names outright.
         heapPerKey: new Map(),
@@ -4222,6 +4297,7 @@ export const runCode = defineAtom(
     try {
       childCtx.args = resolvedArgs
       childCtx.output = undefined
+      childCtx.localCall = false // dynamic code is an agent, whatever scope started it
       childCtx.runCodeDepth = currentDepth + 1 // Increment depth for nested calls
 
       // Execute the transpiled code in the child context
@@ -4317,15 +4393,12 @@ export const memoize = defineAtom(
       return ctx.memo.get(k)
     }
 
-    // Execute steps in isolated scope
-    const scopedCtx = createChildScope(ctx)
+    // A memoized body is a CALLBACK: its `return` is the value, and may be a scalar.
+    const scopedCtx = callbackScope(ctx)
     let result: any
     try {
       await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-
-      // Result is implicit from last step or explicit scope result variable?
-      // Convention: result variable or last output
-      result = scopedCtx.output ?? scopedCtx.state['result']
+      result = callbackResult(scopedCtx)
     } finally {
       releaseScope(scopedCtx)
     }
@@ -4398,12 +4471,12 @@ export const cache = defineAtom(
       }
     }
 
-    // Execute
-    const scopedCtx = createChildScope(ctx)
+    // A cached body is a CALLBACK: its `return` is the value, and may be a scalar.
+    const scopedCtx = callbackScope(ctx)
     let result: any
     try {
       await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-      result = scopedCtx.output ?? scopedCtx.state['result']
+      result = callbackResult(scopedCtx)
     } finally {
       releaseScope(scopedCtx)
     }

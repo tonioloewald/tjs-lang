@@ -92,7 +92,9 @@ describe('outbound work is cancelled when the run ends', () => {
     const result = await VM.run(
       fetchThenBurnAgent,
       { big: Array.from({ length: 200_000 }, (_, i) => i) },
-      { fuel: 20, capabilities: { fetch } }
+      // ~200 of this pays to ADMIT the ~1.6MB argument (metered since 0.14.0); the rest
+      // dispatches the fetch and dies stringifying.
+      { fuel: 225, capabilities: { fetch } }
     )
     expect(result.error?.message, 'the run must die of fuel').toBe(
       'Out of Fuel'

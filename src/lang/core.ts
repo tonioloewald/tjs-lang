@@ -45,7 +45,8 @@ export function transpile(
     originalSource,
     requiredValueOffsets,
     requiredParams,
-  } = parseAgentSource(source, { filename: options.filename })
+  } = (options.parsed as ReturnType<typeof parseAgentSource> | undefined) ??
+  parseAgentSource(source, { filename: options.filename })
 
   const { entry, helpers } = extractFunctions(program, options.filename)
 

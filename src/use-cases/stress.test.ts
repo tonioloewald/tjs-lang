@@ -138,7 +138,8 @@ describe('Memory Pressure', () => {
 
     // 1MB string input
     const largeInput = { data: 'x'.repeat(1_000_000) }
-    const result = await vm.run(ast, largeInput, { fuel: 100 })
+    // Arguments are metered since 0.14.0: ~2MB costs ~250 fuel to admit.
+    const result = await vm.run(ast, largeInput, { fuel: 300 })
 
     expect(result.error).toBeUndefined()
     expect(result.result.inputLength).toBe(1_000_000)

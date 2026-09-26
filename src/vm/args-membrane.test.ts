@@ -46,12 +46,19 @@ describe('host methods on an argument are unreachable', () => {
     expect(svc.calls).toBe(0)
   })
 
-  it('through vm.run directly — and the DATA still arrives', async () => {
+  it('through vm.run directly — refused by name, and host code never runs', async () => {
+    // A class instance is refused outright (0.14.0 final re-review 2, M-2): copying only its
+    // own data would thin it silently. Its data crosses when the host passes plain data.
     const svc = new Service()
     const { ast } = transpile('function f({ svc }) { return { t: svc.token } }')
-    const r = await new AgentVM().run(ast, { svc }, { fuel: 100 })
-    expect(r.error).toBeUndefined()
-    expect((r.result as any).t).toBe('secret')
+    const refused = await new AgentVM().run(ast, { svc }, { fuel: 100 })
+    expect(refused.error?.message).toMatch(/instance of Service/)
+    const plain = await new AgentVM().run(
+      ast,
+      { svc: { token: svc.token } },
+      { fuel: 100 }
+    )
+    expect((plain.result as any).t).toBe('secret')
     expect(svc.calls).toBe(0)
   })
 })
@@ -91,13 +98,92 @@ describe('the guest gets a copy', () => {
     expect(host.items).toEqual([1, 2])
   })
 
-  it('large plain data is not capped by the capability budget', async () => {
+  it("large plain data is bounded by the run's FUEL, not the 4MB capability budget", async () => {
     const big = Array.from({ length: 300_000 }, (_, i) => ({ i }))
     const { ast } = transpile(
       'function f({ big }) { return { n: big.length } }'
     )
-    const r = await new AgentVM().run(ast, { big }, { fuel: 1000 })
+    const r = await new AgentVM().run(ast, { big }, { fuel: 10_000 })
     expect(r.error).toBeUndefined()
     expect((r.result as any).n).toBe(300_000)
+  })
+})
+
+describe('admission is budgeted and metered (0.14.0 final re-review 2, B-1)', () => {
+  const ast = transpile(
+    'function f({ items }) { return { n: items.length } }'
+  ).ast
+
+  it('a 10MB argument over the budget is refused CHEAPLY, not walked', async () => {
+    const items = new Array(5_000_000).fill(1)
+    const t = performance.now()
+    const r = await new AgentVM().run(ast, { items }, { fuel: 100 })
+    // Fuel was the binding limit, so this IS fuel exhaustion — the message hosts detect.
+    expect(r.error?.message).toBe('Out of Fuel')
+    expect(performance.now() - t).toBeLessThan(100)
+  })
+
+  it('what crosses is charged to fuel', async () => {
+    const small = await new AgentVM().run(ast, { items: [1] }, { fuel: 1000 })
+    const big = await new AgentVM().run(
+      ast,
+      { items: new Array(100_000).fill(1) },
+      { fuel: 1000 }
+    )
+    expect(big.fuelUsed - small.fuelUsed).toBeGreaterThan(50)
+  })
+
+  it('argsMaxBytes caps it whatever the fuel', async () => {
+    const r = await new AgentVM().run(
+      ast,
+      { items: new Array(10_000).fill(1) },
+      { fuel: 1e9, argsMaxBytes: 1024 }
+    )
+    expect(r.error?.message).toMatch(/1024-byte/)
+  })
+})
+
+describe('a class instance is refused LOUDLY, not silently thinned (M-2)', () => {
+  class Timestamp {
+    constructor(private _seconds: number) {}
+    get seconds() {
+      return this._seconds
+    }
+  }
+  class Acct {
+    #b = 5
+    get balance() {
+      return this.#b
+    }
+  }
+  const run = (args: any) =>
+    new AgentVM().run(
+      transpile('function f({ doc }) { return { s: doc.createdAt } }').ast,
+      args,
+      { fuel: 100 }
+    )
+
+  it('a Timestamp-shaped argument (prototype getter) names the class and the party', async () => {
+    const r = await run({ doc: { createdAt: new Timestamp(50) } })
+    expect(r.error?.message).toMatch(
+      /run argument contains an instance of Timestamp/
+    )
+  })
+
+  it('a private-field class is refused, not crossed as {}', async () => {
+    const r = await run({ doc: { createdAt: new Acct() } })
+    expect(r.error?.message).toMatch(/instance of Acct/)
+  })
+
+  it('plain data, Date, Map, arrays and null-prototype objects still cross', async () => {
+    const r = await run({
+      doc: {
+        createdAt: new Date(0),
+        m: new Map([[1, 2]]),
+        a: [1],
+        n: Object.assign(Object.create(null), { x: 1 }),
+      },
+    })
+    expect(r.error).toBeUndefined()
   })
 })

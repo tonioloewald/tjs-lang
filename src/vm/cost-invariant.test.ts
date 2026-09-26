@@ -258,7 +258,10 @@ describe('cost invariant: fuel tracks operand size', () => {
         ],
       } as any,
       { d: Array.from({ length: 500_000 }, (_, i) => i) },
-      { fuel: 10 }
+      // Enough to ADMIT the ~4MB argument (~500 fuel since 0.14.0: arguments are metered),
+      // not enough to also stringify it. At 10 fuel the run is now refused at admission,
+      // which would pass while no longer testing jsonStringify's charge at all.
+      { fuel: 600 }
     )
     expect(res.error?.message).toBe('Out of Fuel')
   }, 60_000)

@@ -551,6 +551,9 @@ deployed after the publish.
     outer variable inside a block or loop is LOST: `let x = 0; for (const v of [1,2,3])
 { x = x + v }; return { x }` returns `{ x: 0 }` (inside `if`, which is not a scope,
     it works).
+  - **A `const` in a `while` body fails on the second iteration** ("Cannot reassign const
+    variable"), including `const m = xs.map(…)` — the body has no scope of its own. Same
+    root: the AST does not say where a binding is DECLARED.
   - Proposed v2: literals explicit (`{ $lit: … }`, or references explicit and bare strings
     always literal); declaration (`varDecl`/`varsLet`) distinct from assignment (`varSet`
     writes to the scope that OWNS the binding). The VM reads v1 with v1 semantics, v2 with

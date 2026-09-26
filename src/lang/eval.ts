@@ -45,7 +45,7 @@ function wrapReturnValues(node: any): void {
   // A CALLBACK's `return` returns from the callback, not from the snippet, and boxing it
   // handed `map` a `{ __result }` per element: `[1, 2].map(v => { return v * k })` came back
   // `[null, null]`. Only the snippet's own control flow is walked.
-  if (CALLBACK_OPS.has(node.op)) return
+  if (CALLBACK_OPS.has(node.op) && !node.loop) return
   // Recurse into steps (seq, scope, loops), branches (if/else), try/catch, etc. `try` and
   // `catch` were missing, so a `return` inside either went unboxed.
   if (node.steps) wrapReturnValues(node.steps)
@@ -56,8 +56,9 @@ function wrapReturnValues(node: any): void {
   if (node.catch) wrapReturnValues(node.catch)
 }
 
-/** Ops whose `steps` are a callback body, with a `return` of their own. */
-const CALLBACK_OPS = new Set(['map', 'reduce'])
+/** Ops whose `steps` are a callback body, with a `return` of their own — unless marked
+ * `loop` (a for...of body, whose `return` IS the snippet's). */
+const CALLBACK_OPS = new Set(['map', 'reduce', 'memoize', 'cache'])
 
 /** Capabilities that can be injected into SafeFunction/Eval */
 export interface SafeCapabilities {
@@ -233,7 +234,11 @@ export async function Eval(options: EvalOptions): Promise<{
     const wrappedCode = statements
       ? `function __eval() { {\n${code}\n} }`
       : `function __eval() { return (\n${code}\n) }`
-    const { ast } = transpile(wrappedCode)
+    // ONE parse: identifiers are read from it before the transform, and it is handed to
+    // `transpile` rather than parsed again.
+    const parsed = parseAgentSource(wrappedCode)
+    const used = identifiersIn(parsed.ast)
+    const { ast } = transpile(wrappedCode, { parsed })
 
     // Box return values in objects for VM strict-return compliance.
     // Walk AST and wrap each { op: 'return', value } into
@@ -260,7 +265,6 @@ export async function Eval(options: EvalOptions): Promise<{
     // Never a reserved word, a forbidden prototype key, a builtin (`Math`, `JSON`,
     // `parseInt`…) or a global value (`NaN`, `undefined`): a request argument named `Math`
     // must not replace `Math` in stored code.
-    const used = identifiersIn(parseAgentSource(wrappedCode).ast)
     const keys = Object.keys(context).filter(
       (k) =>
         used.has(k) &&

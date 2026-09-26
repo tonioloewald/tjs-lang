@@ -9,7 +9,7 @@ import {
   AgentError,
   isProcedureToken,
   resolveProcedureToken,
-  membraneValue,
+  membraneValueFrom,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
@@ -57,6 +57,18 @@ export function setTranspiler(fn: (source: string) => { ast: unknown }): void {
  * drops below this for a VM whose atoms are all fast.
  */
 const MIN_DEFAULT_RUN_TIMEOUT_MS = 60_000
+
+/**
+ * Argument bytes one unit of fuel pays for — the rate binding the same data costs
+ * (`ARRAY_FUEL_PER_ELEMENT`/`HEAP_WALK_FUEL_PER_NODE` = 0.001 fuel per ~8-byte node). The
+ * run's fuel therefore bounds how much argument data it may be handed: admission is work,
+ * and no work in a run is unbudgeted.
+ */
+export const ARG_BYTES_PER_FUEL = 8000
+
+/** Ceiling on run arguments whatever the fuel: the default live-heap ceiling, since arguments
+ * larger than that could never be bound anyway. */
+export const DEFAULT_ARGS_MAX_BYTES = 64 * 1024 * 1024
 
 export class AgentVM<M extends Record<string, Atom<any, any>>> {
   readonly atoms: typeof coreAtoms & M
@@ -162,6 +174,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
+      argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default 64MB); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
       maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
     } = {}
   ): Promise<RunResult> {
@@ -270,23 +283,38 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // an own function or getter is rejected. Checked before the schema, which should see
     // what the guest will see.
     //
-    // No BYTE cap here: `membraneMaxBytes` guards against a hostile capability flooding the
-    // guest, while arguments are the host's own choice (a hosted endpoint's are bounded by
-    // its request size). The live-heap ceiling still bounds what the guest binds.
-    const crossed = membraneValue(args, Infinity)
+    // ADMISSION IS BUDGETED. The walk is proportional to the caller's data and runs before
+    // any atom, so an uncapped one was pre-fuel work the caller controls: a 10MB request body
+    // cost ~2.4s of CPU before "Out of Fuel" (0.14.0 final re-review 2, B-1 — the third block
+    // of this class in one cycle, after Eval's unmeasured keys and its scan before the gate).
+    // The budget is what the run's own fuel would pay to bind the same data, capped by
+    // `argsMaxBytes`; the walk stops the moment it is exceeded, so a refusal is cheap. What
+    // crosses is then CHARGED, at the rate binding it costs, so admission is metered like
+    // everything else.
+    const argsCap = options.argsMaxBytes ?? DEFAULT_ARGS_MAX_BYTES
+    const fuelBytes = startFuel * ARG_BYTES_PER_FUEL
+    const argsBudget = Math.min(argsCap, fuelBytes)
+    const crossed = membraneValueFrom('run argument', args, argsBudget)
     if (!crossed.ok) {
+      // When the FUEL was the binding limit, the run could not pay to admit its arguments:
+      // that is fuel exhaustion, and hosts detect it by that message.
+      const outOfFuel =
+        fuelBytes < argsCap && /-byte membrane budget/.test(crossed.reason)
       const error = new AgentError(
-        `Capability boundary rejected the run arguments: ${crossed.reason}`,
+        outOfFuel
+          ? 'Out of Fuel'
+          : `Capability boundary rejected the run arguments: ${crossed.reason}`,
         'vm.run'
       )
       return {
         result: error,
         error,
-        fuelUsed: 0,
+        fuelUsed: outOfFuel ? startFuel : 0,
         trace: options.trace ? [] : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       }
     }
+    const admissionFuel = (crossed.bytes ?? 0) / ARG_BYTES_PER_FUEL
     args = crossed.value as Record<string, any>
 
     const inputSchema = (ast as any).inputSchema
@@ -326,7 +354,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     }
 
     const ctx: RuntimeContext = {
-      fuel: { current: startFuel },
+      fuel: { current: startFuel - admissionFuel },
       args,
       state: {},
       consts: new Set(),

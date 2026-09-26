@@ -151,7 +151,10 @@ describe('child scopes own and release their heap ledger', () => {
 
 describe('the heap ceiling covers every binding atom', () => {
   const VM = new AgentVM()
-  const big = 'x'.repeat(40 * 1024 * 1024)
+  // 64KB against a 1KB ceiling: 64x over. It was 40MB, which run-argument ADMISSION now
+  // refuses at this fuel before any binder runs (0.14.0 final re-review 2, B-1) — and this
+  // test is about the binders.
+  const big = 'x'.repeat(64 * 1024)
 
   const BINDERS: Array<[string, any[], Record<string, unknown>]> = [
     [
@@ -180,7 +183,7 @@ describe('the heap ceiling covers every binding atom', () => {
         args as any,
         { fuel: 1000, maxHeapBytes: 1024 }
       )
-      expect(res.error?.message, `${name} bound 40MB under a 1KB cap`).toMatch(
+      expect(res.error?.message, `${name} bound 64KB under a 1KB cap`).toMatch(
         /Heap limit exceeded/
       )
     })
