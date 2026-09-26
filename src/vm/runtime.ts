@@ -4181,6 +4181,34 @@ export const agentRun = defineAtom(
   { docs: 'Run Sub-Agent (accepts procedure token, AST, or agent ID)', cost: 1 }
 )
 
+/**
+ * ADMISSION for guest-built source, before the host's transpiler sees it.
+ *
+ * `runCode` and `transpileCode` passed any string straight to `code.transpile` at a flat cost
+ * of 1. Transpilation is super-linear in source length and runs synchronously, so neither fuel
+ * nor timeout bounded it: ~220KB took 1.2s charging 61 fuel, 500KB 6.6s (0.14.0 final
+ * re-review 3, M-1) — the same class as `Eval`'s `maxSourceBytes`, reached from inside a run.
+ * Refused over the cap BEFORE any work (a length check first: a string of more chars than
+ * the cap has more bytes too, so a huge one is refused without being encoded), then charged
+ * per character like any other operand. The cap matches `Eval`'s default.
+ */
+const MAX_TRANSPILE_SOURCE_BYTES = 64 * 1024
+
+function admitSource(ctx: RuntimeContext, code: unknown, op: string): string {
+  if (typeof code !== 'string') throw new Error(`${op}: code must be a string`)
+  const bytes =
+    code.length > MAX_TRANSPILE_SOURCE_BYTES
+      ? code.length
+      : new TextEncoder().encode(code).length
+  if (bytes > MAX_TRANSPILE_SOURCE_BYTES)
+    throw new Error(
+      `${op}: source is over the ${MAX_TRANSPILE_SOURCE_BYTES}-byte limit. Transpilation runs ` +
+        `before fuel can stop it, so oversized source is refused rather than metered.`
+    )
+  if (!chargeForSize(ctx, code, op)) throw new Error('Out of Fuel')
+  return code
+}
+
 /*#
 ## transpileCode (Code to AST)
 
@@ -4213,7 +4241,11 @@ export const transpileCode = defineAtom(
       )
     }
 
-    const resolvedCode = resolveValue(code, ctx)
+    const resolvedCode = admitSource(
+      ctx,
+      resolveValue(code, ctx),
+      'transpileCode'
+    )
 
     try {
       return ctx.capabilities.code.transpile(resolvedCode)
@@ -4272,7 +4304,7 @@ export const runCode = defineAtom(
       )
     }
 
-    const resolvedCode = resolveValue(code, ctx)
+    const resolvedCode = admitSource(ctx, resolveValue(code, ctx), 'runCode')
     const resolvedArgs = args ? resolveValue(args, ctx) : {}
 
     // Transpile the code to AST

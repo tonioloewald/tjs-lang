@@ -535,6 +535,27 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **The membrane should COPY while it walks — and fuel should be calibrated to CPU**
+      (split out 2026-09-26 under the stop rule, after the same security lens blocked four
+      times in one cycle on pre-budget work; docs/reviews/0.14.0-final-rereview-3.md).
+      Measured: the walk is ~45ns/byte at its worst (dense numeric arrays), ~40x a JSON
+      round trip. That is 98ms of per-element property descriptors plus ~240ms of
+      `Object.keys` over the array, run only to find NON-index properties that
+      `structuredClone` would otherwise copy (and whose getters it would run). Ordinary
+      execution is ~3µs per fuel. So an honest admission price is ~60 bytes/fuel, and the
+      VM's own per-element prices (`ARRAY_FUEL_PER_ELEMENT`, `HEAP_WALK_FUEL_PER_NODE`) are
+      similarly optimistic against measured CPU. 0.14.0 bounds it ABSOLUTELY instead (4MB
+      `argsMaxBytes` default ≈ 180ms worst case; options validated; refusals charged).
+      **Plan:** 1. Rewrite `membraneValue` to BUILD the copy during the walk: fresh arrays from indices,
+      fresh objects from own data descriptors. Extra array properties are then simply
+      not copied, so they never need enumerating, and `structuredClone` goes away.
+      Target: within ~3x of a JSON round trip. 2. Keep every refusal it has today, pinned by the existing membrane suites
+      (invariant, budget, args), plus a differential test against the current
+      implementation over a hostile corpus. 3. Re-measure, then set `ARG_BYTES_PER_FUEL` from the measurement: admission CPU per
+      fuel ≤ 2x execution CPU per fuel. A test asserts it across shapes (dense ints,
+      objects, wide objects, Map/Set, strings) at fuel 10000. 4. Audit the VM's per-size fuel constants against measured CPU the same way (a VM-wide
+      calibration, not admission-specific).
+      Own review: security + efficiency, on the most security-critical function in the repo.
 - [ ] **AJS AST v2 — two format ambiguities (found 2026-09-26; DECISION NEEDED, Tonio).**
       Both pre-existing, both correctness, the first also security-relevant. Both need a
       FORMAT change, so they wait for a decision: v1 ASTs are persisted (`procedureStore`),

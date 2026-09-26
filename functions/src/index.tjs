@@ -127,8 +127,11 @@ export const agentRun = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'code must be a non-empty string')
   }
 
-  if (fuel > 10000) {
-    throw new HttpsError('invalid-argument', 'fuel limit cannot exceed 10000')
+  // A NUMBER in range, not merely "not above 10000": 'abc' passed that check and made the
+  // VM's argument budget NaN (tjs-lang 0.14.0 final re-review 3, B-1). The VM now refuses it
+  // too; this refuses it before the request does any work at all.
+  if (typeof fuel !== 'number' || !Number.isFinite(fuel) || fuel <= 0 || fuel > 10000) {
+    throw new HttpsError('invalid-argument', 'fuel must be a number from 1 to 10000')
   }
 
   const startTime = Date.now()
@@ -235,8 +238,9 @@ export const run = onRequest(async (req, res) => {
     return res.status(400).json({ error: 'code must be a non-empty string' })
   }
 
-  if (fuel > 10000) {
-    return res.status(400).json({ error: 'fuel limit cannot exceed 10000' })
+  // A NUMBER in range — see the callable above.
+  if (typeof fuel !== 'number' || !Number.isFinite(fuel) || fuel <= 0 || fuel > 10000) {
+    return res.status(400).json({ error: 'fuel must be a number from 1 to 10000' })
   }
 
   const startTime = Date.now()

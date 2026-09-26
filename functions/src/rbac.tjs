@@ -234,7 +234,9 @@ export async function evaluateSecurityRule(rule, context) {
 
       const result = await Eval({
         code: codeToRun,
-        context: plainData(context),
+        // Only `doc` comes from Firestore; the rest is request JSON and already plain, and
+        // copying it all was unbudgeted work proportional to the request body.
+        context: { ...context, doc: plainData(context.doc) },
         fuel,
         timeoutMs,
         capabilities: {} // No capabilities for security rules

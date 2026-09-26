@@ -289,7 +289,7 @@ await vm.run(ast, args, {
   costOverrides: { atomOp: 5 },             // per-atom fuel cost override
   timeoutOverrides: { atomOp: 60_000 },     // per-atom wall-clock override (ms; 0 disables)
   membraneMaxBytes: 4 * 1024 * 1024,        // cap on a capability return's size (default 4MB)
-  argsMaxBytes: 64 * 1024 * 1024,           // ceiling on run ARGUMENTS; fuel bounds them too (~8KB/fuel)
+  argsMaxBytes: 4 * 1024 * 1024,            // ceiling on run ARGUMENTS (default 4MB); fuel bounds them too (~8KB/fuel)
   maxHeapBytes: 64 * 1024 * 1024,           // ceiling on bytes held LIVE in guest scope (default 64MB)
   quotas: { llmPredict: 3, httpFetch: 10 }, // per-atom CALL caps; absent op ⇒ unlimited
   quotaUsed,                                // share one counter across nested runs (see below)

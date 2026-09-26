@@ -66,9 +66,18 @@ const MIN_DEFAULT_RUN_TIMEOUT_MS = 60_000
  */
 export const ARG_BYTES_PER_FUEL = 8000
 
-/** Ceiling on run arguments whatever the fuel: the default live-heap ceiling, since arguments
- * larger than that could never be bound anyway. */
-export const DEFAULT_ARGS_MAX_BYTES = 64 * 1024 * 1024
+/**
+ * Ceiling on run arguments whatever the fuel — the same 4MB the capability direction takes.
+ *
+ * It bounds pre-budget work ABSOLUTELY: the admission walk measured ~45ns/byte at its worst
+ * (dense numeric arrays — a property descriptor per element, then `Object.keys` to find
+ * non-index properties), so 4MB is ~180ms however much fuel the caller brings. It was 64MB,
+ * and at fuel 10000 a 10MB argument cost ~2.4s before anything stopped it (0.14.0 final
+ * re-review 3, B-2). A host that needs more raises `argsMaxBytes` knowingly. The structural
+ * fix — a membrane that copies while it walks, so it never enumerates what it will not copy
+ * — is tracked in TODO.md.
+ */
+export const DEFAULT_ARGS_MAX_BYTES = 4 * 1024 * 1024
 
 export class AgentVM<M extends Record<string, Atom<any, any>>> {
   readonly atoms: typeof coreAtoms & M
@@ -211,6 +220,30 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
 
     const startFuel = options.fuel ?? 1000
 
+    // Every budget is COMPUTED from these, so each must be a real, non-negative number.
+    // `fuel: 'abc'` made the argument budget NaN, and `bytes > NaN` is never true — the
+    // walk it exists to bound ran unbounded (0.14.0 final re-review 3, B-1). Checked once,
+    // here, before anything is computed from them; refused rather than defaulted, because a
+    // caller who passed nonsense did not ask for the default. (Infinity stays legal.)
+    for (const [name, v] of [
+      ['fuel', startFuel],
+      ['timeoutMs', options.timeoutMs],
+      ['argsMaxBytes', options.argsMaxBytes],
+      ['membraneMaxBytes', options.membraneMaxBytes],
+      ['maxHeapBytes', options.maxHeapBytes],
+    ] as const) {
+      if (v === undefined && name !== 'fuel') continue
+      if (typeof v !== 'number' || Number.isNaN(v) || v < 0) {
+        const error = new AgentError(
+          `Invalid run option ${name}: ${
+            JSON.stringify(v) ?? String(v)
+          } — it must be a non-negative number`,
+          'vm.run'
+        )
+        return { result: error, error, fuelUsed: 0, warnings: undefined }
+      }
+    }
+
     // Run-level wall-clock timeout. Agents are typically IO-bound; the default
     // is derived from the registered atoms (slowest × 2) so it always covers the
     // slowest atom's own budget. See `defaultRunTimeout`.
@@ -309,7 +342,11 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       return {
         result: error,
         error,
-        fuelUsed: outOfFuel ? startFuel : 0,
+        // A refusal still did the walk up to the budget: charge it, so a host's accounting
+        // sees the work (it logged 0 for a cap-bound refusal).
+        fuelUsed: outOfFuel
+          ? startFuel
+          : Math.min(startFuel, argsBudget / ARG_BYTES_PER_FUEL),
         trace: options.trace ? [] : undefined,
         warnings: warnings.length > 0 ? warnings : undefined,
       }

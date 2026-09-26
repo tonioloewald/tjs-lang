@@ -124,3 +124,41 @@ describe('callback bodies elsewhere, and what they must not leak', () => {
     expect(r.result).toEqual({ v: 7 })
   })
 })
+
+describe('guest-built source is admitted before it is transpiled (0.14.0 final re-review 3, M-1)', () => {
+  const vmc = new AgentVM()
+  let transpiled = 0
+  const code = {
+    transpile: (src: string) => {
+      transpiled++
+      return transpile(src).ast
+    },
+  }
+  const ast = {
+    op: 'seq',
+    steps: [
+      { op: 'runCode', code: { $kind: 'arg', path: 'src' }, result: 'r' },
+      { op: 'return', value: { r: 'r' } },
+    ],
+  } as any
+  it('oversized source is refused quickly, and never reaches the transpiler', async () => {
+    const src = 'function f() { return { a: 1 } }\n' + '// pad\n'.repeat(20_000)
+    const t = performance.now()
+    const r = await vmc.run(
+      ast,
+      { src },
+      { fuel: 10_000, capabilities: { code } }
+    )
+    expect(r.error?.message).toMatch(/over the 65536-byte limit/)
+    expect(transpiled).toBe(0)
+    expect(performance.now() - t).toBeLessThan(100)
+  })
+  it('ordinary source still runs', async () => {
+    const r = await vmc.run(
+      ast,
+      { src: 'function f() { return { a: 1 } }' },
+      { fuel: 1000, capabilities: { code } }
+    )
+    expect(r.error).toBeUndefined()
+  })
+})

@@ -53,11 +53,20 @@ options bags. But every validated function used to begin with a pre-check that r
     The same rule now applies to what a capability RETURNS.
   - An own function or getter, a Proxy (including a raw tosijs state proxy — pass
     `.value`), a `URL`, and anything else `structuredClone` cannot copy.
-    **Arguments are metered.** Admission walks the data before any atom runs, so it is
-    budgeted by the run's own fuel — about 8,000 bytes per unit, the rate binding the same
-    data costs — and capped by the new `argsMaxBytes` run option (default 64MB). What crosses
-    is charged to fuel. A host passing large arguments with a small `fuel` will now see them
-    refused at admission: pass fuel in proportion (a 1MB string needs about 250).
+    **Arguments are metered and capped.** Admission walks the data before any atom runs, so
+    it is budgeted by the run's own fuel — about 8,000 bytes per unit, the rate binding the
+    same data costs — and capped by the new `argsMaxBytes` run option, **default 4MB**, the
+    same as the capability direction. The cap bounds that pre-budget work absolutely (about
+    180ms at the walk's worst, whatever the fuel). What crosses is charged to fuel, and so is
+    a refusal. A host passing large arguments must pass fuel in proportion (a 1MB string needs
+    about 250) and, above 4MB, raise `argsMaxBytes`.
+- **`vm.run` refuses invalid budget options.** A `fuel`, `timeoutMs`, `argsMaxBytes`,
+  `membraneMaxBytes` or `maxHeapBytes` that is not a non-negative number is an `AgentError`
+  ("Invalid run option fuel: …"). `fuel: 'abc'` made the argument budget `NaN`, which no
+  size ever exceeds, so the walk it bounds ran unbounded.
+- **`runCode` and `transpileCode` refuse guest-built source over 64KB** before the host's
+  transpiler sees it, and charge per character. Transpilation is super-linear and runs
+  before fuel or timeout can stop it: 160KB of generated comments took 284 seconds.
 - **Emitted code uses an installed `globalThis.__tjs` only if it speaks the same runtime ABI**
   (`abi`, now 2); otherwise it uses its own inline runtime. A 0.13 runtime's `typeError`
   ignores the propagation argument, so 0.14 code running under one replaced the caller's

@@ -31,15 +31,24 @@ async function fuelFor(
   steps: any[],
   args: Record<string, any>
 ): Promise<number> {
-  const res = await VM.run(
-    { op: 'seq', steps: [...steps, { op: 'return', value: {} }] } as any,
-    args,
-    {
-      fuel: 50_000_000, // generous: we're measuring the charge, not enforcing it
-    }
-  )
-  if (res.error) throw new Error(`unexpected VM error: ${res.error.message}`)
-  return res.fuelUsed
+  const run = async (s: any[]) => {
+    const res = await VM.run(
+      { op: 'seq', steps: [...s, { op: 'return', value: {} }] } as any,
+      args,
+      {
+        fuel: 50_000_000, // generous: we're measuring the charge, not enforcing it
+        argsMaxBytes: Infinity, // the operands here are the point, not an attack
+      }
+    )
+    if (res.error) throw new Error(`unexpected VM error: ${res.error.message}`)
+    return res.fuelUsed
+  }
+  // The STEPS' fuel only. Since 0.14.0 a run is also charged for ADMITTING its arguments,
+  // and that grows with the operand too — so without subtracting it, an atom that charged
+  // nothing would still score "100x the input costs ~100x the fuel", and this guardrail
+  // would pass on exactly the bypass it exists to catch. Same arguments, no steps: the
+  // admission charge cancels exactly.
+  return (await run(steps)) - (await run([]))
 }
 
 const arr = (n: number) => Array.from({ length: n }, (_, i) => 'x' + i)

@@ -103,7 +103,12 @@ describe('the guest gets a copy', () => {
     const { ast } = transpile(
       'function f({ big }) { return { n: big.length } }'
     )
-    const r = await new AgentVM().run(ast, { big }, { fuel: 10_000 })
+    // Over the 4MB default: a host passing this much raises argsMaxBytes knowingly.
+    const r = await new AgentVM().run(
+      ast,
+      { big },
+      { fuel: 10_000, argsMaxBytes: 64 * 1024 * 1024 }
+    )
     expect(r.error).toBeUndefined()
     expect((r.result as any).n).toBe(300_000)
   })
@@ -185,5 +190,33 @@ describe('a class instance is refused LOUDLY, not silently thinned (M-2)', () =>
       },
     })
     expect(r.error).toBeUndefined()
+  })
+})
+
+describe('admission cannot be opened or outrun (0.14.0 final re-review 3, B-1, B-2)', () => {
+  const ast = transpile(
+    'function f({ items }) { return { n: items.length } }'
+  ).ast
+  const items = new Array(5_000_000).fill(1)
+
+  for (const fuel of ['abc', NaN, {}, -1] as any[])
+    it(`fuel ${String(fuel)} is refused before any walk`, async () => {
+      const t = performance.now()
+      const r = await new AgentVM().run(ast, { items }, { fuel })
+      expect(r.error?.message).toMatch(/Invalid run option fuel/)
+      expect(performance.now() - t).toBeLessThan(50)
+    })
+
+  it("at the endpoints' maximum fuel, a 10MB argument is still refused cheaply", async () => {
+    const t = performance.now()
+    const r = await new AgentVM().run(ast, { items }, { fuel: 10_000 })
+    expect(r.error?.message).toMatch(/rejected the run arguments/)
+    // Bounded by the 4MB cap, not the input: ~45ns/byte at the walk's worst.
+    expect(performance.now() - t).toBeLessThan(400)
+  })
+
+  it('a cap-bound refusal is charged, not logged as free', async () => {
+    const r = await new AgentVM().run(ast, { items }, { fuel: 10_000 })
+    expect(r.fuelUsed).toBeGreaterThan(0)
   })
 })
