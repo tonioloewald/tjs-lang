@@ -94,11 +94,14 @@ bun run lint                # ESLint, no --fix (format does the fixing)
                             #   lane. Prefix an intentionally unused binding with `_`
                             #   rather than reaching for a disable comment.
 bun run release:ready       # `make`, then ATTEST (../tosijs-coding-practices/tools/attest.ts):
-                            #   runs the lanes CI cannot — `test:full` (plain `bun test`: live
-                            #   LLM + benchmarks + audit), `test:llm`, `test:compat`,
-                            #   `test:compat-scan` (package.json releaseDoctor.attestedLanes) —
+                            #   runs EVERY test lane locally — `test:full` (plain `bun test`:
+                            #   live LLM + benchmarks + audit), fast, dogfood, functions, llm,
+                            #   compat, compat-scan (package.json releaseDoctor.attestedLanes) —
                             #   on the CLEAN tree and writes release-attestation.json. Commit
                             #   that file ALONE, then tag it. Needs the LLM server up.
+                            #   The suite does NOT run in GitHub (Tonio, 2026-09-26): the
+                            #   attestation vouches for the locally tested tree; CI only
+                            #   builds, packs, smoke-tests and runs `test:release`.
                             #   (Until 2026-09-26 this wrote the `.release-gate` stamp for a
                             #   manual `npm publish`; prepublishOnly still guards that path.)
 bun run test:release        # The publish PRECONDITIONS as a lane (prepublish-check --lane):
@@ -286,6 +289,7 @@ await vm.run(ast, args, {
   costOverrides: { atomOp: 5 },             // per-atom fuel cost override
   timeoutOverrides: { atomOp: 60_000 },     // per-atom wall-clock override (ms; 0 disables)
   membraneMaxBytes: 4 * 1024 * 1024,        // cap on a capability return's size (default 4MB)
+  argsMaxBytes: 64 * 1024 * 1024,           // ceiling on run ARGUMENTS; fuel bounds them too (~8KB/fuel)
   maxHeapBytes: 64 * 1024 * 1024,           // ceiling on bytes held LIVE in guest scope (default 64MB)
   quotas: { llmPredict: 3, httpFetch: 10 }, // per-atom CALL caps; absent op ⇒ unlimited
   quotaUsed,                                // share one counter across nested runs (see below)
@@ -459,6 +463,7 @@ fn('a', 'b') // Returns { error: 'type mismatch', ... }
 ### Security Model
 
 - **Capability-based**: VM has zero IO by default; inject `fetch`, `store`, `llm` via capabilities
+- **Run arguments cross the same membrane** (0.14.0): `vm.run` args (and so `Eval` context and `SafeFunction` arguments) are copied through it on entry — budgeted by the run's fuel and `argsMaxBytes`, and charged — so a host object never reaches the guest live. A class instance is REFUSED, not thinned: its prototype getters and private fields would silently read as `undefined`
 - **Capability-boundary membrane**: every `effects: 'io'` atom return is deep-copied through `structuredClone` before it enters guest state — so a capability can't hand the guest a live host reference (an object with callable methods it could invoke via `methodCall`, or a shared object it could mutate). A budgeted, cycle-safe pre-walk rejects functions / oversized payloads _before_ the clone allocates (`membraneMaxBytes` run option, default 4MB — the OOM guard). Custom capabilities must therefore return **plain data**: no functions, and **no accessor properties** — the walk reads own descriptors and never invokes a getter, so a getter is host code the membrane would otherwise run (see Custom Atoms Must)
 - **`methodCall` allowlist**: guest method calls are restricted to standard built-in methods (`src/vm/runtime.ts` `SAFE_METHOD_NAMES`); `call`/`apply`/`bind` (Function.prototype-only) are rejected
 - **Fuel metering**: Every atom has a cost; execution stops when fuel exhausted. Fuel meters _work_, so it is the **time** budget
@@ -555,9 +560,10 @@ from the tag:
 5. `gh workflow run publish.yml -f tag=vX.Y.Z`; Tonio approves; the green run IS the
    "published and verified" statement. Then the functions/ lockfile refresh + deploy.
 
-In CI, release-doctor runs every `test:*` lane; an attested lane passes only on a
-release-attestation.json that verifies for this exact tree, and otherwise RUNS (and fails, with
-no LLM) — never silently passes. `.bun-version` pins Bun because `editors/**` is committed build
+**The suite runs locally, never in GitHub.** Every test lane but `test:release` (seconds; the
+publish preconditions) and the advisory `test:grok` is attested, so in CI release-doctor accepts
+release-attestation.json for this exact tree instead of running them. Without a verifying
+attestation an attested lane RUNS (and fails, with no LLM) — it never silently passes. `.bun-version` pins Bun because `editors/**` is committed build
 output the CI build must reproduce byte for byte; `make` refuses another Bun
 (`scripts/check-bun-version.ts`).
 
@@ -592,8 +598,9 @@ fix. That file no longer requires a tag at HEAD (under this order it cannot exis
 requires the tree clean, the history pushed, no _conflicting_ tag, and every path `exports`
 names to resolve.
 
-**The suite must pass BEFORE the publish, not DURING it** (2026-09-24). `bun run release:ready`
-runs the build and the full suite unattended — an agent can do it — and writes the stamp;
+**The suite must pass BEFORE the publish, not DURING it** (2026-09-24). On the manual path,
+`bun scripts/release-gate.ts --prepare` (what `release:ready` ran until the workflow was
+adopted) runs the build and the full suite unattended — an agent can do it — and writes the stamp;
 `npm publish` then finds a stamp that covers exactly what it is about to pack and skips
 straight to packing. "Covers" is checked, not assumed (`scripts/release-stamp.ts`, tested
 against a scratch repo in `release-stamp.test.ts`): the stamp's SHA is HEAD, the tree is

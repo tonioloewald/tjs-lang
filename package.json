@@ -203,6 +203,9 @@
   "releaseDoctor": {
     "attestedLanes": [
       "test:full",
+      "test:fast",
+      "test:dogfood",
+      "test:functions",
       "test:llm",
       "test:compat",
       "test:compat-scan"
@@ -267,7 +270,7 @@
     "format:check": "bun eslint src && bun prettier --check .",
     "lint": "eslint src --max-warnings 0",
     "prepublishOnly": "bun run scripts/prerelease-tag.ts && bun run scripts/release-gate.ts && bun run scripts/prepublish-check.ts",
-    "release:ready": "bun run make && bun ../tosijs-coding-practices/tools/attest.ts",
+    "release:ready": "test -f ../tosijs-coding-practices/tools/attest.ts || { echo 'release:ready needs a sibling checkout of tosijs-coding-practices (git clone https://github.com/tonioloewald/tosijs-coding-practices ../tosijs-coding-practices)' >&2; exit 1; }; bun run make && bun ../tosijs-coding-practices/tools/attest.ts",
     "prepare": "git config core.hooksPath .githooks || true; ln -sfn .. node_modules/tjs-lang 2>/dev/null || true",
     "build:grammars": "bun editors/build-grammars.ts && bun editors/build-prism.ts",
     "build:editors": "bun scripts/build-editors.ts && tsc -p tsconfig.editors.json",
