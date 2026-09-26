@@ -535,6 +535,25 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final-state review — dispositions** (docs/reviews/0.14.0-final-state-review.md;
+      B-1, M-1, M-2, M-3, m-1..m-7, n-1 and gaps 3, 5a, 5d, 6, 8 are FIXED — see 88f15ab..HEAD).
+      Open before tagging:
+  - gap 1: one whole-state review of `v0.14.0-rc.0..HEAD` (44+ commits); the 30 commits
+    before 4c6bcb4 had only narrow delta reviews.
+  - gap 2: `bun run release:ready` on the remediated HEAD (full suite, generated-artifact
+    diff, demo bundle, bundle-size, browser-bundle).
+  - gap 4: run tosijs-ui's live-example against a pack of this build — error propagation
+    changed what reaches function bodies, and `typeError` gained parameters.
+  - gap 5b: `Eval`/`SafeFunction` context VALUES reach the guest as args without the
+    capability membrane. Hosted endpoints pass JSON, so nothing live crosses there; a library
+    caller passing a host object hands the guest that object. Decide: membrane args too, or
+    document that context is trusted host data.
+  - gap 7: metadata consumers vs the new markers — editor autocomplete/introspection,
+    `toJSONSchema` beyond the known recursive truncation, the dts emitter for recursive
+    Types, and whether the AJS path (shared `parser-params`) reads the new type-expression
+    forms the same way. (The IndexedDB metadata cache is keyed on `TJS_VERSION`: fine.)
+  - gap 9: docs, coverage and DX lenses did not run; TjsStrict turning validation on is a DX
+    change for every TjsStrict user (M-1 and M-2 were two instances).
 - [ ] **0.14.0 example-kinds re-review 4 — dispositions** (docs/reviews/0.14.0-example-kinds-rereview-4.md;
       B-1, M-1, M-2, M-3 and the propagation siblings, overloads, arrays, wide unions, the
       Union/legacy readers, the `needsRuntime` derivation and the differential test are FIXED):
@@ -553,7 +572,8 @@ deployed after the publish.
     solve, so the failure mode is a slower check, not a wrong one.
   - Peak-memory guard: measured by hand (3.4M-object tree rejected at ~330MB RSS growth vs
     4.3GB before); an in-suite guard needs a memory-capped subprocess — not yet written.
-  - Emitted-size snapshot and a build-time size delta (m-5) remain open.
+  - Build-time size delta (m-5) remains open. The emitted-size pin for the non-recursive
+    marker case landed with the final review's M-3.
 - [ ] **0.14.0 example-kinds re-review 2 — deferred items** (docs/reviews/0.14.0-example-kinds-rereview-2.md;
       B-1, M-1, M-2, M-3, m-1, m-2, n-1 are FIXED):
   - m-3: `toJSONSchema()` of a RECURSIVE type truncates to `{}` at the recursion point, so
