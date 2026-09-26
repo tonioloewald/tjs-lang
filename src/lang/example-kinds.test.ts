@@ -402,6 +402,201 @@ describe('Generic call arguments are left alone', () => {
   })
 })
 
+describe('recursive Types do bounded work (re-review B-1)', () => {
+  // The first coinductive `ref` kept only the current PATH, so its cost grew with the
+  // number of paths, not nodes: a 364-node parent-pointer tree hung, and a 500-byte hostile
+  // JSON body took minutes. Every shape the re-review measured is pinned here with a bound.
+  const within = (ms: number, fn: () => unknown) => {
+    const t = performance.now()
+    const r = fn()
+    expect(performance.now() - t).toBeLessThan(ms)
+    return r
+  }
+
+  it('a 400-node parent-pointer tree', () => {
+    const [TN] = load(
+      'Type TN { example: { parent: TN | null, children: [TN] } }',
+      ['TN'],
+      false
+    )
+    const root: any = { parent: null, children: [] }
+    const q = [root]
+    for (let n = 1; n < 400; ) {
+      const p = q.shift()
+      for (let i = 0; i < 3 && n < 400; i++, n++) {
+        const c = { parent: p, children: [] }
+        p.children.push(c)
+        q.push(c)
+      }
+    }
+    expect(within(200, () => TN.check(root))).toBe(true)
+  })
+
+  it('the same tree through fromTS + TjsStrict', () => {
+    const t = fromTS(
+      '/* @tjs TjsStrict */\ninterface TreeNode { parent: TreeNode | null; children: TreeNode[] }\nexport function size(n: TreeNode): number { return n.children.length }',
+      { emitTJS: true }
+    ).code
+    const [size] = load(t.replace(/^export /gm, ''), ['size'], false)
+    const root: any = { parent: null, children: [] }
+    for (let i = 0; i < 400; i++)
+      root.children.push({ parent: root, children: [] })
+    expect(within(200, () => size(root))).toBe(400)
+  })
+
+  it('a 1000-node doubly-linked list, checked from its midpoint', () => {
+    const [L] = load(
+      'Type L { example: { v: 0, prev: L | null, next: L | null } }',
+      ['L'],
+      false
+    )
+    const nodes: any[] = []
+    for (let i = 0; i < 1000; i++) nodes.push({ v: i, prev: null, next: null })
+    for (let i = 0; i < 999; i++) {
+      nodes[i].next = nodes[i + 1]
+      nodes[i + 1].prev = nodes[i]
+    }
+    expect(within(200, () => L.check(nodes[500]))).toBe(true)
+  })
+
+  it('hostile JSON: overlapping recursive alternatives, depth 30, bad leaf', () => {
+    const [A] = load(
+      'Type A { example: { a: 0, next: A | B | null } }\nType B { example: { a: 0, next: B | A | null } }',
+      ['A'],
+      false
+    )
+    let v: any = { a: 'BAD', next: null }
+    for (let i = 0; i < 30; i++) v = { a: i, next: v }
+    expect(within(200, () => A.check(JSON.parse(JSON.stringify(v))))).toBe(
+      false
+    )
+  })
+
+  it('a diamond DAG of depth 30 (shared substructure)', () => {
+    const [D] = load(
+      'Type D { example: { l: D | null, r: D | null } }',
+      ['D'],
+      false
+    )
+    let d: any = null
+    for (let i = 0; i < 30; i++) d = { l: d, r: d }
+    expect(within(200, () => D.check(d))).toBe(true)
+  })
+
+  it('a complete graph of 12 nodes', () => {
+    const [G] = load('Type G { example: { v: 0, out: [G] } }', ['G'], false)
+    const ns: any[] = Array.from({ length: 12 }, (_, v) => ({ v, out: [] }))
+    for (const a of ns) for (const b of ns) if (a !== b) a.out.push(b)
+    expect(within(200, () => G.check(ns[0]))).toBe(true)
+  })
+})
+
+describe('recursive Types with a predicate, runtime installed (re-review B-2)', () => {
+  // With a runtime installed, a Type carrying a predicate gated on an INFERRED schema, which
+  // cannot express a `ref` — so a recursive member was `{}` and `{ next: 5 }` passed. A
+  // predicate that narrows nothing must never widen the type.
+  const SHAPES: Array<[string, unknown, unknown[]]> = [
+    [
+      'Type T { example: { v: 0, next: T | null }#P }',
+      { v: 1, next: { v: 2, next: null } },
+      [
+        { v: 1, next: { v: 'bad', next: null } },
+        { v: 1, next: 5 },
+      ],
+    ],
+    [
+      'Type T { example: { v: 0, kids: [T] }#P }',
+      { v: 1, kids: [{ v: 2, kids: [] }] },
+      [
+        { v: 1, kids: [{ v: 'bad', kids: [] }] },
+        { v: 1, kids: [5] },
+      ],
+    ],
+    [
+      'Type U { example: { u: 0, t: T | null } }\nType T { example: { v: 0, u: U | null }#P }',
+      { v: 1, u: { u: 2, t: null } },
+      [
+        { v: 1, u: { u: 'bad', t: null } },
+        { v: 1, u: 5 },
+      ],
+    ],
+  ]
+  for (const [shape, good, bads] of SHAPES)
+    for (const pred of ['', '\n  predicate(x) { return true }\n'])
+      for (const withRuntime of [false, true])
+        it(`${pred ? 'with' : 'without'} a predicate, ${
+          withRuntime ? 'runtime' : 'standalone'
+        }: ${shape.split('\n').pop()!.replace('#P', '')}`, () => {
+          const [T] = load(shape.replace('#P', pred), ['T'], withRuntime)
+          expect(T.check(good)).toBe(true)
+          for (const bad of bads)
+            expect({ bad, ok: T.check(bad) }).toEqual({ bad, ok: false })
+        })
+})
+
+describe('what the recursion records', () => {
+  const withRecords = (fn: (rt: any) => void) => {
+    const saved = (globalThis as any).__tjs
+    const rt = createRuntime()
+    ;(globalThis as any).__tjs = rt
+    try {
+      fn(rt)
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  }
+
+  it('a clean load of a recursive Type records nothing (no false "not defined")', () => {
+    withRecords((rt) => {
+      new Function(
+        tjs('Type Node { example: { v: 0, next: Node | null } }').code +
+          '\nreturn Node'
+      )()
+      expect(rt.records({ severity: 'warning' })).toEqual([])
+    })
+  })
+
+  it('a too-deep payload is REJECTED, recorded, and a validated call RETURNS an error', () => {
+    withRecords((rt) => {
+      const code = tjs(
+        'Type D { example: { id: 0, child: D | undefined } }\nfunction f(d: D):! 0 { return 1 }'
+      ).code
+      const f = new Function(code + '\nreturn f')()
+      let deep: any = { id: 0 }
+      for (let i = 0; i < 20000; i++) deep = { id: i, child: deep }
+      const r = f(deep) // must not THROW
+      expect(isMonadicError(r)).toBe(true)
+      expect(
+        rt
+          .records({ severity: 'warning' })
+          .some((x: any) => x.message.includes('REJECTED'))
+      ).toBe(true)
+    })
+  })
+})
+
+describe('optional members, and schemas that serialise', () => {
+  it('a NAMED optional Type keeps its member optional, like the inline union', () => {
+    const [T] = load(
+      "Type Opt = '' | undefined\nType T { example: { o: Opt, n: 0 } }",
+      ['T'],
+      false
+    )
+    expect(T.check({ n: 1 })).toBe(true)
+    expect(T.check({ n: 1, o: 'x' })).toBe(true)
+    expect(T.check({ n: 1, o: 5 })).toBe(false)
+  })
+
+  it('a bigint set has a schema JSON can hold', () => {
+    const [T] = load(
+      'Type T { example: { n: 1n | 2n } }\nconst s = () => T.toJSONSchema()',
+      ['T'],
+      false
+    )
+    expect(() => JSON.stringify(T.toJSONSchema())).not.toThrow()
+  })
+})
+
 describe('a file that only MENTIONS the marker syntax', () => {
   it('loads — the helpers are exported only where they are defined', () => {
     // `needsKind` is a substring test over the emitted code, strings included.
@@ -410,5 +605,28 @@ describe('a file that only MENTIONS the marker syntax', () => {
       "const s = \"__tjs_rt.__k('float', 0)\"\nexport const n = s == 'x'"
     ).code
     expect(() => new Function(js.replace(/^export /gm, ''))()).not.toThrow()
+  })
+})
+
+describe('`Type X = …` reads the whole default expression', () => {
+  // It was a one-token regex: `Type Opt = '' | undefined` emitted `Type(…, '') | undefined`
+  // (bitwise OR — `Opt` was the NUMBER 0), and an object default stopped at its first `}`.
+  it('a union default is a union, not bitwise OR', () => {
+    const [Opt] = load("Type Opt = '' | undefined", ['Opt'], false)
+    expect(typeof Opt.check).toBe('function')
+    expect(Opt.check('x')).toBe(true)
+    expect(Opt.check(undefined)).toBe(true)
+    expect(Opt.check(5)).toBe(false)
+  })
+  it('a nested object default and a negative default', () => {
+    const [N, M] = load(
+      'Type N = { a: { b: 0.0 } }\nType M = -1.5',
+      ['N', 'M'],
+      false
+    )
+    expect(N.check({ a: { b: 1.5 } })).toBe(true)
+    expect(N.check({ a: { b: 'x' } })).toBe(false)
+    expect(M.check(2.5)).toBe(true)
+    expect(M.default).toBe(-1.5)
   })
 })

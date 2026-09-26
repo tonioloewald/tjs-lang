@@ -37,8 +37,20 @@ pass into a returned `MonadicError`:
   recursive type is rejected, and recorded — it used to pass.
 - **`default:` inside a `Type` block is a transpile error.** It was never read. Write
   `Type T = 0` (or `Type T = 0 { … }`).
-- **`TjsStrict` on converted TypeScript now validates arguments.** To keep the old behaviour,
-  add `safety none` — or leave `TjsStrict` off, which is the default for converted code.
+- **`TjsStrict` on converted TypeScript now validates arguments** — and with validation comes
+  TJS's error propagation: a validated function that receives an `Error` as ANY argument
+  returns it without running its body. That includes parameters declared `Error`, `any` or
+  `unknown`, so under `TjsStrict` a helper like `describe(e: Error)` or `isErr(x: unknown)`
+  hands the error straight back. **Leave `TjsStrict` off in files that handle errors**, or add
+  `safety none`. (Native `.tjs` has always behaved this way; whether it should for parameters
+  whose type admits an error is an open question — see TODO.) A TS `object` parameter is
+  checked only loosely (anything is accepted): TJS has no "non-primitive" type yet, and
+  under-checking is the safe direction.
+- **`Type X = …` reads the whole default expression.** `Type Opt = '' | undefined` used to emit
+  `Type(…, '') | undefined` — bitwise OR, so `Opt` was the number 0 — and an object default
+  stopped at its first `}`.
+- **A `.tjs` template literal is no longer rewritten.** The first-assignment auto-`const` ran
+  over raw source, so a template line like `Red = 'red'` got `const ` written into the STRING.
 - An anonymous `export default function` is reported as `default` in `result.types` (it was
   `anonymous`, attached to a binding that did not exist).
 - Size, measured against the previous build: the transpiler bundle (`tjs-lang/lang`) grew by

@@ -2562,15 +2562,14 @@ export function transformTypeDeclarations(
       const equalsMatch = source.slice(j).match(/^=\s*/)
       if (equalsMatch) {
         j += equalsMatch[0].length
-        // Parse the default value (handles +number, strings, objects, arrays, etc.)
-        const valueMatch = source
-          .slice(j)
-          .match(
-            /^(\+?\d+(?:\.\d+)?|['"`][^'"`]*['"`]|\{[^}]*\}|\[[^\]]*\]|true|false|null)/
-          )
-        if (valueMatch) {
-          defaultValue = valueMatch[0]
-          j += valueMatch[0].length
+        // The default is a VALUE EXPRESSION — possibly a union. This was a one-token regex:
+        // `Type Opt = '' | undefined` emitted `Type('Opt', '') | undefined` (bitwise OR, so
+        // `Opt` was the number 0), an object default stopped at its FIRST `}`, and a negative
+        // number or a type name matched nothing at all.
+        const extracted = extractTypeDefault(source, j)
+        if (extracted) {
+          defaultValue = extracted.value
+          j = extracted.end
           posAfterDefault = j // Save position before consuming whitespace
           // Skip whitespace after default (only to check for block)
           const wsMatch = source.slice(j).match(/^\s*/)
@@ -2713,22 +2712,24 @@ export function transformTypeDeclarations(
           const schemaGate = emptyExample
             ? 'true'
             : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, __schema()) : true)`
-          /** Lazily derive the schema once, then cache. See the note above the gate. */
-          // `infer` sees values, so it narrows a `0.0` to integer exactly as the matcher
-          // did; where the example carries kind markers, the inferred schema is corrected
-          // at those paths (see `markExampleKinds`).
+          // `infer` sees VALUES, so a marked example cannot go through it: it narrowed `0.0`
+          // to integer exactly as the matcher used to, and — worse — an inferred schema cannot
+          // express a `ref`, so a recursive member degraded to `{}` and a predicate that
+          // narrowed NOTHING made the type accept `{ next: 5 }`. A marked example gates on the
+          // same coinductive `__match` the example-only form uses; it needs no runtime, so it
+          // also stops failing open where none is installed.
           const marked = markExampleKinds(example)
-          const inferred =
-            marked === example
-              ? `(globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example})`
-              : `${rt(
-                  '__kSchema'
-                )}((globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${rt(
-                  '__unk'
-                )}(${marked})), ${marked})`
-          const schemaMemo = emptyExample
-            ? ''
-            : `let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = ${inferred} } return __sc };`
+          const schemaMemo =
+            emptyExample || marked === example
+              ? emptyExample
+                ? ''
+                : `let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example}) } return __sc };`
+              : `const __ex = ${marked};`
+          // (The unmarked branch derives the schema lazily, once, then caches — see above.)
+          const gate =
+            emptyExample || marked === example
+              ? schemaGate
+              : `${rt('__match')}(${params}, __ex)`
           const guard = verifiedGuardExpr(
             typeName,
             'Type',
@@ -2738,8 +2739,8 @@ export function transformTypeDeclarations(
             report
           )
           const fn = guard
-            ? `(__g => { ${schemaMemo} return (${params}) => (${schemaGate} ? __g(${params}) : false) })(${guard})`
-            : `(() => { ${schemaMemo} return (${params}) => { if (!(${schemaGate})) return false; ${body} } })()`
+            ? `(__g => { ${schemaMemo} return (${params}) => (${gate} ? __g(${params}) : false) })(${guard})`
+            : `(() => { ${schemaMemo} return (${params}) => { if (!(${gate})) return false; ${body} } })()`
           declaredTypes?.add(typeName)
           result += `const ${typeName} = ${rt(
             'Type'
@@ -4126,6 +4127,41 @@ function parseGenericTypeParams(typeParamsStr: string): {
   return { entries, names }
 }
 
+/**
+ * A `Type X = …` default: one value, or a `|`-joined chain of them, each a literal the
+ * `extractJSValue` state machine can read (nesting, strings, negatives) or a bare name.
+ */
+function extractTypeDefault(
+  source: string,
+  start: number
+): { value: string; end: number } | null {
+  let i = start
+  const one = (): boolean => {
+    const v = extractJSValue(source, i)
+    if (v) {
+      i = v.endPos
+      return true
+    }
+    const name = source.slice(i).match(/^\s*[A-Za-z_$][\w$]*/)
+    if (!name) return false
+    i += name[0].length
+    return true
+  }
+  if (!one()) return null
+  for (;;) {
+    const bar = source.slice(i).match(/^[ \t]*\|(?!\|)\s*/)
+    if (!bar) break
+    const save = i
+    i += bar[0].length
+    if (!one()) {
+      i = save
+      break
+    }
+  }
+  const value = source.slice(start, i).trim()
+  return value ? { value, end: i } : null
+}
+
 /** Index of the first top-level `=` that introduces a DEFAULT, or -1. */
 function topLevelDefaultEq(src: string): number {
   const masked = maskLiterals(src)
@@ -4500,18 +4536,24 @@ ${branches.join('\n')}
  * where the identifier starts with uppercase (to avoid breaking normal assignments)
  */
 export function transformBareAssignments(source: string): string {
+  // Detected on the MASKED view (literals and comments blanked, offsets preserved) and
+  // spliced into the real source. It used to run on RAW source, so a line inside a template
+  // literal that looked like `Red = 'red'` had `const ` written INTO THE STRING — found when
+  // the dogfood lane converted `parser.test.ts`, whose Enum fixtures are exactly that.
+  const masked = maskLiterals(source)
   // A bare `Foo = …` is auto-const'd only on FIRST assignment. If the name is
   // already declared (let/const/var/function/class) anywhere in the source, the
   // statement is a REASSIGNMENT — leave it alone, or we'd emit a duplicate/
   // shadowing `const` (e.g. `let B = null; … B = x` → wrongly `const B = x`).
   const declared = new Set<string>()
   const declRe = /\b(?:let|const|var|function|class)\s+([A-Z][a-zA-Z0-9_]*)/g
-  for (let m; (m = declRe.exec(source)); ) declared.add(m[1])
+  for (let m; (m = declRe.exec(masked)); ) declared.add(m[1])
 
+  const at: number[] = []
   // Match: start of line/statement, uppercase identifier, =, not ==
-  return source.replace(
+  masked.replace(
     /(?<=^|[;\n{])(\s*)([A-Z][a-zA-Z0-9_]*)\s*=(?!=)/gm,
-    (match, _ws, name, offset: number, str: string) => {
+    (match, ws: string, name: string, offset: number) => {
       if (declared.has(name)) return match // reassignment of a declared binding
       // A bare-identifier RHS (`B = BABYLON`) is an ALIAS — a reassignment of a
       // binding that may live in an enclosing/host scope this source-level
@@ -4519,11 +4561,15 @@ export function transformBareAssignments(source: string): string {
       // `/*# */` example does `B = BABYLON`, auto-const shadowed the host `B`).
       // The feature targets `UPPER = <definition>` (Type(...)/object/call), so
       // skip when the whole RHS is a plain identifier. Issue #22.
-      const rhs = str.slice(offset + match.length)
+      const rhs = masked.slice(offset + match.length)
       if (/^\s*[a-zA-Z_$][\w$]*\s*(?=[;\n,)}\]]|$)/.test(rhs)) return match
-      return match.replace(name, `const ${name}`)
+      at.push(offset + ws.length)
+      return match
     }
   )
+  let out = source
+  for (const p of at.reverse()) out = `${out.slice(0, p)}const ${out.slice(p)}`
+  return out
 }
 
 /**

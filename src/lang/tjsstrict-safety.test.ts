@@ -91,3 +91,19 @@ describe('TjsStrict does not reject VALID TypeScript', () => {
     expect(call(ts, 'f', () => 1)).toBe(1)
   })
 })
+
+describe('`Array<T>` means what `T[]` means', () => {
+  it('under TjsStrict, in an annotation', () => {
+    const run = (ts: string, arg: unknown) =>
+      load(
+        fromTS('/* @tjs TjsStrict */\n' + ts, { emitTJS: true }).code,
+        'f'
+      )(arg)
+    expect(
+      run('function f(x: Array<object>): number { return 1 }', [[1]])
+    ).toBe(1)
+    expect(
+      run('function f(x: Array<{ a?: number }>): number { return 1 }', [{}])
+    ).toBe(1)
+  })
+})

@@ -518,12 +518,14 @@ function typeToExample(
 
       // Handle common generic types
       if (typeName === 'Array' && typeRef.typeArguments?.length) {
+        // `Array<T>` is `T[]`: the position PROPAGATES, exactly as the `T[]` branch does. It
+        // passed value position here, so `Array<object>` rejected `[[1]]` under TjsStrict.
         let itemExample = typeToExample(
           typeRef.typeArguments[0],
           checker,
           warnings,
           ctx,
-          nested
+          position
         )
         // `any` is a TYPE, not a value — `[any]` is a bare identifier at runtime.
         //

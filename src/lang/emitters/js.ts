@@ -1990,7 +1990,7 @@ export function transpileToJS(
         `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){${
           needsKind ? 'if(v.__k)return __kjs(v,__ex2js);' : ''
         }const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);${
-          needsKind ? 'if(!(v[k]&&v[k].__k&&v[k].opt))' : ''
+          needsKind ? 'if(!__kOpt(v[k]))' : ''
         }r.push(k)}return{type:'object',properties:p,required:r,additionalProperties:false}}return{}}`
       )
     }
@@ -2091,7 +2091,7 @@ export function transpileToJS(
         // are open now, so they agree.
         `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>${
           needsKind
-            ? 'k in v?__match(v[k],ex[k]):!!(ex[k]&&ex[k].__k&&ex[k].opt)'
+            ? 'k in v?__match(v[k],ex[k]):__kOpt(ex[k])'
             : 'k in v&&__match(v[k],ex[k])'
         })}return v===ex}`
       )
@@ -2100,32 +2100,30 @@ export function transpileToJS(
         : ''
       if (needsKind) {
         // A marker is a runtime type, so `__match` already defers to its `.check`. `Type`
-        // unwraps markers for `.default` (the author wrote `0.0`; the default is 0).
-        // `__kSchema` corrects a schema INFERRED from the unwrapped value, which lost the
-        // meaning exactly as the matcher used to; `infer` returns a tosijs-schema BUILDER,
-        // and `validate` takes plain JSON Schema too, so the corrected one is its `.schema`.
-        // A `ref` is read when CHECKED (TDZ-safe, and a type may name itself); one that
-        // cannot be read, or that recurses through cyclic data, degrades to unchecked.
+        // unwraps markers for `.default` (the author wrote `0.0`; the default is 0). A Type
+        // with a predicate gates on `__match` too (parser-transforms), because an INFERRED
+        // schema cannot express a `ref` and let a recursive member through unchecked.
         inlineParts.push(
-          // `opt`: the marker admits an ABSENT key — `undefined`, `any`, or a union holding
-          // either. Stated, never inferred from `check(undefined)`: a `ref` that cannot be
-          // read accepts everything, and must not make its member optional into the bargain.
+          // `opt`: the marker admits an ABSENT key — `undefined`, `any`, a union holding
+          // either, or a `ref` whose referent's example does (`__kOpt`). Stated, never inferred
+          // from `check(undefined)`: an unreadable `ref` accepts everything, and must not make
+          // its member optional into the bargain.
           //
-          // A `ref` is COINDUCTIVE: while (value, marker) is being checked, meeting the same
-          // pair again counts as satisfied, so cyclic data terminates and each node is still
-          // checked once per path. It used to lean on stack overflow — exponential on a cycle,
-          // and a 20,000-deep payload with a bad leaf PASSED, because the deepest frame
-          // caught the RangeError and said yes. Overflow now fails CLOSED and is recorded;
-          // only a ReferenceError (TDZ, or a name nothing declares) degrades open, recorded
-          // once per site so it is visible after the fact.
-          `const __kSeen=new WeakMap(),__kUnset={};function __kWarn(m,msg){if(m.w)return;m.w=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}`,
-          `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.name=v;m.get=()=>{try{return a()}catch(e){if(e instanceof ReferenceError){__kWarn(m,'A Type example names \\''+v+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return __kUnset}throw e}};m.check=x=>{const r=m.get();if(r===__kUnset)return true;let s;if(x!==null&&typeof x==='object'){s=__kSeen.get(x);if(s&&s.has(m))return true;if(!s)__kSeen.set(x,s=new Set());s.add(m)}try{return __match(x,r)}catch(e){if(e instanceof RangeError){__kWarn(m,'A value nested too deeply to check against \\''+v+'\\' was REJECTED.');return false}throw e}finally{if(s)s.delete(m)}};m.opt=false}else{m.value=t==='union'?__unk(a[0]):v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='set'?x=>__oneOf(x,a):t==='union'?x=>a.some(e=>__match(x,e)):()=>true;m.opt=t==='undef'||t==='any'||(t==='union'&&a.some(e=>!!(e&&e.__k&&e.opt)))}return m}`,
-          `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.get();if(r===__kUnset)return{};return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}finally{m.__busy=false}}return{}}`,
-          // A plain union MEMBER's schema, for the `infer` path (which has no `__ex2js`):
-          // mapping those to `{}` left `'' | undefined` accepting 42 once a predicate was added.
-          `function __kv(v){if(v===null)return{type:'null'};if(v&&v.__k)return __kjs(v,__kv);const t=typeof v;if(t==='string'||t==='boolean')return{type:t};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(Array.isArray(v))return v.length?{type:'array',items:__kv(v[0])}:{type:'array'};if(t==='object')return{type:'object'};return{}}`,
-          `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k!=='ref')return v.value;const r=v.get();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`,
-          `function __kSchema(s,ex){if(s&&typeof s.validate==='function'&&s.schema&&typeof s.schema==='object')s=s.schema;if(!ex||typeof ex!=='object')return s;if(ex.__k)return __kjs(ex,__kv);if(!s||typeof s!=='object')return s;if(Array.isArray(ex))return ex.length&&s.items?{...s,items:__kSchema(s.items,ex[0])}:s;if(!s.properties)return s;const p={...s.properties};let r=s.required;for(const k of Object.keys(ex)){if(k in p)p[k]=__kSchema(p[k],ex[k]);const e=ex[k];if(r&&e&&e.__k&&e.opt)r=r.filter(x=>x!==k)}return r?{...s,properties:p,required:r}:{...s,properties:p}}`
+          // A `ref` is checked COINDUCTIVELY, with bounded work. One assumption set per
+          // top-level check: a (value, marker) pair being — or already — proven holds when
+          // met again, and a pair that failed is remembered as failed. Assumptions made inside
+          // a union alternative or a ref that FAILS are rolled back (`__kLog`), so no `true`
+          // rests on a refuted assumption. That makes each pair's cost paid once: the first
+          // version kept only the current PATH, which terminated but was exponential on shared
+          // structure — a 500-byte hostile JSON took minutes. A work budget backstops it.
+          // Stack overflow and an exhausted budget fail CLOSED and are recorded — an overflow
+          // at the TOP-level frame, since the deep frame that caught it has no stack left to
+          // record with (it did, sometimes, which is how the record went missing). Only a
+          // ReferenceError (TDZ, or a name nothing declares) degrades open, also recorded.
+          `let __kA=null,__kF=null,__kLog=null,__kWork=0,__kDeep=null;const __kUnset={},__kBudget=1e6;function __kWarn(m,f,msg){if(m[f])return;m[f]=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kRoll(L){for(let i=__kLog.length-2;i>=L;i-=2){const s=__kA.get(__kLog[i]);if(s)s.delete(__kLog[i+1])}__kLog.length=L}function __kOpt(e,d){if(!e||!e.__k||(d|0)>32)return false;if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,(d|0)+1)}function __kRun(m,x,r){try{return __match(x,r)}catch(e){if(e instanceof RangeError){__kDeep=m;return false}throw e}}`,
+          `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.name=v;m.peek=()=>{try{return a()}catch(e){if(e instanceof ReferenceError)return __kUnset;throw e}};m.check=x=>{const r=m.peek();if(r===__kUnset){__kWarn(m,'wu','A Type example names \\''+v+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return true}if(x===null||typeof x!=='object')return __kRun(m,x,r);const top=!__kA;if(top){__kA=new WeakMap();__kF=new WeakMap();__kLog=[];__kWork=0}try{if(++__kWork>__kBudget){__kWarn(m,'wb','A value too large to check against \\''+v+'\\' was REJECTED.');return false}let s=__kA.get(x);if(s&&s.has(m))return true;let f=__kF.get(x);if(f&&f.has(m))return false;if(!s)__kA.set(x,s=new Set());s.add(m);const L=__kLog.length;__kLog.push(x,m);const ok=__kRun(m,x,r);if(!ok){__kRoll(L);if(!f)__kF.set(x,f=new Set());f.add(m)}return ok}finally{if(top){__kA=null;__kF=null;__kLog=null;if(__kDeep){const d=__kDeep;__kDeep=null;__kWarn(d,'wd','A value nested too deeply to check against \\''+d.name+'\\' was REJECTED.')}}}};m.opt=false}else{m.value=v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='set'?x=>__oneOf(x,a):t==='union'?x=>{for(const e of a){const L=__kLog?__kLog.length:0;if(__match(x,e))return true;if(__kLog)__kRoll(L)}return false}:()=>true;m.opt=t==='undef'||t==='any'||(t==='union'&&a.some(e=>__kOpt(e)))}return m}`,
+          `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return typeof m.arg[0]==='bigint'?{type:'integer'}:{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.peek();if(r===__kUnset)return{};return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}finally{m.__busy=false}}return{}}`,
+          `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='union')return __unk(v.arg[0]);if(v.__k!=='ref')return v.value;const r=v.peek();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`
         )
       }
       const dflt = (x: string) => (needsKind ? `__unk(${x})` : x)
@@ -2295,7 +2293,7 @@ export function transpileToJS(
     // `needsKind` is a substring test, so a file that merely MENTIONS `__tjs_rt.__k(` in a
     // string had these names exported undefined — a ReferenceError at load.
     if (needsKind && (needsType || needsGeneric))
-      rtExports.push('__k', '__kjs', '__kv', '__unk', '__kSchema')
+      rtExports.push('__k', '__kjs', '__unk')
 
     if (needsGeneric) rtExports.push('Generic')
     if (needsFunctionPredicate) rtExports.push('FunctionPredicate')

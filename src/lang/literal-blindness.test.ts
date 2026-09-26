@@ -1326,3 +1326,25 @@ describe('`markExampleKinds` splices Type examples by offset, never by pattern',
     expect(o.Box(2)).toBe(4)
   })
 })
+
+describe('the bare-assignment auto-const leaves literals alone', () => {
+  // `transformBareAssignments` ran its regex over RAW source, so a template-literal line
+  // that looked like `Red = 'red'` got `const ` written into the string. Found by
+  // DOGFOOD_STRICT converting `parser.test.ts`, whose Enum fixtures are exactly that shape.
+  const lines = ['Red = 1', "Blue = 'blue'"]
+  for (const line of lines)
+    for (const [label, hide] of HIDING_PLACES)
+      it(`\`${line}\` ${label} is byte-identical`, () => {
+        if (label.includes('comment')) return // a comment is not emitted verbatim
+        if (label.includes('single') && line.includes("'")) return // would nest quotes
+        // A quoted string cannot hold a raw newline, but `;` also starts a statement for
+        // the transform's lookbehind — so that is the shape to hide there.
+        const text = label.includes('template') ? `\n${line}\n` : `x;${line}`
+        expect(tjs(`${hide(text)}\nexport const n = 1`).code).toContain(
+          hide(text)
+        )
+      })
+  it('a real first assignment is still auto-const’d (control)', () => {
+    expect(tjs('Green = { a: 1 }').code).toContain('const Green = { a: 1 }')
+  })
+})

@@ -521,11 +521,18 @@ deployed after the publish.
     failed to load with zero tests.
   - gap 2: cdd9f6d (Eval declares context keys as parameters) had only a DOCS review — run a
     security lens on `src/lang/eval.ts` before tagging.
+  - At release (releasing.md step 10), the AAR must record the cycle: correctness/efficiency
+    blocked THREE times in the example-kinds work (review, re-review on the B-2 fix, and the
+    B-2 fix's own complexity). Facts only; the quarterly audit does the analysis.
   - gap 6: zod's 1959/1959 has no prior baseline; the suite-counting fix is pinned only by
     the harness itself (subsumed by m-6's unit test).
   - gap 7: `DOGFOOD_STRICT=1` measures what TjsStrict rejects in our own converted suites.
-    First run: 4350 pass / 41 fail / 1 load error (vs 4698 / 0 plain). The load error was a
-    real defect (fixed); ~31 of the fails are ERROR PROPAGATION (see next item).
+    First run 4350 / 41 fail / 1 load error; after the re-review fixes 4476 / 34 / 0, and ALL
+    34 are error propagation (next item). Along the way it found three real defects (a
+    load failure, a template literal rewritten by auto-const, `Type X = a | b` as bitwise OR).
+    Kept MANUAL, not a gate, until the propagation decision: its known-failure list would be
+    exactly that decision. Run it whenever `fromTS` or TjsStrict changes, then make it a
+    ratchet (`test:dogfood:strict`) once the list is stable.
 - [ ] **DECISION NEEDED — error propagation swallows functions that TAKE an error.** Every
       validated function starts `if (p instanceof Error) return p` for EVERY parameter, whatever
       its declared type, and for any `Error` (not only `MonadicError`). So `describe(e: Error)`,
