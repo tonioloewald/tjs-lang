@@ -354,3 +354,31 @@ describe('a stack overflow inside a nested runtime check is recorded, not silent
     }
   })
 })
+
+describe('the carried-error search is bounded by KEYS, in every copy', () => {
+  it('a 1M-element failing argument costs little on the failure path', () => {
+    const [nums] = load('function nums(xs: [0]):! 0 { return 1 }', ['nums'])
+    const big = Array.from({ length: 1_000_000 }, (_, i) => i)
+    big[999_999] = 'no' as any
+    const t = performance.now()
+    const r = nums(big)
+    expect(isMonadicError(r)).toBe(true)
+    // The element check itself walks the array; the search must add little on top.
+    expect(performance.now() - t).toBeLessThan(150)
+  })
+  it('an error beyond the bound is not found — a NEW error, not a hang', () => {
+    const e = upstream()
+    const deep = Array.from({ length: 10_000 }, () => ({ a: 1 }))
+    ;(deep as any).push({ e })
+    for (const [name, fn] of [
+      ['exported', runtime.typeError],
+      ['instance', createRuntime().typeError],
+    ] as const) {
+      const r = (fn as any)('p', 'x', deep)
+      expect({ name, fresh: isMonadicError(r) && r !== e }).toEqual({
+        name,
+        fresh: true,
+      })
+    }
+  })
+})

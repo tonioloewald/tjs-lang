@@ -535,6 +535,47 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **AJS AST v2 — two format ambiguities (found 2026-09-26; DECISION NEEDED, Tonio).**
+      Both pre-existing, both correctness, the first also security-relevant. Both need a
+      FORMAT change, so they wait for a decision: v1 ASTs are persisted (`procedureStore`),
+      and this would be the first change to use the `$ajs` version field.
+  - **A string literal equal to an in-scope name reads the VARIABLE.** Values store a
+    literal and a reference the same way (a bare string); `resolveValue` tries the
+    variable first. `let x = 5; const s = 'x'` gives `s === 5`; `['x', 'z']` gives
+    `[5, 'z']`. Where untrusted input picks variable NAMES (Eval context, run args), it
+    can redirect a literal: `storeGet('config')` with a `config` variable reads the store
+    at that variable's value. Eval imports only keys the code uses as identifiers, which
+    keeps it from widening this, but any program's own variables are exposed.
+  - **`varSet` means both "declare" and "assign".** `{ let x = 2 }` and `{ x = 2 }` emit
+    the same step, and the VM always writes to the CURRENT scope, so an assignment to an
+    outer variable inside a block or loop is LOST: `let x = 0; for (const v of [1,2,3])
+{ x = x + v }; return { x }` returns `{ x: 0 }` (inside `if`, which is not a scope,
+    it works).
+  - Proposed v2: literals explicit (`{ $lit: … }`, or references explicit and bare strings
+    always literal); declaration (`varDecl`/`varsLet`) distinct from assignment (`varSet`
+    writes to the scope that OWNS the binding). The VM reads v1 with v1 semantics, v2 with
+    v2; producers stamp 2. Golden AST fixtures for both (constraint #4 in
+    docs/ajs-native-vm.md).
+- [ ] **0.14.0 final re-review — dispositions** (docs/reviews/0.14.0-final-rereview.md;
+      B-1, M-1, M-2 FIXED at the root in 9ddb539 — gate first, keys imported by parse at the
+      AST level; found and fixed with them: block-bodied callbacks, per-scope `const`,
+      `wrapReturnValues` in try/catch; carried-error search now bounded by keys). Open:
+  - Carried error from an EXCESS key (`{ id: 'bad', prevError: oldErr }`) propagates the
+    old error instead of reporting `id`. Propagate only from the failing member path or
+    declared members; needs the declaration at the failure site.
+  - A behavioural RUNTIME_ABI test (spy on the installed `typeError`, abi == and abi - 1,
+    `createRuntime` and `installRuntime`); decide whether a future abi-3 runtime is trusted.
+  - `__carried` + the ABI gate add ~450B raw to every validated file; say so in the
+    CHANGELOG size bullet, or emit `__carried` only where a nested error is possible.
+  - `SafeFunction` builds its source by splicing too: `return a + 1 // c` breaks it, and
+    `params` are unvalidated and unmeasured. Share Eval's wrapper rules.
+  - The block-wrapper escape (`} }\nfunction other(){…}\nfunction z(){ {`) transpiles and
+    silently returns nothing; make it fail loudly.
+  - Atom-name shadowing: pin that an atom call beats a context key of the same name.
+  - M-3 `needsSolver`: executed probes for Generic self-instantiation, an imported
+    recursive Type, a runtime Type object nested in an example, `__pred`.
+  - RUNTIME_ABI vs a 0.13 global (tosijs-ui transpiles in the host page): records still
+    mirror, `isMonadicError` holds across 0.13/0.14 modules.
 - [ ] **0.14.0 final-state review — dispositions** (docs/reviews/0.14.0-final-state-review.md;
       B-1, M-1, M-2, M-3, m-1..m-7, n-1 and gaps 3, 5a, 5d, 6, 8 are FIXED — see 88f15ab..HEAD).
       Open before tagging:

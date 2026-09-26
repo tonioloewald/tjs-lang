@@ -286,13 +286,25 @@ export function findCarriedError(v: unknown): MonadicError | undefined {
   if (!v || typeof v !== 'object') return undefined
   const seen = new Set<unknown>()
   const queue: unknown[] = [v]
-  for (let i = 0; i < queue.length && i < 1000; i++) {
+  // The bound is on KEYS VISITED, not nodes: one node can have a million keys, and a node
+  // bound let a 1M-element argument cost ~200ms on the failure path (0.14.0 re-review).
+  let budget = 4096
+  for (let i = 0; i < queue.length && budget > 0; i++) {
     const o = queue[i] as any
     const proto = Object.getPrototypeOf(o)
     if (!Array.isArray(o) && proto !== Object.prototype && proto !== null)
       continue
-    for (const k of Object.keys(o)) {
-      const d = Object.getOwnPropertyDescriptor(o, k)
+    // An array by INDEX: `Object.keys` would materialise every key before the budget
+    // could stop it.
+    const keys: ArrayLike<string | number> = Array.isArray(o)
+      ? { length: Math.min(o.length, budget + 1) }
+      : Object.keys(o)
+    for (let j = 0; j < keys.length; j++) {
+      if (--budget < 0) return undefined
+      const d = Object.getOwnPropertyDescriptor(
+        o,
+        Array.isArray(o) ? j : (keys as string[])[j]
+      )
       if (!d || !('value' in d)) continue
       const x = d.value
       if (isMonadicError(x)) return x as MonadicError
