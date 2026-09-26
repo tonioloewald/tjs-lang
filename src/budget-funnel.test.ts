@@ -40,8 +40,8 @@
  * before handing it on; computed keys (`o[k]`, `Object.entries(o)`); budgets under names
  * not in BUDGET_NAMES; files outside `src/` TypeScript (`.tjs`, `bin/`, `scripts/`). The
  * runtime does not rely on this test for run options: those are classified by type, and
- * their tables snapshotted at admission (`snapshotTable`) or checked at each read
- * (`quotaCount`).
+ * read once into a frozen record (`admitRunOptions`) or checked at each read
+ * (`quotaCount`). Rule 7 below makes re-reading the caller's options after that an error.
  *
  * A read the rules cannot accept goes in ALLOWED with a written reason, and an entry that
  * stops matching anything fails, so the list cannot rot into slack.
@@ -50,8 +50,12 @@ import { describe, it, expect } from 'bun:test'
 import * as ts from 'typescript'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative } from 'path'
+import { RUN_OPTION_KINDS } from './vm/admission'
 
 const ROOT = join(import.meta.dir, '..')
+
+/** Every run option, from the type-keyed table itself — not a second list. */
+const RUN_OPTION_KEYS = new Set(Object.keys(RUN_OPTION_KINDS))
 
 const BUDGET_NAMES = new Set([
   'fuel',
@@ -416,6 +420,25 @@ function isAdmitted(id: ts.Identifier): boolean {
   return false
 }
 
+/** Names a function has passed to `admitRunOptions(…)`, looking out from `n`. */
+function admittedFrom(n: ts.Node): Set<string> {
+  const out = new Set<string>()
+  const fn = enclosingFunction(n)
+  const visit = (m: ts.Node) => {
+    if (
+      ts.isCallExpression(m) &&
+      calleeName(m) === 'admitRunOptions' &&
+      m.arguments[0] &&
+      ts.isIdentifier(m.arguments[0])
+    )
+      out.add(m.arguments[0].text)
+    if (m !== fn && ts.isFunctionLike(m) && !ts.isArrowFunction(m)) return
+    ts.forEachChild(m, visit)
+  }
+  visit(fn)
+  return out
+}
+
 export function scan(fileName: string, text: string): Violation[] {
   const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true)
   const funnels = derivedWrappers(sf)
@@ -440,6 +463,19 @@ export function scan(fileName: string, text: string): Violation[] {
     ) {
       name = n.argumentExpression.text
       obj = n.expression
+    }
+    // Rule 7: once a function has ADMITTED its options, it must never read the caller's object
+    // again — not even to forward it into a context literal, which rules 2 and 5 would
+    // otherwise vouch for between them (re-review 16). Any RunOptions key counts, budget or not.
+    if (
+      name &&
+      obj &&
+      ts.isIdentifier(obj) &&
+      RUN_OPTION_KEYS.has(name) &&
+      admittedFrom(n).has(obj.text)
+    ) {
+      report(n)
+      return
     }
     if (name && obj && BUDGET_NAMES.has(name)) {
       const p = unwrap(n)
@@ -579,6 +615,8 @@ describe('budget funnel', () => {
       nestedLeave: `function f(o, a) { const bad = validateRunOptions(o); if (bad) { if (a) throw 1 } return o.fuel > 1 }`,
       spreadRenamed: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.limit } }) }`,
       spreadCounter: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, quotaUsed: { llm: o.n } }) }`,
+      rereadAfterAdmit: `function f(options) { const a = admitRunOptions(options); if (typeof a === 'string') return; return run({ quotas: options.quotas }) }`,
+      rereadSignal: `function f(options) { const a = admitRunOptions(options); if (typeof a === 'string') return; options.signal.addEventListener('abort', g) }`,
       notAdmitted: `function f(o) { const admitted = o; return admitted.fuel > 1 }`,
       untypedCtx: `function f(ctx) { return ctx.maxHeapBytes > 0 }`,
       spreadCtx: `function f(ctx: RuntimeContext, o) { return run({ ...ctx, fuel: { current: o.fuel } }) }`,

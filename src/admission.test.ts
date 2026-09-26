@@ -17,6 +17,7 @@ import { Eval, SafeFunction } from './lang/eval'
 import { transpile, tjs } from './lang/index'
 import { compilePredicate, emitVerifiedPredicate } from './lang/predicate'
 import { defineAtom } from './vm/runtime'
+import { checkedQuota } from './vm/admission'
 
 // Just under the 8KB source default (0.14.0) — the cap IS the bound on parse work for
 // untrusted AJS; see DEFAULT_MAX_SOURCE_BYTES.
@@ -1143,5 +1144,69 @@ describe('re-review 15: the options are read ONCE, and the run reads only what w
     )
     expect(reasonOf(r)).toMatch(/timed out/)
     expect(performance.now() - t).toBeLessThan(250)
+  })
+})
+
+describe('re-review 16 follow-ups', () => {
+  it('options that are not an object are refused — a function carrying quotas was read as {}', async () => {
+    const f: any = () => 0
+    f.quotas = { ping: 'x' }
+    f.fuel = NaN
+    for (const bad of [f, null, 3, 'fuel'] as any[]) {
+      const r = await new AgentVM().run(
+        { op: 'seq', steps: [] } as any,
+        {},
+        bad
+      )
+      expect(reasonOf(r)).toMatch(/Invalid run options/)
+    }
+  })
+
+  it('a cyclic prototype on the options is refused, not looped on', async () => {
+    const cyclic: any = new Proxy({}, { getPrototypeOf: () => cyclic })
+    const t = performance.now()
+    const r = await new AgentVM().run(
+      { op: 'seq', steps: [] } as any,
+      {},
+      cyclic
+    )
+    expect(reasonOf(r)).toMatch(/prototype chain/)
+    expect(performance.now() - t).toBeLessThan(BOUND_MS)
+  })
+
+  it('checkedQuota refuses a non-budget quota at the read (the second line)', () => {
+    expect(() => checkedQuota(NaN, 'ping')).toThrow(/Invalid quota for 'ping'/)
+    expect(checkedQuota(3, 'ping')).toBe(3)
+  })
+
+  it("the run's own slot is spent even when the shared write-back throws", async () => {
+    const calls: number[] = []
+    const ping = defineAtom(
+      'ping',
+      undefined,
+      undefined,
+      async () => {
+        calls.push(1)
+      },
+      { effects: 'pure' }
+    )
+    let first = true
+    const flaky = new Proxy({} as Record<string, number>, {
+      set: (t, k, v) => {
+        if (first) {
+          first = false
+          throw new Error('flaky store')
+        }
+        ;(t as any)[k] = v
+        return true
+      },
+    })
+    const r = await new AgentVM({ ping }).run(
+      { op: 'seq', steps: [{ op: 'ping' }] } as any,
+      {},
+      { quotas: { ping: 1 }, quotaUsed: flaky }
+    )
+    expect(reasonOf(r)).toMatch(/flaky store/)
+    expect(calls.length).toBe(0) // counted before the call; the call never happened
   })
 })

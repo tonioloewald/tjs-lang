@@ -535,6 +535,16 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 16 — dispositions** (docs/reviews/0.14.0-final-rereview-16.md;
+      GO_WITH_FOLLOWUPS). Fixed before rc.1: non-object options refused (a function carrying
+      `quotas` was read as `{}`); `readOnce` prototype walk bounded at 64 (a cyclic Proxy
+      looped before any timeout); guard rule 7 — re-reading the caller's options after
+      `admitRunOptions` is a violation (mutation-checked on `quotas: options.quotas`), header
+      corrected; `checkedQuota` documented as a second line + unit row; CLAUDE.md quotaUsed
+      wording matches the code; write-back-throw row. Open:
+  - [ ] quotaLocal sharing through the four ctx spreads (createChildScope, localCall,
+        agentRun ×2) is correct by construction (spread) but untested.
+  - [ ] Coverage run on the new admission/runtime branches vs the 98% runtime.ts target.
 - [ ] **0.14.0 final re-review 15 — dispositions** (docs/reviews/0.14.0-final-rereview-15.md;
       BLOCK: `vm.run` validated the options bag, then read it again at each use — a getter
       answered the check `{ping:1}` and the run `{ping:NaN}`). The class, one level up from

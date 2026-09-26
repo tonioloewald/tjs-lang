@@ -143,7 +143,12 @@ export interface AdmittedRunOptions {
  * second read is exactly the defect this exists to close.
  */
 function readOnce(bag: object, name: string): { value: unknown } | string {
+  // Bounded: a Proxy whose `getPrototypeOf` returns itself looped here forever, before any
+  // timeout was armed (re-review 16).
+  let depth = 0
   for (let o: object | null = bag; o && o !== Object.prototype; ) {
+    if (++depth > 64)
+      return `Invalid run options: the prototype chain is deeper than 64 (or cyclic)`
     const d = Object.getOwnPropertyDescriptor(o, name)
     if (d) {
       if (!('value' in d))
@@ -159,8 +164,14 @@ function readOnce(bag: object, name: string): { value: unknown } | string {
 export function admitRunOptions(
   options: RunOptions | undefined
 ): AdmittedRunOptions | string {
-  const bag: object =
-    options && typeof options === 'object' ? options : ({} as object)
+  // Only an ABSENT options argument means "all defaults". A function carrying `quotas` used to
+  // be read as `{}` — its quota silently dropped (re-review 16).
+  if (
+    options !== undefined &&
+    (options === null || typeof options !== 'object')
+  )
+    return `Invalid run options: ${describe(options)} — they must be an object`
+  const bag: object = options ?? {}
   const out: Record<string, unknown> = Object.create(null)
   for (const [name, kind] of Object.entries(RUN_OPTION_KINDS)) {
     const read = readOnce(bag, name)
@@ -265,7 +276,9 @@ function tableEntries(v: unknown): Array<[string, unknown]> | string {
 }
 
 /** A quota as read in the exec wrapper: the admitted value, checked AGAIN at the read — a
- * second line under admission, as `checkedCost` is for costs. */
+ * second line under admission, as `checkedCost` is for costs. Unreachable through `vm.run`
+ * by construction (the admitted table is frozen and pre-validated); it guards a context built
+ * by hand, which direct runtime use can do. */
 export function checkedQuota(quota: unknown, op: string): number {
   if (!isBudget(quota))
     throw new Error(
