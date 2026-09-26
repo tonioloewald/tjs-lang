@@ -31,7 +31,9 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          # The version committed build output (editors/**) was built with — see
+          # scripts/check-bun-version.ts. `latest` would drift the moment Bun ships.
+          bun-version-file: .bun-version
 
       - name: Install
         run: bun install --frozen-lockfile

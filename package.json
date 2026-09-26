@@ -201,6 +201,12 @@
     "!**/*.demo.test.ts"
   ],
   "releaseDoctor": {
+    "attestedLanes": [
+      "test:full",
+      "test:llm",
+      "test:compat",
+      "test:compat-scan"
+    ],
     "advisoryLanes": {
       "test:grok": "measures whether a small pinned LIVE model can write AJS — model variance, not our code; advisory by design and never a release blocker (CLAUDE.md, the three lanes)"
     }
@@ -261,17 +267,19 @@
     "format:check": "bun eslint src && bun prettier --check .",
     "lint": "eslint src --max-warnings 0",
     "prepublishOnly": "bun run scripts/prerelease-tag.ts && bun run scripts/release-gate.ts && bun run scripts/prepublish-check.ts",
-    "release:ready": "bun run scripts/release-gate.ts --prepare",
+    "release:ready": "bun run make && bun ../tosijs-coding-practices/tools/attest.ts",
     "prepare": "git config core.hooksPath .githooks || true; ln -sfn .. node_modules/tjs-lang 2>/dev/null || true",
     "build:grammars": "bun editors/build-grammars.ts && bun editors/build-prism.ts",
     "build:editors": "bun scripts/build-editors.ts && tsc -p tsconfig.editors.json",
+    "test:full": "bun test",
+    "test:release": "bun scripts/prepublish-check.ts --lane",
     "test:fast": "SKIP_LLM_TESTS=1 SKIP_BENCHMARKS=1 SKIP_AUDIT=1 bun test",
     "test:dogfood": "SKIP_LLM_TESTS=1 SKIP_AUDIT=1 bun test src/lang/dogfood-convert.test.ts src/lang/dogfood-tests.test.ts",
     "test:functions": "bun test functions/",
     "test:llm": "bun test src/batteries/models.integration.test.ts",
     "test:grok": "RUN_GROK_TESTS=1 bun test src/use-cases/ajs-grokkability.test.ts",
     "bench": "bun bin/benchmarks.ts",
-    "make": "rm -rf dist && bun format && bun run docs && bun run docs:differences && bun run build:grammars && bun run build:editors && tsc -p tsconfig.build.json && bun scripts/build.ts",
+    "make": "bun scripts/check-bun-version.ts && rm -rf dist && bun format && bun run docs && bun run docs:differences && bun run build:grammars && bun run build:editors && tsc -p tsconfig.build.json && bun scripts/build.ts",
     "build:bundles": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "latest": "rm -rf node_modules && bun install",
