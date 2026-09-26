@@ -745,3 +745,37 @@ describe('the Union and legacy readers share the extent rule (siblings of M-1)',
     expect(Foo.check('x')).toBe(true)
   })
 })
+
+describe('the solver is emitted only where an example can recurse (0.14.0 final review, M-3)', () => {
+  // Any kind marker used to inline the whole recursive-Type solver: a two-field TS interface
+  // with `number` fields emitted 8,180 bytes against 1,884 for `string` fields.
+  const emitted = (src: string) => tjs(src).code
+  it('a non-recursive marker gets the marker helpers, not the solver', () => {
+    const code = emitted(
+      'Type Point { example: { x: 0.0, y: 0.0 } }\nfunction d(p: Point):! 0 { return 1 }'
+    )
+    expect(code).toContain('function __k(')
+    expect(code).not.toContain('__kSolve')
+    expect(code).not.toContain('__kjs')
+    // 10,400 bytes with the solver; 5,797 without (4,115 for the same Type with `''` fields).
+    expect(code.length).toBeLessThan(7000)
+  })
+  it('a named reference brings the solver, and it still works', () => {
+    const src = 'Type T { example: { next: T | null, n: 0.0 } }'
+    expect(emitted(src)).toContain('__kSolve')
+    const T = new Function(emitted(src) + '\nreturn T')()
+    expect(T.check({ n: 1.5, next: { n: 2, next: null } })).toBe(true)
+    expect(T.check({ n: 1.5, next: { n: 'x', next: null } })).toBe(false)
+  })
+  it('the non-solver path still enforces the markers', () => {
+    const P = new Function(
+      emitted(
+        "Type P { example: { x: 0.0, k: +0, u: 'a' | 'b', o: 0 | undefined } }"
+      ) + '\nreturn P'
+    )()
+    expect(P.check({ x: 1.5, k: 2, u: 'a' })).toBe(true)
+    expect(P.check({ x: 1.5, k: -2, u: 'a' })).toBe(false)
+    expect(P.check({ x: 1.5, k: 2, u: 'c' })).toBe(false)
+    expect(P.check({ x: 1.5, k: 2, u: 'a', o: 'no' })).toBe(false)
+  })
+})
