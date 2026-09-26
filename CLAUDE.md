@@ -186,6 +186,11 @@ bun run test:compat         # REAL TypeScript projects through the converter: cl
 # Deployment (Firebase)
 bun run deploy              # Build demo + deploy functions + hosting
 bun run deploy:hosting      # Hosting only (serves from .demo/)
+bun run deploy:site         # The tosijs-ui DOC SITE → GitHub Pages (gh-pages) at
+                            #   https://tjs.tosijs.net. Builds a COMMIT (HEAD, or pass a ref) in
+                            #   a throwaway worktree: `buildSite()` deletes `dist/`, which here is
+                            #   the attested release artifact — never build the site in this
+                            #   checkout. The old playground is still `deploy:hosting` (Firebase).
 bun run functions:deploy    # Cloud functions only. WORKS on the global firebase CLI as of
                             #   2026-09-04 (15.28.2) — verified by a real deploy of all five
                             #   functions. This entry used to prescribe

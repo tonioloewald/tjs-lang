@@ -85,18 +85,18 @@ export default defineSiteConfig({
   name: 'tjs-lang',
   description:
     'A typed JavaScript platform: types are examples that survive to runtime as contracts, documentation and tests.',
-  baseUrl: 'https://tjs-platform.web.app',
+  baseUrl: 'https://tjs.tosijs.net',
 
   // `.site`: NOT their default of `docs` (hand-written documentation here — building there
   // would overwrite it) and NOT `.demo` (Firebase's `hosting.public`, still serving the old
   // playground).
   outputDir: '.site',
-  // `static` until the GitHub Pages address is decided (a tosijs.net subdomain, or the
-  // github.io default). The doc site goes to GitHub Pages; the OLD playground stays on Firebase
-  // (`tjs-platform.web.app`, `.demo/`) until the new site fully supersedes it — decided
-  // 2026-09-25. `github-pages` writes a CNAME derived from `baseUrl`, which is still the
-  // Firebase address, so switching the host before `baseUrl` would claim the wrong domain.
-  host: 'static',
+  // GitHub Pages at tjs.tosijs.net (decided 2026-09-26). `github-pages` writes `.nojekyll` and
+  // a CNAME from `baseUrl` — which is why it had to wait for the address: it would have claimed
+  // the Firebase domain. A custom domain serves from the root, so no `basePath`. The OLD
+  // playground stays on Firebase (`tjs-platform.web.app`, `.demo/`) until this site supersedes
+  // it. Deployed to the `gh-pages` branch, built in a worktree (`buildSite` wipes `dist/`).
+  host: 'github-pages',
 
   // Section pages live here: overview docs the sections hang from, whose `<!-- toc -->` blocks
   // the build regenerates. Their default, `src/docs`, is a strange home for doc pages.

@@ -464,10 +464,10 @@ file. Guarded by `src/doc-site-structure.test.ts`. Hosting: the doc site goes to
 Pages**, the old playground stays on **Firebase** until the new site supersedes it — both
 deployed after the publish.
 
-- [ ] **Choose the GitHub Pages address** (a `tosijs.net` subdomain, or the github.io default),
-      then set `host: 'github-pages'` + `baseUrl` (+ `basePath` for github.io) in
-      `tjs-site.config.ts`. It is `host: 'static'` until then, because `github-pages` writes a
-      CNAME from `baseUrl`, which is still the Firebase address.
+- [x] **GitHub Pages address: https://tjs.tosijs.net** (2026-09-26, at 0.14.0-rc.1).
+      `host: 'github-pages'`, `baseUrl` set; deployed with `bun run deploy:site` to `gh-pages`.
+      Pages was previously serving a legacy Jekyll build of `main:/docs` — INCLUDING
+      `docs/reviews/` — at tonioloewald.github.io/tjs-lang; switching the source retired it.
 - [ ] **Prove live examples RUN on the generated site** (TJS, TS, and AJS) in a real browser —
       the bar for retiring the playground. The static preview renders examples as plain code;
       live examples need the site's runtime bundle configured.

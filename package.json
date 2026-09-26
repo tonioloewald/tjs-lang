@@ -305,6 +305,7 @@
     "functions:deploy": "cd functions && npm run deploy",
     "functions:serve": "cd functions && npm run serve",
     "deploy:hosting": "bun run build:demo && firebase deploy --only hosting",
+    "deploy:site": "bun bin/deploy-site.ts",
     "deploy": "bun run build:demo && bun run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev",
     "docs:differences": "bun scripts/build-differences.ts",
