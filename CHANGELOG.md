@@ -9,8 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.14.0] — 2026-09-25
+## [0.14.0] — unreleased
 
+> **Release candidate: `0.14.0-rc.1`** (2026-09-26), on the `rc` dist-tag (`npm i tjs-lang@rc`);
+> `latest` stays on 0.13 until 0.14.0 is final. It carries everything below, including the
+> admission work from the final re-reviews (the 8KB source cap, the deprecation of
+> `vm.run(source)`, and every run option read once and checked). `^0.14.0` does NOT admit a
+> prerelease, so pin `0.14.0-rc.1` exactly to test it. Published through the OIDC workflow,
+> vouched for by `release-attestation.json`.
+>
 > Published first as **`0.14.0-rc.0`** on the `rc` dist-tag, so tosijs-ui could verify against it
 > before its peer range admitted 0.14 ([tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182)).
 > It did: **tosijs-ui 1.15.2** declares `tjs-lang: ^0.13.1 || ^0.14.0`, so npm consumers of both
