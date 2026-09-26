@@ -26,6 +26,10 @@ console.log(result) // → 3
 console.log(fuelUsed > 0) // → true
 ```
 
+Only context keys the code names become variables, and a key never replaces a builtin: a
+context entry called `Math` or `NaN` is ignored rather than rebinding it. A local the code
+declares (`let a = …`) shadows a context key of the same name.
+
 ## `SafeFunction` — compile once, call many times
 
 `SafeFunction` turns a function body into a callable. Its parameters are **names**, and each

@@ -10,6 +10,9 @@
 import { AgentVM, setTranspiler } from '../vm/vm'
 import { transpile } from './core'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
+import { maskLiterals } from '../strip-comments'
+import { builtins } from '../vm/runtime'
+import { BUILTIN_GLOBALS, BUILTIN_OBJECTS } from './emitters/ast'
 
 // This entry exists to execute SOURCE, so it must supply the transpiler the VM no longer
 // imports for itself (see `setTranspiler` in `../vm/vm` — injected so `tjs-lang/vm-ast` can
@@ -67,9 +70,19 @@ export interface SafeCapabilities {
   [key: string]: unknown
 }
 
-/** Options for Eval */
 /** A context key that can be declared as a parameter name. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+/** Every identifier-shaped token in a source (run over the literal-masked view). */
+const IDENTIFIER_TOKEN = /[A-Za-z_$][A-Za-z0-9_$]*/g
+/** Names a context key may never rebind: global values and the VM's builtins. */
+const SHADOW_PROOF = new Set([
+  'NaN',
+  'Infinity',
+  'undefined',
+  'globalThis',
+  ...BUILTIN_OBJECTS,
+  ...BUILTIN_GLOBALS,
+])
 /** Reserved words that are identifiers lexically but cannot name a parameter. */
 const RESERVED = new Set(
   'break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof let new null return super switch this throw true try typeof var void while with yield await implements interface package private protected public static arguments eval'.split(
@@ -77,6 +90,7 @@ const RESERVED = new Set(
   )
 )
 
+/** Options for Eval */
 export interface EvalOptions {
   /** Code to evaluate (expression or statements with return) */
   code: string
@@ -156,14 +170,36 @@ export async function Eval(options: EvalOptions): Promise<{
   // problem; every documented example happened to avoid it (0.14.0 docs review). Only keys usable
   // as identifiers can be declared — any other key was never nameable in the code anyway — and
   // the forbidden prototype keys never become variables.
+  //
+  // Only keys the code NAMES are declared (0.14.0 final review, B-1 + m-1). Declaring every key
+  // put caller-controlled text into the transpiled source with nothing measuring it — 80k keys
+  // and a one-line body took 7–22s to transpile, before fuel or timeout applied, and hosted
+  // endpoints pass request arguments as the context. A key the code never names is unreachable
+  // anyway; with this filter each declared name appears in `code`, so the signature is bounded
+  // by the source the size cap already measures. Names are found on the literal-masked view, so
+  // a key mentioned only inside a string is not declared.
+  //
+  // A key never shadows a builtin (`Math`, `JSON`, `parseInt`…) or a global value (`NaN`,
+  // `undefined`): a request argument named `Math` must not replace `Math` inside stored code.
+  const masked = maskLiterals(code)
+  const named = new Set(masked.match(IDENTIFIER_TOKEN) ?? [])
   const params = Object.keys(context).filter(
-    (k) => IDENTIFIER.test(k) && !RESERVED.has(k) && !FORBIDDEN_KEYS_SET.has(k)
+    (k) =>
+      named.has(k) &&
+      IDENTIFIER.test(k) &&
+      !RESERVED.has(k) &&
+      !FORBIDDEN_KEYS_SET.has(k) &&
+      !SHADOW_PROOF.has(k) &&
+      !(k in builtins)
   )
   const signature = params.length ? `{ ${params.join(', ')} }` : ''
-  const hasReturn = /\breturn\b/.test(code)
+  // Tested on the masked view: `'return'` inside a string is not a return statement.
+  const hasReturn = /\breturn\b/.test(masked)
+  // Statements go in their own BLOCK, so the code may declare a local with a context key's name
+  // (`let y = 2` with `context: { y }`) and shadow it, as it could before keys were declared.
   const wrappedCode = hasReturn
-    ? `function __eval(${signature}) { ${code} }`
-    : `function __eval(${signature}) { return (${code}) }`
+    ? `function __eval(${signature}) { {\n${code}\n} }`
+    : `function __eval(${signature}) { return (\n${code}\n) }`
 
   try {
     // Inside the try, so an oversized payload comes back as `{ error }` like every other

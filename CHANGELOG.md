@@ -345,7 +345,12 @@ Predicate` to "callable and boolean-ish".
   no parameters, so `context` reached plain expressions but not atoms: `items.filter(…)`
   failed with "items is not an array". Context keys are now declared parameters. Found by
   running the README's own example, which the rewritten Safe Eval chapter now executes along
-  with every example in it.
+  with every example in it. Only the keys the code actually NAMES are declared: declaring
+  every key put caller-controlled text into the transpiled source, where `maxSourceBytes`
+  never measured it, and 80k keys with a one-line body took over a minute to transpile
+  before fuel or timeout applied (the hosted endpoints pass request arguments as context).
+  A key never rebinds a builtin or a global value (`Math`, `JSON`, `NaN`, `undefined`…), and
+  code may declare a local that shares a key's name, which shadows it.
 
 - **`fromTS` class metadata keeps what the code erases**: OVERLOAD signatures — of methods,
   static methods AND constructors — and `abstract`. Both are rightly erased from the emitted

@@ -793,7 +793,7 @@ function transformReturnStatement(
 }
 
 // Known builtins that should be evaluated as expressions, not atom calls
-const BUILTIN_OBJECTS = new Set([
+export const BUILTIN_OBJECTS = new Set([
   'Math',
   'JSON',
   'Array',
@@ -805,7 +805,7 @@ const BUILTIN_OBJECTS = new Set([
   'Schema', // tosijs-schema fluent API for building JSON Schemas
 ])
 
-const BUILTIN_GLOBALS = new Set([
+export const BUILTIN_GLOBALS = new Set([
   'parseInt',
   'parseFloat',
   'isNaN',

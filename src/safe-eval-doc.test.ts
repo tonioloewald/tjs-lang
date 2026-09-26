@@ -138,3 +138,62 @@ describe('Eval context is visible to atoms, not only to expressions', () => {
     expect(r.result).toBe(2)
   })
 })
+
+describe('context keys are bounded by the code, not by the caller (0.14.0 final review B-1, m-1)', () => {
+  // Declaring EVERY key spliced caller-controlled text into the transpiled source, and
+  // `maxSourceBytes` measured only `code`: 80k keys with a one-line body took 7–22s to
+  // transpile, before fuel or timeout applied. Hosted endpoints pass request args as context.
+  it('80k keys with a tiny body return promptly — only the named key is declared', async () => {
+    const context: Record<string, unknown> = { a: 2 }
+    for (let i = 0; i < 80000; i++) context[`k${i}_${'x'.repeat(20)}`] = i
+    const t = performance.now()
+    const r = await Eval({ code: 'a + 1', context })
+    expect(performance.now() - t).toBeLessThan(1000)
+    expect(r.error).toBeUndefined()
+    expect(r.result).toBe(3)
+  })
+
+  it('a body naming every one of 80k keys is refused by the size cap, not transpiled', async () => {
+    const context: Record<string, unknown> = {}
+    const names: string[] = []
+    for (let i = 0; i < 80000; i++) names.push(`k${i}`)
+    for (const n of names) context[n] = 1
+    const t = performance.now()
+    const r = await Eval({ code: names.join(' + '), context })
+    expect(performance.now() - t).toBeLessThan(1000)
+    expect(r.error?.message).toContain('byte limit')
+  })
+
+  it('code may declare a local that shares a context key’s name, and shadows it', async () => {
+    const r = await Eval({
+      code: 'let y = 2\nreturn y + x',
+      context: { x: 1, y: 5 },
+    })
+    expect(r.error).toBeUndefined()
+    expect(r.result).toBe(3)
+  })
+
+  it('a key named after a builtin or global value does not rebind it', async () => {
+    const r = await Eval({
+      code: 'Math.max(1, 2) + (NaN === NaN ? 1 : 0)',
+      context: { Math: { max: () => 99 }, NaN: 5, undefined: 1 },
+    })
+    expect(r.error).toBeUndefined()
+    expect(r.result).toBe(2)
+  })
+
+  it("'return' inside a string does not make an expression a statement block", async () => {
+    const r = await Eval({ code: "'no return here'", context: {} })
+    expect(r.result).toBe('no return here')
+  })
+
+  it('a key mentioned only inside a string is not declared', async () => {
+    const r = await Eval({ code: "'secret'", context: { secret: 1 } })
+    expect(r.result).toBe('secret')
+  })
+
+  it('a trailing line comment does not swallow the wrapper', async () => {
+    expect((await Eval({ code: '1 + 1 // two' })).result).toBe(2)
+    expect((await Eval({ code: 'return 3 // three' })).result).toBe(3)
+  })
+})
