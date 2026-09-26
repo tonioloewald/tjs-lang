@@ -100,3 +100,39 @@ describe('the published tarball', () => {
     expect(empty).toEqual([])
   })
 })
+
+describe('tracked markdown', () => {
+  // Commit 8b305a3 wrote a TODO.md entry ONE CHARACTER PER LINE (~1,100 lines — a string
+  // iterated where a list of lines was expected), Prettier then rewrote the fragments, and it
+  // sat unnoticed for eight weeks until an importer turned them into tasks named `T` and `0`.
+  // A run this long of near-empty lines is never prose, a table or a code block.
+  const RUN = 25
+  const longestRun = (text: string) => {
+    let run = 0
+    let worst = { length: 0, line: 0 }
+    text.split('\n').forEach((line, i) => {
+      run = line.length <= 2 ? run + 1 : 0
+      if (run > worst.length) worst = { length: run, line: i + 2 - run }
+    })
+    return worst
+  }
+
+  it('APPARATUS: the detector sees a string written one character per line', () => {
+    expect(
+      longestRun([...'a sentence exploded into characters'].join('\n')).length
+    ).toBeGreaterThan(RUN)
+    expect(
+      longestRun('ordinary\n\nprose\n\n- a list\n- of items\n').length
+    ).toBeLessThan(RUN)
+  })
+
+  it('no tracked markdown file contains text exploded one character per line', () => {
+    const files = git('ls-files', '*.md').split('\n').filter(Boolean)
+    expect(files.length).toBeGreaterThan(20)
+    const exploded = files
+      .map((f) => ({ f, run: longestRun(readFileSync(join(ROOT, f), 'utf8')) }))
+      .filter(({ run }) => run.length > RUN)
+      .map(({ f, run }) => `${f}:${run.line} (${run.length} lines of ≤2 chars)`)
+    expect(exploded).toEqual([])
+  })
+})

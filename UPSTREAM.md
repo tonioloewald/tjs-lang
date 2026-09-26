@@ -162,7 +162,7 @@ normally. Boring, and it bundles correctly everywhere.
 warning — the issue argues for the latter regardless, since a build flag that quietly does
 nothing is worse than one that is unsupported.
 
-## Bun — a directory's listing is cached on first module resolution
+## Bun — a directory's listing is cached on first module resolution — ✅ RESOLVED 2026-09-26 (oven-sh/bun#40105 closed; no workaround here)
 
 **Filed:** [oven-sh/bun#40105](https://github.com/oven-sh/bun/issues/40105) (2026-08-22).
 **Not a 1.4 regression** — reproduced identically on 1.3.14, so it is longstanding, and
@@ -193,7 +193,7 @@ ESM loading — a better test than the dynamic-import version anyway.
 **What we're waiting for:** the resolver re-stats a directory, or at least reports the
 specifier it was given.
 
-## tosijs-ui — `live-example` pins tjs-lang 0.13.4 (deprecated)
+## tosijs-ui — `live-example` pins tjs-lang 0.13.4 (deprecated) — ✅ RESOLVED 2026-09-26 (tosijs-ui#135 closed)
 
 **Filed:** [tosijs-ui#135](https://github.com/tonioloewald/tosijs-ui/issues/135) (2026-09-04).
 **Blocks:** nothing of ours. **Ours to fix:** no — but it is OUR package they are pinning.
@@ -245,7 +245,7 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
-## tosijs-ui — peer range `tjs-lang: ^0.12.0` cannot reach 0.13.x
+## tosijs-ui — peer range `tjs-lang: ^0.12.0` cannot reach 0.13.x — ✅ RESOLVED 2026-09-26 (tosijs-ui#98 closed)
 
 **Filed:** [tosijs-ui#98](https://github.com/tonioloewald/tosijs-ui/issues/98) (2026-08-22).
 
@@ -296,7 +296,7 @@ and SHOWS ITS OUTPUT; the rest waits for an IDE.
 **Not fixed here** — file don't fix. **What we're waiting for:** #184's AJS item decides whether
 the AJS examples keep the JS-host wrapper; the rest is post-0.14.
 
-## tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182) — ✅ FIXED UPSTREAM
+## tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182) — ✅ RESOLVED 2026-09-26 (1.15.4 declares `^0.13.1 || ^0.14.0`; nothing to remove here)
 
 **Resolved 2026-09-25: tosijs-ui 1.15.2** (npm `latest`) publishes `^0.13.1 || ^0.14.0`, verified on
 the per-version registry document: admits 0.13.13 and 0.14.x, excludes 0.14.0-rc.0 (semver
@@ -332,7 +332,7 @@ Twice now the fix has been a reactive issue after the fact; the structural fix i
 on OUR side that, before publishing a minor, reads each first-party downstream's declared
 range and fails if the new version falls outside it.
 
-## `@codemirror/state` duplicates when adopting `tosijs-ui/site` (tosijs-ui#131)
+## `@codemirror/state` duplicates when adopting `tosijs-ui/site` (tosijs-ui#131) — ✅ FIXED UPSTREAM, workaround still in place
 
 **Filed:** [tosijs-ui#131](https://github.com/tonioloewald/tosijs-ui/issues/131) — reported by
 tosijs, reproduced here 2026-09-06 while attempting the B1 site migration.
@@ -368,7 +368,7 @@ built artifact — and that guard was itself blind until 2026-09-06, because it 
 
 ---
 
-## `tosijs-ui/site` — three findings from the B1 adoption (tosijs-ui#153, #154, #155)
+## `tosijs-ui/site` — three findings from the B1 adoption (tosijs-ui#153, #154, #155) — ✅ FIXED UPSTREAM, workarounds still in place
 
 **Filed 2026-09-09** while adopting the doc system. All three are theirs to fix; worked around
 here so B1 can proceed.
