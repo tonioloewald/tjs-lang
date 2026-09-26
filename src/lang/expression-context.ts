@@ -54,6 +54,74 @@ import { maskLiterals } from '../strip-comments'
  * return annotation left in place and emitted as JavaScript.
  */
 export function isTernaryColon(source: string, colonIndex: number): boolean {
+  return ternaryColons(source).has(colonIndex)
+}
+
+/**
+ * Every `:` in `source` that is a ternary's alternative, in ONE forward pass — memoized per
+ * source string.
+ *
+ * The per-query backward walk (kept below as `isTernaryColonScan`, the reference) visited the
+ * whole enclosing expression for every colon, so N colons in one expression cost O(N²): 64KB
+ * of `():` took ~2s before fuel applied (0.14.0 final re-review 6, M-1). The rule it applies is
+ * bracket matching in disguise — walking back, a `:` is a debt and a `?` pays one — so forward
+ * it is a stack of `?`s per bracket frame:
+ *
+ * - an opener starts a new frame; a closer ends it (an UNMATCHED closer hides everything
+ *   before it, so it starts a fresh frame);
+ * - `;`, `,` and a MARKER `?` (no condition before it) clear the frame — the walk returns
+ *   false on reaching any of them;
+ * - `??`, `?.`, `?:`, `?!` are not ternary `?`s; `::` colons neither answer nor consume.
+ *
+ * Held equal to the backward walk at every `:` of a corpus by expression-context.test.ts.
+ */
+const ternaryMemo = new Map<string, Set<number>>()
+function ternaryColons(source: string): Set<number> {
+  const hit = ternaryMemo.get(source)
+  if (hit) return hit
+  const masked = maskLiterals(source)
+  const out = new Set<number>()
+  /** Pending ternary `?`s per bracket frame; the innermost frame is last. */
+  const frames: number[] = [0]
+  let prevNonWs = -1 // index of the last non-whitespace character before `i`
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    const top = frames.length - 1
+    if (c === '(' || c === '[' || c === '{') frames.push(0)
+    else if (c === ')' || c === ']' || c === '}') {
+      if (frames.length > 1) frames.pop()
+      else frames[0] = 0
+    } else if (c === ';' || c === ',') frames[top] = 0
+    else if (c === '?') {
+      const next = masked[i + 1]
+      const skip =
+        masked[i - 1] === '?' ||
+        next === '?' ||
+        next === '.' ||
+        next === ':' ||
+        next === '!'
+      if (!skip) {
+        const p = prevNonWs < 0 ? '' : masked[prevNonWs]
+        if (prevNonWs < 0 || p === '(' || p === ',') frames[top] = 0 // a marker
+        else frames[top]++
+      }
+    } else if (c === ':') {
+      if (frames[top] > 0) out.add(i)
+      if (masked[i - 1] !== ':' && masked[i + 1] !== ':' && frames[top] > 0)
+        frames[top]--
+    }
+    if (!/\s/.test(c)) prevNonWs = i
+  }
+  if (ternaryMemo.size > 16) ternaryMemo.clear()
+  ternaryMemo.set(source, out)
+  return out
+}
+
+/** The backward walk — the REFERENCE the forward pass is tested against. @internal */
+export function isTernaryColonScan(
+  source: string,
+  colonIndex: number
+): boolean {
   const masked = maskLiterals(source)
   if (masked[colonIndex] !== ':') return false
 

@@ -179,12 +179,11 @@ export interface EvalOptions {
   argsMaxBytes?: number
 }
 
-/** Default source-length cap. Measured at the cap (2026-09-26), hostile shapes included: 64KB of
- * `//` lines ~12ms, blank lines ~6ms, 64-deep nested parens repeated ~63ms, the same inside
- * template `${…}` ~72ms. It used to claim "well under a tenth of a second" while one pass was
- * quadratic, and 32KB of `//` lines took 21.7s (0.14.0 final re-review 4, B-2) — a size cap
- * bounds nothing unless the work behind it is linear, which `src/admission.test.ts` pins per
- * shape and per entry. */
+/** Default source-length cap. What bounds the work behind it is that every preprocess pass is
+ * LINEAR on hostile input — measured at the cap (2026-09-26) over the shapes and the generated
+ * token grid in `src/admission.test.ts`, the worst is ~81ms. It used to claim "well under a
+ * tenth of a second" while passes were quadratic, and 32KB of `//` lines took 21.7s (0.14.0
+ * final re-reviews 4-6) — a size cap bounds nothing unless the work behind it is linear. */
 export { DEFAULT_MAX_SOURCE_BYTES }
 
 /**

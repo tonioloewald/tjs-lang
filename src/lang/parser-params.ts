@@ -202,6 +202,20 @@ export function extractParamMarkers(src: string): {
   return { source: chunks.join(''), required, typeName }
 }
 
+/** Keywords after which `/` opens a regex rather than dividing (the transform's own rule). */
+const REGEX_KEYWORDS_BEFORE = new Set([
+  'return',
+  'case',
+  'throw',
+  'in',
+  'of',
+  'typeof',
+  'instanceof',
+  'new',
+  'delete',
+  'void',
+])
+
 /**
  * Deepest parenthesis nesting the parameter transform accepts on the AJS path (untrusted code).
  *
@@ -273,6 +287,12 @@ export function transformParenExpressions(
     )
   let result = ''
   let i = 0
+  /** Paren partners proven so far in THIS source (see extractBalancedContent). */
+  const parenMemo = new Map<number, number>()
+  /** Class-heritage outcomes (the body's `{` index, or -1) proven so far. */
+  const classBodyMemo = new Map<number, number>()
+  /** Class-heritage bracket partners (close index, or -1), in THAT scan's own view. */
+  const classBracketMemo = new Map<number, number>()
   let firstReturnType: string | undefined
   let firstReturnSafety: 'safe' | 'unsafe' | undefined
 
@@ -457,14 +477,22 @@ export function transformParenExpressions(
 
         // Check for regex literal
         if (char === '/') {
-          const before = result.trimEnd()
-          const lastChar = before[before.length - 1]
+          // The last non-space character emitted, and the word it ends — read BACKWARD from
+          // the end of `result`, touching only the trailing whitespace and that one word. It
+          // was `result.trimEnd()` plus two `$`-anchored regexes over everything emitted so
+          // far, per `/`: quadratic (64KB of `a/` took ~2.5s before fuel; 0.14.0 final
+          // re-review 6, M-1). Same predicate: `\s` is the whitespace trimEnd trims, and the
+          // word is read over `\w` ([A-Za-z0-9_] — no `$`), which is what `\b` bounds.
+          let last = result.length - 1
+          while (last >= 0 && /\s/.test(result[last])) last--
+          const lastChar = last >= 0 ? result[last] : ''
+          let w = last
+          while (w >= 0 && /\w/.test(result[w])) w--
+          const word = result.slice(w + 1, last + 1)
           const isRegexContext =
             !lastChar ||
-            /[=(!,;:{[&|?+\-*%<>~^]$/.test(before) ||
-            /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)\s*$/.test(
-              before
-            )
+            /[=(!,;:{[&|?+\-*%<>~^]/.test(lastChar) ||
+            REGEX_KEYWORDS_BEFORE.has(word)
           if (isRegexContext) {
             result += char
             i++
@@ -518,26 +546,65 @@ export function transformParenExpressions(
     if (nameMatch) {
       let d = 0
       let j = i + nameMatch[0].length
-      for (; j < source.length; j++) {
-        const c = source[j]
-        if (c === '"' || c === "'" || c === '`') {
-          const quote = c
-          j++
-          while (j < source.length && source[j] !== quote) {
-            if (source[j] === '\\') j++
+      // Every position this scan passes at depth 0, outside quotes, is where a FRESH scan
+      // from there would stand in the same state — so its outcome (the body's `{`, or none) is
+      // the same, and is recorded for them all. Without it, N `class A ` headers with no body
+      // each scanned to EOF: quadratic (0.14.0 final re-review 6, M-1).
+      const known = classBodyMemo.get(j)
+      const zeroDepth: number[] = []
+      /** Open brackets of THIS scan, for the partner memo. */
+      const opens: number[] = []
+      if (known !== undefined) j = known
+      else
+        for (; j < source.length; j++) {
+          const c = source[j]
+          if (d === 0) zeroDepth.push(j)
+          if (c === '"' || c === "'" || c === '`') {
+            const quote = c
             j++
+            while (j < source.length && source[j] !== quote) {
+              if (source[j] === '\\') j++
+              j++
+            }
+            continue
           }
-          continue
+          if (c === '(' || c === '[') {
+            // A group this scan's rules have already paired (or proven never closes) is
+            // jumped, so N unclosed `(` after N headers do not each scan to EOF.
+            const partner = classBracketMemo.get(j)
+            if (partner === -1) {
+              j = source.length
+              break
+            }
+            if (partner !== undefined) {
+              j = partner
+              continue
+            }
+            opens.push(j)
+            d++
+          } else if (c === ')' || c === ']') {
+            // No real class header closes a bracket it never opened: bail rather than scan on
+            // at negative depth (acorn rejects such input anyway).
+            if (d === 0) {
+              j = -1
+              break
+            }
+            d--
+            classBracketMemo.set(opens.pop()!, j)
+          } else if (c === '{' && d === 0) break
+          // A `;` or `}` at depth 0 before any `{` means this was not a declaration we can
+          // read; bail rather than swallow the rest of the file.
+          else if ((c === ';' || c === '}') && d === 0) {
+            j = -1
+            break
+          }
         }
-        if (c === '(' || c === '[') d++
-        else if (c === ')' || c === ']') d--
-        else if (c === '{' && d === 0) break
-        // A `;` or `}` at depth 0 before any `{` means this was not a declaration we can
-        // read; bail rather than swallow the rest of the file.
-        else if ((c === ';' || c === '}') && d === 0) {
-          j = -1
-          break
-        }
+      if (known === undefined) {
+        const outcome = j > 0 && j < source.length ? j : -1
+        for (const z of zeroDepth) classBodyMemo.set(z, outcome)
+        // Reached EOF with brackets still open: none of them ever closes.
+        if (j >= source.length)
+          for (const o of opens) classBracketMemo.set(o, -1)
       }
       if (j > 0 && j < source.length) classHeaderLen = j - i
     }
@@ -600,7 +667,13 @@ export function transformParenExpressions(
       i = paramStart
 
       // Find matching ) using balanced counting
-      const paramsResult = extractBalancedContent(source, i, '(', ')')
+      const paramsResult = extractBalancedContent(
+        source,
+        i,
+        '(',
+        ')',
+        parenMemo
+      )
       if (!paramsResult) {
         // Unbalanced - just copy character and continue
         result += source[i]
@@ -668,7 +741,16 @@ export function transformParenExpressions(
     // tail of the computed name — as if it were the method's own name, and the emitted class
     // did not parse. effect declares `[Equal.symbol]` and `[Hash.symbol]` on most of its
     // types, so this was its second-largest conversion failure.
-    const methodMatch = matchAt(RE_METHOD_HEAD, source, i)
+    // Tried only where a method head can START: inside a class body, and at an identifier's
+    // FIRST character (or a `[` computed name). It ran at every character, and its identifier
+    // alternative re-consumed the rest of the identifier each time — 64KB of one identifier
+    // took ~5s (0.14.0 final re-review 6, M-1). Behaviour-preserving: `methodMatch` is only
+    // read inside a class body, and if an identifier followed by `(` does not match at its
+    // start, no suffix of it can.
+    const methodMatch =
+      isInClassBody() && (i === 0 || !/[A-Za-z0-9_$]/.test(source[i - 1]))
+        ? matchAt(RE_METHOD_HEAD, source, i)
+        : null
     // Check that the preceding non-whitespace character indicates this is a
     // declaration, not a function call in an expression.
     // Method declarations follow: newline, {, ;, or start of file
@@ -740,7 +822,13 @@ export function transformParenExpressions(
       i = paramStart
 
       // Find matching )
-      const paramsResult = extractBalancedContent(source, i, '(', ')')
+      const paramsResult = extractBalancedContent(
+        source,
+        i,
+        '(',
+        ')',
+        parenMemo
+      )
       if (!paramsResult) {
         result += source[i]
         i++
@@ -847,7 +935,13 @@ export function transformParenExpressions(
     if (source[i] === '(' && !isCallArgs) {
       // First, find the matching ) without consuming any safety marker
       // We'll check for safety marker only if this is actually an arrow function
-      const fullParamsResult = extractBalancedContent(source, i + 1, '(', ')')
+      const fullParamsResult = extractBalancedContent(
+        source,
+        i + 1,
+        '(',
+        ')',
+        parenMemo
+      )
       if (!fullParamsResult) {
         result += source[i]
         i++
@@ -969,12 +1063,35 @@ export function transformParenExpressions(
  * @param close Closing delimiter character
  * @returns The content between delimiters and position after closing delimiter, or null if unbalanced
  */
-function extractBalancedContent(
+export function extractBalancedContent(
   source: string,
   start: number,
   open: string,
-  close: string
+  close: string,
+  /**
+   * Partners this and earlier scans have already PROVEN: `contentStart → endPos`, or `-1`
+   * for "never closes before EOF". One per transform call, over one source string.
+   *
+   * A scan from `start` walks through every nested `open` on its way, and a later scan from
+   * that nested position would reach the same answer: it too starts outside any literal, and
+   * its regex/division decisions read only the trailing non-space character and identifier,
+   * neither of which reaches back across the `open`. So each outcome is recorded as it is
+   * learned — a pair when it closes, UNMATCHED for everything still open at EOF.
+   *
+   * Without it an unbalanced `(` rescanned to EOF from every later `(`: 64KB of `(` took 60-90s
+   * before fuel applied, and a depth bound never fired because an unmatched paren never
+   * recurses (0.14.0 final re-review 6, B-1). Held equal to the uncached scan at every `(` of
+   * a corpus by parser-balanced.test.ts.
+   */
+  memo?: Map<number, number>
 ): { content: string; endPos: number } | null {
+  const known = memo?.get(start)
+  if (known !== undefined)
+    return known < 0
+      ? null
+      : { content: source.slice(start, known - 1), endPos: known }
+  /** Content starts of the nested pairs still open, for the memo. */
+  const opened: number[] = []
   let depth = 1
   let i = start
   let inString = false
@@ -1015,14 +1132,26 @@ function extractBalancedContent(
           continue
         }
       }
-      if (char === open) depth++
-      else if (char === close) depth--
+      if (char === open) {
+        depth++
+        if (memo) opened.push(i + 1)
+      } else if (char === close) {
+        depth--
+        if (memo && opened.length) memo.set(opened.pop()!, i + 1)
+      }
       sigTail = (sigTail + char).slice(-24)
     }
     i++
   }
 
-  if (depth !== 0) return null
+  if (depth !== 0) {
+    if (memo) {
+      memo.set(start, -1)
+      for (const p of opened) memo.set(p, -1)
+    }
+    return null
+  }
+  memo?.set(start, i)
 
   return {
     content: source.slice(start, i - 1),
@@ -1144,7 +1273,10 @@ const RE_FUNCTION_HEAD = new RegExp(
   'y'
 )
 const RE_METHOD_HEAD = new RegExp(
-  `(constructor|(?:get|set)\\s+(?:${ID}|\\[[^\\]]+\\])|async\\s+(?:${ID}|\\[[^\\]]+\\])|${ID}|\\[[^\\]]+\\])\\s*\\(`,
+  // A computed name is bounded at 256 characters: unbounded, `\\[[^\\]]+\\]` scanned to EOF
+  // from every `[` without a partner (0.14.0 final re-review 6, M-1). `[Equal.symbol]`-style
+  // names are a few dozen characters.
+  `(constructor|(?:get|set)\\s+(?:${ID}|\\[[^\\]]{1,256}\\])|async\\s+(?:${ID}|\\[[^\\]]{1,256}\\])|${ID}|\\[[^\\]]{1,256}\\])\\s*\\(`,
   'y'
 )
 const RE_KEYWORD_VALUE = /(true|false|null|undefined)\b/y

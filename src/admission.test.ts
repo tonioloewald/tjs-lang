@@ -38,6 +38,13 @@ const SOURCES: Record<string, string> = {
     return `(() => { if (1) {} return 1 })() /${deep}/ 1`
   })(),
   'a megabyte of source': 'x + ' + '1 + '.repeat(250_000) + '1',
+  // UNBALANCED — an unmatched `(` never recurses, so a depth bound cannot see it; each one
+  // rescanned to EOF (re-review 6, B-1: 64KB took 60-90s).
+  'unbalanced ( to the cap': '('.repeat(CAP),
+  'unbalanced ,( to the cap': '[' + ',('.repeat(CAP / 2),
+  'unbalanced (? to the cap': '(?'.repeat(CAP / 2),
+  "unbalanced (' to the cap": "('".repeat(CAP / 2),
+  'many ternary colons in one expression': '(): '.repeat(CAP / 4) + '1',
 }
 
 /** Every entry that takes caller SOURCE, as `expr → outcome`. */
@@ -112,6 +119,11 @@ const EXPECT: Record<string, RegExp | null> = {
   'parens nested 20000 deep inside a template ${}': /nest more than 64 deep/,
   'parens nested 20000 deep after `}` as division': /nest more than 64 deep/,
   'a megabyte of source': /over the \d+-byte limit/,
+  'unbalanced ( to the cap': null,
+  'unbalanced ,( to the cap': null,
+  'unbalanced (? to the cap': null,
+  "unbalanced (' to the cap": null,
+  'many ternary colons in one expression': null,
 }
 
 /** Whatever an entry produced, as a message: a thrown error, an `{ error }` result, or ''. */
@@ -174,6 +186,16 @@ describe('the source and argument caps are honoured at the value given', () => {
 })
 
 describe('run-level timeoutMs: 0 means the deadline has passed (re-review 5, M-1)', () => {
+  it('…for a compute-only agent too (a zero-delay timer fired after it had finished)', async () => {
+    const r = await new AgentVM().run(
+      transpile(
+        'function f() { let s = 0\nlet i = 0\nwhile (i < 50) { s = s + i\ni = i + 1 }\nreturn { s } }'
+      ).ast,
+      {},
+      { fuel: 1000, timeoutMs: 0 }
+    )
+    expect(reasonOf(r)).toMatch(/Execution timeout after 0ms/)
+  })
   it('a spent deadline is not an unlimited run', async () => {
     const r = await new AgentVM().run(
       transpile(
@@ -249,4 +271,66 @@ describe('the TJS compiler accepts all of JavaScript (JS ⊆ TJS)', () => {
       tjs(`const a = ${'('.repeat(100)}1${')'.repeat(100)}`)
     ).not.toThrow()
   })
+})
+
+/**
+ * A GENERATED grid, because the hand-written table above only catches the shapes it lists —
+ * and twice missed ones a reviewer then measured quadratic (0.14.0 final re-review 6). Each
+ * token from an alphabet of punctuation, literal openers and keywords is repeated to the
+ * cap — balanced or not, since a single bracket repeated IS the unbalanced case — and pushed
+ * through `Eval`, the entry the hosted endpoints use. Every row must finish within the bound,
+ * whatever it returns. Add a token when a new syntax construct reaches the preprocessor.
+ */
+const ALPHABET = [
+  '(',
+  ')',
+  '[',
+  ']',
+  '{',
+  '}',
+  '`${',
+  "'",
+  '"',
+  '/',
+  'a/',
+  '():',
+  'a',
+  ' ',
+  '\n',
+  '//',
+  '/*',
+  ',(',
+  '(?',
+  "('",
+  'function f(',
+  'class A ',
+  'class A (',
+  'class A )',
+  'class A [',
+  ':',
+  '=>',
+  '?',
+  'x:',
+  '<',
+  'async ',
+  'get ',
+  '$',
+  '\\',
+  '#',
+  '? :',
+  '(a)',
+  '[a]',
+  '{a:1}',
+  '(a: 0) => ',
+  'x ? (y) : ',
+]
+
+describe('generated grid: every token repeated to the cap is cheap through Eval', () => {
+  for (const tok of ALPHABET)
+    it(JSON.stringify(tok), async () => {
+      const body = tok.repeat(Math.floor(CAP / tok.length))
+      const t = performance.now()
+      await Eval({ code: `let z = ${body}\nreturn z`, fuel: 10, timeoutMs: 1 })
+      expect(performance.now() - t).toBeLessThan(BOUND_MS)
+    })
 })

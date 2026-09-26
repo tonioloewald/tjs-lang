@@ -75,3 +75,57 @@ describe('isTernaryColon', () => {
     expect(isTernaryColon(src, src.indexOf('a: 0') + 1)).toBe(false)
   })
 })
+
+describe('the forward ternary pass agrees with the backward walk at every `:`', () => {
+  const { readFileSync, existsSync } = require('fs')
+  const { join } = require('path')
+  const { Glob } = require('bun')
+  const { isTernaryColon, isTernaryColonScan } = require('./expression-context')
+  const files: Array<[string, string]> = []
+  const add = (root: string, pattern: string, limit: number) => {
+    if (!existsSync(root)) return
+    let n = 0
+    for (const f of new Glob(pattern).scanSync({
+      cwd: root,
+      onlyFiles: true,
+    })) {
+      if (f.includes('node_modules') || f.endsWith('.d.ts')) continue
+      const src = readFileSync(join(root, f), 'utf8')
+      if (src.length > 60_000) continue // the reference is quadratic by construction
+      files.push([`${root}/${f}`, src])
+      if (++n >= limit) break
+    }
+  }
+  add(import.meta.dir, '*.ts', 60)
+  add(join(import.meta.dir, '..', '..', '.compat-tests'), '**/src/**/*.ts', 80)
+  files.push([
+    'hostile',
+    [
+      'a ? b : c : d ? e : f',
+      'x ?? y : z ?. w : (p ? q : r) : s',
+      '(? a: 0, ! b: 1) => a ? b : c',
+      'f(a, b ? c : d), g ? (h ? i : j) : k',
+      ') ? a : b ] : c } ? d : e',
+      'a ?: b ?! c :: d ? e :: f : g',
+      '{ write: flag ? ((r) => f(r)) : (r) => {} }',
+      "k ? `${x ? 1 : 2}` : '?:' ; y ? /:/ : z",
+    ].join('\n'),
+  ])
+  it('apparatus: a real corpus', () => expect(files.length).toBeGreaterThan(40))
+  for (const [name, src] of files)
+    it(name, () => {
+      const bad: string[] = []
+      for (let i = 0; i < src.length; i++)
+        if (
+          src[i] === ':' &&
+          isTernaryColon(src, i) !== isTernaryColonScan(src, i)
+        )
+          bad.push(
+            `at ${i}: forward ${isTernaryColon(
+              src,
+              i
+            )}, walk ${isTernaryColonScan(src, i)}`
+          )
+      expect(bad.slice(0, 5)).toEqual([])
+    })
+})

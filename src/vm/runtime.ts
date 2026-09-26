@@ -2681,6 +2681,14 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         ctx.quotaUsed[op] = used + 1
       }
 
+      // 1b. An aborted run takes no further steps. `vm.run` stops WAITING when its deadline
+      // passes, but only loops checked the signal, so straight-line steps carried on
+      // unobserved (0.14.0 final re-review 6). Checked at the one point every step passes.
+      if (ctx.signal?.aborted) {
+        ctx.error = new AgentError('Execution aborted', op)
+        return
+      }
+
       // 2. Deduct Fuel (check for cost overrides first)
       const overrideCost = ctx.costOverrides?.[op]
       const baseCost = overrideCost !== undefined ? overrideCost : cost

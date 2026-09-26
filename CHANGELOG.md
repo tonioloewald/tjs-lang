@@ -73,15 +73,19 @@ options bags. But every validated function used to begin with a pre-check that r
   unlimited; a `NaN` timeout disabled the timeout; `timeoutMs: Infinity` fired after 1ms and
   now means no timer; a run-level `timeoutMs: 0` still means the deadline has passed). `src/admission.test.ts` runs every hostile shape through every entry
   path and asserts each is cheap — a new entry path belongs in that table.
-- **The parser's parameter pass is linear.** Two look-backs ran for every character and
-  scanned back through whitespace — most of a body once comments are blanked — so 64KB of
-  `//` lines took 54 seconds before fuel applied (now ~12ms). The pass also recurses once per
-  nested paren group, so **AJS** code may nest parentheses at most 64 deep, enforced by the
-  recursion itself (the deepest in 3,372 real files, the compat corpus included, is 19).
-  A first version checked depth with a separate scan over a different lexical view, which a
-  template `${…}` or a `/` after `}` walked straight past (~45s). The TJS compiler has no such
-  limit: it compiles the author's own source, and must accept all of JavaScript.
-  Measured at the 64KB cap, hostile shapes included: ≤ ~72ms through `Eval`.
+- **The AJS preprocessor is linear on hostile input.** Every quadratic pass the release
+  reviews measured is fixed at its cause, not bounded: two look-backs that ran per character
+  over blanked comments (64KB of `//`: 54s → ~12ms); an unmatched `(` rescanned to EOF from
+  every later `(` (60-90s; now each partner — or "never closes" — is recorded as it is proven,
+  held equal to a fresh scan at every `(` of a real-file corpus); the method-head regex tried
+  at every character; `trimEnd()` of all output on every `/`; a class-heritage scan to EOF per
+  header; and the ternary-colon test, which walked back over the whole expression for every
+  `:` and is now one forward pass (held equal to the old walk at every `:` of the corpus).
+  **AJS** paren nesting is bounded at 64 by the recursion itself (the deepest in 3,372 real
+  files is 19); the TJS compiler, which takes the author's own source, has no limit.
+  `src/admission.test.ts` pushes every hostile shape it knows, plus a GENERATED grid of 41
+  tokens repeated to the cap, through every source entry; the worst measured at the 64KB cap
+  is ~81ms through `Eval`.
 - **`Eval` and `SafeFunction` take `argsMaxBytes`**, so a host can raise the new 4MB
   argument ceiling through the safe-eval API (strings count two bytes per character).
 - **`runCode` and `transpileCode` refuse guest-built source over 64KB** before the host's

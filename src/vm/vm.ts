@@ -384,10 +384,21 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // a per-atom override's 0 is documented to mean) made a spent deadline an unlimited run
     // (0.14.0 final re-review 5, M-1). Infinity is no timer; `setTimeout` turned it into 1ms.
     const armed = timeoutMs === 0 ? 0 : timerMs(timeoutMs)
+    /** Whether OUR deadline (not the caller's signal) ended the run — for the message. */
+    let timedOut = false
     const timeout =
       armed === undefined
         ? undefined
-        : setTimeout(() => controller.abort(), armed)
+        : setTimeout(() => {
+            timedOut = true
+            controller.abort()
+          }, armed)
+    // A spent deadline is spent NOW. A zero-delay timer only fires after the microtasks a
+    // run is made of, so a compute-only agent completed anyway (0.14.0 final re-review 6).
+    if (armed === 0) {
+      timedOut = true
+      controller.abort()
+    }
 
     // Link external signal if provided.
     //
@@ -467,6 +478,13 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       }
     } finally {
       clearTimeout(timeout)
+      // A step that saw the abort reports "Execution aborted"; when the cause was the run's
+      // own deadline, say so, in the words hosts already detect.
+      if (timedOut && ctx.error?.message === 'Execution aborted')
+        ctx.error = new AgentError(
+          `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`,
+          'vm.run'
+        )
       // The run is over — cancel anything it still has in flight.
       //
       // Previously only the TIMEOUT aborted, so a run ending any other way (fuel

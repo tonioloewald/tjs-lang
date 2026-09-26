@@ -535,6 +535,18 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **0.14.0 final re-review 6 — dispositions** (docs/reviews/0.14.0-final-rereview-6.md;
+      B-1 FIXED — partner memo, matched and unmatched, held equal to a fresh scan; M-1 FIXED —
+      all five quadratics at their cause, plus `isTernaryColon` as one forward pass held equal
+      to the old walk; a GENERATED token grid in admission.test.ts; timeoutMs 0 aborts before
+      the first step and every step checks the signal). Open:
+  - `maxSourceBytes: 0` disables (Eval's documented contract) while `timeoutMs: 0` now means
+    expired — decide whether 0 should refuse and `Infinity` mean "no cap", as a deliberate,
+    documented breaking change rather than a silent one.
+  - The depth refusal reports 1:0; carry a base offset through the recursion.
+  - The TJS compiler path (`tjs()`) shares the paren transform but runs ~30 more passes on
+    TRUSTED source; they are not in the grid. Run the grid through `tjs()` to find what is
+    super-linear there (a developer-experience issue, not a sandbox one).
 - [ ] **0.14.0 final re-review 5 — dispositions** (docs/reviews/0.14.0-final-rereview-5.md;
       B-1 FIXED — the depth bound moved INTO the recursion, AJS only, so JS ⊆ TJS holds again
       (m-1); M-1 run-level timeoutMs 0 = expired; M-2 refusal reasons asserted and the caps'
