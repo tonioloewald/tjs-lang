@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > prerelease, so pin `0.14.0-rc.1` exactly to test it. Published through the OIDC workflow,
 > vouched for by `release-attestation.json`.
 >
+> **Packaging (rc.1):** `typescript` is now a declared OPTIONAL peer (`^5`) — `tjs-lang/lang/from-ts`
+> imports it, and it was only a devDependency, so a Node consumer of that entry without it
+> installed failed at import. Dev-only scripts (`bin/*.ts`, `editors/build-*.ts`, the
+> CodeMirror demo component) and unreachable editor `.ts` sources are no longer shipped; every
+> exported path is unchanged. Found by the new publish workflow's release-doctor, not by a user.
+>
 > Published first as **`0.14.0-rc.0`** on the `rc` dist-tag, so tosijs-ui could verify against it
 > before its peer range admitted 0.14 ([tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182)).
 > It did: **tosijs-ui 1.15.2** declares `tjs-lang: ^0.13.1 || ^0.14.0`, so npm consumers of both

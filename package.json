@@ -198,7 +198,18 @@
     "benchmarks.md",
     "!**/*.test.ts",
     "!**/*.bench.test.ts",
-    "!**/*.demo.test.ts"
+    "!**/*.demo.test.ts",
+    "!bin/*.ts",
+    "!bin/*.js",
+    "!bin/*.d.ts",
+    "!editors/build-*.ts",
+    "!editors/build-*.d.ts",
+    "!editors/codemirror/*.ts",
+    "editors/codemirror/ajs-language.d.ts",
+    "!dist/bin",
+    "!editors/ace/*.ts",
+    "!editors/monaco/*.ts",
+    "!editors/prism/*.ts"
   ],
   "releaseDoctor": {
     "attestedLanes": [
@@ -311,7 +322,8 @@
     "@codemirror/lang-javascript": "^6.0.0",
     "@codemirror/language": "^6.0.0",
     "@codemirror/state": "^6.0.0",
-    "@codemirror/view": "^6.0.0"
+    "@codemirror/view": "^6.0.0",
+    "typescript": "^5.0.0"
   },
   "peerDependenciesMeta": {
     "@codemirror/autocomplete": {
@@ -327,6 +339,9 @@
       "optional": true
     },
     "@codemirror/view": {
+      "optional": true
+    },
+    "typescript": {
       "optional": true
     }
   },

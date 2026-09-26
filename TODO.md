@@ -535,6 +535,11 @@ deployed after the publish.
     and raw `new Date()` (as-compared, inline-stack, legacy-equality, runtime, vm/equality,
     malicious-actor, unwrap-boxed). Next: make it a ratchet (`test:dogfood:strict`) with those
     seven as its known-conversion list, each with that reason.
+- [ ] **The `./src` export is unconditional** (`"./src": "./src/index.ts"`). Under Node's type
+      stripping (22.6+), `import 'tjs-lang/src'` loads `.ts` whose relative imports are
+      extensionless — Node requires the extension, so it fails. Every other `src/` path is behind
+      the `bun` condition. Decide: give it a `bun` condition, or drop the export (breaking — check
+      for users first). Surfaced by release-doctor's TS-rules change (practices cbb321d).
 - [ ] **0.14.0 final re-review 16 — dispositions** (docs/reviews/0.14.0-final-rereview-16.md;
       GO_WITH_FOLLOWUPS). Fixed before rc.1: non-object options refused (a function carrying
       `quotas` was read as `{}`); `readOnce` prototype walk bounded at 64 (a cyclic Proxy
