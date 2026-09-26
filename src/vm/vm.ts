@@ -460,6 +460,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       quotas: snapshotTable(options.quotas),
       maxSourceBytes: options.maxSourceBytes,
       quotaUsed: options.quotaUsed ?? {},
+      quotaLocal: Object.create(null),
       timeoutOverrides: snapshotTable(options.timeoutOverrides),
       context: options.context,
       membraneMaxBytes: options.membraneMaxBytes,

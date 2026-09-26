@@ -981,3 +981,29 @@ describe('re-review 14: a table is checked over exactly the set its reads resolv
     ).not.toThrow()
   })
 })
+
+describe("re-review 14 (pre-empted): a lying shared counter cannot lower this run's count", () => {
+  it('a Proxy quotaUsed that always reports 0 still stops at the cap', async () => {
+    const calls: number[] = []
+    const ping = defineAtom(
+      'ping',
+      undefined,
+      undefined,
+      async () => {
+        calls.push(1)
+      },
+      { effects: 'pure' }
+    )
+    const liar = new Proxy({} as Record<string, number>, {
+      getOwnPropertyDescriptor: () => undefined, // "never counted"
+      set: () => true,
+    })
+    const r = await new AgentVM({ ping }).run(
+      { op: 'seq', steps: [1, 2, 3, 4, 5].map(() => ({ op: 'ping' })) } as any,
+      {},
+      { quotas: { ping: 2 }, quotaUsed: liar }
+    )
+    expect(reasonOf(r)).toMatch(/Quota exceeded/)
+    expect(calls.length).toBe(2)
+  })
+})

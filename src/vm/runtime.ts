@@ -272,6 +272,9 @@ export interface RuntimeContext {
    * through re-entrancy.
    */
   quotaUsed?: Record<string, number>
+  /** This run's OWN call counts — a floor under the shared `quotaUsed`, which is a host
+   * object and can under-report (a Proxy that always says 0). Shared by derived contexts. */
+  quotaLocal?: Record<string, number>
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   maxSourceBytes?: number // The run's `maxSourceBytes`. For guest-built source (runCode/transpileCode) it can only LOWER the 8KB cap — see `guestSourceCap`
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
@@ -2684,8 +2687,12 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       const quota = ctx.quotas?.[op]
       if (quota !== undefined) {
         if (!ctx.quotaUsed) ctx.quotaUsed = {}
-        // Checked at the READ: the counter is shared, so it can change after admission.
-        const used = quotaCount(ctx.quotaUsed, op)
+        // Checked at the READ: the counter is shared, so it can change after admission. And
+        // never below what THIS run has counted itself: a host object can only raise the
+        // count (to hold a quota across nested runs), never lower it.
+        if (!ctx.quotaLocal) ctx.quotaLocal = Object.create(null)
+        const local = ctx.quotaLocal!
+        const used = Math.max(quotaCount(ctx.quotaUsed, op), local[op] ?? 0)
         if (used >= quota) {
           ctx.error = new AgentError(
             `Quota exceeded for '${op}': ${quota} call${
@@ -2695,6 +2702,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           )
           return
         }
+        local[op] = used + 1
         ctx.quotaUsed[op] = used + 1
       }
 
