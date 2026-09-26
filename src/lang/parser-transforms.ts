@@ -14,7 +14,6 @@ import {
   scanLiterals,
   matchingBrace,
   splitTopLevelTrimmed,
-  splitTopLevel,
   isRegexStart,
   findRegexEnd,
 } from '../strip-comments'
@@ -2232,7 +2231,8 @@ export function markExampleKinds(example: string): string {
   } catch {
     return example // not a plain expression — leave it exactly as it was
   }
-  // Offsets are into `(${example})`, hence the -1.
+  // Offsets are into `(${example})`, hence the -1. Every splice below is by OFFSET — never
+  // `String.replace`, whose replacement string interprets `$&` and `$$`.
   const text = (n: any) => example.slice(n.start - 1, n.end - 1)
   const k = (kind: string, value = 'undefined', arg = '') =>
     `${rt('__k')}('${kind}', ${value}${arg ? `, ${arg}` : ''})`
@@ -2243,6 +2243,17 @@ export function markExampleKinds(example: string): string {
     n.type === 'BinaryExpression' && n.operator === '|'
       ? [...unionMembers(n.left), ...unionMembers(n.right)]
       : [n]
+  const isNullish = (n: any) =>
+    (n.type === 'Literal' && n.value === null) ||
+    (n.type === 'Identifier' && n.name === 'undefined')
+  /** The `typeof` a literal member contributes to a closed set, or null if it is not one. */
+  const literalKind = (n: any): string | null => {
+    if (n.type === 'Literal' && !n.regex && n.value !== null)
+      return typeof n.value
+    if (n.type === 'UnaryExpression' && n.operator === '-' && isNum(n.argument))
+      return 'number'
+    return null
+  }
 
   /** The node's source with its lossy parts marked; `null` when nothing needed marking. */
   const mark = (n: any): string | null => {
@@ -2263,34 +2274,62 @@ export function markExampleKinds(example: string): string {
       const pred = typeArgumentSource(name)
       if (pred !== null)
         return pred === '(() => true)' ? k('any') : k('pred', 'undefined', pred)
-      return k('ref', 'undefined', `() => ${name}`)
+      // The name is passed as the value so a `ref` that cannot be read can SAY which one.
+      return k('ref', JSON.stringify(name), `() => ${name}`)
     }
     if (n.type === 'BinaryExpression' && n.operator === '|') {
-      const values = literalUnionValues(n)
-      if (values)
+      const members = unionMembers(n)
+      // An all-literal union is a closed SET — `literalUnionValues`' rule — and so is the
+      // literal part of one that is also nullable: `'a' | 'b' | undefined` is "a, b, or
+      // absent", not "any string or absent". Built from the members' SOURCE, so a bigint
+      // member needs no serialisation and a RegExp can never be one.
+      const nullish = members.filter(isNullish)
+      const rest = members.filter((m) => !isNullish(m))
+      const kinds = new Set(rest.map(literalKind))
+      const isSet =
+        rest.length > 0 &&
+        !kinds.has(null) &&
+        kinds.size === 1 &&
+        (nullish.length === 0
+          ? literalUnionValues(n) !== null
+          : rest.length > 1)
+      if (isSet) {
+        const set = k('set', text(rest[0]), `[${rest.map(text).join(', ')}]`)
+        if (!nullish.length) return set
         return k(
-          'pred',
-          text(unionMembers(n)[0]),
-          `(v) => ${rt('__oneOf')}(v, ${JSON.stringify(values)})`
+          'union',
+          'undefined',
+          `[${[set, ...nullish.map((m) => mark(m) ?? text(m))].join(', ')}]`
         )
-      const members = unionMembers(n).map((m) => mark(m) ?? text(m))
-      return k('union', 'undefined', `[${members.join(', ')}]`)
+      }
+      return k(
+        'union',
+        'undefined',
+        `[${members.map((m) => mark(m) ?? text(m)).join(', ')}]`
+      )
     }
     if (n.type === 'ArrayExpression' || n.type === 'ObjectExpression') {
       const parts: { start: number; end: number; out: string }[] = []
-      const children =
-        n.type === 'ArrayExpression'
-          ? n.elements
-          : n.properties
-              .filter(
-                (p: any) =>
-                  p.type === 'Property' && !p.computed && p.kind === 'init'
-              )
-              .map((p: any) => p.value)
-      for (const c of children) {
-        const out = c && mark(c)
-        if (out !== null && out !== undefined)
-          parts.push({ start: c.start, end: c.end, out })
+      if (n.type === 'ArrayExpression') {
+        for (const c of n.elements) {
+          const out = c && mark(c)
+          if (out != null) parts.push({ start: c.start, end: c.end, out })
+        }
+      } else {
+        for (const p of n.properties) {
+          if (p.type !== 'Property' || p.computed || p.kind !== 'init') continue
+          const out = mark(p.value)
+          if (out == null) continue
+          // `{ x }` is a key AND a value in one token: rewriting the value alone would
+          // produce `{ __tjs_rt.__k(…) }`, which is not JavaScript.
+          if (p.shorthand)
+            parts.push({
+              start: p.start,
+              end: p.end,
+              out: `${text(p.key)}: ${out}`,
+            })
+          else parts.push({ start: p.value.start, end: p.value.end, out })
+        }
       }
       if (!parts.length) return null
       let src = text(n)
@@ -3039,8 +3078,7 @@ export function transformFunctionPredicateDeclarations(source: string): string {
 export function transformGenericDeclarations(
   source: string,
   report?: PredicateVerification[],
-  declaredTypes?: Set<string>,
-  declaredGenerics?: Set<string>
+  declaredTypes?: Set<string>
 ): string {
   let result = ''
   let i = 0
@@ -3065,7 +3103,6 @@ export function transformGenericDeclarations(
       const genericName = genericMatch[2]
       const typeParamsStr = genericMatch[3]
       declaredTypes?.add(genericName)
-      declaredGenerics?.add(genericName)
       const blockStart = i + genericMatch[0].length - 1
       const bodyStart = blockStart + 1
       let depth = 1
@@ -4087,48 +4124,6 @@ function parseGenericTypeParams(typeParamsStr: string): {
     }
   }
   return { entries, names }
-}
-
-/**
- * The ARGUMENTS of a call to a Generic declared in this module are types, not values.
- *
- * `Box(0.0)` is ordinary call code, so it was evaluated like any value and the float was
- * gone before the Generic saw it — `Box(0.0)` accepted no non-integer — and `Box(string)` was
- * a `ReferenceError`. A declared Generic's arguments are type positions by construction, so
- * each is read by `markExampleKinds`. Only for names this module DECLARES as Generics: for
- * any other call, deciding an argument is a type would be guessing.
- *
- * Innermost call first, so `Box(Box(0.0))` marks the inner argument and then sees the outer
- * one — a call is left as a value by `markExampleKinds`, so the outer pass cannot reach in.
- */
-export function markGenericInstantiations(
-  source: string,
-  generics: Set<string>
-): string {
-  if (!generics.size) return source
-  const alt = [...generics].map((g) => g.replace(/[$]/g, '\\$')).join('|')
-  const call = new RegExp(`(?<![\\w$.])(?:${alt})\\s*\\(`, 'g')
-  let masked = maskLiterals(source)
-  const opens = [...masked.matchAll(call)].map(
-    (m) => m.index! + m[0].length - 1
-  )
-  for (const open of opens.sort((a, b) => b - a)) {
-    const close = matchingBrace(masked, open)
-    if (close < 0) continue
-    const inner = source.slice(open + 1, close)
-    const out = splitTopLevel(inner, ',')
-      .map((part) => {
-        const arg = part.trim()
-        if (!arg) return part
-        const marked = markExampleKinds(arg)
-        return marked === arg ? part : part.replace(arg, marked)
-      })
-      .join(',')
-    if (out === inner) continue
-    source = source.slice(0, open + 1) + out + source.slice(close)
-    masked = maskLiterals(source)
-  }
-  return source
 }
 
 /** Index of the first top-level `=` that introduces a DEFAULT, or -1. */

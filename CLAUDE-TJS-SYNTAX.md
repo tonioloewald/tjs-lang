@@ -318,8 +318,9 @@ Type Order {
 ```
 
 Only type positions are read this way — object values, array elements, union members. A call
-inside an example (`f(1.0)`) is a value. Arguments to a `Generic` declared in the same module
-are types (`Box(0.0)`, `Box(string)`); other calls are not. Before 0.14.0 an example was
+inside an example (`f(1.0)`) is a value — and so is a `Generic` INSTANTIATION: `Box(0.0)` still
+narrows to integer; write a non-integral example (`Box(1.5)`). A Generic's parameter DEFAULTS
+(`<T = number | bigint>`) are types. Before 0.14.0 an example was
 matched as a plain value, so `Type Price = 0.0` rejected 9.99 and `'' | undefined` evaluated to
 `0` — see `src/lang/example-kinds.test.ts`.
 

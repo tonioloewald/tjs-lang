@@ -58,7 +58,6 @@ import {
   transformEqualityToStructural,
   transformTypeDeclarations,
   transformGenericDeclarations,
-  markGenericInstantiations,
   transformFunctionPredicateDeclarations,
   transformUnionDeclarations,
   transformEnumDeclarations,
@@ -456,19 +455,11 @@ export function preprocess(
   const predicates: PredicateVerification[] = []
   // PARAMETERIZED first: it claims `Type X<T> { … }` before the scalar transform sees
   // `Type X` and mis-reads the `<T>` that follows.
-  const declaredGenerics = new Set<string>()
-  source = transformGenericDeclarations(
-    source,
-    predicates,
-    declaredTypes,
-    declaredGenerics
-  )
+  source = transformGenericDeclarations(source, predicates, declaredTypes)
   source = transformTypeDeclarations(source, predicates, declaredTypes)
   source = transformFunctionPredicateDeclarations(source)
   source = transformUnionDeclarations(source, declaredTypes)
   source = transformEnumDeclarations(source, declaredTypes)
-  // A declared Generic's call arguments are types — `Box(0.0)`, `Box(string)`.
-  source = markGenericInstantiations(source, declaredGenerics)
 
   // `given` lowers to a C `switch` with explicit breaks, BEFORE acorn sees the source —
   // its syntax is not valid JavaScript, unlike #43's additions which happened to be.

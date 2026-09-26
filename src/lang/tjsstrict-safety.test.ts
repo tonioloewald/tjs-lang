@@ -60,3 +60,34 @@ describe('TjsStrict restores input validation on TS-originated code', () => {
     expect(isMonadicError(load('TjsStrict\n' + src, 'greet')(42))).toBe(true)
   })
 })
+
+describe('TjsStrict does not reject VALID TypeScript', () => {
+  // Once TjsStrict validated, fromTS shapes that had never been checked started rejecting
+  // valid calls: an inline optional member lost its `?`, `T[]` became "array of null", and
+  // TS `object` became a plain-object type that refused arrays. (review M-3)
+  const call = (ts: string, name: string, ...args: unknown[]) => {
+    const fn = load(
+      fromTS('/* @tjs TjsStrict */\n' + ts, { emitTJS: true }).code,
+      name
+    )
+    return fn(...args)
+  }
+
+  it('an inline optional member may be absent — and is still checked when present', () => {
+    const ts = 'function f(o: { a?: number; b: string }): number { return 1 }'
+    expect(call(ts, 'f', { b: 'x' })).toBe(1)
+    expect(isMonadicError(call(ts, 'f', { b: 'x', a: 'no' }))).toBe(true)
+  })
+
+  it('an unconstrained generic array accepts any elements', () => {
+    expect(
+      call('function f<T>(x: T[]): number { return 1 }', 'f', ['a', 2])
+    ).toBe(1)
+  })
+
+  it('TS `object` accepts arrays and functions, as TypeScript does', () => {
+    const ts = 'function f(x: object): number { return 1 }'
+    expect(call(ts, 'f', [1])).toBe(1)
+    expect(call(ts, 'f', () => 1)).toBe(1)
+  })
+})

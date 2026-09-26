@@ -42,7 +42,7 @@
  * non-negative integer, but `+0 === 0`, so the narrowing is destroyed at the source→value
  * boundary and BOTH runtimes accepted `-1`. An integer-valued FLOAT (`0.0`) is the same
  * shape in the other direction: both runtimes narrowed it to integer and rejected 9.99.
- * Both are fixed by `markNumericKinds`, nested or not. Those cases are
+ * Both are fixed by `markExampleKinds`, nested or not. Those cases are
  * marked `sourceNarrowing`, because comparing against a `Type()` built from the value asks
  * the two arms different questions — there the value-constructed arm is the lossy one.
  *

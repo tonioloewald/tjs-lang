@@ -1161,7 +1161,9 @@ export function transpileToJS(
     const anonymousDefault = !func.id && func.type === 'FunctionDeclaration'
     if (anonymousDefault) {
       insertions.push({
-        position: preprocessed.source.indexOf('(', func.start),
+        // On the MASKED view: `export default function /* ( */ (a)` would otherwise put the
+        // name inside the comment, and the module would fail to load.
+        position: maskLiterals(preprocessed.source).indexOf('(', func.start),
         text: ' __tjs_default',
       })
       ;(func as any).id = { type: 'Identifier', name: '__tjs_default' }
@@ -1201,7 +1203,9 @@ export function transpileToJS(
       importedNames
     )
     warnings.push(...funcWarnings)
-    allTypes[funcName] = types
+    // Keyed by the name a consumer imports: an anonymous default export is `default`, not
+    // the internal binding the emitter gave it.
+    allTypes[anonymousDefault ? 'default' : funcName] = types
 
     // Cross-reference inference: when a parameter default is a bare
     // identifier referring to a previously-declared TJS function, use that
@@ -1751,7 +1755,10 @@ export function transpileToJS(
   const needsLegacyDefault = code.includes('LegacyDefault(')
   const needsLegacyDate = code.includes('LegacyDate(')
   const needsTypeOf = code.includes('TypeOf(')
-  const needsOneOf = code.includes('__oneOf(')
+  // A `set` marker checks membership with `__oneOf` — the language's `==`, exactly as a
+  // literal-union parameter does.
+  const needsOneOf =
+    code.includes('__oneOf(') || code.includes(`${RT_NS}.__k('set'`)
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
   const needsType = /\bType\(/.test(code)
   const needsGeneric = /\bGeneric\(/.test(code)
@@ -1983,7 +1990,7 @@ export function transpileToJS(
         `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){${
           needsKind ? 'if(v.__k)return __kjs(v,__ex2js);' : ''
         }const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);${
-          needsKind ? 'if(!(v[k]&&v[k].__k&&v[k].check(undefined)===true))' : ''
+          needsKind ? 'if(!(v[k]&&v[k].__k&&v[k].opt))' : ''
         }r.push(k)}return{type:'object',properties:p,required:r,additionalProperties:false}}return{}}`
       )
     }
@@ -2084,7 +2091,7 @@ export function transpileToJS(
         // are open now, so they agree.
         `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>${
           needsKind
-            ? 'k in v?__match(v[k],ex[k]):!!(ex[k]&&ex[k].__k&&ex[k].check(undefined)===true)'
+            ? 'k in v?__match(v[k],ex[k]):!!(ex[k]&&ex[k].__k&&ex[k].opt)'
             : 'k in v&&__match(v[k],ex[k])'
         })}return v===ex}`
       )
@@ -2100,10 +2107,25 @@ export function transpileToJS(
         // A `ref` is read when CHECKED (TDZ-safe, and a type may name itself); one that
         // cannot be read, or that recurses through cyclic data, degrades to unchecked.
         inlineParts.push(
-          `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.check=x=>{try{return __match(x,a())}catch(e){return true}};Object.defineProperty(m,'value',{get(){try{return __unk(a())}catch(e){return undefined}}})}else{m.value=t==='union'?__unk(a[0]):v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='union'?x=>a.some(e=>__match(x,e)):()=>true}return m}`,
-          `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='union')return{anyOf:m.arg.map(sub)};if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.arg();return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}catch(e){return{}}finally{m.__busy=false}}return{}}`,
-          `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k)return v.value;if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`,
-          `function __kSchema(s,ex){if(s&&typeof s.validate==='function'&&s.schema&&typeof s.schema==='object')s=s.schema;if(!ex||typeof ex!=='object')return s;if(ex.__k)return __kjs(ex,()=>({}));if(!s||typeof s!=='object')return s;if(Array.isArray(ex))return ex.length&&s.items?{...s,items:__kSchema(s.items,ex[0])}:s;if(!s.properties)return s;const p={...s.properties};let r=s.required;for(const k of Object.keys(ex)){if(k in p)p[k]=__kSchema(p[k],ex[k]);const e=ex[k];if(r&&e&&e.__k&&e.check(undefined)===true)r=r.filter(x=>x!==k)}return r?{...s,properties:p,required:r}:{...s,properties:p}}`
+          // `opt`: the marker admits an ABSENT key — `undefined`, `any`, or a union holding
+          // either. Stated, never inferred from `check(undefined)`: a `ref` that cannot be
+          // read accepts everything, and must not make its member optional into the bargain.
+          //
+          // A `ref` is COINDUCTIVE: while (value, marker) is being checked, meeting the same
+          // pair again counts as satisfied, so cyclic data terminates and each node is still
+          // checked once per path. It used to lean on stack overflow — exponential on a cycle,
+          // and a 20,000-deep payload with a bad leaf PASSED, because the deepest frame
+          // caught the RangeError and said yes. Overflow now fails CLOSED and is recorded;
+          // only a ReferenceError (TDZ, or a name nothing declares) degrades open, recorded
+          // once per site so it is visible after the fact.
+          `const __kSeen=new WeakMap(),__kUnset={};function __kWarn(m,msg){if(m.w)return;m.w=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}`,
+          `function __k(t,v,a){const m={__runtimeType:true,__k:t,arg:a};if(t==='ref'){m.name=v;m.get=()=>{try{return a()}catch(e){if(e instanceof ReferenceError){__kWarn(m,'A Type example names \\''+v+'\\', which is not defined where the type is checked, so that member is UNCHECKED.');return __kUnset}throw e}};m.check=x=>{const r=m.get();if(r===__kUnset)return true;let s;if(x!==null&&typeof x==='object'){s=__kSeen.get(x);if(s&&s.has(m))return true;if(!s)__kSeen.set(x,s=new Set());s.add(m)}try{return __match(x,r)}catch(e){if(e instanceof RangeError){__kWarn(m,'A value nested too deeply to check against \\''+v+'\\' was REJECTED.');return false}throw e}finally{if(s)s.delete(m)}};m.opt=false}else{m.value=t==='union'?__unk(a[0]):v;m.check=t==='float'?x=>typeof x==='number':t==='nonneg'?x=>typeof x==='number'&&Number.isInteger(x)&&x>=0:t==='undef'?x=>x===undefined:t==='pred'?x=>a(x)===true:t==='set'?x=>__oneOf(x,a):t==='union'?x=>a.some(e=>__match(x,e)):()=>true;m.opt=t==='undef'||t==='any'||(t==='union'&&a.some(e=>!!(e&&e.__k&&e.opt)))}return m}`,
+          `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.get();if(r===__kUnset)return{};return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}finally{m.__busy=false}}return{}}`,
+          // A plain union MEMBER's schema, for the `infer` path (which has no `__ex2js`):
+          // mapping those to `{}` left `'' | undefined` accepting 42 once a predicate was added.
+          `function __kv(v){if(v===null)return{type:'null'};if(v&&v.__k)return __kjs(v,__kv);const t=typeof v;if(t==='string'||t==='boolean')return{type:t};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(Array.isArray(v))return v.length?{type:'array',items:__kv(v[0])}:{type:'array'};if(t==='object')return{type:'object'};return{}}`,
+          `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k!=='ref')return v.value;const r=v.get();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`,
+          `function __kSchema(s,ex){if(s&&typeof s.validate==='function'&&s.schema&&typeof s.schema==='object')s=s.schema;if(!ex||typeof ex!=='object')return s;if(ex.__k)return __kjs(ex,__kv);if(!s||typeof s!=='object')return s;if(Array.isArray(ex))return ex.length&&s.items?{...s,items:__kSchema(s.items,ex[0])}:s;if(!s.properties)return s;const p={...s.properties};let r=s.required;for(const k of Object.keys(ex)){if(k in p)p[k]=__kSchema(p[k],ex[k]);const e=ex[k];if(r&&e&&e.__k&&e.opt)r=r.filter(x=>x!==k)}return r?{...s,properties:p,required:r}:{...s,properties:p}}`
         )
       }
       const dflt = (x: string) => (needsKind ? `__unk(${x})` : x)
@@ -2269,7 +2291,12 @@ export function transpileToJS(
     if (needsOneOf) rtExports.push('__oneOf')
     if (needsType || needsGeneric) rtExports.push('__match')
     if (needsType) rtExports.push('Type')
-    if (needsKind) rtExports.push('__k', '__kjs', '__unk', '__kSchema')
+    // Mirrors the DEFINITION condition exactly (the helpers live in the Type/Generic block).
+    // `needsKind` is a substring test, so a file that merely MENTIONS `__tjs_rt.__k(` in a
+    // string had these names exported undefined — a ReferenceError at load.
+    if (needsKind && (needsType || needsGeneric))
+      rtExports.push('__k', '__kjs', '__kv', '__unk', '__kSchema')
+
     if (needsGeneric) rtExports.push('Generic')
     if (needsFunctionPredicate) rtExports.push('FunctionPredicate')
     if (needsEnum) rtExports.push('Enum')

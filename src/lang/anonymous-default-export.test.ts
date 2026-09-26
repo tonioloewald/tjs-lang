@@ -19,7 +19,7 @@ function load(src: string) {
     // Drop `export default` and return the declaration by the name it binds — which is what
     // the module's own metadata line needs to resolve, so a missing binding fails here.
     const name = js.match(
-      /^export default (?:async\s+)?function\s*\*?\s*([\w$]+)/m
+      /^export default (?:async\s+)?function\s*\*?\s*(?:\/\*[\s\S]*?\*\/\s*)*([\w$]+)/m
     )?.[1]
     if (!name) throw new Error('the default export binds no name')
     return new Function(
@@ -57,5 +57,39 @@ describe('anonymous export default function', () => {
     const f = load('export default function inc(x: 0) { return x + 1 }')
     expect(f.name).toBe('inc')
     expect(f.__tjs.params.x.type.kind).toBe('integer')
+  })
+})
+
+describe('anonymous export default — what it publishes', () => {
+  it('its metadata is keyed `default`, the name a consumer imports', () => {
+    const r = tjs('export default function (x: 0) { return x }', {
+      runTests: false,
+    })
+    expect(Object.keys(r.types)).toEqual(['default'])
+  })
+
+  it('its .d.ts declares a default export, not a named one', async () => {
+    const { generateDTS } = await import('./emitters/dts')
+    for (const src of [
+      'export default function (x: 0) { return x }',
+      'export default async function (x: 0) { return x }',
+    ]) {
+      const dts = generateDTS(tjs(src, { runTests: false }), src).trim()
+      expect(dts).toBe('export default function(x: number): any;')
+    }
+  })
+
+  it('`export async function` is declared exported (it was missed)', async () => {
+    const { generateDTS } = await import('./emitters/dts')
+    const src = 'export async function g(x: 0) { return x }'
+    expect(generateDTS(tjs(src, { runTests: false }), src)).toContain(
+      'export declare function g('
+    )
+  })
+
+  it('a `(` inside a comment before the params does not capture the name', () => {
+    // Untyped: a comment before a TYPED parameter list is a separate parser gap (TODO.md).
+    const f = load('export default function /* ( */ (x) { return x + 1 }')
+    expect(f(1)).toBe(2)
   })
 })

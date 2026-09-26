@@ -23,8 +23,28 @@ reserved in advance.
 
 **If you only read one line:** a runtime type now reports `typeof === 'function'` instead of
 `'object'`. `.check()`, `isRuntimeType()`, `Object.keys()` and spread are unchanged, and
-serialisation improved from _throwing_ to working — so unless you branch on `typeof`, nothing
-moves under you.
+serialisation improved from _throwing_ to working — so unless you branch on `typeof`, that
+one moves nothing under you.
+
+**What may newly REJECT something** — each is a fix, and each can turn a value that used to
+pass into a returned `MonadicError`:
+
+- **`Type` examples mean what they say.** A float example (`0.0`) no longer means integer, a
+  `+N` is non-negative, `'' | undefined` is a union (it was bitwise OR, `0`), type names and
+  references to other types are checked, and a recursive type is checked all the way down.
+  A value your example only matched by accident may now be rejected; one it wrongly
+  rejected (9.99 against `0.0`) now passes. A value too deeply nested to check against a
+  recursive type is rejected, and recorded — it used to pass.
+- **`default:` inside a `Type` block is a transpile error.** It was never read. Write
+  `Type T = 0` (or `Type T = 0 { … }`).
+- **`TjsStrict` on converted TypeScript now validates arguments.** To keep the old behaviour,
+  add `safety none` — or leave `TjsStrict` off, which is the default for converted code.
+- An anonymous `export default function` is reported as `default` in `result.types` (it was
+  `anonymous`, attached to a binding that did not exist).
+- Size, measured against the previous build: the transpiler bundle (`tjs-lang/lang`) grew by
+  2.1 KB gzipped, `tjs-lang/browser` by 2.0 KB, `tjs-lang/lang/from-ts` by 0.4 KB. An emitted
+  file whose `Type` examples need the new markers carries about 3.1 KB (1.2 KB gzipped) more
+  inline runtime; a file that doesn't, carries nothing.
 
 ### Changed
 
@@ -267,11 +287,11 @@ Predicate` to "callable and boolean-ish".
   read, so `Type T { default: 0 }` accepted every value — is now an error naming the real
   spelling, `Type T = 0`.
 
-- **A Generic's arguments and parameter defaults are types, too.** `Box(0.0)` accepted no
-  non-integer and `Box(string)` was a `ReferenceError`, because an instantiation is ordinary
-  call code; a default like `<T = number | bigint>` became `0.0 | 0n` — bitwise OR, which
-  throws `Cannot mix BigInt and other types` at load. Both now go through the same reading
-  as `Type` examples (arguments only for Generics the module declares).
+- **A Generic's parameter defaults are types, too.** A default like `<T = number | bigint>`
+  became `0.0 | 0n` — bitwise OR, which throws `Cannot mix BigInt and other types` at load.
+  It now gets the same reading as a `Type` example. (A Generic _instantiation_, `Box(0.0)`,
+  is still ordinary call code, so a float argument there still narrows to integer — deciding
+  that a call argument is a type needs scope analysis; see TODO. Use `Box(1.5)`.)
 
 - **An anonymous `export default function (…)` could not be imported.** Its metadata was
   attached to a binding named `anonymous` that does not exist. It now gets a local binding,

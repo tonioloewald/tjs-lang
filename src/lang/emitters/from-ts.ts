@@ -438,7 +438,11 @@ function typeToExample(
   // needs pure literals — and it propagates only where the position was already implied.
   const inTypeExample = position === 'type-example'
   const nested = inTypeExample ? position : undefined
-  const anyAsNull = (e: string) => (e === 'any' && !inTypeExample ? 'null' : e)
+  // `any` becomes `null` only where the text is a VALUE (a dictionary default needs a pure
+  // literal). In an annotation `any` is a type name TJS reads directly; turning it into `null`
+  // there meant "must be null", so `f<T>(x: T[])` rejected `['a']` once TjsStrict validated.
+  const anyAsNull = (e: string) =>
+    e === 'any' && position === 'value' ? 'null' : e
 
   switch (type.kind) {
     // A sound TS primitive keeps its own SPELLING.
@@ -486,7 +490,11 @@ function typeToExample(
     case ts.SyntaxKind.BigIntKeyword:
       return '0n'
     case ts.SyntaxKind.ObjectKeyword:
-      return '{}'
+      // TS `object` is any NON-PRIMITIVE — arrays and functions included. `{}` as a TJS type
+      // means a plain object, which rejected `[1]` once TjsStrict validated. There is no TJS
+      // spelling for "non-primitive", so a type position under-checks rather than over-rejects;
+      // a dictionary-default VALUE still needs a literal.
+      return position === 'value' ? '{}' : 'any'
 
     case ts.SyntaxKind.ArrayType: {
       const arrayType = type as ts.ArrayTypeNode
@@ -764,7 +772,9 @@ function typeToExample(
           )
           // 'any' is not a valid literal value - use null for object properties
           propType = anyAsNull(propType)
-          if (inTypeExample && member.questionToken)
+          // An optional member may be ABSENT — in an annotation too, where it used to lose its
+          // `?` and require the key once TjsStrict validated.
+          if (position !== 'value' && member.questionToken)
             propType = optionalExample(propType)
           // In object literals, always use : syntax (= is for function params only)
           props.push(`${propName}: ${propType}`)

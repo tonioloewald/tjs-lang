@@ -498,9 +498,41 @@ deployed after the publish.
       says (`markExampleKinds`); `fromTS` emits `any`/names/optional members in `Type` examples.
       Pinned by `src/lang/example-kinds.test.ts`, `src/lang/tjsstrict-safety.test.ts`, and the
       TS examples run gate in `demo/src/examples.test.ts`.
-- [x] **A Generic INSTANTIATION lost a float argument** (`Box(0.0)`) — FIXED 2026-09-25:
-      arguments to a Generic DECLARED in the module, and every Generic parameter default, go
-      through `markExampleKinds` (`markGenericInstantiations`, `parser-transforms.ts`).
+- [ ] **A Generic INSTANTIATION loses a float argument**: `Box(0.0)` accepts no non-integer,
+      `Box(string)` is a ReferenceError. A fix shipped in dd8f0a0 and was REMOVED after review
+      (docs/reviews/0.14.0-example-kinds-review.md, B-1 and M-1): it found call sites with a
+      regex and no scope analysis, so `Box(isEven)` rejected every value, a shadowed `Box` or a
+      method named `Box` was rewritten, and `$&` in an argument corrupted the output. Deciding
+      that a call ARGUMENT is a type needs a scope-aware parse — the "what does this position
+      mean" primitive in `docs/parser-primitives.md`. Parameter DEFAULTS are declaration sites
+      and ARE read as types (that is the zod fix). Workaround: a non-integral example, `Box(1.5)`.
+- [ ] **A comment before or inside a TYPED parameter list does not parse** (found 2026-09-26):
+      `function f /* c */ (x: 0) {}` and `function f(x /* : */: 0) {}` are "Unexpected token";
+      the same with untyped params is fine. Colon-shorthand detection expects `name(` with
+      nothing between — literal-blindness in reverse (a comment where the pass looks for
+      syntax). Add rows to `literal-blindness.test.ts` when fixed.
+- [ ] **0.14.0 example-kinds review follow-ups** (docs/reviews/0.14.0-example-kinds-review.md;
+      B-1, B-2, M-1, M-2, M-3, m-1, m-3, n-1 and gaps 3/4/5 are FIXED in the remediation):
+  - m-2 (rest): a Type-example identifier that resolves to nothing is now RECORDED at runtime,
+    but `tjs check` should warn at build time — a typo'd type name is a lint.
+  - m-6: the vitest verdict is copy-pasted into five compat harnesses and has already drifted
+    (radash subtracts upstream suites; only zod names unloadable ones). Extract
+    `judgeVitestJson(json, { upstreamSuites })`, with a unit test feeding it a suite that
+    failed to load with zero tests.
+  - gap 2: cdd9f6d (Eval declares context keys as parameters) had only a DOCS review — run a
+    security lens on `src/lang/eval.ts` before tagging.
+  - gap 6: zod's 1959/1959 has no prior baseline; the suite-counting fix is pinned only by
+    the harness itself (subsumed by m-6's unit test).
+  - gap 7: `DOGFOOD_STRICT=1` measures what TjsStrict rejects in our own converted suites.
+    First run: 4350 pass / 41 fail / 1 load error (vs 4698 / 0 plain). The load error was a
+    real defect (fixed); ~31 of the fails are ERROR PROPAGATION (see next item).
+- [ ] **DECISION NEEDED — error propagation swallows functions that TAKE an error.** Every
+      validated function starts `if (p instanceof Error) return p` for EVERY parameter, whatever
+      its declared type, and for any `Error` (not only `MonadicError`). So `describe(e: Error)`,
+      `isErr(x: unknown)` and every catch-handler helper skip their body and return the error.
+      Native TJS has always done this; `TjsStrict` validating (0.14.0) newly applies it to
+      converted TypeScript. Options: propagate only `MonadicError`; never for a parameter whose
+      declared type admits an error (`Error`, `any`, `unknown`); or both.
 - [ ] **kysely's compat lane only TRANSPILES.** Unlike the other five it never loads the
       converted modules or runs kysely's tests (they need databases), so "kysely 395/395"
       means "converts", not "works". CLAUDE.md's "runs that project's own test suite" is not

@@ -533,7 +533,15 @@ describe('dogfood: our own test suites survive conversion', () => {
     for (const rel of suites) {
       const original = join(SRC, rel)
       try {
-        const tjsSrc = fromTS(readFileSync(original, 'utf8'), { emitTJS: true })
+        // `DOGFOOD_STRICT=1` converts every suite as if its author had opted into full TJS.
+        // A MEASUREMENT, not a gate: the compat lane runs converted code WITHOUT TjsStrict,
+        // so once TjsStrict began validating (0.14.0) nothing measured what it newly rejects
+        // in valid TypeScript. This is that measurement.
+        const tsSrc = readFileSync(original, 'utf8')
+        const tjsSrc = fromTS(
+          process.env.DOGFOOD_STRICT ? `/* @tjs TjsStrict */\n${tsSrc}` : tsSrc,
+          { emitTJS: true }
+        )
         const js = tjs(tjsSrc.code, {
           filename: original,
           runTests: false,

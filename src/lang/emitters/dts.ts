@@ -213,7 +213,9 @@ function functionDeclToTS(
       : 'export declare function'
     : 'declare function'
 
-  return `${prefix} ${name}(${params}): ${returnType};`
+  // `default` is the key of an anonymous default export, not an identifier.
+  const declared = name === 'default' && isDefault ? '' : ` ${name}`
+  return `${prefix}${declared}(${params}): ${returnType};`
 }
 
 export interface GenerateDTSOptions {
@@ -237,11 +239,19 @@ function detectExports(source: string): Map<string, ExportInfo> {
   const result = new Map<string, ExportInfo>()
   let m
 
-  // export function name / export default function name
-  const funcRe = /^[ \t]*export\s+(default\s+)?function\s+(\w+)/gm
+  // export function name / export default function name — async and generator forms too
+  // (`export async function f` was missed, so it came out unexported).
+  const funcRe =
+    /^[ \t]*export\s+(default\s+)?(?:async\s+)?function\s*\*?\s*(\w+)/gm
   while ((m = funcRe.exec(source)) !== null) {
     result.set(m[2], { exported: true, isDefault: !!m[1] })
   }
+  // An ANONYMOUS default export: its metadata is keyed `default` (js.ts), and it is declared
+  // as `export default function (…)` — it has no name to declare.
+  if (
+    /^[ \t]*export\s+default\s+(?:async\s+)?function\s*\*?\s*\(/m.test(source)
+  )
+    result.set('default', { exported: true, isDefault: true })
 
   // export class name / export default class name
   const classRe = /^[ \t]*export\s+(default\s+)?class\s+(\w+)/gm

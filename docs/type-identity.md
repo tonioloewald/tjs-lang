@@ -139,9 +139,12 @@ interface with a number field rejected every non-integer the moment validation w
 found when `TjsStrict` was fixed to turn validation on, and a converted example rejected
 its own valid order.
 
-The walk now exists (`markNumericKinds`, `parser-transforms.ts`): it reads the example's
-AST with the same rules as `inferTypeFromValue` and wraps only the lossy literals as
-`__tjs_rt.__num(…)` markers, so an example with nothing lossy emits byte-identical code.
+The walk now exists (`markExampleKinds`, `parser-transforms.ts`): it reads the example's
+AST with the same rules as `inferTypeFromValue` and wraps only what the value cannot say as
+`__tjs_rt.__k(kind, …)` markers — `float`, `nonneg`, `undef`, `any`, `pred` (a sound type
+name), `set` (an all-literal union), `union`, and `ref` (another type, read when CHECKED, and
+checked coinductively so cyclic data terminates). An example with none of these emits
+byte-identical code.
 `Price`, `Cart` and `Tally` are in the corpus; the spec is pinned site by site in
 `src/lang/example-kinds.test.ts`.
 

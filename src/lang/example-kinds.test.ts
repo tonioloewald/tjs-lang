@@ -20,6 +20,7 @@ import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 import { createRuntime, isMonadicError } from './runtime'
 import { markExampleKinds } from './parser-transforms'
+import { fromTS } from './emitters/from-ts'
 
 function load(src: string, names: string[], withRuntime: boolean) {
   const saved = (globalThis as any).__tjs
@@ -190,27 +191,29 @@ describe('references to other types', () => {
     ).toBe(true)
   })
 
-  it('cyclic data against a recursive type terminates (degrades open, never overflows)', () => {
-    const [f, Node] = load(
-      'Type Node { example: { value: 0, next: Node | null } }\nfunction f(n: Node):! 0 { return 1 }\nconst s = () => Node.toJSONSchema()',
-      ['f', 'Node'],
-      false
-    )
-    const a: any = { value: 1 }
-    a.next = a
-    expect(() => f(a)).not.toThrow()
-    // and a recursive type can still describe itself
-    expect(() => Node.toJSONSchema()).not.toThrow()
-  })
-
-  it('an undeclared name degrades to unchecked instead of crashing the module', () => {
-    // It used to be a ReferenceError at load — a legal JS file that would not import.
-    const [f] = load(
-      'Type T { example: { x: NotDeclaredAnywhere } }\nfunction f(t: T):! 0 { return 1 }',
-      ['f'],
-      false
-    )
-    expect(f({ x: 42 })).toBe(1)
+  it('an undeclared name degrades to unchecked — and SAYS so, and the key stays required', () => {
+    // It used to be a ReferenceError at load — a legal JS file that would not import. Open
+    // is the TJS ⊇ JS direction, but a typo (`Rolle` for `Role`) must not silently disable
+    // validation: it is recorded, once per site, in the flight recorder.
+    const saved = (globalThis as any).__tjs
+    const rt = createRuntime()
+    ;(globalThis as any).__tjs = rt
+    try {
+      const code = tjs(
+        'Type T { example: { x: NotDeclaredAnywhere } }\nfunction f(t: T):! 0 { return 1 }'
+      ).code
+      const f = new Function(code + '\nreturn f')()
+      expect(f({ x: 42 })).toBe(1)
+      expect(
+        rt
+          .records({ severity: 'warning' })
+          .some((r: any) => r.message.includes('NotDeclaredAnywhere'))
+      ).toBe(true)
+      // An unreadable reference does not ALSO make its member optional.
+      expect(isMonadicError(f({}))).toBe(true)
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
   })
 
   it('an initialised reference means exactly what it did before', () => {
@@ -261,5 +264,151 @@ describe('markExampleKinds only touches what is lossy, and only in type position
     const code = tjs(`Type T { example: { name: '', age: 0 } }`).code
     expect(code).not.toContain('__tjs_rt.__k(')
     expect(code).not.toContain('__unk')
+  })
+})
+
+describe('a recursive Type terminates, and never fails OPEN', () => {
+  // A `ref` check used to rely on stack overflow: exponential on a cycle, and a deep payload
+  // whose innermost leaf was invalid PASSED, because the deepest frame caught the RangeError
+  // and answered yes. It is coinductive now, and an overflow fails closed.
+  const Tree =
+    'Type Node { example: { v: 0, left: Node | null, right: Node | null } }'
+
+  it('a two-branch self-cycle is accepted, quickly', () => {
+    const [Node] = load(Tree, ['Node'], false)
+    const n: any = { v: 1 }
+    n.left = n
+    n.right = n
+    const t = performance.now()
+    expect(Node.check(n)).toBe(true)
+    expect(performance.now() - t).toBeLessThan(50)
+  })
+
+  it('a cycle with an INVALID member is rejected', () => {
+    const [Node] = load(Tree, ['Node'], false)
+    const n: any = { v: 1 }
+    n.left = n
+    n.right = { v: 'x', left: null, right: null }
+    expect(Node.check(n)).toBe(false)
+  })
+
+  it('a deep acyclic JSON payload with an invalid leaf is REJECTED', () => {
+    const [D] = load(
+      'Type D { example: { id: 0, child: D | undefined } }',
+      ['D'],
+      false
+    )
+    let deep: any = { id: 'NOT A NUMBER' }
+    for (let i = 0; i < 20000; i++) deep = { id: i, child: deep }
+    expect(D.check(JSON.parse(JSON.stringify(deep)))).toBe(false)
+  })
+
+  it('a converted TS parent-pointer tree under TjsStrict terminates', () => {
+    const t = fromTS(
+      '/* @tjs TjsStrict */\ninterface TreeNode { parent: TreeNode | null; children: TreeNode[] }\nexport function size(n: TreeNode): number { return n.children.length }',
+      { emitTJS: true }
+    ).code
+    const [size] = load(t.replace(/^export /gm, ''), ['size'], false)
+    const root: any = { parent: null, children: [] }
+    root.children.push(
+      { parent: root, children: [] },
+      { parent: root, children: [] }
+    )
+    const s = performance.now()
+    expect(size(root)).toBe(2)
+    expect(performance.now() - s).toBeLessThan(50)
+  })
+})
+
+describe('the schema path agrees with the matcher', () => {
+  // `toJSONSchema` and a Type with a predicate (which validates through `infer`) used to
+  // map a literal set and an `undefined` member to `{}` — an unconstrained schema — so
+  // adding `predicate(x) { return true }` made a type ACCEPT what the example rejected.
+  it('every CASES row: the predicate route gives the same verdict as the example route', () => {
+    let compared = 0
+    for (const [decl, good, bad] of CASES) {
+      const m = decl.match(/^Type T (?:\{ example: ([\s\S]*) \}|= ([\s\S]*))$/)
+      const example = m && (m[1] ?? m[2])
+      if (!example || decl.includes('predicate')) continue
+      const [P] = load(
+        `Type T {\n  example: ${example}\n  predicate(x) { return true }\n}`,
+        ['T'],
+        true
+      )
+      expect({ decl, good: P.check(good) }).toEqual({ decl, good: true })
+      expect({ decl, bad: P.check(bad) }).toEqual({ decl, bad: false })
+      compared++
+    }
+    // Apparatus: the regex above must actually select rows.
+    expect(compared).toBeGreaterThan(8)
+  })
+
+  it('.toJSONSchema() states sets, optional members and floats', () => {
+    const [T] = load(
+      "Type T { example: { mode: 'on' | 'off', b: '' | undefined, m: 'a' | 'b' | undefined, p: 0.0 } }\nconst s = () => T.toJSONSchema()",
+      ['T'],
+      false
+    )
+    const s = T.toJSONSchema()
+    expect(s.properties).toEqual({
+      mode: { enum: ['on', 'off'] },
+      b: { type: 'string' },
+      m: { enum: ['a', 'b'] },
+      p: { type: 'number' },
+    })
+    expect(s.required).toEqual(['mode', 'p'])
+  })
+
+  it('an OPTIONAL literal union stays a closed set', () => {
+    const [T] = load(
+      "Type T { example: { m: 'a' | 'b' | undefined } }",
+      ['T'],
+      false
+    )
+    expect(T.check({ m: 'a' })).toBe(true)
+    expect(T.check({})).toBe(true)
+    expect(T.check({ m: 'c' })).toBe(false)
+  })
+
+  it('a bigint set transpiles and checks (it threw "cannot serialize BigInt")', () => {
+    const [T] = load('Type T { example: { n: 1n | 2n } }', ['T'], false)
+    expect(T.check({ n: 2n })).toBe(true)
+    expect(T.check({ n: 3n })).toBe(false)
+  })
+})
+
+describe('Generic call arguments are left alone', () => {
+  // Marking the arguments of a declared Generic's calls was tried and removed (review B-1):
+  // it was a regex over call sites with no scope analysis, and it broke a NAMED predicate —
+  // `Box(isEven)` rejected every value. Parameter DEFAULTS, which are declaration sites,
+  // are still read as types.
+  const BOX =
+    "Generic Box<T> {\n  description: 'box'\n  predicate(o, T) { return T(o.value) }\n}\n"
+
+  it('a named predicate argument works', () => {
+    const [B] = load(
+      BOX + 'function isEven(v) { return v % 2 === 0 }\nconst B = Box(isEven)',
+      ['B'],
+      false
+    )
+    expect(B.check({ value: 2 })).toBe(true)
+    expect(B.check({ value: 3 })).toBe(false)
+  })
+
+  it('a bigint union as a parameter DEFAULT loads (zod: `<T = number | bigint>`)', () => {
+    const src =
+      "Generic G<T = 0.0 | 0n> {\n  description: 'g'\n  predicate(o, T) { return T(o) }\n}\nconst x = 1"
+    expect(() => new Function(tjs(src).code)()).not.toThrow()
+  })
+})
+
+describe('a file that only MENTIONS the marker syntax', () => {
+  it('loads — the helpers are exported only where they are defined', () => {
+    // `needsKind` is a substring test over the emitted code, strings included.
+    // `==` forces the inline runtime block, whose export list is where the defect lived.
+    const js = tjs(
+      "const s = \"__tjs_rt.__k('float', 0)\"\nexport const n = s == 'x'"
+    ).code
+    expect(() => new Function(js.replace(/^export /gm, ''))()).not.toThrow()
   })
 })

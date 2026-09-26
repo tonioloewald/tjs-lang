@@ -1294,3 +1294,35 @@ describe('a `/# … #/` doc comment quoted as data is DATA', () => {
     expect(tjs(src, { filename: 'a.tjs' }).code).toContain('/# x #/')
   })
 })
+
+describe('`markExampleKinds` splices Type examples by offset, never by pattern', () => {
+  // The newest source-rewriting pass (0.14.0). Its first draft spliced with
+  // `String.replace`, whose REPLACEMENT string interprets `$&` and `$$` — so a `$` in an
+  // example's own text rewrote the output — and it rewrote a shorthand property's value
+  // alone, producing `{ __tjs_rt.__k(…) }`, which is not JavaScript.
+  const cases: Array<[string, string]> = [
+    ['`$&` inside a string member', "Type T { example: { s: '$&', n: 0.0 } }"],
+    [
+      '`$$` in an identifier',
+      'const $$a = 1\nType T { example: { a: $$a, n: 0.0 } }',
+    ],
+    ['a shorthand property', 'const x = 1.5\nType T = { x, n: 0.0 }'],
+  ]
+  for (const [label, src] of cases) {
+    it(`transpiles, runs, and keeps its literals — ${label}`, () => {
+      const { code } = tjs(src)
+      expect(() => new Function(code + '\nreturn T')()).not.toThrow()
+      if (src.includes("'$&'")) expect(code).toContain("'$&'")
+    })
+  }
+
+  it('a method named like a Generic is a method, not an instantiation', () => {
+    const src =
+      "Generic Box<T> {\n  description: 'box'\n  predicate(o, T) { return T(o.v) }\n}\n" +
+      'class C { Box(y) { return y + 1 } }\nconst o = { Box(y) { return y * 2 } }'
+    const { code } = tjs(src)
+    const [C, o] = new Function(code + '\nreturn [C, o]')()
+    expect(new C().Box(1)).toBe(2)
+    expect(o.Box(2)).toBe(4)
+  })
+})
