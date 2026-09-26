@@ -93,13 +93,20 @@ bun run lint                # ESLint, no --fix (format does the fixing)
                             #   Runs with `--max-warnings 0`, so a warning fails the
                             #   lane. Prefix an intentionally unused binding with `_`
                             #   rather than reaching for a disable comment.
-bun run release:ready       # Build + FULL suite + stamp, ahead of publishing, unattended —
-                            #   so `npm publish` takes seconds instead of ~5 minutes. The
-                            #   stamp names the commit AND hashes dist/; prepublishOnly skips
-                            #   the build and suite only when both still match and the tree
-                            #   is clean. Anything else and the publish runs the full gate
-                            #   itself — so skipping this costs time, never safety. Needs
-                            #   LM Studio up. Ends by printing the exact publish command.
+bun run release:ready       # `make`, then ATTEST (../tosijs-coding-practices/tools/attest.ts):
+                            #   runs the lanes CI cannot — `test:full` (plain `bun test`: live
+                            #   LLM + benchmarks + audit), `test:llm`, `test:compat`,
+                            #   `test:compat-scan` (package.json releaseDoctor.attestedLanes) —
+                            #   on the CLEAN tree and writes release-attestation.json. Commit
+                            #   that file ALONE, then tag it. Needs the LLM server up.
+                            #   (Until 2026-09-26 this wrote the `.release-gate` stamp for a
+                            #   manual `npm publish`; prepublishOnly still guards that path.)
+bun run test:release        # The publish PRECONDITIONS as a lane (prepublish-check --lane):
+                            #   no conflicting tag, every published version tagged, tosijs-ui's
+                            #   peer range admits this version, tarball == committed tree +
+                            #   dist/, every `exports` path resolves. A lane because the
+                            #   workflow stages a packed tarball, which runs NO lifecycle
+                            #   scripts — prepublishOnly would silently not fire in CI.
 bun run test:dogfood        # The two dogfood ratchets, in their own lane (~50s).
                             #   NOT in test:fast: both gate on SKIP_BENCHMARKS, which
                             #   test:fast sets — so for months neither ran in CI, and a
@@ -533,6 +540,28 @@ pre-push hook.)
   plain `bun test` skips it (see the three lanes above). Keeping a non-deterministic
   model-behavior measurement out of a hard blocker is deliberate: a small model's
   bad run must never block a release.
+
+**Publishing goes through `.github/workflows/publish.yml` (adopted 2026-09-26)** — the shared
+template from tosijs-coding-practices, copied UNCHANGED (fixes land there;
+`practices/publishing-via-oidc.md`). OIDC trusted publishing; the workflow can only STAGE, and
+Tonio's 2FA approval on npmjs.com is the go. The flow, tag FIRST because the workflow publishes
+from the tag:
+
+1. Release commit (version, CHANGELOG), pushed.
+2. `bun run release:ready` on the clean tree → commit `release-attestation.json` ALONE.
+3. `gh workflow run publish.yml -f tag=main -f dry_run=true` (every check, no staging).
+4. `git tag -a vX.Y.Z` on the attestation commit, push the tag (the pre-push hook still runs
+   the full suite on a tag push — redundant with the attestation, not wrong).
+5. `gh workflow run publish.yml -f tag=vX.Y.Z`; Tonio approves; the green run IS the
+   "published and verified" statement. Then the functions/ lockfile refresh + deploy.
+
+In CI, release-doctor runs every `test:*` lane; an attested lane passes only on a
+release-attestation.json that verifies for this exact tree, and otherwise RUNS (and fails, with
+no LLM) — never silently passes. `.bun-version` pins Bun because `editors/**` is committed build
+output the CI build must reproduce byte for byte; `make` refuses another Bun
+(`scripts/check-bun-version.ts`).
+
+**The manual path below is the fallback** (it still works, and prepublishOnly still guards it):
 
 **The order is PUBLISH, then tag** (2026-09-13), and that decides where the gate lives.
 

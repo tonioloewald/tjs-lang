@@ -85,6 +85,20 @@ function npm(...args: string[]): { ok: boolean; out: string } {
   }
 }
 
+/**
+ * `--lane` (`bun run test:release`): the checks that hold ANYWHERE, for the publish workflow.
+ *
+ * The workflow stages a PACKED TARBALL, and `npm stage publish <tarball>` runs no lifecycle
+ * scripts — so `prepublishOnly`, and with it every check in this file, would silently not run
+ * in CI. release-doctor runs every `test:*` lane before staging, so this is how they get there.
+ * Skipped in lane mode, because they are properties of the machine a manual `npm publish` runs
+ * on, not of the release: a clean working tree (CI has just built into it; the workflow checks
+ * that the build reproduced every shipped file), HEAD pushed (CI checks out the pushed tag,
+ * detached), and "already published" (the workflow refuses that itself, and between releases
+ * package.json names a published version, so Tier 0 would fail every day).
+ */
+const LANE = process.argv.includes('--lane')
+
 const problems: string[] = []
 const pkg0 = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const version = pkg0.version as string
@@ -92,7 +106,7 @@ const tag = `v${version}`
 
 // The ONE clean-tree check (release-stamp.ts): honours git's exit code, so an unreadable tree
 // is a refusal rather than "clean", and counts untracked files whatever the user's git config.
-{
+if (!LANE) {
   const dirty = treeDirtyReason(ROOT)
   if (dirty) problems.push(`${dirty} — publish what you committed`)
 }
@@ -262,7 +276,7 @@ if (!version.includes('-')) {
 // the packument lags a publish by minutes, the per-version document does not. npm refuses a
 // republish anyway, but only after the whole gate has run — and a stamp for an already-
 // published version would print "Ready" for a publish that cannot happen.
-{
+if (!LANE) {
   const res = Bun.spawnSync(
     [
       'curl',
@@ -294,7 +308,9 @@ if (!version.includes('-')) {
 
 // `@{u}` is the upstream of the current branch; unpushed commits mean the reviewed history
 // exists only here.
-const unpushed = git('rev-list', '@{u}..HEAD', '--count')
+const unpushed = LANE
+  ? { ok: true, out: '0' }
+  : git('rev-list', '@{u}..HEAD', '--count')
 if (!unpushed.ok) {
   // No upstream, or a detached HEAD. This used to skip the check entirely — fail-open: a
   // publish from an unpushed branch passed as if pushed (0.14.0 re-review).
@@ -367,10 +383,18 @@ if (problems.length) {
   process.exit(1)
 }
 
-console.log(
-  `prepublish: tree clean, history pushed, ${tag} unclaimed, previous release tagged.`
-)
-console.log(
-  `prepublish: REMEMBER — publish, then \`git tag ${tag} && git push origin ${tag}\`. ` +
-    `The next publish refuses to run until you do.`
-)
+if (LANE) {
+  console.log(
+    `release preconditions for ${version}: no conflicting tag, every published version tagged, ` +
+      `downstream peer ranges admit it, the tarball is the committed tree plus dist/, and every ` +
+      `\`exports\` path resolves.`
+  )
+} else {
+  console.log(
+    `prepublish: tree clean, history pushed, ${tag} unclaimed, previous release tagged.`
+  )
+  console.log(
+    `prepublish: REMEMBER — publish, then \`git tag ${tag} && git push origin ${tag}\`. ` +
+      `The next publish refuses to run until you do.`
+  )
+}
