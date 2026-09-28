@@ -45,8 +45,8 @@ Concretely, *toward* looks like:
 - The predicate subset stays **small and portable** (see below) so `$predicate`
   can run anywhere — expanding it is a cost, not a free win.
 
-*Away* looks like: a TJS-only internal type IR that accretes features JSON-Schema
-+ `$predicate` can't carry; validation logic that only the JS runtime can do;
+*Away* looks like: a TJS-only internal type IR that accretes features that JSON-Schema
+plus `$predicate` can't carry; validation logic that only the JS runtime can do;
 predicate features that need a full JS engine.
 
 ## Why this is the right endgame

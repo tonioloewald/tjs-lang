@@ -251,7 +251,7 @@ writing a direction string. Audition before designing.
 
 **Use-case 1 (agent-flow testing) works on MLX today** — the live smoke (audit + predict +
 embed) is green against `mlx-omni-server` with no LM Studio involved. Backend-agnostic config
-+ explicit model naming landed (`src/batteries/config.ts`).
+plus explicit model naming landed (`src/batteries/config.ts`).
 
 Still ahead for the broader "shared LLM harness" direction: a `speak()` capability for TTS
 with voice + acting directions (ariosto — `mlx-omni-server` exposes `/v1/audio/speech`, and

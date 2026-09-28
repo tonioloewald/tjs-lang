@@ -19,9 +19,9 @@
   "vueIndentScriptAndStyle": false,
   "overrides": [
     {
-      "files": "*.md",
+      "files": ["*.md", "*.markdown", "*.mdx"],
       "options": {
-        "embeddedLanguageFormatting": "off"
+        "requirePragma": true
       }
     }
   ]

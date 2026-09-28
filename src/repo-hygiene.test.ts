@@ -126,6 +126,33 @@ describe('tracked markdown', () => {
     ).toBeLessThan(RUN)
   })
 
+  // Prettier no longer touches markdown (tosijs-ui 1.16.0's stack-wide rule: it only ever
+  // escaped characters and rewrote bullets). One of those rewrites was a SIGNAL, though: a
+  // wrapped prose line beginning `+ ` is a list item to CommonMark, so the `+` vanishes from the
+  // rendered page, and Prettier turning it into `- ` was how anyone noticed. This replaces that
+  // signal. (`- ` and `* ` starts are too common in real lists to check the same way.)
+  it('no prose line starts with "+ " (CommonMark would swallow the plus as a list marker)', () => {
+    const hits: string[] = []
+    for (const f of git('ls-files', '*.md').split('\n').filter(Boolean)) {
+      let fence = false
+      let prev = ''
+      readFileSync(join(ROOT, f), 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          if (/^\s*```/.test(line)) fence = !fence
+          else if (
+            !fence &&
+            line.startsWith('+ ') &&
+            prev.trim() !== '' &&
+            !/^\s*([-*+]|\d+\.) /.test(prev)
+          )
+            hits.push(`${f}:${i + 1}: ${line.slice(0, 60)}`)
+          prev = line
+        })
+    }
+    expect(hits).toEqual([])
+  })
+
   it('no tracked markdown file contains text exploded one character per line', () => {
     const files = git('ls-files', '*.md').split('\n').filter(Boolean)
     expect(files.length).toBeGreaterThan(20)
