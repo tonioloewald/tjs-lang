@@ -10,7 +10,7 @@ import {
   recordVmEvent,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
-import { validate } from 'tosijs-schema'
+import { validate, isBuilder } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
 import {
   admitRunOptions,
@@ -182,7 +182,9 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       function: {
         name: atom.op,
         description: atom.docs,
-        parameters: atom.inputSchema?.schema ?? {},
+        parameters: isBuilder(atom.inputSchema)
+          ? atom.inputSchema.schema
+          : atom.inputSchema ?? {},
       },
     }))
   }

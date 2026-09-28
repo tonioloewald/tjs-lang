@@ -146,6 +146,18 @@ export const storeSearch = defineAtom(
 )
 
 // llm.predict (Enhanced with system prompt support for battery)
+
+/**
+ * An OpenAI-compatible chat message, as the LLM batteries return it: `{ role?, content?,
+ * tool_calls? }` plus whatever else a provider sends (`reasoning_content`, `refusal`, …). OPEN,
+ * because this is a protocol we do not control (tosijs-schema#5, adopted with ^1.12.0).
+ */
+const CHAT_MESSAGE = s.object({
+  role: s.string.optional,
+  content: s.any.optional,
+  tool_calls: s.array(s.any).optional,
+}).open
+
 export const llmPredictBattery = defineAtom(
   'llmPredictBattery',
   s.object({
@@ -164,11 +176,10 @@ export const llmPredictBattery = defineAtom(
   // validator got it right. gemma-4 returns `reasoning_content`, and every vision call
   // started failing output validation.
   //
-  // `s.record(s.any)` is the open shape. The field list lives in `VisionBattery`/
-  // `LLMBattery` (TypeScript) and in the docs, which is where a description of someone
-  // else's protocol belongs — a runtime schema should reject what is WRONG, not what is
-  // merely newer than we are.
-  s.record(s.any),
+  // A runtime schema should reject what is WRONG, not what is merely newer than we are. Until
+  // tosijs-schema 1.7 the only open spelling was `s.record(s.any)`, which dropped the field
+  // list; `.open` (tosijs-schema#5) keeps the named fields AND admits the ones providers add.
+  CHAT_MESSAGE,
   async ({ system, user, tools, responseFormat }, ctx) => {
     const llmCap = ctx.capabilities.llmBattery as unknown as LLMBattery
     if (!llmCap?.predict)
@@ -223,11 +234,10 @@ export const llmVision = defineAtom(
   // validator got it right. gemma-4 returns `reasoning_content`, and every vision call
   // started failing output validation.
   //
-  // `s.record(s.any)` is the open shape. The field list lives in `VisionBattery`/
-  // `LLMBattery` (TypeScript) and in the docs, which is where a description of someone
-  // else's protocol belongs — a runtime schema should reject what is WRONG, not what is
-  // merely newer than we are.
-  s.record(s.any),
+  // A runtime schema should reject what is WRONG, not what is merely newer than we are. Until
+  // tosijs-schema 1.7 the only open spelling was `s.record(s.any)`, which dropped the field
+  // list; `.open` (tosijs-schema#5) keeps the named fields AND admits the ones providers add.
+  CHAT_MESSAGE,
   async ({ system, prompt, images, responseFormat }, ctx) => {
     const llmCap = ctx.capabilities.llmBattery as unknown as VisionBattery
     if (!llmCap?.predict)

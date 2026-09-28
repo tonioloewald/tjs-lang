@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > prerelease, so pin `0.14.0-rc.1` exactly to test it. Published through the OIDC workflow,
 > vouched for by `release-attestation.json`.
 >
+> **Since rc.1 — `tosijs-schema` floor raised to `^1.12.0`** ([#58](https://github.com/tonioloewald/tjs-lang/issues/58)).
+> tjs-lang unwrapped schema builders by duck-typing (`x?.schema ?? x`, `'schema' in x`) in eight
+> places, so a value that merely HAD a `schema` key was read as a builder: a Type example such as
+> `{ label: '', schema: { version: 0 } }` had its `schema` field used as the type, and a JSON Schema
+> with a stray `schema: true` became accept-all. The same check sat in the VM's guest-facing
+> `Schema.isValid` / `Schema.response`. tosijs-schema 1.12 brands builders (`isBuilder`); every
+> site now asks it. The old `^1.5.1` range was also floating fresh installs onto 1.12 (four
+> breaking validation releases later) while the code assumed 1.5, so the range now names the
+> version the code is written against. The LLM batteries' output schema is back to named fields
+> (`{ role?, content?, tool_calls? }`) via `.open`, still admitting provider additions such as
+> `reasoning_content`, where `s.record(s.any)` rejected nothing at all.
+>
 > **Packaging (rc.1):** `typescript` is now a declared OPTIONAL peer (`^5`) — `tjs-lang/lang/from-ts`
 > imports it, and it was only a devDependency, so a Node consumer of that entry without it
 > installed failed at import. Dev-only scripts (`bin/*.ts`, `editors/build-*.ts`, the

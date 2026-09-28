@@ -16,7 +16,13 @@
  *   ZipCode.description // '5-digit US zip code'
  */
 
-import { validate, filter as schemaFilter, s, type Base } from 'tosijs-schema'
+import {
+  validate,
+  filter as schemaFilter,
+  s,
+  isBuilder,
+  type Base,
+} from 'tosijs-schema'
 import { exampleToJSONSchema, type JSONSchemaObject } from '../lang/json-schema'
 // The Timestamp/LegalDate predicates live with their implementations so the runtime
 // TYPE and the function module can never disagree about what a Timestamp is — they
@@ -178,8 +184,8 @@ export function openInferredShapes(schema: any): any {
   // rejecting them, and mutating in place silently disabled it.
   const clone =
     typeof structuredClone === 'function'
-      ? structuredClone(schema?.schema ?? schema)
-      : JSON.parse(JSON.stringify(schema?.schema ?? schema))
+      ? structuredClone(schemaOf(schema))
+      : JSON.parse(JSON.stringify(schemaOf(schema)))
   const walk = (node: any): void => {
     if (!node || typeof node !== 'object') return
     if (Array.isArray(node)) {
@@ -194,16 +200,23 @@ export function openInferredShapes(schema: any): any {
   walk(clone)
   // The builder keeps the JSON Schema on `.schema`; hand back a wrapper carrying the
   // opened copy so `validate()` sees it, while the original stays closed for `strip()`.
-  return schema?.schema ? { ...schema, schema: clone } : clone
+  return isBuilder(schema) ? { ...schema, schema: clone } : clone
 }
 
+/**
+ * A tosijs-schema BUILDER — branded, not duck-typed (tjs-lang#58). A value that merely has a
+ * `schema` key is not one: in TJS a Type's argument is an EXAMPLE, so `{ label: '', schema: {} }`
+ * is an example object with a field named `schema`, and reading it as a builder made that field
+ * the type. tosijs-schema 1.12 brands builders for exactly this; ask it, don't guess.
+ */
 function isSchemaBuilder(value: unknown): value is Base<any> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    'schema' in value &&
-    typeof (value as any).schema === 'object'
-  )
+  return isBuilder(value)
+}
+
+/** The JSON Schema inside a builder, or the value itself. Never `x?.schema ?? x`: that turned
+ * `{ type: 'object', required: ['a'], schema: true }` into the schema `true`, accepting all. */
+function schemaOf(value: any): any {
+  return isBuilder(value) ? value.schema : value
 }
 
 /**
@@ -360,7 +373,7 @@ export function Type<T = unknown>(
   // Extract examples from schema metadata (if any)
   let examples: T[] | undefined
   if (schema) {
-    const jsonSchema = (schema as any)?.schema ?? schema
+    const jsonSchema = schemaOf(schema)
     if (
       jsonSchema &&
       typeof jsonSchema === 'object' &&
@@ -413,7 +426,7 @@ export function Type<T = unknown>(
       toJSONSchema(): JSONSchemaObject {
         // If we have an underlying JSON Schema or builder, extract it
         if (schema) {
-          const raw = (schema as any)?.schema ?? schema
+          const raw = schemaOf(schema)
           if (raw && typeof raw === 'object' && 'type' in raw) {
             return raw as JSONSchemaObject
           }
@@ -447,7 +460,7 @@ export function Type<T = unknown>(
  */
 function schemaToDescription(schema: Schema): string {
   // tosijs-schema wraps JSON schema in .schema property
-  const jsonSchema = (schema as any)?.schema ?? schema
+  const jsonSchema = schemaOf(schema)
 
   // Handle schema objects with type property
   if (jsonSchema && typeof jsonSchema === 'object' && 'type' in jsonSchema) {
@@ -807,8 +820,8 @@ function typeParamToCheck(param: TypeParam): (value: unknown) => boolean {
   if (isRuntimeType(param)) {
     return (v) => param.check(v) === true
   }
-  // Check if it's a schema builder (has .schema property)
-  if (param && typeof param === 'object' && 'schema' in param) {
+  // A schema builder (branded — not merely an object with a `schema` key)
+  if (isBuilder(param)) {
     return (v) => validate(v, param as Base<any>)
   }
   // It's an example value - infer schema using s.infer

@@ -8,7 +8,7 @@ import {
   quotaCount,
   checkedQuota,
 } from './admission'
-import { s, validate, filter as schemaFilter } from 'tosijs-schema'
+import { s, validate, isBuilder, filter as schemaFilter } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
 import { reDoSRisk, alternationOverlapRisk } from '../redos'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
@@ -1352,13 +1352,9 @@ function convertExampleToSchema(example: any): any {
     return example
   }
 
-  // tosijs-schema builder object (has 'schema' property)
-  if (
-    typeof example === 'object' &&
-    example !== null &&
-    'schema' in example &&
-    typeof example.schema === 'object'
-  ) {
+  // A tosijs-schema BUILDER — branded, not duck-typed (tjs-lang#58). An AJS example that has
+  // a field named `schema` is an example, and reading it as a builder made that field the type.
+  if (isBuilder(example)) {
     return example.schema
   }
 
@@ -1599,10 +1595,10 @@ export const builtins: Record<string, any> = Object.assign(
       // Convenience: wrap schema in OpenAI responseFormat structure
       // Accepts either a tosijs-schema builder or a plain example object
       response: (name: string, schemaOrExample: any) => {
-        const jsonSchema =
-          schemaOrExample?.schema != null
-            ? schemaOrExample.schema
-            : convertExampleToSchema(schemaOrExample)
+        // Branded, not duck-typed (tjs-lang#58): an example with a `schema` field is an example.
+        const jsonSchema = isBuilder(schemaOrExample)
+          ? schemaOrExample.schema
+          : convertExampleToSchema(schemaOrExample)
 
         return {
           type: 'json_schema',
@@ -1619,7 +1615,7 @@ export const builtins: Record<string, any> = Object.assign(
 
       // Validation: returns boolean
       isValid: (data: any, schemaOrExample: any): boolean => {
-        if (schemaOrExample?.schema != null) {
+        if (isBuilder(schemaOrExample)) {
           return validate(data, schemaOrExample)
         }
         return validate(data, convertExampleToSchema(schemaOrExample))

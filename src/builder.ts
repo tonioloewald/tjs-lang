@@ -1,4 +1,5 @@
 import { coreAtoms, type Atom, type OpCode, type ExprNode } from './runtime'
+import { isBuilder } from 'tosijs-schema'
 import { AST_VERSION, AST_VERSION_KEY } from './vm/ast-version'
 
 type _AtomMap = typeof coreAtoms
@@ -522,7 +523,7 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
   return(schema: any): BuilderType<M> {
     const atom = this.atoms['return']
     if (!atom) throw new Error("Atom 'return' not found")
-    const _schema = schema.schema ?? schema
+    const _schema = isBuilder(schema) ? schema.schema : schema
     return this.add(atom.create({ schema: _schema }))
   }
 
