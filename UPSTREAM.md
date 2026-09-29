@@ -274,6 +274,11 @@ or at least a failing build. When it lands, the guard can relax to "unique withi
 
 ## tosijs-ui — what retiring the playground needs from it (tosijs-ui#184, #185, #186)
 
+**Update 2026-09-29:** #184 parts 1 and 2 **shipped in tosijs-ui 1.16.1** (`registerDialect`, fence
+options) and are ADOPTED: `site/entry.ts` runs every ```` ```ajs ```` example on tjs.tosijs.net. Still
+open: a console panel for examples that `console.log` (asked on #184), part 3 (the Docs tab), #185
+and #186.
+
 **Filed 2026-09-25**, as tjs-lang moves its docs onto a tosijs-ui hosted site and retires the
 bespoke playground (`demo/`). The agreed bar for 0.14 is that live-example RUNS every example
 and SHOWS ITS OUTPUT; the rest waits for an IDE.
