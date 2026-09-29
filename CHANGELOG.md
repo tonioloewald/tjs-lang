@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > (`{ role?, content?, tool_calls? }`) via `.open`, still admitting provider additions such as
 > `reasoning_content`, where `s.record(s.any)` rejected nothing at all.
 >
+> **Since rc.1 — `httpFetch` no longer breaks cross-origin requests in a browser.** The default
+> fetch added `X-Agent-Depth` to every request; in a browser that is a non-simple header, so any
+> cross-origin API that does not allow it failed preflight with "Failed to fetch" (found running the
+> AJS weather example live on the doc site). In a browser the header now goes only to the page's
+> own origin, where agent endpoints live; servers send it everywhere as before, and a custom
+> `fetch` capability still receives the depth.
+>
 > **Packaging (rc.1):** `typescript` is now a declared OPTIONAL peer (`^5`) — `tjs-lang/lang/from-ts`
 > imports it, and it was only a devDependency, so a Node consumer of that entry without it
 > installed failed at import. Dev-only scripts (`bin/*.ts`, `editors/build-*.ts`, the

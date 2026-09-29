@@ -196,7 +196,7 @@ a standalone entry point, not an increment (import only what you need):
 | Entry point                   | Bundle           | Size   | Gzipped   |
 | ----------------------------- | ---------------- | ------ | --------- |
 | `tjs-lang/vm` (VM only)       | tjs-vm.js        | 223 KB | **68 KB** |
-| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 105 KB | 34 KB     |
+| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 116 KB | 38 KB     |
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
 | `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 324 KB | 104 KB    |
 | `tjs-lang` (full, TS support) | index.js         | 417 KB | 135 KB    |

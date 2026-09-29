@@ -3799,6 +3799,42 @@ const MAX_AGENT_DEPTH = 10
 const AGENT_DEPTH_HEADER = 'X-Agent-Depth'
 
 /**
+ * The depth header for a DEFAULT-path fetch, or none. It exists to catch agents calling back
+ * into agent endpoints over HTTP. In a BROWSER it is a non-simple header, so on a cross-origin
+ * request it forces a CORS preflight, and any API that does not allow the header fails with
+ * "Failed to fetch" — every such API, for no benefit, since a third-party API is not an agent
+ * endpoint (found running the AJS weather example on tjs.tosijs.net). So in a browser it goes
+ * only to the page's own origin; a server runtime, which has no CORS, sends it everywhere.
+ * A custom `fetch` capability receives the depth either way and decides for itself.
+ */
+export function depthHeaderFor(
+  url: string,
+  depth: number,
+  env: { server: boolean; origin: string | undefined } = fetchEnvironment()
+): Record<string, string> {
+  if (!env.server && env.origin && env.origin !== 'null') {
+    try {
+      if (new URL(url, env.origin).origin !== env.origin) return {}
+    } catch {
+      return {}
+    }
+  }
+  return { [AGENT_DEPTH_HEADER]: String(depth) }
+}
+
+/**
+ * Where this fetch runs. SERVER means a runtime whose fetch never enforces CORS (Node, Bun,
+ * Deno) — decided by the runtime, not by whether a `location` exists: test runners, SSR and
+ * DOM shims (happy-dom) define one, and reading it as "browser" dropped the header
+ * server-side, silently weakening recursion protection.
+ */
+function fetchEnvironment(): { server: boolean; origin: string | undefined } {
+  const g = globalThis as any
+  const server = !!(g.process?.versions?.node || g.Bun || g.Deno)
+  return { server, origin: g.location?.origin }
+}
+
+/**
  * Check if a URL's domain is in the allowlist.
  * Supports exact matches and wildcard subdomains (*.example.com)
  */
@@ -3910,7 +3946,7 @@ export const fetch = defineAtom(
         method,
         headers: {
           ...headers,
-          [AGENT_DEPTH_HEADER]: String(currentDepth + 1),
+          ...depthHeaderFor(url, currentDepth + 1),
         },
         body: body ? JSON.stringify(body) : undefined,
         signal: ctx.signal, // Pass abort signal for cancellation

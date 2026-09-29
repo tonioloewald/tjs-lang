@@ -98,6 +98,10 @@ export default defineSiteConfig({
   // it. Deployed to the `gh-pages` branch, built in a worktree (`buildSite` wipes `dist/`).
   host: 'github-pages',
 
+  // Our own bundle, so ```ajs fences RUN: it registers the `ajs` dialect with tosijs-ui's
+  // registry (tosijs-ui#184, 1.16.1) and the doc system itself. See site/entry.ts.
+  bundleEntry: 'site/entry.ts',
+
   // Section pages live here: overview docs the sections hang from, whose `<!-- toc -->` blocks
   // the build regenerates. Their default, `src/docs`, is a strange home for doc pages.
   sectionsDir: 'guides/sections',

@@ -191,6 +191,10 @@ bun run deploy:site         # The tosijs-ui DOC SITE → GitHub Pages (gh-pages)
                             #   a throwaway worktree: `buildSite()` deletes `dist/`, which here is
                             #   the attested release artifact — never build the site in this
                             #   checkout. The old playground is still `deploy:hosting` (Firebase).
+                            #   Pages load OUR bundle, `site/entry.ts` (config `bundleEntry`): it
+                            #   registers the doc system AND the `ajs` dialect (tosijs-ui 1.16.1's
+                            #   `registerDialect`), so ```ajs examples RUN — AST VM, fetch limited
+                            #   to the examples' domains, no LLM (those say so).
 bun run functions:deploy    # Cloud functions only. WORKS on the global firebase CLI as of
                             #   2026-09-04 (15.28.2) — verified by a real deploy of all five
                             #   functions. This entry used to prescribe
