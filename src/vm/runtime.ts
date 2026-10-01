@@ -3792,12 +3792,14 @@ export const callLocal = defineAtom(
       // the standard exec wrapper. Unlike `scope`, it does not bubble up
       // to ctx.output (so a helper return doesn't exit the caller agent).
       //
-      // This scope deliberately starts with `error: undefined` and is NOT built by
-      // `createChildScope`, so the error accessor does not apply — the explicit
-      // propagation below is the real mechanism here, not a redundant one.
-      if (scopedCtx.error) ctx.error = scopedCtx.error
       return scopedCtx.output
     } finally {
+      // This scope deliberately starts with `error: undefined` and is NOT built by
+      // `createChildScope`, so the error accessor does not apply — this propagation is the
+      // real mechanism. It is in `finally` because EVERY exit must carry it: a parameter bind
+      // over the heap cap returned early, skipping it, and the run carried on and reported
+      // success with the result silently undefined (rc.2 fifth re-review M2).
+      if (scopedCtx.error) ctx.error = scopedCtx.error
       releaseScope(scopedCtx)
     }
   },

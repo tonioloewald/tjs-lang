@@ -147,3 +147,57 @@ describe('M2: `var` is function-scoped, in every block', () => {
       expect(r.result).toEqual(want)
     })
 })
+
+describe('rc.2 fifth re-review (docs/reviews/0.14.0-rc.2-rereview-5.md)', () => {
+  describe('M1: a callback is a function boundary for `var`', () => {
+    const table: Array<[string, unknown]> = [
+      [
+        `function f() { let y = 10; let r = [1].map(x => { var y = x; return y }); return { y, r } }`,
+        { y: 10, r: [1] },
+      ],
+      [
+        `function f() { const y = 10; let r = [1].map(x => { var y = x; return y }); return { y, r } }`,
+        { y: 10, r: [1] },
+      ],
+      [
+        `function f() { var y = 10; let r = [1, 2].reduce((a, x) => { var y = a + x; return y }, 0); return { y, r } }`,
+        { y: 10, r: 3 },
+      ],
+      [
+        `function f() { let r = [1, 2].map(x => { if (x > 1) { var k = x } return k }); return { r } }`,
+        { r: [null, 2] },
+      ],
+    ]
+    for (const [src, want] of table)
+      it(src, async () => {
+        const r = await new AgentVM().run(transpile(src).ast, {})
+        expect(r.error).toBeUndefined()
+        expect(r.result).toEqual(want)
+      })
+
+    it('a for...of head that would assign an OUTER binding is refused, not mistranslated', () => {
+      expect(() =>
+        transpile(`function f() { for (var x of [1, 2]) {} return { x } }`)
+      ).toThrow(/needs `const` or `let`/)
+      expect(() =>
+        transpile(
+          `function f() { let x = 0; for (x of [1, 2]) {} return { x } }`
+        )
+      ).toThrow(/needs `const` or `let`/)
+    })
+  })
+
+  it('M2: a helper parameter bind over the heap cap fails the run', async () => {
+    const r = await new AgentVM().run(
+      transpile(`function h(a: []) { return a.length }
+      function f() {
+        let t = h(Array.from({ length: 200000 }))
+        let after = 'ran on'
+        return { t, after }
+      }`).ast,
+      {},
+      CAP
+    )
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+  })
+})

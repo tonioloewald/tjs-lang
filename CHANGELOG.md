@@ -84,7 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > — use `defineAtom`, which honours assignment (`resultAssign`). A default parameter is now filled
 > by assignment, not a declaration in the `if` that tests it. `var` is function-scoped, as in JavaScript: it is
 > declared once at function entry and `var x = v` assigns it, in any block (lowering it like
-> `let` lost `if (c) { var q = 5 }` silently). `errorOp`, like the catch parameter, is bound in
+> `let` lost `if (c) { var q = 5 }` silently); a callback's `var`s are the callback's own.
+> **`for (var x of …)` and `for (x of …)` are refused** with a pointer to `const`/`let`: the loop
+> variable is bound in the loop's scope, so they cannot mean what JavaScript means (assign an
+> outer `x`), and they silently did not. `errorOp`, like the catch parameter, is bound in
 > the catch block and is not visible after it.
 >
 > **Since rc.1 — `const` follows the scope a write lands in.** One rule, enforced where every

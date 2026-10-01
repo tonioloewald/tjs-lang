@@ -817,28 +817,30 @@ function transformForOfStatement(
   ctx: TransformContext
 ): BaseNode {
   // Get the loop variable name
-  let varName: string
-  if (stmt.left.type === 'VariableDeclaration') {
-    const decl = stmt.left.declarations[0]
-    if (decl.id.type !== 'Identifier') {
-      throw new TranspileError(
-        'Only simple variable names are supported in for...of',
-        getLocation(stmt.left),
-        ctx.source,
-        ctx.filename
-      )
-    }
-    varName = (decl.id as Identifier).name
-  } else if (stmt.left.type === 'Identifier') {
-    varName = (stmt.left as Identifier).name
-  } else {
+  // The loop variable is bound in the LOOP's scope, so only a declaration scoped to the loop can
+  // mean what JavaScript means: `for (var x of xs)` and `for (x of xs)` assign an OUTER `x`,
+  // which then holds the last item — here it was left untouched (or null), silently (rc.2
+  // fifth re-review M1). Refused rather than mistranslated.
+  if (
+    stmt.left.type !== 'VariableDeclaration' ||
+    (stmt.left as VariableDeclaration).kind === 'var'
+  )
     throw new TranspileError(
-      'Unsupported for...of left-hand side',
+      'for...of in AsyncJS needs `const` or `let`: `for (const x of items)`',
+      getLocation(stmt.left),
+      ctx.source,
+      ctx.filename
+    )
+  const decl = (stmt.left as VariableDeclaration).declarations[0]
+  if (decl.id.type !== 'Identifier') {
+    throw new TranspileError(
+      'Only simple variable names are supported in for...of',
       getLocation(stmt.left),
       ctx.source,
       ctx.filename
     )
   }
+  const varName = (decl.id as Identifier).name
 
   // Get the iterable
   const items = expressionToValue(stmt.right, ctx)
@@ -1550,7 +1552,19 @@ function transformMethodCall(
 
         let steps: BaseNode[]
         if (callback.body.type === 'BlockStatement') {
-          steps = transformBlock(callback.body, childCtx)
+          // A callback is a FUNCTION boundary: its `var`s are its own (rc.2 fifth re-review
+          // M1 — they were assigned to the caller's bindings of the same name).
+          steps = [
+            ...hoistedVars(
+              callback.body,
+              new Set(
+                callback.params
+                  .filter((p: any) => p.type === 'Identifier')
+                  .map((p: any) => p.name)
+              )
+            ),
+            ...transformBlock(callback.body, childCtx),
+          ]
         } else {
           // Expression body: x => x * 2
           const { step, resultVar: exprResult } = transformExpressionToStep(
@@ -1681,7 +1695,19 @@ function transformMethodCall(
 
         let steps: BaseNode[]
         if (callback.body.type === 'BlockStatement') {
-          steps = transformBlock(callback.body, childCtx)
+          // A callback is a FUNCTION boundary: its `var`s are its own (rc.2 fifth re-review
+          // M1 — they were assigned to the caller's bindings of the same name).
+          steps = [
+            ...hoistedVars(
+              callback.body,
+              new Set(
+                callback.params
+                  .filter((p: any) => p.type === 'Identifier')
+                  .map((p: any) => p.name)
+              )
+            ),
+            ...transformBlock(callback.body, childCtx),
+          ]
         } else {
           // Expression body: (acc, x) => acc + x
           const { step, resultVar: exprResult } = transformExpressionToStep(
