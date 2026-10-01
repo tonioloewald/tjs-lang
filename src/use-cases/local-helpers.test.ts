@@ -89,9 +89,9 @@ describe('Local helper functions', () => {
 
   it('isolates helper scope — helpers cannot see the caller locals', async () => {
     // `secret` is a local in main (= 42). The helper references a bare
-    // `secret`; under isolation it is NOT in scope, so AJS falls back to the
-    // bare-string literal "secret". A scope leak would instead expose main's
-    // 42 — so the guarantee is simply: the helper never sees the caller value.
+    // `secret`; under isolation it is NOT in scope. A scope leak would instead
+    // expose main's 42 — so the guarantee is simply: the helper never sees the
+    // caller value.
     const result = await run(
       `
       function leak(x) { return { x, secret } }
@@ -104,7 +104,9 @@ describe('Local helper functions', () => {
     )
     expect(result.x).toBe(1)
     expect(result.secret).not.toBe(42) // no leak of caller's local
-    expect(result.secret).toBe('secret') // AJS bare-string fallback
+    // v1 turned an unbound name into its own spelling ('secret'); v2 has no bare-string
+    // fallback, so an unbound name is simply absent (board #1860).
+    expect(result.secret).toBeUndefined()
   })
 
   it('does not let helper return exit the caller agent', async () => {

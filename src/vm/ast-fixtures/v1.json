@@ -1,0 +1,92 @@
+[
+  {
+    "name": "bare-string-is-a-reference-when-in-scope",
+    "version": 1,
+    "note": "v1's defining (and ambiguous) rule: a bare string reads the variable of that name if one exists",
+    "args": {},
+    "ast": {
+      "$ajs": 1,
+      "op": "seq",
+      "steps": [
+        { "op": "varSet", "key": "x", "value": 5 },
+        { "op": "varSet", "key": "s", "value": "x" },
+        { "op": "return", "value": { "s": "s", "lit": "not-a-variable" } }
+      ]
+    },
+    "result": { "s": 5, "lit": "not-a-variable" }
+  },
+  {
+    "name": "dotted-string-is-a-path",
+    "version": 1,
+    "args": {},
+    "ast": {
+      "$ajs": 1,
+      "op": "seq",
+      "steps": [
+        { "op": "varSet", "key": "user", "value": { "name": "Ada" } },
+        { "op": "return", "value": { "n": "user.name" } }
+      ]
+    },
+    "result": { "n": "Ada" }
+  },
+  {
+    "name": "unversioned-ast-is-v1",
+    "version": 1,
+    "args": {},
+    "ast": {
+      "op": "seq",
+      "steps": [
+        { "op": "varSet", "key": "x", "value": 3 },
+        { "op": "return", "value": { "y": "x" } }
+      ]
+    },
+    "result": { "y": 3 }
+  },
+  {
+    "name": "while-body-is-the-enclosing-scope",
+    "version": 1,
+    "note": "v1 assigns with varSet, so its while body must stay unscoped for this to accumulate",
+    "args": {},
+    "ast": {
+      "$ajs": 1,
+      "op": "seq",
+      "steps": [
+        { "op": "varSet", "key": "i", "value": 0 },
+        { "op": "varSet", "key": "t", "value": 0 },
+        {
+          "op": "while",
+          "condition": {
+            "$expr": "binary",
+            "op": "<",
+            "left": { "$expr": "ident", "name": "i" },
+            "right": { "$expr": "literal", "value": 3 }
+          },
+          "body": [
+            {
+              "op": "varSet",
+              "key": "t",
+              "value": {
+                "$expr": "binary",
+                "op": "+",
+                "left": { "$expr": "ident", "name": "t" },
+                "right": { "$expr": "ident", "name": "i" }
+              }
+            },
+            {
+              "op": "varSet",
+              "key": "i",
+              "value": {
+                "$expr": "binary",
+                "op": "+",
+                "left": { "$expr": "ident", "name": "i" },
+                "right": { "$expr": "literal", "value": 1 }
+              }
+            }
+          ]
+        },
+        { "op": "return", "value": { "t": "t" } }
+      ]
+    },
+    "result": { "t": 3 }
+  }
+]

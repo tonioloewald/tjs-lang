@@ -847,7 +847,18 @@ function transformReturnStatement(
 
   // If there's a step (atom call), emit it first, then return the result variable
   if (step) {
-    return [step, { op: 'return', value: resultVar }]
+    // The step bound its result to `__returnVal__`; return it by explicit reference (AST v2 —
+    // a bare name string is a literal).
+    return [
+      step,
+      {
+        op: 'return',
+        value:
+          typeof resultVar === 'string'
+            ? { $expr: 'ident', name: resultVar }
+            : resultVar,
+      },
+    ]
   }
 
   // Otherwise, convert expression directly to a value for return
@@ -1723,26 +1734,6 @@ function transformTemplateLiteral(
  * functionality", it is wrong answers. This is the same rule the predicate verifier states —
  * over-refusing costs a feature; miscompiling costs your data.
  */
-/**
- * Is the ROOT of a dot path a binding the emitted program declares?
- *
- * Only then does `resolveValue`'s state traversal find it. A name that arrives through
- * `context` (i.e. `ctx.args`) is not in state, so a path rooted on it resolves to nothing and
- * the string falls through to being returned as a literal — which is #52 exactly.
- *
- * Walks the scope chain, since a local in an enclosing scope is still in state.
- */
-function isDeclaredRoot(path: string, ctx: TransformContext): boolean {
-  const root = path.split('.')[0]!
-  for (
-    let scope: TransformContext | undefined = ctx;
-    scope;
-    scope = scope.parent
-  ) {
-    if (scope.locals?.has(root) || scope.parameters?.has(root)) return true
-  }
-  return false
-}
 
 /**
  * Rewrite spread into the call it means, then let the ordinary emitter handle it.
@@ -2091,11 +2082,10 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       return (expr as Literal).value
 
     case 'Identifier': {
-      const name = (expr as Identifier).name
-      // Parameters are imported into state via varsImport at function start,
-      // so we reference them as state variables (just the name string)
-      // No need for $kind: 'arg' since args are copied to state
-      return name
+      // An EXPLICIT reference (AST v2). A bare name string was a reference only if a variable
+      // by that name happened to be in scope, and a literal otherwise — so the same string
+      // meant two things (board #1860). In v2 a bare string is always a literal.
+      return { $expr: 'ident', name: (expr as Identifier).name }
     }
 
     case 'MemberExpression': {
@@ -2107,26 +2097,23 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
         return expressionToExprNode(expr, ctx)
       }
 
+      // Computed access (`arr[i]`, `obj[k]`, `arr[0]`) is ALWAYS a node, decided before the
+      // object is looked at: the index must be evaluated, never stringified. Checked after
+      // the object used to be enough, because a plain identifier object came back as a
+      // string; in AST v2 it comes back as an ident NODE and took the branch below, which
+      // assumes a LITERAL index — so `m[i]` compiled to `m["undefined"]`.
+      if (mem.computed) return expressionToExprNode(expr, ctx)
+
       const objValue = expressionToValue(mem.object as Expression, ctx)
 
       // If the object resolved to an ExprNode (e.g., from nested optional chaining),
       // we need to build an ExprNode for this access too
       if (objValue && typeof objValue === 'object' && objValue.$expr) {
-        const prop = mem.computed
-          ? String((mem.property as Literal).value)
-          : (mem.property as Identifier).name
         return {
           $expr: 'member',
           object: objValue,
-          property: prop,
-          ...(mem.computed && { computed: true }),
+          property: (mem.property as Identifier).name,
         }
-      }
-
-      if (mem.computed) {
-        // Computed member (arr[i] or arr[0]) — always emit as $expr node so the
-        // runtime evaluates the index rather than treating it as a string path.
-        return expressionToExprNode(expr, ctx)
       }
 
       const prop = (mem.property as Identifier).name
@@ -2148,9 +2135,6 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       // the traversal never checks there and the string falls through to "return the literal"
       // (#52). The emitter can tell the two apart — `TransformContext` carries `locals` and
       // `parameters` up a scope chain — so it now asks instead of assuming.
-      if (typeof objValue === 'string' && isDeclaredRoot(objValue, ctx)) {
-        return `${objValue}.${prop}`
-      }
 
       // Everything else emits a member NODE, not a dot-path string.
       //
@@ -2189,6 +2173,19 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       })
 
     case 'ObjectExpression': {
+      // A literal whose keys include the VM's own markers would be read as code, not data:
+      // `{ $expr: 'ident', name: 'x' }` written as DATA must not read x. Build it as an object
+      // node, whose keys are never interpreted.
+      if (
+        (expr as ObjectExpression).properties.some(
+          (p: any) =>
+            p.type === 'Property' &&
+            ['$expr', '$kind'].includes(
+              p.key.type === 'Identifier' ? p.key.name : String(p.key.value)
+            )
+        )
+      )
+        return expressionToExprNode(expr, ctx)
       if (hasSpread(expr as ObjectExpression))
         return expressionToExprNode(
           desugarSpread(expr as ObjectExpression),

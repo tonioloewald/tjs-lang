@@ -58,8 +58,25 @@
  * merely prudent.
  */
 
-/** Current AJS AST format version, written into the root of every AST we emit. */
-export const AST_VERSION = 1
+/**
+ * The newest AJS AST format this build understands, and the one the TRANSPILER writes.
+ *
+ * **Version 2** (0.14.0) changed what a bare string means. In v1 a string in value position was
+ * a variable reference if a variable by that name was in scope, and a literal otherwise — so
+ * `const s = 'x'` read the VARIABLE `x` when one existed, and input that chose a variable name
+ * could redirect a literal (board #1860). In v2 a bare string is ALWAYS a literal; a reference
+ * is always explicit (`{ $expr: 'ident' }` / `'member'`). v2 also introduced `varAssign`
+ * (assignment writes the scope that owns the binding, tjs-lang#59) and a per-iteration scope for
+ * a `while` body. A v1 AST keeps v1 meaning, read by the same VM.
+ */
+export const AST_VERSION = 2
+
+/**
+ * The version the fluent BUILDER writes: still 1. Its users write strings that MEAN references
+ * (`storeGet({ key: 'item' })`), so moving it to v2 would silently change every builder program.
+ * It moves when it has an explicit `ref()`.
+ */
+export const BUILDER_AST_VERSION = 1
 
 /**
  * The version assumed for an AST with no `$ajs` field.

@@ -502,7 +502,8 @@ Each node costs 0.01 fuel. Forbidden: function calls, `new`, `this`, `__proto__`
 AJS expressions behave differently from JavaScript in several important ways:
 
 - **Null member access is safe by default**: `null.foo.bar` returns `undefined` silently (uses `?.` semantics internally). This differs from JavaScript which would throw `TypeError`.
-- **No computed member access with variables**: `items[i]` fails at transpile time with "Computed member access with variables not yet supported". Literal indices work (`items[0]`, `obj["key"]`). Workaround: use `.map`/`.reduce` atoms instead.
+- **Computed member access works**: `items[i]`, `obj[key]` and literal indices all compile to member nodes. (This entry used to say `items[i]` fails at transpile time; that was stale — board #2074. It is pinned in `src/vm/ast-v2.test.ts` and the golden fixtures, because the first v2 emitter briefly broke exactly this and no other test noticed.)
+- **Assignment is JavaScript's** (0.14.0, #59): every compound operator, `++`/`--` as statements, and assignment to an outer variable from inside a loop body (`varAssign` writes the owning scope). `++` used as a VALUE is refused, as is any expression AJS does not support — never compiled to `null`.
 - **Unknown atom errors**: When an atom doesn't exist, the error is `"Unknown Atom: <name>"` with no listing of available atoms.
 - **TJS parameter syntax is NOT TypeScript**: `function foo(x: 'default')` means "required param, example value 'default'" — not a TypeScript string literal type. The colon value is an _example_, not a _type annotation_. **But `function foo(x: string)` is NOT an error** — bare type names (`string`, `number`, `boolean`, …) resolve through `TYPE_NAMES` (`src/lang/inference.ts`) and validate correctly, on the TJS _and_ AJS paths. This entry used to say that spelling "is wrong", and it was stale: the language absorbed the most common LLM mistake instead of diagnosing it. Pinned by `src/lang/ajs-type-annotations.test.ts`, which exists because the only record of this behaviour used to be two silent regex repairs in the grokkability harness — so the fix never showed up in the number meant to measure it.
 
@@ -752,6 +753,12 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
 
 ### Custom Atoms Must
 
+- **Receive values, not references — the VM does this for you** (0.14.0). `defineAtom` atoms get
+  their inputs resolved before they are called (`resolveInputs`, default `true`). Before 0.14.0
+  they did not: an atom written like the documented example received a variable's NAME
+  (`echo({ v: local })` got `"local"`). Core and battery atoms resolve their own inputs and are
+  marked `resolveInputs: false`; set that only if your atom calls `resolveValue` itself —
+  resolving twice can misread a resolved value.
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
 - Access IO only via `ctx.capabilities`
@@ -776,14 +783,23 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
   keeps `ok`/`status`/`headers` on its _prototype_, so `{ ...res }` is `{}` — it crosses
   the membrane cleanly and delivers nothing. Build the object literally, naming each field.
 
-### Value Resolution
+### Value Resolution — and the AST format version
 
-The `resolveValue()` function handles multiple input patterns:
+**What a bare string means depends on the AST's `$ajs` version** (`src/vm/ast-version.ts`):
 
-- `{ $kind: 'arg', path: 'varName' }` → lookup in `ctx.args`
-- `{ $expr: ... }` → evaluate ExprNode via `evaluateExpr()`
-- String with dots `'obj.foo.bar'` → traverse state with forbidden property checks
-- Bare strings → lookup in state, else return literal
+- **v2** (what the transpiler writes, 0.14.0+): a bare string is **always a literal**. A reference is
+  always explicit: `{ $expr: 'ident' }` / `{ $expr: 'member' }`. Assignment is `varAssign`
+  (writes the owning scope); a `while` body is a per-iteration block scope.
+- **v1** (the builder, and every unversioned or `$ajs: 1` AST — they are persisted, so this is a
+  promise): a bare string is a reference if a variable by that name is in scope, else a literal;
+  `'obj.foo.bar'` traverses state. That ambiguity is why v2 exists (board #1860).
+
+`resolveValue()` also handles `{ $kind: 'arg', path }` (→ `ctx.args`) and `{ $expr }` (→
+`evaluateExpr()`) in both versions, and recurses into plain arrays and objects. An object
+literal whose keys include `$expr`/`$kind` is emitted as an object NODE, so data shaped like
+code stays data. The format is frozen by `src/vm/ast-fixtures/{v1,v2}.json`
+(`src/vm/ast-fixtures.test.ts`): changing what the emitter writes is a format change and must
+appear there as a reviewed diff.
 
 ### Monadic Error Flow
 

@@ -30,6 +30,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > (`{ role?, content?, tool_calls? }`) via `.open`, still admitting provider additions such as
 > `reasoning_content`, where `s.record(s.any)` rejected nothing at all.
 >
+> **Since rc.1 — AJS AST format v2: a bare string is always a literal** (board #1860). v1 stored a
+> literal string and a variable reference the same way, and the VM read it as a reference when a
+> variable by that name was in scope: `let x = 5; const s = 'x'` made `s` 5, `['x', 'z']` became
+> `[5, 'z']`, and input that chose variable names could redirect a literal. The transpiler now
+> writes `$ajs: 2`, where every reference is an explicit node and a bare string is data; an
+> object literal shaped like a VM node (`{ $expr: … }`) stays data too. A `while` body is now a
+> block, so a `const` in it no longer fails on the second iteration (#2343). **Compatibility:**
+> v1 ASTs — every stored procedure, everything the fluent builder writes (it still writes v1;
+> its strings mean references) — keep v1 meaning, read by the same VM; an older VM refuses a v2
+> AST by version, by name. Frozen by golden fixtures for both versions.
+>
+> **Since rc.1 — custom atoms receive VALUES.** An atom defined with `defineAtom` and written like
+> the documented example (`async ({ url }) => fetch(url)`) received the variable's NAME when a
+> program passed one — `echo({ v: local })` got `"local"` — in every earlier release. The VM now
+> resolves inputs before calling it. If your atom already calls `resolveValue` on its inputs,
+> pass `{ resolveInputs: false }`, or it resolves twice.
+>
 > **Since rc.1 — AJS assignment means what it means in JavaScript** ([#59](https://github.com/tonioloewald/tjs-lang/issues/59)).
 > Found by tosijs-platform; every one of these was a SILENT wrong answer:
 > - Every compound assignment stored only its right-hand side: `n -= 2` gave `2`, `s += 'b'` gave

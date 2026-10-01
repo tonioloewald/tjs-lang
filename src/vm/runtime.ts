@@ -9,7 +9,11 @@ import {
   checkedQuota,
 } from './admission'
 import { s, validate, isBuilder, filter as schemaFilter } from 'tosijs-schema'
-import { checkAstVersion } from './ast-version'
+import {
+  checkAstVersion,
+  astVersionOf,
+  AST_VERSION_LEGACY,
+} from './ast-version'
 import { reDoSRisk, alternationOverlapRisk } from '../redos'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
 
@@ -307,6 +311,11 @@ export interface RuntimeContext {
    * asserts both directions (shadowing must not free; discarding must).
    */
   heapPerKey?: Map<string, HeapEntry>
+  /**
+   * The format version of the AST this context runs (`$ajs`). v2 reads a bare string as a
+   * LITERAL; v1 as a reference when a variable of that name is in scope. Absent means v1.
+   */
+  astVersion?: number
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
   localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
   helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
@@ -368,6 +377,8 @@ export interface AtomDef {
   timeoutMs?: number
   cost?: number | ((input: any, ctx: RuntimeContext) => number)
   effects?: AtomEffects
+  /** The VM resolves this atom's inputs before calling it (see {@link AtomOptions}). */
+  resolveInputs?: boolean
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -386,6 +397,17 @@ export interface AtomOptions {
    * verified predicate. See {@link AtomEffects}.
    */
   effects?: AtomEffects
+  /**
+   * Resolve this atom's inputs before calling it — **default `true`**. A program's
+   * `myAtom({ url: someVar })` hands the AST's VALUE for `url` — a reference — not the value
+   * of `someVar`. The core and battery atoms each call `resolveValue` themselves; an atom
+   * written like the documented example (`async ({ url }) => fetch(url)`) did not, and so
+   * received the variable's NAME (`"someVar"`) silently in every release before 0.14.0.
+   * The VM now resolves for it. Set `false` only if your atom calls `resolveValue` on its own
+   * inputs — resolving twice can read a resolved string as a variable name (v1 ASTs) or a
+   * resolved object shaped like `{ $expr }` as an expression.
+   */
+  resolveInputs?: boolean
 }
 
 export interface RunResult {
@@ -1184,6 +1206,10 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
     return evaluateExpr(val, ctx)
   }
   if (typeof val === 'string') {
+    // v2: a bare string is ALWAYS a literal; references are explicit nodes (board #1860).
+    // Everything below is v1's guess — reference if a variable of that name exists — kept
+    // for ASTs that say they are v1 (and the builder, which writes v1).
+    if ((ctx.astVersion ?? AST_VERSION_LEGACY) >= 2) return val
     // Special case: args.foo looks up ctx.args['foo'] directly
     // BUT only if 'args' is not a state variable (which takes precedence)
     if (val.startsWith('args.') && !('args' in ctx.state)) {
@@ -2665,6 +2691,25 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
 // --- Atom Factory ---
 
+/** Fields of a step that are the VM's, not the atom's input. */
+const STEP_CONTROL_KEYS = new Set([
+  'op',
+  'result',
+  'resultConst',
+  'resultAssign',
+])
+
+/** A step with every INPUT field resolved to its value (control fields left as they are). */
+function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
+  const out: Record<string, any> = {}
+  for (const key of Object.keys(step)) {
+    out[key] = STEP_CONTROL_KEYS.has(key)
+      ? step[key]
+      : resolveValue(step[key], ctx)
+  }
+  return out
+}
+
 export function defineAtom<I extends Record<string, any>, O = any>(
   op: string,
   inputSchema: any, // s.Schema<I>
@@ -2682,6 +2727,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     // construction (PURE by absence from EFFECTFUL_CORE_OPS), because for them the
     // opposite is true.
     effects = 'io',
+    resolveInputs = true,
   } = typeof options === 'string' ? { docs: options } : options
   // A static timeout is checked when the atom is DEFINED, so a bad one fails where it was
   // written instead of on its first call.
@@ -2768,7 +2814,10 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           : baseTimeout
       )
       let timer: any
-      const execute = async () => fn(step as I, ctx)
+      // Inputs resolved for the atom unless it resolves its own (core and battery atoms do):
+      // a reference must arrive as its VALUE, never as the variable's name or a node.
+      const callInput = atom.resolveInputs ? resolveAtomInputs(step, ctx) : step
+      const execute = async () => fn(callInput as I, ctx)
 
       result =
         armedTimeout !== undefined
@@ -2880,6 +2929,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     timeoutMs: atomTimeout,
     cost,
     effects,
+    resolveInputs,
     create: (input: I) => ({ op, ...input }),
   }
   return atom
@@ -2975,11 +3025,30 @@ export const whileLoop = defineAtom(
   }),
   undefined,
   async (step, ctx) => {
+    // v2: each iteration's body is a BLOCK, with its own scope, as in JavaScript. v1 ran the
+    // body in the enclosing scope, so a `const` declared in it was a redeclaration on the
+    // second pass ("Cannot reassign const variable", board #2343). Safe in v2 only because
+    // assignment is `varAssign`, which writes the owning scope; a v1 AST assigns with
+    // `varSet`, so it keeps the unscoped body it was written for.
+    const blockScoped = (ctx.astVersion ?? AST_VERSION_LEGACY) >= 2
     while (evaluateExpr(step.condition, ctx)) {
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       if ((ctx.fuel.current -= 0.1) <= 0) throw new Error('Out of Fuel')
-      await seq.exec({ op: 'seq', steps: step.body } as any, ctx)
+      if (blockScoped) {
+        const body = createChildScope(ctx)
+        try {
+          await seq.exec({ op: 'seq', steps: step.body } as any, body)
+          if (body.output !== undefined) {
+            ctx.output = body.output
+            return
+          }
+        } finally {
+          releaseScope(body)
+        }
+      } else {
+        await seq.exec({ op: 'seq', steps: step.body } as any, ctx)
+      }
       if (ctx.output !== undefined) return
       if (ctx.error) return // Propagate monadic errors out of the loop
     }
@@ -4264,6 +4333,7 @@ export const agentRun = defineAtom(
         // EVERY execution of a non-literal AST is immediately preceded by the gate on it.
         // `ast-version-boundaries.test.ts` checks exactly that, and cannot see through calls.
         checkAstVersion(ast, 'agentRun')
+        childCtx.astVersion = astVersionOf(ast) ?? AST_VERSION_LEGACY
         await seqAtom.exec(ast, childCtx)
 
         if (childCtx.error) {
@@ -4301,6 +4371,7 @@ export const agentRun = defineAtom(
         // 0.14.0 review's M3 gated only the token route and missed this one, which was the
         // review's own repro (0.14.0 re-review, M-1).
         checkAstVersion(resolvedId, 'agentRun')
+        childCtx.astVersion = astVersionOf(resolvedId) ?? AST_VERSION_LEGACY
         await seqAtom.exec(resolvedId, childCtx)
 
         if (childCtx.error) {
@@ -4481,6 +4552,8 @@ export const runCode = defineAtom(
     // Create a child scope for the dynamic code execution
     // This isolates its variables but shares fuel, capabilities, trace
     const childCtx = createChildScope(ctx)
+    // The guest-built code is its OWN document: read it in its own format.
+    childCtx.astVersion = astVersionOf(ast) ?? AST_VERSION_LEGACY
     try {
       childCtx.args = resolvedArgs
       childCtx.output = undefined
@@ -5084,4 +5157,7 @@ export const EFFECTFUL_CORE_OPS = [
 const EFFECTFUL_SET: ReadonlySet<string> = new Set(EFFECTFUL_CORE_OPS)
 for (const [op, atom] of Object.entries(coreAtoms as Record<string, AtomDef>)) {
   atom.effects = EFFECTFUL_SET.has(op) ? 'io' : 'pure'
+  // Every core atom resolves its own inputs (control atoms must NOT have their `steps`
+  // resolved), so the VM must not resolve them a second time.
+  atom.resolveInputs = false
 }

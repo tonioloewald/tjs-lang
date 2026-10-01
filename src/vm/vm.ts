@@ -11,7 +11,11 @@ import {
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate, isBuilder } from 'tosijs-schema'
-import { checkAstVersion } from './ast-version'
+import {
+  checkAstVersion,
+  astVersionOf,
+  AST_VERSION_LEGACY,
+} from './ast-version'
 import { getTranspiler } from './transpiler-slot'
 import {
   admitRunOptions,
@@ -443,6 +447,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     }
 
     const ctx: RuntimeContext = {
+      astVersion: astVersionOf(ast) ?? AST_VERSION_LEGACY,
       fuel: { current: startFuel - admissionFuel },
       args,
       state: {},

@@ -1070,15 +1070,21 @@ test 'always fails' { throw new Error('intentional') }
       expect(ast.steps[1].value.method).toBe('toUpperCase')
     })
 
-    it('should use string path optimization for regular member access', () => {
+    it('regular member access is a member NODE, never a dotted string (AST v2)', () => {
       const { ast } = transpile(`
         function test({ user }) {
           let name = user.name
           return { name }
         }
       `)
-      // Regular member access uses string path optimization, not ExprNode
-      expect(ast.steps[1].value).toBe('user.name')
+      // v1 emitted the string 'user.name' as a "path optimisation", and a string that is
+      // sometimes a path and sometimes a literal is exactly the ambiguity v2 removes: in v2
+      // a bare string is always a literal (board #1860).
+      expect(ast.steps[1].value).toEqual({
+        $expr: 'member',
+        object: { $expr: 'ident', name: 'user' },
+        property: 'name',
+      })
     })
   })
 

@@ -1,0 +1,573 @@
+[
+  {
+    "name": "literal-vs-reference",
+    "version": 2,
+    "source": "function f({ x }) { const s = 'x'; return { s, x } }",
+    "args": {
+      "x": 5
+    },
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varsImport",
+          "keys": ["x"]
+        },
+        {
+          "op": "constSet",
+          "key": "s",
+          "value": "x"
+        },
+        {
+          "op": "return",
+          "value": {
+            "s": {
+              "$expr": "ident",
+              "name": "s"
+            },
+            "x": {
+              "$expr": "ident",
+              "name": "x"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {}
+        },
+        "required": ["x"],
+        "additionalProperties": false
+      }
+    },
+    "result": {
+      "s": "x",
+      "x": 5
+    }
+  },
+  {
+    "name": "member-and-index",
+    "version": 2,
+    "source": "function f({ user, i }) { const xs = [10, 20, 30]; return { name: user.name, pick: xs[i], first: xs[0] } }",
+    "args": {
+      "user": {
+        "name": "Ada"
+      },
+      "i": 2
+    },
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varsImport",
+          "keys": ["user", "i"]
+        },
+        {
+          "op": "constSet",
+          "key": "xs",
+          "value": [10, 20, 30]
+        },
+        {
+          "op": "return",
+          "value": {
+            "name": {
+              "$expr": "member",
+              "object": {
+                "$expr": "ident",
+                "name": "user"
+              },
+              "property": "name"
+            },
+            "pick": {
+              "$expr": "member",
+              "object": {
+                "$expr": "ident",
+                "name": "xs"
+              },
+              "property": {
+                "$expr": "ident",
+                "name": "i"
+              },
+              "computed": true
+            },
+            "first": {
+              "$expr": "member",
+              "object": {
+                "$expr": "ident",
+                "name": "xs"
+              },
+              "property": "0",
+              "computed": true
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user": {},
+          "i": {}
+        },
+        "required": ["user", "i"],
+        "additionalProperties": false
+      }
+    },
+    "result": {
+      "name": "Ada",
+      "pick": 30,
+      "first": 10
+    }
+  },
+  {
+    "name": "compound-and-update",
+    "version": 2,
+    "source": "function f() { let s = 'a'; s += 'b'; let n = 5; n -= 2; n *= 3; let i = 0; i++; return { s, n, i } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varSet",
+          "key": "s",
+          "value": "a"
+        },
+        {
+          "op": "varAssign",
+          "key": "s",
+          "value": {
+            "$expr": "binary",
+            "op": "+",
+            "left": {
+              "$expr": "ident",
+              "name": "s"
+            },
+            "right": {
+              "$expr": "literal",
+              "value": "b"
+            }
+          }
+        },
+        {
+          "op": "varSet",
+          "key": "n",
+          "value": 5
+        },
+        {
+          "op": "varAssign",
+          "key": "n",
+          "value": {
+            "$expr": "binary",
+            "op": "-",
+            "left": {
+              "$expr": "ident",
+              "name": "n"
+            },
+            "right": {
+              "$expr": "literal",
+              "value": 2
+            }
+          }
+        },
+        {
+          "op": "varAssign",
+          "key": "n",
+          "value": {
+            "$expr": "binary",
+            "op": "*",
+            "left": {
+              "$expr": "ident",
+              "name": "n"
+            },
+            "right": {
+              "$expr": "literal",
+              "value": 3
+            }
+          }
+        },
+        {
+          "op": "varSet",
+          "key": "i",
+          "value": 0
+        },
+        {
+          "op": "varAssign",
+          "key": "i",
+          "value": {
+            "$expr": "binary",
+            "op": "+",
+            "left": {
+              "$expr": "ident",
+              "name": "i"
+            },
+            "right": {
+              "$expr": "literal",
+              "value": 1
+            }
+          }
+        },
+        {
+          "op": "return",
+          "value": {
+            "s": {
+              "$expr": "ident",
+              "name": "s"
+            },
+            "n": {
+              "$expr": "ident",
+              "name": "n"
+            },
+            "i": {
+              "$expr": "ident",
+              "name": "i"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "result": {
+      "s": "ab",
+      "n": 9,
+      "i": 1
+    }
+  },
+  {
+    "name": "for-of-outer-assignment",
+    "version": 2,
+    "source": "function f({ words }) { let s = ''; let count = 0; for (const w of words) { s = s + w; count += 1 } return { s, count } }",
+    "args": {
+      "words": ["a", "b", "c"]
+    },
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varsImport",
+          "keys": ["words"]
+        },
+        {
+          "op": "varSet",
+          "key": "s",
+          "value": ""
+        },
+        {
+          "op": "varSet",
+          "key": "count",
+          "value": 0
+        },
+        {
+          "op": "map",
+          "items": {
+            "$expr": "ident",
+            "name": "words"
+          },
+          "as": "w",
+          "steps": [
+            {
+              "op": "varAssign",
+              "key": "s",
+              "value": {
+                "$expr": "binary",
+                "op": "+",
+                "left": {
+                  "$expr": "ident",
+                  "name": "s"
+                },
+                "right": {
+                  "$expr": "ident",
+                  "name": "w"
+                }
+              }
+            },
+            {
+              "op": "varAssign",
+              "key": "count",
+              "value": {
+                "$expr": "binary",
+                "op": "+",
+                "left": {
+                  "$expr": "ident",
+                  "name": "count"
+                },
+                "right": {
+                  "$expr": "literal",
+                  "value": 1
+                }
+              }
+            }
+          ],
+          "loop": true
+        },
+        {
+          "op": "return",
+          "value": {
+            "s": {
+              "$expr": "ident",
+              "name": "s"
+            },
+            "count": {
+              "$expr": "ident",
+              "name": "count"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "words": {}
+        },
+        "required": ["words"],
+        "additionalProperties": false
+      }
+    },
+    "result": {
+      "s": "abc",
+      "count": 3
+    }
+  },
+  {
+    "name": "while-block-scope",
+    "version": 2,
+    "source": "function f() { let i = 0; let t = 0; while (i < 3) { const d = i * 2; t = t + d; i++ } return { t } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varSet",
+          "key": "i",
+          "value": 0
+        },
+        {
+          "op": "varSet",
+          "key": "t",
+          "value": 0
+        },
+        {
+          "op": "while",
+          "condition": {
+            "$expr": "binary",
+            "op": "<",
+            "left": {
+              "$expr": "ident",
+              "name": "i"
+            },
+            "right": {
+              "$expr": "literal",
+              "value": 3
+            }
+          },
+          "body": [
+            {
+              "op": "constSet",
+              "key": "d",
+              "value": {
+                "$expr": "binary",
+                "op": "*",
+                "left": {
+                  "$expr": "ident",
+                  "name": "i"
+                },
+                "right": {
+                  "$expr": "literal",
+                  "value": 2
+                }
+              }
+            },
+            {
+              "op": "varAssign",
+              "key": "t",
+              "value": {
+                "$expr": "binary",
+                "op": "+",
+                "left": {
+                  "$expr": "ident",
+                  "name": "t"
+                },
+                "right": {
+                  "$expr": "ident",
+                  "name": "d"
+                }
+              }
+            },
+            {
+              "op": "varAssign",
+              "key": "i",
+              "value": {
+                "$expr": "binary",
+                "op": "+",
+                "left": {
+                  "$expr": "ident",
+                  "name": "i"
+                },
+                "right": {
+                  "$expr": "literal",
+                  "value": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "return",
+          "value": {
+            "t": {
+              "$expr": "ident",
+              "name": "t"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "result": {
+      "t": 6
+    }
+  },
+  {
+    "name": "object-literal-is-data",
+    "version": 2,
+    "source": "function f() { const x = 1; return { node: { $expr: 'ident', name: 'x' } } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "constSet",
+          "key": "x",
+          "value": 1
+        },
+        {
+          "op": "return",
+          "value": {
+            "node": {
+              "$expr": "object",
+              "properties": [
+                {
+                  "key": "$expr",
+                  "value": {
+                    "$expr": "literal",
+                    "value": "ident"
+                  }
+                },
+                {
+                  "key": "name",
+                  "value": {
+                    "$expr": "literal",
+                    "value": "x"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "result": {
+      "node": {
+        "$expr": "ident",
+        "name": "x"
+      }
+    }
+  },
+  {
+    "name": "conditional-and-template",
+    "version": 2,
+    "source": "function f({ n }) { const label = n > 1 ? 'many' : 'one'; const msg = `n is ${n}`; return { label, msg } }",
+    "args": {
+      "n": 3
+    },
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varsImport",
+          "keys": ["n"]
+        },
+        {
+          "op": "constSet",
+          "key": "label",
+          "value": {
+            "$expr": "conditional",
+            "test": {
+              "$expr": "binary",
+              "op": ">",
+              "left": {
+                "$expr": "ident",
+                "name": "n"
+              },
+              "right": {
+                "$expr": "literal",
+                "value": 1
+              }
+            },
+            "consequent": {
+              "$expr": "literal",
+              "value": "many"
+            },
+            "alternate": {
+              "$expr": "literal",
+              "value": "one"
+            }
+          }
+        },
+        {
+          "op": "template",
+          "tmpl": "n is {{_0}}",
+          "vars": {
+            "_0": {
+              "$expr": "ident",
+              "name": "n"
+            }
+          },
+          "result": "msg",
+          "resultConst": true
+        },
+        {
+          "op": "return",
+          "value": {
+            "label": {
+              "$expr": "ident",
+              "name": "label"
+            },
+            "msg": {
+              "$expr": "ident",
+              "name": "msg"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "n": {}
+        },
+        "required": ["n"],
+        "additionalProperties": false
+      }
+    },
+    "result": {
+      "label": "many",
+      "msg": "n is 3"
+    }
+  }
+]

@@ -1,6 +1,6 @@
 import { coreAtoms, type Atom, type OpCode, type ExprNode } from './runtime'
 import { isBuilder } from 'tosijs-schema'
-import { AST_VERSION, AST_VERSION_KEY } from './vm/ast-version'
+import { BUILDER_AST_VERSION, AST_VERSION_KEY } from './vm/ast-version'
 
 type _AtomMap = typeof coreAtoms
 
@@ -543,7 +543,8 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
   toJSON(): SeqNode {
     return {
       // Version first, so it survives a truncated dump and reads clearly in a diff.
-      [AST_VERSION_KEY]: AST_VERSION,
+      // v1: builder strings mean references (see BUILDER_AST_VERSION).
+      [AST_VERSION_KEY]: BUILDER_AST_VERSION,
       op: 'seq',
       steps: [...this.steps],
     }

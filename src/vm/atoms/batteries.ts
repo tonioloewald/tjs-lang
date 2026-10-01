@@ -271,3 +271,16 @@ for (const atom of [
 ]) {
   atom.effects = 'io'
 }
+
+// Every battery atom calls `resolveValue` on its own inputs, so the VM must not resolve them
+// again (resolving twice can misread a resolved value). Set here, beside the definitions, so an
+// atom imported straight from this module carries it too.
+for (const atom of [
+  storeVectorize,
+  storeCreateCollection,
+  storeVectorAdd,
+  storeSearch,
+  llmPredictBattery,
+  llmVision,
+])
+  atom.resolveInputs = false

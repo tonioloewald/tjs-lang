@@ -986,6 +986,11 @@ const myScraper = defineAtom(
 const myVM = new AgentVM({ scrape: myScraper })
 ```
 
+Your atom receives its inputs as **values**: if a program calls `scrape({ url: target })`, `url`
+is the value of `target`. (Before 0.14.0 it was the string `"target"` unless the atom called
+`resolveValue` itself; the VM now resolves inputs for any atom defined with `defineAtom`. An
+atom that already resolves its own inputs should pass `{ resolveInputs: false }`.)
+
 Atoms must:
 
 - Be non-blocking (no synchronous CPU-heavy work)

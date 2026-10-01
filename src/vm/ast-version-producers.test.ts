@@ -38,17 +38,22 @@ import { join } from 'node:path'
 import { s } from 'tosijs-schema'
 import { Agent } from '../builder'
 import { ajs, transpile } from '../lang/core'
-import { AST_VERSION, AST_VERSION_KEY, astVersionOf } from './ast-version'
+import {
+  AST_VERSION,
+  AST_VERSION_KEY,
+  BUILDER_AST_VERSION,
+  astVersionOf,
+} from './ast-version'
 
 const SRC = join(import.meta.dir, '..')
 
 /** Both assertions every producer owes: the field is PRESENT, and it reads back correctly. */
-function expectStamped(label: string, ast: any) {
+function expectStamped(label: string, ast: any, version = AST_VERSION) {
   expect({
     [`${label} has ${AST_VERSION_KEY}`]: AST_VERSION_KEY in ast,
   }).toEqual({ [`${label} has ${AST_VERSION_KEY}`]: true })
   expect({ [`${label} version`]: astVersionOf(ast) }).toEqual({
-    [`${label} version`]: AST_VERSION,
+    [`${label} version`]: version,
   })
 }
 
@@ -62,7 +67,9 @@ describe('behaviour: both producers stamp the version', () => {
     const built = Agent.take(s.object({ x: s.number }))
       .varSet({ key: 'y', value: 1 })
       .toJSON()
-    expectStamped('TypedBuilder.toJSON()', built)
+    // v1 on purpose: builder strings MEAN references (see BUILDER_AST_VERSION). Stamping it
+    // v2 would silently turn every one of them into a literal.
+    expectStamped('TypedBuilder.toJSON()', built, BUILDER_AST_VERSION)
   })
 
   it('a builder AST still RUNS — apparatus check', async () => {
