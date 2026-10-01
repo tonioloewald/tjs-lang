@@ -10,7 +10,7 @@ Why TJS exists, the principles it will not bend, its declarations and syntax, an
 - [Why TJS](/why-tjs/)
 - [Design Principles & Invariants](/PRINCIPLES/)
 - [Declarations](/declarations/)
-- [TJS Syntax Reference](/CLAUDE-TJS-SYNTAX/)
+- [TJS Syntax Reference](/TJS-SYNTAX/)
 - [Dictionary Defaults (Merge-on-Partial Object Arguments)](/dictionary-defaults/)
 - [Type identity: who answers "does this value satisfy this type?"](/type-identity/)
 - [Runtime fusion: what may be shared between TJS modules, and what may not](/runtime-fusion/)

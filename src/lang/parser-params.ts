@@ -2026,7 +2026,7 @@ function processParamString(
 
       // `x: T | undefined` is OPTIONAL. The union spells "or absent", which is what the
       // converter emits for a TypeScript optional — `?:` cannot be used there because it
-      // means "defaults to this example" (CLAUDE-TJS-SYNTAX.md).
+      // means "defaults to this example" (TJS-SYNTAX.md).
       //
       // It used to be recorded as REQUIRED, so the emitted metadata said `required: true`
       // for a parameter the converter had just described as optional. That disagreement is

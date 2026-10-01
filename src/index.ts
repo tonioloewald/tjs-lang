@@ -11,7 +11,7 @@
 // `lang/`. The result was a VM that rejected source when reached through `tjs-lang` — caught
 // by `stored-procedures.test.ts`, which is exactly the kind of ordering bug that is invisible
 // until it isn't. An import for a side effect is a dependency you cannot see at the use site.
-import { setTranspiler } from './vm/vm'
+import { setTranspiler } from './vm/transpiler-slot'
 import { transpile as __transpile } from './lang/core'
 setTranspiler(__transpile as (source: string) => { ast: unknown })
 

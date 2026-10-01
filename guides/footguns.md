@@ -194,4 +194,4 @@ For ts-originated code (`fromTS`), all modes default off. Add `TjsStrict`
 if you want to opt back in.
 
 For specific mode toggles, see [DOCS-TJS.md](../DOCS-TJS.md) and the
-mode list in [CLAUDE-TJS-SYNTAX.md](../CLAUDE-TJS-SYNTAX.md).
+mode list in [TJS-SYNTAX.md](../TJS-SYNTAX.md).

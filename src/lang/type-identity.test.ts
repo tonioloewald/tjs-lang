@@ -29,7 +29,7 @@
  *
  *   1. **Numeric narrowing is lost inside a shape.** `__match` bottoms out at
  *      `typeof v === 'number'`, so an example of `1` accepts `1.5`. This contradicts the
- *      documented rule that `42` is an integer example (`CLAUDE-TJS-SYNTAX.md`), so the
+ *      documented rule that `42` is an integer example (`TJS-SYNTAX.md`), so the
  *      stub is wrong against the spec, not merely different from the real runtime.
  *
  *      FIXED for a top-level numeric example, by emitting the narrowing as a predicate

@@ -2378,7 +2378,7 @@ export function transpileToJS(
     // TJS's user-facing surface includes callables the author never imports: `Is(a, b)` and
     // `IsNot(a, b)`, `DangerousLegacyEquals(a, b)`, `LegacyDefault({…})`, `Exactly('a')`,
     // and the `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` family are all documented
-    // as simply available (`CLAUDE-TJS-SYNTAX.md`). They were available precisely BECAUSE
+    // as simply available (`TJS-SYNTAX.md`). They were available precisely BECAUSE
     // the preamble declared them at module scope, so moving the declarations inside the
     // IIFE would have silently deleted a documented part of the language. The aliases put
     // it back — for every file except the ones where it would collide.

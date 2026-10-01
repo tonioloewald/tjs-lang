@@ -90,7 +90,7 @@ describe('the emitted runtime never lands in the author’s namespace', () => {
 
   it('the ambient surface still works with no import at all', () => {
     // `Is`/`IsNot`/`DangerousLegacyEquals` and the type constructors are documented as
-    // simply available (CLAUDE-TJS-SYNTAX.md). Moving them inside the IIFE without aliasing
+    // simply available (TJS-SYNTAX.md). Moving them inside the IIFE without aliasing
     // them back out would have removed a documented part of the language.
     const code = tjs(
       `export function f(a: [0], b: [0]): false { return IsNot(a, b) }\n` +

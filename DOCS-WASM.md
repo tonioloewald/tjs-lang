@@ -404,5 +404,5 @@ from the wasm-library plan.
 
 - `docs/WASM-QUICKSTART.md` — 5-minute introduction (inline blocks)
 - `wasm-library-plan.md` — Design rationale and phased implementation plan
-- `CLAUDE-TJS-SYNTAX.md` § "WASM Blocks" — Inline block reference
+- `TJS-SYNTAX.md` § "WASM Blocks" — Inline block reference
 - `src/linalg/index.tjs` — First stdlib library, readable as source

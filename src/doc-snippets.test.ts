@@ -1,7 +1,7 @@
 /**
  * Every code snippet in the language docs is COMPILED.
  *
- * `CLAUDE-TJS-SYNTAX.md` is the document a reader reaches for first, and nothing checked
+ * `TJS-SYNTAX.md` is the document a reader reaches for first, and nothing checked
  * it. That is how it came to teach `const p2 = new Point(10, 20) // Still works, but
  * linter warns` (a compile error) and a WASM assignment form
  * (`const add = wasm (a: i32…) { local.get $a … }`) that was never implemented — two
@@ -45,7 +45,7 @@ const REPO = resolve(import.meta.dir, '..')
  * a doc-editing job, not a harness one.
  */
 const DOCS = [
-  'CLAUDE-TJS-SYNTAX.md',
+  'TJS-SYNTAX.md',
   'DOCS-TJS.md',
   'DOCS-WASM.md',
   'TJS-FOR-TS.md',

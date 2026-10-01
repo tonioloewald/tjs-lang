@@ -30,6 +30,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > (`{ role?, content?, tool_calls? }`) via `.open`, still admitting provider additions such as
 > `reasoning_content`, where `s.record(s.any)` rejected nothing at all.
 >
+> **Since rc.1 — two exports removed. Technically breaking; neither had a real use.**
+> - **`setTranspiler` is no longer exported** from any entry. It lived in `vm.ts`, which every
+>   entry re-exports, so it was public everywhere — including `tjs-lang/vm-ast`, whose whole
+>   promise is that it contains no parser, while `setTranspiler` let any importer arm one in the
+>   sandbox's process. It is now internal; `tjs-lang/vm`, the main entry and `tjs-lang/eval` still
+>   wire the transpiler in exactly as before. If you called it to give `vm-ast` a parser, import
+>   `AgentVM` from `tjs-lang/vm` instead — that is what it is for.
+> - **The `tjs-lang/src` export is gone.** It pointed at `src/index.ts` under every condition, so
+>   in Node (with type stripping) it loaded TypeScript whose relative imports have no extension
+>   and failed; every other `src/` path is behind the `bun` condition. Nothing we could find
+>   imported it. Use `tjs-lang` (the `bun` condition already resolves it to source).
+>
+> **The syntax reference is now `TJS-SYNTAX.md`** (was `CLAUDE-TJS-SYNTAX.md`), so its page on
+> the doc site is `/TJS-SYNTAX/`. The old file stays as a one-line pointer.
+>
 > **Since rc.1 — `httpFetch` no longer breaks cross-origin requests in a browser.** The default
 > fetch added `X-Agent-Depth` to every request; in a browser that is a non-simple header, so any
 > cross-origin API that does not allow it failed preflight with "Failed to fetch" (found running the

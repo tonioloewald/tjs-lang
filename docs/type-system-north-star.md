@@ -294,7 +294,7 @@ emits an unrewritten call, which needs `String.prototype.cap` — deliberately a
 
 The registry is **write-only**: emitted code calls `registerExtension`, and the emitter never
 emits a `resolveExtension` call anywhere. Entries go in; nothing looks them up.
-`CLAUDE-TJS-SYNTAX.md:656` claims "Runtime fallback via
+`TJS-SYNTAX.md:656` claims "Runtime fallback via
 `registerExtension()`/`resolveExtension()` for unknown types" — the resolver exists, is
 exported, walks prototype chains correctly, and is never called.
 

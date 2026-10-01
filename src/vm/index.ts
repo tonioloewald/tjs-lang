@@ -10,7 +10,7 @@
  * implies — import **`tjs-lang/vm-ast`** instead: same `AgentVM`, no parser, ~56 KB against
  * ~221 KB, and no parser defect reachable from guest input.
  */
-import { setTranspiler } from './vm'
+import { setTranspiler } from './transpiler-slot'
 import { transpile } from '../lang/core'
 
 // The one line that separates this entry from `tjs-lang/vm-ast`. Everything else about the

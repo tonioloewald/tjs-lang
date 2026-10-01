@@ -140,7 +140,7 @@ describe('what a literal union is NOT', () => {
  * THROWS, so the playground, `tjs emit`, `tjs test` and every programmatic consumer failed
  * on a function using a feature this release announces under **Added**.
  *
- * It survived because every example in `CLAUDE-TJS-SYNTAX.md` §Literal Unions omits a
+ * It survived because every example in `TJS-SYNTAX.md` §Literal Unions omits a
  * return annotation. The COMBINATION is what breaks, and the documentation never showed
  * it — so the tests written from the documentation could not have found it.
  */

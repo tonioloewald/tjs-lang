@@ -34,7 +34,7 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       // `T | undefined`, NOT `?:`. TJS's `?:` is documented as "same as `name = value`"
-      // (CLAUDE-TJS-SYNTAX.md), so it is precisely the wrong spelling for a TypeScript
+      // (TJS-SYNTAX.md), so it is precisely the wrong spelling for a TypeScript
       // optional, which means "undefined when omitted" and never "defaults to an example".
       //
       // This briefly asserted `?:`, to fix the emitted metadata saying `required: true` for a

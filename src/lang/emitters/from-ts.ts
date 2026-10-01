@@ -2992,7 +2992,7 @@ function transformParams(
       // A SCALAR optional does NOT get `?:` either — and the reason is the sentence three
       // paragraphs up, which this code previously wrote down and then contradicted:
       // TJS's `?:` lowers to `= value`. That is not a quirk, it is the documented semantic
-      // (`CLAUDE-TJS-SYNTAX.md`: `function greet(name?: '')` is "same as name = ''"). So
+      // (`TJS-SYNTAX.md`: `function greet(name?: '')` is "same as name = ''"). So
       // `?:` is exactly the wrong spelling for a TypeScript optional, which means "undefined
       // when omitted" and never "defaults to an example of the type".
       //

@@ -338,7 +338,7 @@ describe('ASI: the one place TJS and JS disagree about statement boundaries', ()
  * quietly reinvented the mode — `unsafe f({ onClick: () => { … } })` would exempt
  * everything in that callback, which the author never took responsibility for.
  *
- * So the rule view stops at a nested function body. CLAUDE-TJS-SYNTAX.md's claim that it
+ * So the rule view stops at a nested function body. TJS-SYNTAX.md's claim that it
  * "exempts one construct, not a file" is now a property rather than a wish.
  */
 describe('unsafe covers the construct, not everything nested inside it', () => {

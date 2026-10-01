@@ -396,7 +396,7 @@ _Delete the workaround when:_ they skip un-transpilable dialects instead of fall
 
 **[#155] TJS support for Prism — announced, and a design ask.** Prism is being wired in and
 will bake into printed/ePub output. **238 of our fences are tagged `typescript`**, and in
-`CLAUDE-TJS-SYNTAX.md` 12 of 31 of those contain a TJS colon-example — which TypeScript's token
+`TJS-SYNTAX.md` 12 of 31 of those contain a TJS colon-example — which TypeScript's token
 model would colour as a TYPE, visually asserting the exact confusion that document exists to
 correct, permanently, in print. Asked that **display-only be orthogonal to language**, so a
 block can be `tjs` for highlighting without being executed.

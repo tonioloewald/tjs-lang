@@ -15,7 +15,7 @@
  * ships in the npm package, so the copy that matters is the one a consumer
  * reads from `node_modules` — and resolving its links against the repo root
  * said "complete" while **29 of 43 were 404 in the tarball**, including
- * `CLAUDE-TJS-SYNTAX.md`, the doc llms.txt names as the thing to read first.
+ * `TJS-SYNTAX.md`, the doc llms.txt names as the thing to read first.
  * A relative link is a promise about the artifact it ships inside.
  *
  * Two ways to keep it green: ship the file (add it to `files` in package.json),
@@ -166,7 +166,7 @@ function publishedFiles(): string[] {
  * also goes out in the npm tarball. Two independent failures had both already happened by
  * 0.13.0:
  *
- *   - **Stale.** Twelve documents differed from HEAD. The shipped `CLAUDE-TJS-SYNTAX.md`
+ *   - **Stale.** Twelve documents differed from HEAD. The shipped `TJS-SYNTAX.md`
  *     still taught `new Point(10, 20) // Still works, but linter warns` (a compile error)
  *     and a WASM assignment form that was never implemented — the two claims
  *     `src/doc-snippets.test.ts` cites as its whole reason for existing. Fixed in the repo,

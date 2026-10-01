@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **AJS** — Agent language that compiles to JSON AST for safe, sandboxed execution with fuel limits and injected capabilities. Code travels to data.
 - **Toolchain** — Compresses transpilation, linting, testing, and documentation generation into one pass. Includes inline WASM with SIMD, polymorphic dispatch, local class extensions, and a browser-based playground.
 
-> **TJS syntax is NOT TypeScript.** Full reference: [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). The single most common LLM mistake is treating `function foo(x: 'default')` as a TypeScript string-literal type. It is _not_ — the colon value is an **example**, and `'default'` widens to `string`. See the syntax doc before writing or modifying TJS source.
+> **TJS syntax is NOT TypeScript.** Full reference: [`TJS-SYNTAX.md`](TJS-SYNTAX.md). The single most common LLM mistake is treating `function foo(x: 'default')` as a TypeScript string-literal type. It is _not_ — the colon value is an **example**, and `'default'` widens to `string`. See the syntax doc before writing or modifying TJS source.
 
 ## Common Commands
 
@@ -791,7 +791,7 @@ When `ctx.error` is set, subsequent atoms in a `seq` skip execution. Errors are 
 
 ### TJS Syntax Reference
 
-Full syntax documentation is in [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). Key concepts:
+Full syntax documentation is in [`TJS-SYNTAX.md`](TJS-SYNTAX.md). Key concepts:
 
 - **Colon shorthand**: `function foo(x: 'hello')` — colon value is an _example_, not a type. This is the most common LLM mistake.
 - **Numeric narrowing**: `3.14` = float, `42` = integer, `+0` = non-negative integer

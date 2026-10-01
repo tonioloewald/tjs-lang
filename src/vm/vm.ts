@@ -12,6 +12,7 @@ import {
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate, isBuilder } from 'tosijs-schema'
 import { checkAstVersion } from './ast-version'
+import { getTranspiler } from './transpiler-slot'
 import {
   admitRunOptions,
   budgetOption,
@@ -36,7 +37,7 @@ import {
  *     `eval-no-transpile-execution.test.ts`). That leak was closed; the shape that permitted
  *     it should not survive it.
  *
- * So the dependency is now supplied by the ENTRY POINT. `tjs-lang/vm` calls
+ * So the dependency is now supplied by the ENTRY POINT (`./transpiler-slot`, internal). `tjs-lang/vm` calls
  * `setTranspiler(transpile)` and behaves exactly as before; `tjs-lang/vm-ast` does not, and
  * is therefore a VM that cannot parse because it contains no parser.
  *
@@ -47,16 +48,6 @@ import {
  * protect nothing it does not already have. If a per-instance guard is ever wanted, a
  * constructor option is the shape — do not quietly reinterpret this one.
  */
-let transpileImpl: ((source: string) => { ast: unknown }) | null = null
-
-/**
- * Supply the AJS source → AST transpiler. Called by `tjs-lang/vm`'s entry point; deliberately
- * NOT called by the AST-only entry.
- */
-export function setTranspiler(fn: (source: string) => { ast: unknown }): void {
-  transpileImpl = fn
-}
-
 /**
  * Floor for the run-level default timeout. The actual default is derived from
  * the registered atoms (slowest atom × 2 — see `defaultRunTimeout`), but never
@@ -224,6 +215,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         ast = resolveProcedureToken(astOrToken) as BaseNode
       } else {
         // AJS source code - transpile to AST
+        const transpileImpl = getTranspiler()
         if (!transpileImpl)
           throw new Error(
             `This VM accepts an AST, not source: no transpiler is wired in. ` +

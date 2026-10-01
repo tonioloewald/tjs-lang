@@ -1089,7 +1089,7 @@ export function extractReturnExampleFromSource(source: string): string | null {
  * same way and more quietly: `1 | 2` evaluates to `3`.
  *
  * Literal unions are announced under Added in 0.13.0, and every example in
- * `CLAUDE-TJS-SYNTAX.md` §Literal Unions omits a return annotation — which is exactly why
+ * `TJS-SYNTAX.md` §Literal Unions omits a return annotation — which is exactly why
  * nothing caught it. The combination is what breaks, and the docs never showed it.
  *
  * Any member is a valid argument, so the first one is used. Split over the MASKED view so

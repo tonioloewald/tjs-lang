@@ -7,7 +7,8 @@
  * For static code (pre-transpiled), use the lite runtime instead.
  */
 
-import { AgentVM, setTranspiler } from '../vm/vm'
+import { AgentVM } from '../vm/vm'
+import { setTranspiler } from '../vm/transpiler-slot'
 import { sourceBytesOver, DEFAULT_MAX_SOURCE_BYTES } from '../vm/admission'
 import { transpile } from './core'
 import { parseAgentSource } from './parser-agent'
