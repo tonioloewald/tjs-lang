@@ -301,24 +301,24 @@ export interface RuntimeContext {
    */
   heapAccount: { bytes: number }
   /**
-   * Per-key size AND the reference it was measured from, so overwriting a variable frees
-   * its budget and re-binding an UNCHANGED reference costs nothing to re-measure.
+   * Per name, the reference it was last MEASURED at (and its array length), so re-binding an
+   * unchanged value costs nothing and a grown array costs only its tail. A CACHE for the cost of
+   * measuring, never a source of refunds: nothing is subtracted from the estimate when a name is
+   * rebound or its scope ends (see `chargeHeap`). It used to be — per name, then per scope —
+   * and each version freed bytes still live through another name, four review rounds running.
    *
-   * **Per SCOPE, not per run** — and that is the whole guarantee. It used to be shared by
-   * reference across child scopes, keyed by bare variable name, so a child binding `x` was
-   * accounted as a REPLACEMENT of the parent's `x`: the parent's size was subtracted while
-   * the parent's value stayed perfectly alive in the parent scope object. Shadowing bought
-   * budget back. Measured against a 6MB cap: 112× over.
-   *
-   * A scope's ledger mirrors what that scope actually OWNS. Child state is
-   * `Object.create(parent.state)`, so a child write creates an own property and shadows
-   * rather than replaces; the ledger now says the same thing. `releaseScope` gives the
-   * bytes back when the scope is discarded — see `src/vm/heap-scope.test.ts`, which
-   * asserts both directions (shadowing must not free; discarding must).
+   * Per SCOPE, so a child's `x` never reads as the parent's `x`.
    *
    * Required for the same reason as `heapAccount`.
    */
   heapPerKey: Map<string, HeapEntry>
+  /**
+   * Every LIVE object guest values hang off — scope states, memo caches, run arguments — for
+   * the true-live-heap measurement `reconcileHeap` takes before failing a run. Shared by
+   * reference across the run (spread). Scope states enter only through `newScopeState`;
+   * `releaseScope` removes what a scope registered.
+   */
+  heapRoots: Set<object>
   /**
    * The format version of the AST this context runs (`$ajs`). v2 reads a bare string as a
    * LITERAL; v1 as a reference when a variable of that name is in scope. Absent means v1.
@@ -1125,7 +1125,7 @@ function ledgerFor(
 export function createChildScope(ctx: RuntimeContext): RuntimeContext {
   const child: RuntimeContext = {
     ...ctx,
-    state: Object.create(ctx.state),
+    state: newScopeState(ctx, ctx.state),
     // A scope runs STEPS, and steps resolve their values. Inherited from an atom's
     // `inputsResolvedContext`, this made every nested expression come back unevaluated.
     inputsResolved: false,
@@ -1178,14 +1178,41 @@ export function createChildScope(ctx: RuntimeContext): RuntimeContext {
  * `src/vm/state-writes.test.ts` mechanises rather than leaving to memory.
  */
 export function releaseScope(child: RuntimeContext): void {
-  const account = child.heapAccount
-  const ledger = child.heapPerKey
-  if (ledger.size === 0) return
-  for (const { size } of ledger.values()) account.bytes -= size
-  // Clamp: an under-run would hand the guest free budget, the exact drift the shared
-  // `heapAccount` object was introduced to stop.
-  if (account.bytes < 0) account.bytes = 0
-  ledger.clear()
+  // Nothing is refunded (see `chargeHeap`): the scope's values may still be reachable from
+  // elsewhere, and a refund for bytes still live was a hole straight through the ceiling (rc.2
+  // third re-review B1: ~40MB under 1MB). What a release does is stop the scope being a ROOT,
+  // so the next true measurement no longer counts it.
+  child.heapRoots.delete(child.state)
+  for (const root of OWNED_ROOTS.get(child) ?? []) child.heapRoots.delete(root)
+  child.heapPerKey.clear()
+}
+
+/** Roots a hand-built context registered beyond its state (its memo cache, its args). */
+const OWNED_ROOTS = new WeakMap<RuntimeContext, object[]>()
+
+/**
+ * A new scope state, registered as a heap root. THE way a scope state is made:
+ * `heap-roots.test.ts` fails on a `state:` built any other way, because a root the true
+ * measurement cannot see is memory the ceiling cannot see.
+ */
+export function newScopeState(
+  ctx: { heapRoots: Set<object> },
+  proto?: object
+): Record<string, any> {
+  const state = proto ? Object.create(proto) : {}
+  ctx.heapRoots.add(state)
+  return state
+}
+
+/** Register further roots owned by `child` (released with it). */
+function ownRoots(child: RuntimeContext, ...roots: unknown[]): void {
+  const owned = OWNED_ROOTS.get(child) ?? []
+  for (const r of roots)
+    if (r && typeof r === 'object') {
+      child.heapRoots.add(r)
+      owned.push(r)
+    }
+  OWNED_ROOTS.set(child, owned)
 }
 
 /**
@@ -2303,12 +2330,8 @@ function receiverRoot(node: any, ctx: RuntimeContext): string | undefined {
  * `arr.push(x)` statement (or `a.fill(s)`, `set.add(x)`, `a.splice(0, 0, …)`) grew a held
  * value with no write for `trackHeapWrite` to see — 20MB under a 1MB cap (rc.2 second
  * re-review B2). So the two doors that mutate in place, `methodCall` and the `push` atom, call
- * this with what they inserted. The bytes go to the ledger entry of the binding the receiver
- * hangs off (freed when that binding is released or re-bound), or, when the receiver has no
- * accounted binding, to the run's total for good — an over-count, never an escape.
- *
- * Shrinking (`pop`, `shift`, `remove`) is not refunded: fail-closed, and the next re-bind
- * re-measures. Cost is O(what was inserted), so an append loop stays linear.
+ * this with what they inserted, charged to the run's estimate (`chargeHeap`), which a true
+ * measurement corrects before any run fails.
  */
 function accountMutation(
   ctx: RuntimeContext,
@@ -2317,30 +2340,78 @@ function accountMutation(
   op: string
 ): boolean {
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
-  const account = ctx.heapAccount
   const { bytes, nodes } = estimateBytes(
     inserted,
-    Math.max(0, cap - account.bytes)
+    Math.max(0, cap - ctx.heapAccount.bytes)
   )
   if (!chargeHeapWalk(ctx, nodes, op)) return false
+  // Re-stamp the receiver's binding so a later re-bind of the same reference is not charged
+  // for the growth a second time.
   const name = receiverRoot(receiver, ctx)
   if (name !== undefined) {
     const owner = ownerOf(ctx, name)
     const ledger =
       owner === ctx.state ? ctx.heapPerKey : STATE_LEDGERS.get(owner)
     const entry = ledger?.get(name)
-    if (entry) {
-      entry.size += bytes
-      // Re-stamp so a re-bind of this same reference is not charged a second time.
-      if (entry.ref === owner[name]) entry.witness = heapWitness(entry.ref)
-    }
+    if (entry && entry.ref === owner[name])
+      entry.witness = heapWitness(entry.ref)
   }
+  return chargeHeap(ctx, bytes, op, [])
+}
+
+/**
+ * THE heap ceiling: charge `bytes` to the run, and fail only if the TRUE live heap is over.
+ *
+ * The estimate only grows — every bind and every in-place insertion adds to it, and nothing is
+ * ever refunded — so it is never below what is actually live. Refunds were the defect: the
+ * ledger accounted bytes per binding NAME, but memory belongs to VALUES, which are aliased,
+ * mutated and outlive their names. Refunding a name's bytes when its scope ended freed memory
+ * still reachable through another binding (~40MB under a 1MB cap); never refunding an alias's
+ * growth rejected programs whose live heap was 4KB (rc.2 third re-review B1, M1). Four review
+ * rounds of patching which name to charge were moving the error around, not removing it.
+ *
+ * When the estimate crosses the cap, `reconcileHeap` measures what is actually live and the
+ * estimate becomes that. So: no escape (the estimate is an upper bound, and the run fails only
+ * on a measurement), and no false rejection (it fails only when the measurement is over).
+ *
+ * `pending` are values about to become live that no root holds yet (the value being bound).
+ */
+function chargeHeap(
+  ctx: RuntimeContext,
+  bytes: number,
+  op: string,
+  pending: unknown[]
+): boolean {
+  const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  const account = ctx.heapAccount
   account.bytes += bytes
-  if (account.bytes > cap) {
-    ctx.error = heapLimitError(account.bytes, cap, op)
+  if (account.bytes <= cap) return true
+  const live = reconcileHeap(ctx, pending, op)
+  if (live === undefined) return false // the measurement itself ran out of fuel
+  account.bytes = live
+  if (live > cap) {
+    ctx.error = heapLimitError(live, cap, op)
     return false
   }
   return true
+}
+
+/**
+ * The true live heap: one walk, one shared `seen` set (so a value reachable twice counts
+ * once), over every registered root plus `pending`. Charged as a heap walk — it is O(live),
+ * and runs only when the estimate has crossed the cap; after it, the next one is at least
+ * (cap − live) charged bytes away. A program that holds close to the cap and keeps
+ * reallocating pays for repeated walks in fuel, and so fails by fuel rather than hanging.
+ */
+function reconcileHeap(
+  ctx: RuntimeContext,
+  pending: unknown[],
+  op: string
+): number | undefined {
+  const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  const { bytes, nodes } = estimateBytes([...ctx.heapRoots, ...pending], cap)
+  if (!chargeHeapWalk(ctx, nodes, op)) return undefined
+  return bytes
 }
 
 function heapLimitError(total: number, cap: number, op: string): AgentError {
@@ -2360,8 +2431,10 @@ function heapLimitError(total: number, cap: number, op: string): AgentError {
 /**
  * Account a value being bound into guest scope against the run's live-heap ceiling.
  *
- * Per-key accounting (replace, don't accumulate) so overwriting a big variable frees
- * its budget — otherwise a loop that reuses one variable would false-positive.
+ * Charges what the bind adds to the run's estimate (`chargeHeap`), never refunding the value
+ * it replaces — see `chargeHeap` for why. The per-scope ledger survives only to make re-binds
+ * CHEAP: it remembers which reference each name was last measured at, so re-binding an
+ * unchanged value costs nothing and a grown array costs only its new tail.
  *
  * @returns false if the ceiling is exceeded (caller must stop; ctx.error is set).
  */
@@ -2374,118 +2447,44 @@ function trackHeapWrite(
 ): boolean {
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
   ledgerFor(ctx.state, ctx.heapPerKey)
-  // The ledger of the scope that OWNS the binding (`varAssign` to an outer variable); a
-  // binding is accounted where it lives, so a child scope's release never frees it.
   const ledger = ownerLedger ?? ctx.heapPerKey
   const prevEntry = ledger.get(key)
-
-  // IDENTITY FAST PATH. Re-binding the same reference under the same key cannot change
-  // the total, so there is nothing to re-measure. Without this, per-key accounting
-  // REPLACED rather than accumulated, meaning the same unchanged object was re-walked in
-  // full on every bind, forever — the dominant shape in an accumulator loop, and the
-  // difference between linear and quadratic on the most ordinary AJS program there is.
-  //
-  // "Same reference" is NOT "same contents", and reference alone was a hole straight
-  // through `maxHeapBytes`. `push` mutates its operand IN PLACE and returns the same
-  // array, so an ordinary accumulate loop re-bound an identical reference every iteration,
-  // hit this path, and never re-measured — the ledger froze the array at its first-bind
-  // size (an empty array) while it grew without bound. Verified: 400 × 140KB strings were
-  // ACCEPTED under the default 64MB ceiling, and adding a single `varSet copy = list` — a
-  // fresh key, which cannot reach this path — rejected the very same run at the very same
-  // ceiling. The guard documented as the space budget for untrusted code was evaded by the
-  // most ordinary program shape there is.
-  //
-  // So the fast path also requires a cheap CHANGE WITNESS to match. (This used to add "`push`
-  // is the only atom that mutates in place (verified by scan)" — false: `methodCall` reaches
-  // every Array mutator and the Set wrapper's `add`, and a transpiled `arr.push(x)` statement
-  // never re-binds at all, so 20MB sat under a 1MB cap — rc.2 second re-review B2. Mutation is
-  // now charged where it HAPPENS, by `accountMutation`; this witness only keeps a re-bind of
-  // the same reference from being measured twice.) Length is O(1), so it costs nothing. The quadratic this path exists to prevent —
-  // 500 rebinds of an unchanged 300k-element array — still takes it, because an unchanged
-  // array's length is unchanged.
   const witness = heapWitness(value)
+
+  // IDENTITY FAST PATH: the same reference, unchanged since it was measured, is already in
+  // the estimate. (Without this, an accumulator loop re-walked an unchanged value on every
+  // bind — quadratic on the most ordinary AJS program there is.) In-place growth re-stamps
+  // the witness when it is charged (`accountMutation`), so it never hides here.
   if (
     prevEntry &&
     prevEntry.ref === value &&
     prevEntry.witness === witness &&
     typeof value === 'object'
-  ) {
+  )
     return true
-  }
 
-  // APPEND FAST PATH — the same array, longer than last time.
-  //
-  // Re-measuring the whole accumulator on every append is O(n) per step and O(n²) over a
-  // loop, which is the single most ordinary shape an agent program has: `reduce` with a
-  // growing accumulator, or `push` in a `while`. Measured fuel over 1k→8k items: 2124 →
-  // 6247 → 20493 → 72985, i.e. ~4× per doubling.
-  //
-  // Only the NEW tail is measured, and its size is added to what the entry already
-  // recorded. That makes accumulation linear again while keeping the ledger exact — the
-  // guard still sees every byte, it just stops paying to re-count the ones it already
-  // counted.
-  //
-  // Elements before `prevEntry.witness` are assumed already counted: any in-place change to
-  // them was charged when it happened (`accountMutation`), which also re-stamps the witness.
-  if (
+  // APPEND FAST PATH: the same array, longer — measure only the new tail, so accumulating
+  // stays linear.
+  const appended =
     prevEntry &&
     prevEntry.ref === value &&
     Array.isArray(value) &&
     witness > prevEntry.witness
-  ) {
-    const account = ctx.heapAccount
-    const tail = value.slice(prevEntry.witness)
-    const headroom = cap - account.bytes
-    const { bytes: added, nodes } = estimateBytes(tail, Math.max(0, headroom))
-    // Charge AND enforce, exactly as the slow path below does.
-    //
-    // This charged and did not check, so the two halves of one guard sat twenty lines
-    // apart doing different things. The budget was still honoured — the interpreter's own
-    // per-step check catches it on the next op (measured: 156 fast-path hits, 0.64 fuel of
-    // overshoot on a 1000 budget) — so this was never a bypass. What it cost was the
-    // ATTRIBUTION: the run blamed whichever op ran next instead of the append that spent
-    // the budget. An asymmetry between two branches of one guard is also how a real bypass
-    // gets introduced later, by someone reading the fast path as the pattern to follow.
-    if (!chargeHeapWalk(ctx, nodes, op)) return false
-    const total = account.bytes + added
-    ledger.set(key, {
-      size: prevEntry.size + added,
-      ref: value,
-      witness,
-    })
-    account.bytes = total
-    if (total > cap) {
-      ctx.error = heapLimitError(total, cap, op)
-      return false
-    }
-    return true
-  }
-
-  // Measure against the REMAINING headroom, not the absolute ceiling. `cap` was the
-  // absolute 64MB, so the early exit only fired for values that would abort anyway and
-  // the estimator happily walked 300k nodes to discover it was under budget.
-  const prevSize = prevEntry?.size ?? 0
-  const account = ctx.heapAccount
-  const headroom = cap - (account.bytes - prevSize)
-  const { bytes: size, nodes } = estimateBytes(value, Math.max(0, headroom))
-
-  // Charge for the walk. This is the invariant `cost-invariant.test.ts` exists to
-  // protect — every evaluation step charges fuel >= c*(work it performs) — and the heap
-  // ceiling reintroduced the exact class it was added one commit after closing
-  // (a73f93d "close the size-proportional fuel bypass (the `==` bug class, again)",
-  // then a3048f4). Measured before this line existed: 500 rebinds of a 300k-element
-  // array burned 28.8 SECONDS of pegged CPU for 50.2 fuel — 574 ms per fuel unit, versus
-  // 1ms total for a benign program charged the identical 50.2.
+  const headroom = Math.max(0, cap - ctx.heapAccount.bytes)
+  const { bytes, nodes } = estimateBytes(
+    appended ? value.slice(prevEntry!.witness) : value,
+    headroom
+  )
+  // Charge for the walk: every evaluation step charges fuel >= c*(work it performs)
+  // (`cost-invariant.test.ts`). Measured before this existed: 500 re-binds of a 300k-element
+  // array burned 28.8 SECONDS of CPU for 50.2 fuel.
   if (!chargeHeapWalk(ctx, nodes, op)) return false
-
-  const total = account.bytes - prevSize + size
-  ledger.set(key, { size, ref: value, witness })
-  account.bytes = total
-  if (total > cap) {
-    ctx.error = heapLimitError(total, cap, op)
-    return false
-  }
-  return true
+  ledger.set(key, {
+    size: (appended ? prevEntry!.size : 0) + bytes,
+    ref: value,
+    witness,
+  })
+  return chargeHeap(ctx, bytes, op, [value])
 }
 
 /**
@@ -3241,6 +3240,43 @@ if (count > 0) {
 }
 ```
 */
+/**
+ * Run a `{ … }` block's steps. In a v2 AST a block is a SCOPE, as in JavaScript: its
+ * declarations shadow and end with it, and a `return` inside it returns from the program.
+ *
+ * v2 gave only `while` bodies a scope, so `if`/`else` and `try`/`catch` blocks declared into
+ * the ENCLOSING scope: sibling blocks each declaring `const t`, a block `let x` beside an
+ * outer `const x`, and `catch (e)` beside an outer `const e` were all refused — legal
+ * JavaScript rejected (rc.2 third re-review M2). A v1 AST keeps the unscoped block it was
+ * written for (it assigns with `varSet`, which writes the current scope).
+ *
+ * `bind` declares names in the block's scope before its steps run (the catch parameter).
+ */
+async function runBlock(
+  ctx: RuntimeContext,
+  steps: any[],
+  scoped = (ctx.astVersion ?? AST_VERSION_LEGACY) >= 2,
+  bind?: Record<string, unknown>
+): Promise<void> {
+  if (!scoped) {
+    for (const [k, v] of Object.entries(bind ?? {}))
+      if (!setStateVar(ctx, k, v, 'catch')) return
+    await seq.exec({ op: 'seq', steps } as any, ctx)
+    return
+  }
+  const block = createChildScope(ctx)
+  try {
+    for (const [k, v] of Object.entries(bind ?? {}))
+      if (!setStateVar(block, k, v, 'catch')) return
+    await seq.exec({ op: 'seq', steps } as any, block)
+    // `output` is a per-context slot (the spread copies it), so a `return` in the block is
+    // carried out explicitly; `error` is forwarded by `createChildScope` itself.
+    if (block.output !== undefined) ctx.output = block.output
+  } finally {
+    releaseScope(block)
+  }
+}
+
 export const iff = defineAtom(
   'if',
   s.object({
@@ -3251,9 +3287,9 @@ export const iff = defineAtom(
   undefined,
   async (step, ctx) => {
     if (evaluateExpr(step.condition, ctx)) {
-      await seq.exec({ op: 'seq', steps: step.then } as any, ctx)
+      await runBlock(ctx, step.then)
     } else if (step.else) {
-      await seq.exec({ op: 'seq', steps: step.else } as any, ctx)
+      await runBlock(ctx, step.else)
     }
   },
   { docs: 'If/Else', timeoutMs: 0, cost: 0.1 }
@@ -3292,20 +3328,7 @@ export const whileLoop = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       if ((ctx.fuel.current -= 0.1) <= 0) throw new Error('Out of Fuel')
-      if (blockScoped) {
-        const body = createChildScope(ctx)
-        try {
-          await seq.exec({ op: 'seq', steps: step.body } as any, body)
-          if (body.output !== undefined) {
-            ctx.output = body.output
-            return
-          }
-        } finally {
-          releaseScope(body)
-        }
-      } else {
-        await seq.exec({ op: 'seq', steps: step.body } as any, ctx)
-      }
+      await runBlock(ctx, step.body, blockScoped)
       if (ctx.output !== undefined) return
       if (ctx.error) return // Propagate monadic errors out of the loop
     }
@@ -3419,19 +3442,19 @@ export const tryCatch = defineAtom(
   undefined,
   async (step, ctx) => {
     // Execute try block
-    await seq.exec({ op: 'seq', steps: step.try } as any, ctx)
+    await runBlock(ctx, step.try)
 
     // If an error occurred and we have a catch block, handle it
     if (ctx.error && step.catch) {
       // Store error message in state for catch block to access
       // Use the catch parameter name if provided, otherwise 'error'
       const paramName = step.catchParam || 'error'
-      if (!setStateVar(ctx, paramName, ctx.error.message, 'catch')) return
-      if (!setStateVar(ctx, 'errorOp', ctx.error.op, 'catch')) return
+      const bind = { [paramName]: ctx.error.message, errorOp: ctx.error.op }
       // Clear the error - catch block handles it
       ctx.error = undefined
-      // Execute catch block
-      await seq.exec({ op: 'seq', steps: step.catch } as any, ctx)
+      // Execute the catch block, its parameter (and `errorOp`) bound IN it: a v2 catch block
+      // is a scope, so `catch (e)` shadows an outer `e` instead of overwriting it.
+      await runBlock(ctx, step.catch, undefined, bind)
       // If catch block didn't set a new error, we're recovered
       // If it did, that error propagates
     }
@@ -3681,7 +3704,7 @@ export const callLocal = defineAtom(
     // ordinary functions). callDepth guards against host-stack overflow.
     const scopedCtx: RuntimeContext = {
       ...ctx,
-      state: {},
+      state: newScopeState(ctx),
       consts: new Set(),
       output: undefined,
       error: undefined,
@@ -3711,14 +3734,13 @@ export const callLocal = defineAtom(
         //
         // Matched by REFERENCE against the caller's entries, not by name: an argument that
         // is a freshly built value has no caller entry and is measured normally, which is
-        // right — it really is new memory. The size is added back on seeding and removed
-        // again by `releaseScope`, so the accounting is unchanged.
+        // right — it really is new memory. Seeding only spares the re-walk: the bytes are
+        // already in the run's estimate, which nothing refunds.
         const arg = resolvedArgs[i]
         if (arg && typeof arg === 'object' && ctx.heapPerKey) {
           for (const entry of ctx.heapPerKey.values()) {
             if (entry.ref !== arg) continue
             scopedCtx.heapPerKey.set(helper.paramNames[i], entry)
-            scopedCtx.heapAccount.bytes += entry.size
             break
           }
         }
@@ -3916,10 +3938,8 @@ export const reduce = defineAtom(
      *
      * Seeding the child with last iteration's entry is O(1) and lets the identity/append
      * paths in `trackHeapWrite` do their job: an unchanged accumulator costs nothing, and
-     * one that grew costs only its new tail. The accounting is unchanged — the size is
-     * added back when seeded and subtracted again by `releaseScope`, so the accumulator is
-     * accounted exactly as before, just without paying to re-count what was already
-     * counted.
+     * one that grew costs only its new tail. Only the re-walk is spared: the bytes are
+     * already in the run's estimate, which nothing refunds.
      */
     let accEntry: HeapEntry | undefined
     for (const item of resolvedItems) {
@@ -3931,7 +3951,6 @@ export const reduce = defineAtom(
         // style) gets a fresh measurement, which is correct: it is a different value.
         if (accEntry && accEntry.ref === acc && scopedCtx.heapPerKey) {
           scopedCtx.heapPerKey.set(accumulator, accEntry)
-          scopedCtx.heapAccount.bytes += accEntry.size
         }
         // The ITEM aliases the source array; the ACCUMULATOR does not — it can grow
         // without bound, so it stays fully accounted.
@@ -4577,7 +4596,7 @@ export const agentRun = defineAtom(
       const childCtx: RuntimeContext = {
         ...ctx,
         args: resolvedInput,
-        state: {},
+        state: newScopeState(ctx),
         consts: new Set(),
         // A sub-agent is a different program: its own memoize cache, or it could read — or
         // poison — the caller's entries by choosing the same key.
@@ -4603,6 +4622,7 @@ export const agentRun = defineAtom(
         // ITS helpers, not the caller's: the spread handed a sub-agent the caller's local
         // functions, so a call by name ran the caller's body, or missed its own.
         childCtx.helpers = (ast as any).helpers
+        ownRoots(childCtx, childCtx.memo, childCtx.args)
         await seqAtom.exec(ast, childCtx)
 
         if (childCtx.error) {
@@ -4621,7 +4641,7 @@ export const agentRun = defineAtom(
       const childCtx: RuntimeContext = {
         ...ctx,
         args: resolvedInput,
-        state: {},
+        state: newScopeState(ctx),
         consts: new Set(),
         // A sub-agent is a different program: its own memoize cache, or it could read — or
         // poison — the caller's entries by choosing the same key.
@@ -4645,6 +4665,7 @@ export const agentRun = defineAtom(
         checkAstVersion(resolvedId, 'agentRun')
         childCtx.astVersion = astVersionOf(resolvedId) ?? AST_VERSION_LEGACY
         childCtx.helpers = (resolvedId as any).helpers // its own (see above)
+        ownRoots(childCtx, childCtx.memo, childCtx.args)
         await seqAtom.exec(resolvedId, childCtx)
 
         if (childCtx.error) {
@@ -4836,7 +4857,8 @@ export const runCode = defineAtom(
     // mutation open; a fresh scope has nothing on the other side to reach. What it is GIVEN
     // in `args` it holds by reference, as a function holds its arguments.
     const childCtx = createChildScope(ctx)
-    childCtx.state = {}
+    ctx.heapRoots.delete(childCtx.state) // replaced below: its own scope, not a child's
+    childCtx.state = newScopeState(ctx)
     childCtx.heapPerKey = new Map()
     ledgerFor(childCtx.state, childCtx.heapPerKey)
     childCtx.consts = new Set()
@@ -4846,6 +4868,7 @@ export const runCode = defineAtom(
     childCtx.astVersion = astVersionOf(ast) ?? AST_VERSION_LEGACY
     try {
       childCtx.args = resolvedArgs
+      ownRoots(childCtx, childCtx.memo, childCtx.args)
       childCtx.output = undefined
       childCtx.localCall = false // dynamic code is an agent, whatever scope started it
       childCtx.runCodeDepth = currentDepth + 1 // Increment depth for nested calls
@@ -4968,6 +4991,10 @@ export const memoize = defineAtom(
     if (ctx.error) return undefined
 
     ctx.memo.set(k, result)
+    // The cache is a heap ROOT, and a store is an insertion into it: a result held only here
+    // — never bound to a name — was never charged, so the estimate never rose and the true
+    // measurement never ran. Ten unbound ~200KB results sat under a 1MB cap.
+    if (!accountMutation(ctx, undefined, [result], 'memoize')) return undefined
     return result
   },
   { docs: 'Memoize steps result in memory', cost: 1 }

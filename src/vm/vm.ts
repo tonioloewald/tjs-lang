@@ -8,6 +8,7 @@ import {
   resolveProcedureToken,
   membraneValueFrom,
   recordVmEvent,
+  newScopeState,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate, isBuilder } from 'tosijs-schema'
@@ -451,16 +452,22 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       if (admitted.signal.aborted) controller.abort()
     }
 
+    // The run's heap roots: its scope, its memo cache and its arguments. Every scope created
+    // during the run joins this set (`newScopeState`) and leaves it when released.
+    const memo = new Map()
+    const heapRoots = new Set<object>([memo])
+    if (args && typeof args === 'object') heapRoots.add(args)
     const ctx: RuntimeContext = {
       astVersion: astVersionOf(ast) ?? AST_VERSION_LEGACY,
       // The run's memoize cache, created HERE rather than lazily by the first `memoize` to run:
       // a cache created inside a child scope (a v2 \`while\` iteration) was a property of that
       // scope's context and died with it, so a memoized call in a loop re-ran — and re-billed
       // fuel and quota — every pass (rc.2 review B3). Child scopes share it by reference.
-      memo: new Map(),
+      memo,
       fuel: { current: startFuel - admissionFuel },
       args,
-      state: {},
+      state: newScopeState({ heapRoots }),
+      heapRoots,
       consts: new Set(),
       // Created WITH the run, never lazily: see `heapAccount` in runtime.ts.
       heapAccount: { bytes: 0 },

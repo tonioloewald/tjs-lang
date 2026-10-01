@@ -34,6 +34,18 @@ const CHUNK = 2000
 const chunk = () => Array.from({ length: CHUNK }, (_, i) => i)
 
 /**
+ * EIGHT DISTINCT chunks. These rows used to bind one chunk under eight names, which the
+ * per-name ledger counted eight times. The ceiling now measures what is actually live, where
+ * one array held by eight names is one array — so the rows hold eight real arrays, which is
+ * what "eight live values" always meant.
+ */
+const bigs = () =>
+  Object.fromEntries([
+    ['big', chunk()],
+    ...Array.from({ length: 8 }, (_, i) => [`big${i}`, chunk()]),
+  ])
+
+/**
  * Bind `n` distinct large values, shadowing each one inside a child scope immediately
  * after binding it. Every value stays live in the top scope for the whole run.
  */
@@ -43,7 +55,7 @@ function shadowingProgram(n: number) {
     steps.push({
       op: 'varSet',
       key: `v${i}`,
-      value: { $kind: 'arg', path: 'big' },
+      value: { $kind: 'arg', path: `big${i}` },
     })
     // A child scope binds the SAME name to a one-byte value. The parent's array is
     // untouched and unreachable from here — this frees nothing.
@@ -64,18 +76,14 @@ describe('shadowing a name in a child scope does not free its budget', () => {
       steps.push({
         op: 'varSet',
         key: `v${i}`,
-        value: { $kind: 'arg', path: 'big' },
+        value: { $kind: 'arg', path: `big${i}` },
       })
     }
     steps.push({ op: 'return', value: { ok: 1 } })
-    const res = await VM.run(
-      { op: 'seq', steps } as any,
-      { big: chunk() } as any,
-      {
-        fuel: 1e6,
-        maxHeapBytes: 64 * 1024,
-      }
-    )
+    const res = await VM.run({ op: 'seq', steps } as any, bigs() as any, {
+      fuel: 1e6,
+      maxHeapBytes: 64 * 1024,
+    })
     expect(res.error?.message ?? SURVIVED).toMatch(/Heap limit exceeded/)
   })
 
@@ -83,7 +91,7 @@ describe('shadowing a name in a child scope does not free its budget', () => {
     // 8 × ~16KB = ~128KB live against a 64KB cap. Before the fix each `map` handed back
     // the preceding `varSet`'s accounting, so the running total never rose above one
     // chunk and the run completed cleanly with 128KB held.
-    const res = await VM.run(shadowingProgram(8), { big: chunk() } as any, {
+    const res = await VM.run(shadowingProgram(8), bigs() as any, {
       fuel: 1e6,
       maxHeapBytes: 64 * 1024,
     })
@@ -102,7 +110,7 @@ describe('shadowing a name in a child scope does not free its budget', () => {
       steps.push({
         op: 'varSet',
         key: `v${i}`,
-        value: { $kind: 'arg', path: 'big' },
+        value: { $kind: 'arg', path: `big${i}` },
       })
       steps.push({ op: 'callLocal', name: `h${i}`, args: [0] })
     }
@@ -115,7 +123,7 @@ describe('shadowing a name in a child scope does not free its budget', () => {
 
     const res = await VM.run(
       { op: 'seq', helpers, steps } as any,
-      { big: chunk() } as any,
+      bigs() as any,
       { fuel: 1e6, maxHeapBytes: 64 * 1024 }
     )
     expect(res.error?.message ?? SURVIVED).toMatch(/Heap limit exceeded/)
@@ -168,7 +176,7 @@ describe('a discarded scope releases its accounting', () => {
           { op: 'return', value: { ok: 1 } },
         ],
       } as any,
-      { big: chunk() } as any,
+      bigs() as any,
       { fuel: 1e6, maxHeapBytes: 8 * 1024 }
     )
     expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
@@ -220,7 +228,7 @@ describe('a discarded scope releases its accounting', () => {
           { op: 'return', value: { ok: 1 } },
         ],
       } as any,
-      { big: chunk() } as any,
+      bigs() as any,
       { fuel: 1e6, maxHeapBytes: 8 * 1024 }
     )
     expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
@@ -349,7 +357,7 @@ describe('iteration bindings alias, accumulators do not', () => {
           { op: 'return', value: { ok: 1 } },
         ],
       } as any,
-      { big: chunk() } as any,
+      bigs() as any,
       { fuel: 1e6, maxHeapBytes: 8 * 1024 }
     )
     expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
@@ -380,7 +388,7 @@ describe('iteration bindings alias, accumulators do not', () => {
           { op: 'return', value: { ok: 1 } },
         ],
       } as any,
-      { big: chunk() } as any,
+      bigs() as any,
       { fuel: 1e6, maxHeapBytes: 8 * 1024 }
     )
     expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)

@@ -56,15 +56,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > takes steps AS INPUT** must pass `{ resolveInputs: false }`, or its steps arrive evaluated
 > as values.
 >
-> **Since rc.1 — in-place mutation counts against `maxHeapBytes`.** The heap ledger was kept
-> when a value was BOUND, and a transpiled `arr.push(x)` statement binds nothing: 20MB sat
-> under a 1MB cap. Every in-place mutation (`push`, `fill`, `splice`, `sort`, … and the guest
-> Set's `add`) now charges what it inserts as it happens, still linear in an append loop; the
-> mutator list is checked against behaviour by a test that calls every guest-callable method.
-> A guest Set's contents are now counted at all (they lived in a closure the heap walk could not
-> see). Also: `Object.prototype`'s legacy `__lookupGetter__` family is no longer guest-callable
-> (`o.__lookupGetter__('__proto__')` returned a host function), and an AST step whose `op` names
-> an `Object.prototype` member (`toString`) is an `Unknown Atom` instead of a crash.
+> **Since rc.1 — `maxHeapBytes` measures what is LIVE.** The ceiling accounted bytes per
+> binding NAME and refunded them when a name was rebound or its scope ended. Memory belongs to
+> values, which are aliased, mutated in place and outlive their names, so every refund rule was
+> wrong one way or the other: a transpiled `arr.push(x)` statement bound nothing (20MB held under
+> a 1MB cap), rows pushed onto an outer array were refunded when the loop body ended (~40MB
+> under 1MB), and pushes through a `for…of` alias were never refunded (a 4KB program rejected).
+> Now the estimate only grows — every bind, every in-place insertion (`push`, `fill`, `splice`,
+> the guest Set's `add`, …; the list is checked against behaviour) and every `memoize` store is
+> charged — and before a run fails, the VM measures the live heap from every registered scope,
+> memo cache and argument object, counting each object once. It fails only if that measurement
+> is over the cap, and the error reports it. A long string held under several names still counts
+> once per name (equal strings cannot be told apart from shared ones) — an over-count, so it
+> fails closed. A guest Set's contents are now counted at all. Also: `Object.prototype`'s legacy
+> `__lookupGetter__` family is no longer guest-callable (`o.__lookupGetter__('__proto__')`
+> returned a host function), and an AST step whose `op` names an `Object.prototype` member
+> (`toString`) is an `Unknown Atom` instead of a crash.
+>
+> **Since rc.1 — every v2 block is a scope.** `if`/`else`, `try` and `catch` blocks now scope
+> their declarations, as `while` bodies already did and as JavaScript does: sibling blocks may
+> each declare `const t`, a block `let x` may shadow an outer `const x`, and `catch (e)` shadows an
+> outer `e` (with `errorOp`, bound in the catch block). v1 ASTs keep unscoped blocks. **A raw atom**
+> (`{ op, exec }`) that writes `ctx.state[step.result]` itself now declares in the innermost block
+> — use `defineAtom`, which honours assignment (`resultAssign`). A default parameter is now filled
+> by assignment, not a declaration in the `if` that tests it.
 >
 > **Since rc.1 — `const` follows the scope a write lands in.** One rule, enforced where every
 > scope write passes: a write may not land on a `const` of the scope it writes. A block `let x`

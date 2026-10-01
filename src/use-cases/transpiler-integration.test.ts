@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { AgentVM } from '../vm'
+import { defineAtom } from '../vm/runtime'
 import { ajs, transpile, createAgent, getToolDefinitions } from '../transpiler'
 
 describe('Transpiler Integration', () => {
@@ -480,15 +481,19 @@ describe('Transpiler Integration', () => {
         docs: 'Failing step',
       }
 
-      const recoveryStep = {
-        op: 'recoveryStep',
-        inputSchema: undefined,
-        exec: async (step: any, ctx: any) => {
+      // Through `defineAtom`, which honours `resultAssign`. A raw atom writing
+      // `ctx.state[step.result]` itself DECLARES in the innermost block — in v2 a catch block
+      // is a scope, so `result = recoveryStep()` would never reach the outer `result`.
+      const recoveryStep = defineAtom(
+        'recoveryStep',
+        undefined,
+        undefined,
+        async () => {
           callLog.push('recoveryStep')
-          ctx.state[step.result] = 'recovered'
+          return 'recovered'
         },
-        docs: 'Recovery step',
-      }
+        { docs: 'Recovery step', effects: 'pure' }
+      )
 
       const vm = new AgentVM({ failingStep, recoveryStep } as any)
 

@@ -296,9 +296,11 @@ export function transformFunction(
         left: { $expr: 'ident', name },
         right: { $expr: 'literal', value: null },
       },
+      // ASSIGNMENT to the parameter, not a declaration: an `if` body is a block scope in v2,
+      // so a `varSet` here declared a block-local and the parameter stayed null.
       then: [
         {
-          op: 'varSet',
+          op: 'varAssign',
           key: name,
           value: defaultValue,
         },

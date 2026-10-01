@@ -569,5 +569,234 @@
       "label": "many",
       "msg": "n is 3"
     }
+  },
+  {
+    "name": "default-param-is-assigned",
+    "version": 2,
+    "source": "function f({ n = [1, 2] }) { return { n } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varsImport",
+          "keys": ["n"]
+        },
+        {
+          "op": "if",
+          "condition": {
+            "$expr": "binary",
+            "op": "==",
+            "left": {
+              "$expr": "ident",
+              "name": "n"
+            },
+            "right": {
+              "$expr": "literal",
+              "value": null
+            }
+          },
+          "then": [
+            {
+              "op": "varAssign",
+              "key": "n",
+              "value": [1, 2]
+            }
+          ]
+        },
+        {
+          "op": "return",
+          "value": {
+            "n": {
+              "$expr": "ident",
+              "name": "n"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "array",
+            "items": {}
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "result": {
+      "n": [1, 2]
+    }
+  },
+  {
+    "name": "blocks-are-scopes",
+    "version": 2,
+    "source": "function f() { const x = 1; let out = []; if (true) { const t = 1; let x = 2; out.push(x + t) } if (true) { const t = 3; out.push(t) } return { out, x } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "constSet",
+          "key": "x",
+          "value": 1
+        },
+        {
+          "op": "varSet",
+          "key": "out",
+          "value": []
+        },
+        {
+          "op": "if",
+          "condition": {
+            "$expr": "literal",
+            "value": true
+          },
+          "then": [
+            {
+              "op": "constSet",
+              "key": "t",
+              "value": 1
+            },
+            {
+              "op": "varSet",
+              "key": "x",
+              "value": 2
+            },
+            {
+              "op": "push",
+              "list": {
+                "$expr": "ident",
+                "name": "out"
+              },
+              "item": {
+                "$expr": "binary",
+                "op": "+",
+                "left": {
+                  "$expr": "ident",
+                  "name": "x"
+                },
+                "right": {
+                  "$expr": "ident",
+                  "name": "t"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "if",
+          "condition": {
+            "$expr": "literal",
+            "value": true
+          },
+          "then": [
+            {
+              "op": "constSet",
+              "key": "t",
+              "value": 3
+            },
+            {
+              "op": "push",
+              "list": {
+                "$expr": "ident",
+                "name": "out"
+              },
+              "item": {
+                "$expr": "ident",
+                "name": "t"
+              }
+            }
+          ]
+        },
+        {
+          "op": "return",
+          "value": {
+            "out": {
+              "$expr": "ident",
+              "name": "out"
+            },
+            "x": {
+              "$expr": "ident",
+              "name": "x"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "result": {
+      "out": [3, 3],
+      "x": 1
+    }
+  },
+  {
+    "name": "catch-param-is-block-scoped",
+    "version": 2,
+    "source": "function f() { const e = 'outer'; let got = ''; try { Error('boom') } catch (e) { got = e } return { e, got } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "constSet",
+          "key": "e",
+          "value": "outer"
+        },
+        {
+          "op": "varSet",
+          "key": "got",
+          "value": ""
+        },
+        {
+          "op": "try",
+          "try": [
+            {
+              "op": "Error",
+              "args": ["boom"]
+            }
+          ],
+          "catch": [
+            {
+              "op": "varAssign",
+              "key": "got",
+              "value": {
+                "$expr": "ident",
+                "name": "e"
+              }
+            }
+          ],
+          "catchParam": "e"
+        },
+        {
+          "op": "return",
+          "value": {
+            "e": {
+              "$expr": "ident",
+              "name": "e"
+            },
+            "got": {
+              "$expr": "ident",
+              "name": "got"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "result": {
+      "e": "outer",
+      "got": "boom"
+    }
   }
 ]

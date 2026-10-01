@@ -76,12 +76,12 @@ describe('B2: in-place mutation is charged to the heap budget', () => {
     expect(r.error?.message ?? '').toMatch(/heap|memory/i)
   })
 
-  it('`arr.fill(big)` through methodCall', async () => {
+  it('an insertion through methodCall (`push` in expression position)', async () => {
     const r = await run(
       `function f() {
-        let arr = [1]
+        let arr = []
         let i = 0
-        while (i < 2000) { arr.fill('y'.repeat(1000) + i); i = i + 1 }
+        while (i < 2000) { let n = [arr.push('y'.repeat(1000) + i)]; i = i + 1 }
         return { len: arr.length }
       }`,
       CAP
