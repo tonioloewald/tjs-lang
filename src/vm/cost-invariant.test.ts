@@ -325,6 +325,8 @@ describe('cost invariant: every atom is accounted for', () => {
 
     // O(1) reads and writes. Binding is separately charged by trackHeapWrite.
     varSet: 'binds one name; the heap walk is charged by trackHeapWrite',
+    evaluate:
+      'evaluates one expression; every node, and any allocation it makes, is charged by evaluateExpr and allocate()',
     varAssign:
       'assigns one name in its owning scope; the heap walk is charged by trackHeapWrite',
     constSet: 'binds one name; the heap walk is charged by trackHeapWrite',

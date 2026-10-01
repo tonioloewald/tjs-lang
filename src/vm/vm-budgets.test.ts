@@ -283,3 +283,171 @@ describe('I1: nothing allocates before it is charged (through transpile())', () 
     expect(r.error).toBeUndefined()
   })
 })
+
+describe('every atom has an allocation story (a RATCHET: a new atom must add one)', () => {
+  // How each core atom satisfies I1 (nothing allocates before it is charged). "gated" means
+  // through `allocate()`/`guestCall()` with a bound from its inputs; "binds"/"inserts" are I2
+  // (charged where the value lands); "membrane" is a capability return, bounded by
+  // `membraneMaxBytes` before it is copied and charged at its bind.
+  const STORIES: Record<string, string> = {
+    seq: 'control: allocates nothing itself',
+    evaluate: 'evaluates one expression; its nodes are the gated doors',
+    if: 'control: allocates nothing itself',
+    while: 'control: allocates nothing itself',
+    return: 'binds the output; its value was charged where it was built',
+    try: 'control: binds a message string (bounded by the error)',
+    Error: 'a message string from an evaluated (gated) expression',
+    varSet: 'binds (I2)',
+    varAssign: 'binds (I2)',
+    constSet: 'binds (I2)',
+    varGet: 'reads a binding',
+    varsImport:
+      'binds arguments the run was charged for on entry (argsMaxBytes)',
+    varsLet: 'binds (I2)',
+    varsExport: 'an object of AST-named keys over existing values',
+    scope: 'control: allocates nothing itself',
+    callLocal: 'binds parameters (I2)',
+    map: 'results: rooted (holdRoot); each result was bound (I2) in its callback',
+    filter: 'results: rooted; items alias the (rooted or bound) source',
+    reduce: 'accumulator: rooted; rebinds charged (I2)',
+    find: 'returns an existing item',
+    push: 'inserts (I2, accountMutation)',
+    len: 'a number',
+    split: 'gated: guestCall split',
+    join: 'gated: guestCall join',
+    template: 'gated: every placeholder occurrence bounded before building',
+    regexMatch: 'a boolean',
+    pick: 'gated: bounded by the key list',
+    omit: 'gated: bounded by the source object',
+    merge: 'gated: bounded by both operands',
+    keys: 'gated: guestCall Object.keys',
+    jsonParse: 'gated: guestCall JSON.parse',
+    jsonStringify: 'gated: guestCall JSON.stringify',
+    httpFetch: 'membrane',
+    storeGet: 'membrane',
+    storeSet: 'sends to a capability; allocates nothing in the guest',
+    storeQuery: 'membrane',
+    storeQueryWhere: 'membrane',
+    storeVectorSearch: 'membrane',
+    llmPredict: 'membrane',
+    xmlParse: 'membrane',
+    agentRun:
+      'a sub-program: its own steps are gated; its output is charged at the bind',
+    runCode:
+      'a sub-program, as agentRun; its source is capped (maxSourceBytes)',
+    transpileCode: 'an AST from a capped source (maxSourceBytes)',
+    memoize: 'stores a result (I2, charged as an insertion)',
+    cache: 'membrane (a store capability); its body is a sub-program',
+    random: 'a number',
+    uuid: 'a fixed-length string',
+    hash: 'a fixed-length digest',
+    consoleLog: 'host output; nothing retained',
+    consoleWarn: 'host output; nothing retained',
+    consoleError: 'host output; nothing retained',
+    storeProcedure: 'a token for an AST the host already holds',
+    releaseProcedure: 'allocates nothing',
+    clearExpiredProcedures: 'allocates nothing',
+  }
+
+  it('an atom whose story says "gated" reaches the gate in its body', async () => {
+    // The probe proves `guestCall`'s bounds; this proves the gated atoms USE it, which their
+    // results alone cannot show (an ungated atom is still refused at the bind — after the host
+    // has paid for the allocation).
+    const { readFileSync } = await import('fs')
+    const { join } = await import('path')
+    const src = readFileSync(join(import.meta.dir, 'runtime.ts'), 'utf8')
+    const starts = [
+      ...src.matchAll(/export const \w+ = defineAtom\(\s*'(\w+)'/g),
+    ]
+    const bodies = new Map(
+      starts.map((m, i) => [
+        m[1],
+        src.slice(m.index!, starts[i + 1]?.index ?? src.length),
+      ])
+    )
+    const ungated = Object.entries(STORIES)
+      .filter(([, story]) => story.startsWith('gated'))
+      .filter(([op]) => !/\b(guestCall|allocate)\(/.test(bodies.get(op) ?? ''))
+      .map(([op]) => op)
+    expect(ungated).toEqual([])
+  })
+
+  it('the list is exactly the core atoms', async () => {
+    const { coreAtoms } = await import('./runtime')
+    const ops = Object.keys(coreAtoms)
+    expect(ops.filter((op) => !(op in STORIES))).toEqual([])
+    expect(Object.keys(STORIES).filter((op) => !ops.includes(op))).toEqual([])
+  })
+})
+
+describe('I1 through the v1 data atoms (thin wrappers over the same gate)', () => {
+  const lit = (value: unknown) => ({ $expr: 'literal', value })
+  const v1 = (steps: any[]) => ({ op: 'seq', steps })
+  const run = (ast: any, args: any = {}) =>
+    new AgentVM().run(ast, args, { fuel: 1_000_000, maxHeapBytes: 1_000_000 })
+  const TRIPPED = /Out of Fuel|Heap limit exceeded/
+
+  it("split('') of a long string", async () => {
+    const r = await run(
+      v1([
+        { op: 'split', str: { $kind: 'arg', path: 's' }, sep: '', result: 'p' },
+      ]),
+      { s: 'x'.repeat(200_000) }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+  })
+
+  it('join with a long separator', async () => {
+    const r = await run(
+      v1([
+        { op: 'varSet', key: 'sep', value: lit('y'.repeat(10_000)) },
+        {
+          op: 'join',
+          list: { $kind: 'arg', path: 'xs' },
+          sep: 'sep',
+          result: 'out',
+        },
+      ]),
+      { xs: Array.from({ length: 1000 }, () => 1) }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+  })
+
+  it('template: a repeated placeholder is counted once per occurrence, before building', async () => {
+    // ~300MB (one-byte characters) from a 1MB-character argument. Counting only the first occurrence let the string be BUILT
+    // (and refused only at the bind, after the host had paid for it) — so this measures the host.
+    const before = process.memoryUsage().rss
+    const r = await new AgentVM().run(
+      v1([
+        {
+          op: 'template',
+          tmpl: '{{a}}'.repeat(300),
+          vars: { a: { $kind: 'arg', path: 'big' } },
+          result: 'out',
+        },
+      ]) as any,
+      { big: 'z'.repeat(1_000_000) },
+      { fuel: 10_000_000 }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+    // V8 stores these one byte per character: building it would add ~300MB
+    expect(process.memoryUsage().rss - before).toBeLessThan(100 * 1024 * 1024)
+  })
+
+  it("template: placeholders read the template's OWN vars", async () => {
+    const r = await new AgentVM().run(
+      v1([
+        {
+          op: 'template',
+          tmpl: '[{{constructor}}][{{__proto__}}][{{a}}]',
+          vars: { a: 'ok' },
+          result: 'out',
+        },
+        { op: 'return', value: { out: 'out' } },
+      ]) as any,
+      {}
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ out: '[][][ok]' })
+  })
+})

@@ -531,16 +531,20 @@
           }
         },
         {
-          "op": "template",
-          "tmpl": "n is {{_0}}",
-          "vars": {
-            "_0": {
+          "op": "constSet",
+          "key": "msg",
+          "value": {
+            "$expr": "binary",
+            "op": "+",
+            "left": {
+              "$expr": "literal",
+              "value": "n is "
+            },
+            "right": {
               "$expr": "ident",
               "name": "n"
             }
-          },
-          "result": "msg",
-          "resultConst": true
+          }
         },
         {
           "op": "return",
@@ -667,22 +671,28 @@
               "value": 2
             },
             {
-              "op": "push",
-              "list": {
-                "$expr": "ident",
-                "name": "out"
-              },
-              "item": {
-                "$expr": "binary",
-                "op": "+",
-                "left": {
+              "op": "evaluate",
+              "value": {
+                "$expr": "methodCall",
+                "object": {
                   "$expr": "ident",
-                  "name": "x"
+                  "name": "out"
                 },
-                "right": {
-                  "$expr": "ident",
-                  "name": "t"
-                }
+                "method": "push",
+                "arguments": [
+                  {
+                    "$expr": "binary",
+                    "op": "+",
+                    "left": {
+                      "$expr": "ident",
+                      "name": "x"
+                    },
+                    "right": {
+                      "$expr": "ident",
+                      "name": "t"
+                    }
+                  }
+                ]
               }
             }
           ]
@@ -700,14 +710,20 @@
               "value": 3
             },
             {
-              "op": "push",
-              "list": {
-                "$expr": "ident",
-                "name": "out"
-              },
-              "item": {
-                "$expr": "ident",
-                "name": "t"
+              "op": "evaluate",
+              "value": {
+                "$expr": "methodCall",
+                "object": {
+                  "$expr": "ident",
+                  "name": "out"
+                },
+                "method": "push",
+                "arguments": [
+                  {
+                    "$expr": "ident",
+                    "name": "t"
+                  }
+                ]
               }
             }
           ]

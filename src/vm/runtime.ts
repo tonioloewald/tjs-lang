@@ -2003,17 +2003,6 @@ export const builtins: Record<string, any> = Object.assign(
  * if a function reference ever leaked past the membrane, `methodCall` could not
  * use it to re-enter arbitrary host code with a chosen `this`/args.
  */
-/**
- * `Object.prototype`'s legacy accessor methods. Never guest-callable: `o.__lookupGetter__(
- * '__proto__')` handed the guest Object.prototype's own `__proto__` getter as a value — a live
- * host function — and `__defineGetter__`/`__defineSetter__` reshape an object in place.
- */
-const LEGACY_ACCESSOR_METHODS = new Set([
-  '__defineGetter__',
-  '__defineSetter__',
-  '__lookupGetter__',
-  '__lookupSetter__',
-])
 
 /**
  * THE METHOD TABLE (docs/vm-budgets.md): every method guest code may call, and an upper bound on
@@ -2486,6 +2475,21 @@ function probeContext(): RuntimeContext {
     fuel: { current: Number.MAX_SAFE_INTEGER },
     maxHeapBytes: Number.MAX_SAFE_INTEGER,
   } as RuntimeContext
+}
+
+/**
+ * Call a guest-callable method through the table's gate (I1): the one way a data ATOM performs
+ * the operation its method twin performs, so the two cannot drift (docs/vm-budgets.md).
+ */
+function guestCall(
+  ctx: RuntimeContext,
+  receiver: any,
+  method: string,
+  args: unknown[],
+  op: string
+): any {
+  allocate(ctx, METHOD_TABLE[method](receiver, args, ctx), op)
+  return receiver[method](...args)
 }
 
 /** The method allowlist: exactly the table's keys. */
@@ -4000,6 +4004,25 @@ function constAt(owner: Record<string, any>, key: string): boolean {
   )
 }
 
+/**
+ * An EXPRESSION STATEMENT: evaluate for its effects, bind nothing. `arr.push(x);` compiled to
+ * `varSet _ <expr>`, which clobbered a guest's own `_` — and with `const _` in scope, refused a
+ * legal program ("Cannot reassign const variable '_'") — and kept the last statement's result
+ * alive as live heap.
+ */
+export const evaluate = defineAtom(
+  'evaluate',
+  s.object({ value: s.any }),
+  undefined,
+  async ({ value }, ctx) => {
+    resolveValue(value, ctx)
+  },
+  {
+    docs: 'Evaluate an expression for its effects (an expression statement)',
+    cost: 0.1,
+  }
+)
+
 // 2. State (Low cost: 0.1)
 export const varSet = defineAtom(
   'varSet',
@@ -4570,11 +4593,15 @@ export const split = defineAtom(
   s.object({ str: s.string, sep: s.string }),
   s.array(s.string),
   async ({ str, sep }, ctx) => {
-    const input = resolveValue(str, ctx)
-    if (!chargeForSize(ctx, input, 'split')) return undefined
-    const out = input.split(resolveValue(sep, ctx))
-    chargeForSize(ctx, out, 'split') // splitting allocates one string per piece
-    return out
+    // The method, through the method table's gate: one implementation of `split` (v1 ASTs keep
+    // this op; v2 compiles `s.split(x)` to the same call).
+    return guestCall(
+      ctx,
+      resolveValue(str, ctx),
+      'split',
+      [resolveValue(sep, ctx)],
+      'split'
+    )
   },
   { docs: 'Split String', cost: 1 }
 )
@@ -4583,11 +4610,13 @@ export const join = defineAtom(
   s.object({ list: s.array(s.string), sep: s.string }),
   s.string,
   async ({ list, sep }, ctx) => {
-    const input = resolveValue(list, ctx)
-    if (!chargeForSize(ctx, input, 'join')) return undefined
-    const out = input.join(resolveValue(sep, ctx))
-    chargeForSize(ctx, out, 'join') // charge the concatenated result too
-    return out
+    return guestCall(
+      ctx,
+      resolveValue(list, ctx),
+      'join',
+      [resolveValue(sep, ctx)],
+      'join'
+    )
   },
   { docs: 'Join String', cost: 1 }
 )
@@ -4596,16 +4625,23 @@ export const template = defineAtom(
   s.object({ tmpl: s.string, vars: s.record(s.any) }),
   s.string,
   async ({ tmpl, vars }: { tmpl: string; vars: Record<string, any> }, ctx) => {
-    const resolvedTmpl = resolveValue(tmpl, ctx)
-    if (!chargeForSize(ctx, resolvedTmpl, 'template')) return undefined
-    const out = resolvedTmpl.replace(
-      /\{\{(\w+)\}\}/g,
-      (_: string, key: string) => String(resolveValue(vars[key], ctx) ?? '')
+    const resolvedTmpl = String(resolveValue(tmpl, ctx))
+    // Interpolation is an amplifier — a placeholder may repeat, and each copy of a huge value is
+    // a new allocation — so the bound counts every OCCURRENCE, before the string is built (I1).
+    // (v2 compiles template literals to `+`; this op is for v1 ASTs.)
+    // Each placeholder's value is resolved once, from the template's OWN vars — `{{constructor}}`
+    // read the inherited `Object` and printed its source.
+    const values = new Map<string, unknown>()
+    let bound = resolvedTmpl.length * 2 + 64
+    for (const [, key] of resolvedTmpl.matchAll(/\{\{(\w+)\}\}/g)) {
+      if (!values.has(key))
+        values.set(key, resolveValue(ownValue(vars, key), ctx) ?? '')
+      bound += stringFormBound(ctx, values.get(key)) // every occurrence is a copy
+    }
+    allocate(ctx, bound, 'template')
+    return resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) =>
+      String(values.get(key) ?? '')
     )
-    // Interpolation is an amplifier: a short template with a huge substitution
-    // produces a large string, so charge the RESULT, not just the template.
-    chargeForSize(ctx, out, 'template')
-    return out
   },
   { docs: 'String Template', cost: 1 }
 )
@@ -4656,8 +4692,8 @@ export const pick = defineAtom(
   async ({ obj, keys }: { obj: Record<string, any>; keys: string[] }, ctx) => {
     const resolvedObj = resolveValue(obj, ctx)
     const resolvedKeys = resolveValue(keys, ctx)
-    // `pick` walks the KEY LIST, not the source object, so that is what it pays for.
-    if (!chargeForSize(ctx, resolvedKeys, 'pick')) return undefined
+    // `pick` builds one property per key: bounded by the KEY LIST, charged before (I1).
+    allocate(ctx, 4 * shallowBytes(resolvedKeys) + 64, 'pick')
     const res: any = {}
     if (resolvedObj && Array.isArray(resolvedKeys)) {
       // OWN properties only: `pick(o, ['constructor'])` read the inherited `Object` function and
@@ -4677,8 +4713,8 @@ export const omit = defineAtom(
   async ({ obj, keys }: { obj: Record<string, any>; keys: string[] }, ctx) => {
     const resolvedObj = resolveValue(obj, ctx)
     const resolvedKeys = new Set(resolveValue(keys, ctx))
-    // Unlike `pick`, `omit` must walk the WHOLE source object to know what to keep.
-    if (!chargeForSize(ctx, resolvedObj, 'omit')) return undefined
+    // Unlike `pick`, `omit` copies up to the WHOLE source object.
+    allocate(ctx, 2 * shallowBytes(resolvedObj) + 64, 'omit')
     const res: any = {}
     if (resolvedObj) {
       Object.keys(resolvedObj).forEach((k) => {
@@ -4699,8 +4735,11 @@ export const merge = defineAtom(
     const rb = resolveValue(b, ctx)
     // Both operands are copied, so both are charged. Measured flat-charged: 400 merges
     // over a 400k-key object completed in 17.7 SECONDS having spent 400.3 fuel.
-    if (!chargeForSize(ctx, ra, 'merge')) return undefined
-    if (!chargeForSize(ctx, rb, 'merge')) return undefined
+    allocate(
+      ctx,
+      perCharOrShallow(ra, 2) + perCharOrShallow(rb, 2) + 64,
+      'merge'
+    )
     return { ...ra, ...rb }
   },
   { docs: 'Merge Objects', cost: 1 }
@@ -4711,9 +4750,8 @@ export const keys = defineAtom(
   s.array(s.string),
   async ({ obj }, ctx) => {
     const input = resolveValue(obj, ctx) ?? {}
-    // O(keys), not O(1): flat-charged, `keys` cost 1.2 fuel for 100 keys AND for 100,000.
-    if (!chargeForSize(ctx, input, 'keys')) return undefined
-    return Object.keys(input)
+    // O(keys), not O(1) (flat-charged, `keys` cost 1.2 fuel for 100 keys AND for 100,000).
+    return guestCall(ctx, builtins.Object, 'keys', [input], 'keys')
   },
   { docs: 'Object Keys', cost: 1 }
 )
@@ -5425,13 +5463,13 @@ export const jsonParse = defineAtom(
   s.object({ str: s.string }),
   s.any,
   async ({ str }, ctx) => {
-    const input = resolveValue(str, ctx)
-    // Charge for the INPUT before parsing — parse cost scales with the source
-    // text, and pre-charging bounds the damage of a single oversized call.
-    if (!chargeForSize(ctx, input, 'jsonParse')) return undefined
-    const out = JSON.parse(input)
-    chargeForSize(ctx, out, 'jsonParse') // true-up on the allocated result
-    return out
+    return guestCall(
+      ctx,
+      builtins.JSON,
+      'parse',
+      [resolveValue(str, ctx)],
+      'jsonParse'
+    )
   },
   { docs: 'Parse JSON', cost: 1 }
 )
@@ -5440,12 +5478,13 @@ export const jsonStringify = defineAtom(
   s.object({ value: s.any }),
   s.string,
   async ({ value }, ctx) => {
-    const input = resolveValue(value, ctx)
-    // Pre-charge on the operand's width, then true-up on the serialized length.
-    if (!chargeForSize(ctx, input, 'jsonStringify')) return undefined
-    const out = JSON.stringify(input)
-    chargeForSize(ctx, out, 'jsonStringify')
-    return out
+    return guestCall(
+      ctx,
+      builtins.JSON,
+      'stringify',
+      [resolveValue(value, ctx)],
+      'jsonStringify'
+    )
   },
   { docs: 'Stringify JSON', cost: 1 }
 )
@@ -5891,6 +5930,7 @@ export const clearExpiredProcedures = defineAtom(
 
 export const coreAtoms = {
   seq,
+  evaluate,
   if: iff,
   while: whileLoop,
   return: ret,

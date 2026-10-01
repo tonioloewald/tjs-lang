@@ -28,6 +28,7 @@ import type {
   ObjectExpression,
 } from 'acorn'
 import { AST_VERSION, AST_VERSION_KEY } from '../../vm/ast-version'
+import { GUEST_METHODS } from '../../vm/guest-methods'
 import type { BaseNode } from '../../builder'
 import type { ExprNode } from '../../runtime'
 import type {
@@ -663,11 +664,9 @@ function transformExpressionStatement(
     // If no step but we got an expression (e.g., method call on builtin),
     // we still need to evaluate it for side effects (like s.add(x))
     if (resultVar) {
-      return {
-        op: 'varSet',
-        key: '_',
-        value: resultVar,
-      }
+      // evaluated for its effects, bound to nothing (it was `varSet _`, which clobbered — or,
+      // with `const _`, refused — a guest's own `_`)
+      return { op: 'evaluate', value: resultVar }
     }
     return null
   }
@@ -1013,63 +1012,10 @@ const UNSUPPORTED_BUILTINS = new Set([
 
 // Instance methods that should be evaluated as expressions, not atom calls
 // These are methods on values (strings, arrays, etc.) that have native implementations
-const INSTANCE_METHODS = new Set([
-  // String methods
-  'toUpperCase',
-  'toLowerCase',
-  'trim',
-  'trimStart',
-  'trimEnd',
-  'charAt',
-  'charCodeAt',
-  'codePointAt',
-  'concat',
-  'includes',
-  'indexOf',
-  'lastIndexOf',
-  'startsWith',
-  'endsWith',
-  'slice',
-  'substring',
-  'substr',
-  'replace',
-  'replaceAll',
-  'match',
-  'search',
-  'padStart',
-  'padEnd',
-  'repeat',
-  'normalize',
-  'localeCompare',
-  'toString',
-  'valueOf',
-  'at',
-  // Array methods (that don't need special atom handling)
-  'reverse',
-  'sort',
-  'fill',
-  'copyWithin',
-  'flat',
-  'flatMap',
-  'every',
-  'some',
-  'forEach',
-  // Note: map, filter, find, reduce are handled specially as atoms for lambda support
-  // Set methods (from Set() builtin)
-  'add',
-  'remove',
-  'has',
-  'clear',
-  'toArray',
-  'union',
-  'intersection',
-  'diff',
-  // Date methods (from Date() builtin)
-  'format',
-  'isBefore',
-  'isAfter',
-  // Note: Date.add and Date.diff are method calls that return new values
-])
+// Method calls the VM evaluates as EXPRESSIONS: exactly its method table (src/vm/guest-methods.ts).
+// This list used to be the emitter's own, missing `push`/`join`/`split`, which therefore became
+// atoms with their own (ungated) implementations.
+const INSTANCE_METHODS = GUEST_METHODS
 
 /**
  * Check if a CallExpression is a builtin call (Math.floor, JSON.parse, etc.)
@@ -1297,16 +1243,6 @@ function transformExpressionToStep(
     )
   }
 
-  // Template literal -> template atom
-  if (expr.type === 'TemplateLiteral') {
-    return transformTemplateLiteral(
-      expr as TemplateLiteral,
-      ctx,
-      resultVar,
-      isConst
-    )
-  }
-
   // Binary/logical/unary expression - convert to ExprNode
   if (
     expr.type === 'BinaryExpression' ||
@@ -1383,7 +1319,8 @@ function transformCallExpression(
       expr.arguments as Expression[],
       ctx,
       resultVar,
-      isConst
+      isConst,
+      getLocation(expr)
     )
   }
 
@@ -1533,7 +1470,8 @@ function transformMethodCall(
   args: Expression[],
   ctx: TransformContext,
   resultVar?: string,
-  isConst?: boolean
+  isConst?: boolean,
+  location: { line: number; column: number } = { line: 0, column: 0 }
 ): { step: BaseNode; resultVar: string | undefined } {
   switch (method) {
     case 'map':
@@ -1741,97 +1679,26 @@ function transformMethodCall(
     case 'slice':
       // TODO: Could map to a slice atom
       break
-
-    case 'push':
-      return {
-        step: {
-          op: 'push',
-          list: receiver,
-          item: expressionToValue(args[0], ctx),
-          ...(resultVar && { result: resultVar }),
-          ...(resultVar && isConst && { resultConst: true }),
-        },
-        resultVar,
-      }
-
-    case 'join':
-      return {
-        step: {
-          op: 'join',
-          list: receiver,
-          sep: args.length > 0 ? expressionToValue(args[0], ctx) : '',
-          ...(resultVar && { result: resultVar }),
-          ...(resultVar && isConst && { resultConst: true }),
-        },
-        resultVar,
-      }
-
-    case 'split':
-      return {
-        step: {
-          op: 'split',
-          str: receiver,
-          sep: args.length > 0 ? expressionToValue(args[0], ctx) : '',
-          ...(resultVar && { result: resultVar }),
-          ...(resultVar && isConst && { resultConst: true }),
-        },
-        resultVar,
-      }
   }
 
-  // Unknown method - emit warning and try as generic call
-  ctx.warnings.push({
-    message: `Unknown method '${method}' - treating as atom call`,
-    line: 0,
-    column: 0,
-  })
-
-  return {
-    step: {
-      op: method,
-      receiver,
-      args: args.map((a) => expressionToValue(a, ctx)),
-      ...(resultVar && { result: resultVar }),
-      ...(resultVar && isConst && { resultConst: true }),
-    },
-    resultVar,
-  }
-}
-
-/**
- * Transform template literal
- */
-function transformTemplateLiteral(
-  expr: TemplateLiteral,
-  ctx: TransformContext,
-  resultVar?: string,
-  isConst?: boolean
-): { step: BaseNode; resultVar: string | undefined } {
-  // Build template string with {{var}} placeholders
-  let tmpl = ''
-  const vars: Record<string, any> = {}
-
-  for (let i = 0; i < expr.quasis.length; i++) {
-    tmpl += expr.quasis[i].value.cooked || expr.quasis[i].value.raw
-
-    if (i < expr.expressions.length) {
-      const exprNode = expr.expressions[i]
-      const varName = `_${i}`
-      vars[varName] = expressionToValue(exprNode as Expression, ctx)
-      tmpl += `{{${varName}}}`
-    }
-  }
-
-  return {
-    step: {
-      op: 'template',
-      tmpl,
-      vars,
-      ...(resultVar && { result: resultVar }),
-      ...(resultVar && isConst && { resultConst: true }),
-    },
-    resultVar,
-  }
+  // Not a method the VM can call. It used to become an ATOM call named after the method
+  // (`a.unshift(x)` → "Unknown Atom: unshift" at run time); refused here, where it can be fixed.
+  throw new TranspileError(
+    `Method '${method}' is not available in AsyncJS` +
+      ([
+        'forEach',
+        'some',
+        'every',
+        'flatMap',
+        'findIndex',
+        'reduceRight',
+      ].includes(method)
+        ? ' — use for...of, or map/filter/find/reduce with an arrow function'
+        : ''),
+    location,
+    ctx.source,
+    ctx.filename
+  )
 }
 
 /**
@@ -2169,14 +2036,33 @@ function expressionToExprNode(
       )
     }
 
-    case 'TemplateLiteral':
-      throw new TranspileError(
-        'Template literals inside expressions are not supported. ' +
-          'Assign to a variable first: const msg = `hello ${name}`; then use msg',
-        getLocation(expr),
-        ctx.source,
-        ctx.filename
-      )
+    case 'TemplateLiteral': {
+      // `a${x}b` is `'a' + x + 'b'`: one string concatenation, through the VM's gated `+`
+      // (it was a `template` atom, a second implementation with its own budget — and it printed
+      // `null` as '' where JavaScript prints 'null').
+      const t = expr as TemplateLiteral
+      let node: any = {
+        $expr: 'literal',
+        value: t.quasis[0].value.cooked ?? '',
+      }
+      for (let i = 0; i < t.expressions.length; i++) {
+        node = {
+          $expr: 'binary',
+          op: '+',
+          left: node,
+          right: expressionToExprNode(t.expressions[i] as Expression, ctx),
+        }
+        const tail = t.quasis[i + 1].value.cooked ?? ''
+        if (tail)
+          node = {
+            $expr: 'binary',
+            op: '+',
+            left: node,
+            right: { $expr: 'literal', value: tail },
+          }
+      }
+      return node
+    }
 
     default:
       throw new TranspileError(

@@ -927,7 +927,9 @@ test 'always fails' { throw new Error('intentional') }
   })
 
   describe('Template literals', () => {
-    it('should transform template literals to template atom', () => {
+    it('a template literal is string concatenation (the gated `+`), not an atom', () => {
+      // docs/vm-budgets.md: one implementation per operation. The `template` atom was a second
+      // way to build a string, with its own budget, and it printed `null` as ''.
       const { ast } = transpile(`
         function greet({ name }) {
           let msg = \`Hello \${name}!\`
@@ -935,9 +937,18 @@ test 'always fails' { throw new Error('intentional') }
         }
       `)
       // steps[0] is varsImport for parameters
-      expect(ast.steps[1].op).toBe('template')
-      expect(ast.steps[1].tmpl).toContain('Hello')
-      expect(ast.steps[1].tmpl).toContain('{{')
+      expect(ast.steps[1].op).toBe('varSet')
+      expect(ast.steps[1].value).toEqual({
+        $expr: 'binary',
+        op: '+',
+        left: {
+          $expr: 'binary',
+          op: '+',
+          left: { $expr: 'literal', value: 'Hello ' },
+          right: { $expr: 'ident', name: 'name' },
+        },
+        right: { $expr: 'literal', value: '!' },
+      })
     })
   })
 
@@ -953,37 +964,46 @@ test 'always fails' { throw new Error('intentional') }
       expect(ast.steps[1].op).toBe('map')
     })
 
-    it('should transform arr.push() to push atom', () => {
+    it('arr.push() is a gated method call', () => {
       const { ast } = transpile(`
         function test({ items }) {
           let updated = items.push(5)
           return { updated }
         }
       `)
-      // steps[0] is varsImport for parameters
-      expect(ast.steps[1].op).toBe('push')
+      // steps[0] is varsImport for parameters. A method call is an EXPRESSION through the VM's
+      // gated methodCall — the push atom was a second implementation (docs/vm-budgets.md)
+      expect(ast.steps[1].op).toBe('varSet')
+      expect(ast.steps[1].value.$expr).toBe('methodCall')
+      expect(ast.steps[1].value.method).toBe('push')
     })
 
-    it('should transform str.split() to split atom', () => {
+    it('str.split() is a gated method call', () => {
       const { ast } = transpile(`
         function test({ str }) {
           let parts = str.split(',')
           return { parts }
         }
       `)
-      // steps[0] is varsImport for parameters
-      expect(ast.steps[1].op).toBe('split')
+      // steps[0] is varsImport for parameters. A method call is an EXPRESSION through the VM's
+      // gated methodCall — the split atom was a second implementation (docs/vm-budgets.md)
+      expect(ast.steps[1].op).toBe('varSet')
+      expect(ast.steps[1].value.$expr).toBe('methodCall')
+      expect(ast.steps[1].value.method).toBe('split')
     })
 
-    it('should transform arr.join() to join atom', () => {
+    it('arr.join() is a gated method call', () => {
       const { ast } = transpile(`
         function test({ parts }) {
           let str = parts.join(',')
           return { str }
         }
       `)
-      // steps[0] is varsImport for parameters
-      expect(ast.steps[1].op).toBe('join')
+      // steps[0] is varsImport for parameters. A method call is an EXPRESSION through the VM's
+      // gated methodCall — the join atom was a second implementation (docs/vm-budgets.md)
+      expect(ast.steps[1].op).toBe('varSet')
+      expect(ast.steps[1].value.$expr).toBe('methodCall')
+      expect(ast.steps[1].value.method).toBe('join')
     })
 
     it('should transform arr.filter() to filter atom', () => {

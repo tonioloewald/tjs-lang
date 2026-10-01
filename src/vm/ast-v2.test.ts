@@ -199,3 +199,30 @@ describe('v1 ASTs keep v1 meaning', () => {
     expect(astVersionOf(transpile(`function f() { return 1 }`).ast)).toBe(2)
   })
 })
+
+describe('v2: an expression statement binds nothing', () => {
+  it("`arr.push(x);` neither clobbers nor collides with a guest's `_`", async () => {
+    // It compiled to `varSet _ <expr>`: a guest `let _` was overwritten, and a `const _` made
+    // the program fail ("Cannot reassign const variable '_'").
+    expect(
+      await run(
+        `const _ = 1; let a = []; a.push(2); a.push(3); return { a, u: _ }`
+      )
+    ).toEqual({ a: [2, 3], u: 1 })
+  })
+
+  it('a method call returns what JavaScript returns (push → the new length)', async () => {
+    expect(
+      await run(`let a = [1]; let n = a.push(2); return { n, a }`)
+    ).toEqual({
+      n: 2,
+      a: [1, 2],
+    })
+  })
+
+  it('a template literal prints null as JavaScript does', async () => {
+    expect(await run(`let x = null; return { s: \`<\${x}>\` }`)).toEqual({
+      s: '<null>',
+    })
+  })
+})
