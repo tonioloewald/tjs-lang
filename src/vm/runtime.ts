@@ -299,7 +299,13 @@ export interface RuntimeContext {
    * sub-agent's) was invisible to the run, and those writes were simply not counted (rc.2
    * re-review M1). Required means the compiler finds every context built without one.
    */
-  heapAccount: { bytes: number }
+  heapAccount: {
+    bytes: number
+    /** Bytes allocated by steps still executing (see `allocate`); released as each ends. */
+    transient: number
+  }
+  /** The allocation frame of the innermost step executing on this context (see `allocate`). */
+  allocFrame?: { bytes: number }
   /**
    * Per name, the reference it was last MEASURED at (and its array length), so re-binding an
    * unchanged value costs nothing and a grown array costs only its tail. A CACHE for the cost of
@@ -2096,6 +2102,11 @@ const EXPR_FUEL_COST = 0.01
 
 /** Fuel cost per character for string operations (1 fuel per ~10KB) */
 const STRING_FUEL_PER_CHAR = 0.0001
+/**
+ * Fuel per byte an operation allocates (`allocate`): a UTF-16 character is 2 bytes, so this is
+ * `STRING_FUEL_PER_CHAR` per character, the rate concatenation has always paid.
+ */
+const FUEL_PER_ALLOCATED_BYTE = STRING_FUEL_PER_CHAR / 2
 
 /** Fuel cost per element for array allocation operations */
 const ARRAY_FUEL_PER_ELEMENT = 0.001
@@ -2406,15 +2417,68 @@ function chargeHeap(
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
   const account = ctx.heapAccount
   account.bytes += bytes
-  if (account.bytes <= cap) return true
+  if (account.bytes + account.transient <= cap) return true
   const live = reconcileHeap(ctx, pending, op)
   if (live === undefined) return false // the measurement itself ran out of fuel
   account.bytes = live
-  if (live > cap) {
-    ctx.error = heapLimitError(live, cap, op)
+  if (live + account.transient > cap) {
+    ctx.error = heapLimitError(live + account.transient, cap, op)
     return false
   }
   return true
+}
+
+/**
+ * An upper bound, in bytes, on `String(x)` — what concatenation or stringification allocates.
+ * A string is its own length; a scalar's string form is short; an object's is bounded by its
+ * deep size (an array's `toString` joins its elements, recursively), with headroom for numbers,
+ * which print longer than the 8-byte slot they occupy. The walk is charged like any heap walk.
+ */
+function stringFormBound(ctx: RuntimeContext, x: unknown): number {
+  if (typeof x === 'string') return x.length * 2
+  if (x === null || typeof x !== 'object') return SCALAR_STRING_BYTES
+  const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  const { bytes, nodes } = estimateBytes(x, cap)
+  if (!chargeHeapWalk(ctx, nodes, 'expr.stringify'))
+    throw new Error('Out of Fuel')
+  return STRING_FORM_FACTOR * bytes + SCALAR_STRING_BYTES
+}
+
+/** The longest string form of a scalar (a double is at most ~24 characters), in bytes. */
+const SCALAR_STRING_BYTES = 64
+/** A value's string form vs its estimated size: a number is an 8-byte slot, up to 24 chars. */
+const STRING_FORM_FACTOR = 6
+
+/**
+ * THE gate in front of every allocation that depends on runtime data (docs/vm-budgets.md, I1).
+ *
+ * `bytes` is an upper bound on what the operation is about to allocate, computed from its INPUTS
+ * — never measured from its output, because a budget checked after the allocation has already
+ * lost: `'x'.repeat(5e8)` built 1GB and then charged fuel; `Array.from({ length: 3e8 })` charged
+ * nothing (rc.2 fifth re-review B2). Charges fuel in proportion, then admits the bytes against
+ * the heap ceiling as TRANSIENT — in-flight memory of the step now executing, which no root can
+ * see and which is released when the step ends (`exec`). Throws on refusal; the step wrapper turns
+ * that into the run's error, attributed to the step.
+ */
+export function allocate(ctx: RuntimeContext, bytes: number, op: string): void {
+  if (!(bytes > 0)) return
+  if (ctx.fuel) {
+    ctx.fuel.current -= bytes * FUEL_PER_ALLOCATED_BYTE
+    if (ctx.fuel.current <= 0) throw new Error('Out of Fuel')
+  }
+  const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  const account = ctx.heapAccount
+  if (account.bytes + account.transient + bytes > cap) {
+    const live = reconcileHeap(ctx, [], op)
+    if (live === undefined) throw new Error('Out of Fuel')
+    account.bytes = live
+    if (live + account.transient + bytes > cap) {
+      const err = heapLimitError(live + account.transient + bytes, cap, op)
+      throw new Error(err.message)
+    }
+  }
+  account.transient += bytes
+  if (ctx.allocFrame) ctx.allocFrame.bytes += bytes
 }
 
 /**
@@ -2721,16 +2785,16 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
       switch (node.op) {
         case '+': {
-          const result = left + right
-          // Charge fuel proportional to string length for concatenation
-          if (typeof result === 'string' && ctx.fuel) {
-            ctx.fuel.current -= result.length * STRING_FUEL_PER_CHAR
-            if (ctx.fuel.current <= 0) {
-              ctx.error = new AgentError('Out of Fuel', 'expr.concat')
-              return undefined
-            }
-          }
-          return result
+          // A string result is a new allocation of both operands' string forms: bounded and
+          // charged BEFORE it is built (I1). It used to be charged after, so the string already
+          // existed when the budget said no.
+          if (typeof left === 'string' || typeof right === 'string')
+            allocate(
+              ctx,
+              stringFormBound(ctx, left) + stringFormBound(ctx, right),
+              'expr.concat'
+            )
+          return left + right
         }
         case '-':
           return left - right
@@ -3017,192 +3081,212 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       ctx = origin
     }
     const { op: _op, result: _res, ...inputData } = step
-
-    // Skip if already in error state (monadic flow)
-    if (ctx.error) return
-
-    // --- Tracing Start ---
-    const stateBefore = ctx.trace ? { ...ctx.state } : null
-    const fuelBefore = ctx.fuel.current
-    let result: any
-    let error: string | undefined
-
+    // This step's allocation frame: what it allocates while it runs counts as transient until
+    // it ends (`allocate`). Restored on the way out, so frames nest with the steps.
+    const frame = { bytes: 0 }
+    const outerFrame = ctx.allocFrame
+    ctx.allocFrame = frame
     try {
-      // 2a. Quota — checked BEFORE fuel and before execution, so an exhausted quota
-      // costs nothing and cannot have already made the call it was meant to prevent.
-      // `ctx.quotas` is the ADMITTED table (frozen, null-prototype, built from the entries the
-      // check saw), so `[op]` reads exactly what was validated — and is checked again here.
-      const admittedQuota = ctx.quotas?.[op]
-      if (admittedQuota !== undefined) {
-        const quota = checkedQuota(admittedQuota, op)
-        if (!ctx.quotaUsed) ctx.quotaUsed = {}
-        // Checked at the READ: the counter is shared, so it can change after admission. And
-        // never below what THIS run has counted itself: a host object can only raise the
-        // count (to hold a quota across nested runs), never lower it.
-        if (!ctx.quotaLocal) ctx.quotaLocal = Object.create(null)
-        const local = ctx.quotaLocal!
-        const used = Math.max(quotaCount(ctx.quotaUsed, op), local[op] ?? 0)
-        if (used >= quota) {
-          ctx.error = new AgentError(
-            `Quota exceeded for '${op}': ${quota} call${
-              quota === 1 ? '' : 's'
-            } allowed`,
-            op
-          )
-          return
-        }
-        local[op] = used + 1
-        ctx.quotaUsed[op] = used + 1
-      }
+      // Skip if already in error state (monadic flow)
+      if (ctx.error) return
 
-      // 1b. An aborted run takes no further steps. `vm.run` stops WAITING when its deadline
-      // passes, but only loops checked the signal, so straight-line steps carried on
-      // unobserved (0.14.0 final re-review 6). Checked at the one point every step passes.
-      if (ctx.signal?.aborted) {
-        ctx.error = new AgentError('Execution aborted', op)
-        return
-      }
+      // --- Tracing Start ---
+      const stateBefore = ctx.trace ? { ...ctx.state } : null
+      const fuelBefore = ctx.fuel.current
+      let result: any
+      let error: string | undefined
 
-      // 2. Deduct Fuel (check for cost overrides first)
-      // Resolve ONCE, before anything reads the input: the cost and timeout functions and the
-      // atom body all see the same values. (Cost functions saw raw AST nodes while the body saw
-      // values, so `i => i.items.length` billed 1 for a 10-element array — rc.2 review.)
-      const callInput = atom.resolveInputs ? resolveAtomInputs(step, ctx) : step
-      // Built only when a cost or timeout FUNCTION asks for it — most atoms have neither.
-      let fnInputMemo: any
-      const fnInput = () =>
-        (fnInputMemo ??= atom.resolveInputs
-          ? withoutControlKeys(callInput)
-          : inputData)
-      const overrideCost = ctx.costOverrides?.[op]
-      const baseCost = overrideCost !== undefined ? overrideCost : cost
-      // Through `checkedCost`, at the one place every charge happens: a negative cost MINTED
-      // fuel (a -400 override gave fuelUsed -398 at fuel 1), and a NaN one poisoned the
-      // meter. Checked here because a function cost only exists at call time.
-      const currentCost = checkedCost(
-        typeof baseCost === 'function' ? baseCost(fnInput(), ctx) : baseCost,
-        op
-      )
-      if ((ctx.fuel.current -= currentCost) <= 0) {
-        ctx.error = new AgentError('Out of Fuel', op)
-        return
-      }
-
-      // 3. Execution with Timeout (per-atom override > atom default)
-      const overrideTimeout = ctx.timeoutOverrides?.[op]
-      const baseTimeout =
-        overrideTimeout !== undefined ? overrideTimeout : atomTimeout
-      // `timerMs`: 0 and Infinity mean none, and a NaN (from a function override) is refused
-      // rather than read as `NaN > 0` — false, which silently disabled the timeout.
-      const armedTimeout = timerMs(
-        typeof baseTimeout === 'function'
-          ? baseTimeout(fnInput(), ctx)
-          : baseTimeout
-      )
-      let timer: any
-      // An atom whose inputs the VM resolved runs under a context that SAYS so, and
-      // `resolveValue` is the identity under it. Otherwise an atom written the old way — calling
-      // `resolveValue` on its own inputs — resolved a second time, and guest DATA shaped like
-      // `{ $expr: 'ident', name: 'secret' }` (or, in a v1 AST, a string naming a variable) was
-      // evaluated as code (rc.2 review B5). Harmless by construction, not by a CHANGELOG note.
-      const atomCtx = atom.resolveInputs ? inputsResolvedContext(ctx) : ctx
-      const execute = async () => fn(callInput as I, atomCtx)
-
-      result =
-        armedTimeout !== undefined
-          ? await Promise.race([
-              execute(),
-              new Promise<never>((_, reject) => {
-                timer = setTimeout(
-                  () => reject(new Error(`Atom '${op}' timed out`)),
-                  armedTimeout
-                )
-              }),
-            ]).finally(() => clearTimeout(timer))
-          : await execute()
-
-      // 4. Result - always set if step.result is specified (even for undefined values)
-      if (step.result) {
-        assertSafeProperty(step.result) // an atom result bound to __proto__/constructor would corrupt the scope
-        if (step.resultConst && own(ctx.state, step.result)) {
-          throw new Error(`Cannot redeclare variable '${step.result}' as const`)
-        }
-        // Capability-boundary membrane: an io atom's return value is host data
-        // crossing into guest state. Deep-copy pure data (rejecting functions /
-        // oversized payloads) so the guest can neither reach a host reference
-        // nor mutate a shared object. Pure atoms operate on data already inside
-        // the VM and need no crossing. See membraneValue.
-        // Read atom.effects (not the captured `effects` default): io tagging is
-        // applied post-construction via EFFECTFUL_CORE_OPS, mutating atom.effects.
-        if (atom.effects === 'io' && result !== undefined) {
-          const crossed = membraneValue(
-            result,
-            ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
-          )
-          if (!crossed.ok) {
+      try {
+        // 2a. Quota — checked BEFORE fuel and before execution, so an exhausted quota
+        // costs nothing and cannot have already made the call it was meant to prevent.
+        // `ctx.quotas` is the ADMITTED table (frozen, null-prototype, built from the entries the
+        // check saw), so `[op]` reads exactly what was validated — and is checked again here.
+        const admittedQuota = ctx.quotas?.[op]
+        if (admittedQuota !== undefined) {
+          const quota = checkedQuota(admittedQuota, op)
+          if (!ctx.quotaUsed) ctx.quotaUsed = {}
+          // Checked at the READ: the counter is shared, so it can change after admission. And
+          // never below what THIS run has counted itself: a host object can only raise the
+          // count (to hold a quota across nested runs), never lower it.
+          if (!ctx.quotaLocal) ctx.quotaLocal = Object.create(null)
+          const local = ctx.quotaLocal!
+          const used = Math.max(quotaCount(ctx.quotaUsed, op), local[op] ?? 0)
+          if (used >= quota) {
             ctx.error = new AgentError(
-              `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
+              `Quota exceeded for '${op}': ${quota} call${
+                quota === 1 ? '' : 's'
+              } allowed`,
               op
             )
             return
           }
-          result = crossed.value
+          local[op] = used + 1
+          ctx.quotaUsed[op] = used + 1
         }
-        // Validate output against schema (skip for undefined results)
-        if (
-          result !== undefined &&
-          outputSchema &&
-          !validate(result, outputSchema)
-        ) {
-          ctx.error = new AgentError(`Output validation failed for '${op}'`, op)
+
+        // 1b. An aborted run takes no further steps. `vm.run` stops WAITING when its deadline
+        // passes, but only loops checked the signal, so straight-line steps carried on
+        // unobserved (0.14.0 final re-review 6). Checked at the one point every step passes.
+        if (ctx.signal?.aborted) {
+          ctx.error = new AgentError('Execution aborted', op)
           return
         }
-        // Space budget: an atom result is the other way large values enter guest
-        // scope (a capability return, a big parse). Fuel already charged for the
-        // work; this bounds what the run HOLDS.
-        //
-        // `setStateVar` does the tracking (it calls `trackHeapWrite` for every non-alias
-        // write), so the explicit call that used to sit on the line above was redundant.
-        // Not a double CHARGE — per-key accounting replaces rather than accumulates, so
-        // the byte total was identical, which is why nothing caught it — but it did pay
-        // the heap-walk fuel twice for a primitive, where the identity fast path does not
-        // apply. Removed rather than kept "for clarity": two calls that must agree is the
-        // shape every divergence in this codebase started as.
-        // `resultAssign`: the emitter's `x = atom(…)` — an ASSIGNMENT, so the result goes to
-        // the scope that owns `x` (tjs-lang#59), charged to that scope's ledger.
-        const owner = step.resultAssign ? ownerOf(ctx, step.result) : undefined
-        if (
-          !setStateVar(
-            ctx,
-            step.result,
-            result,
-            op,
-            owner ? { owner } : undefined
-          )
+
+        // 2. Deduct Fuel (check for cost overrides first)
+        // Resolve ONCE, before anything reads the input: the cost and timeout functions and the
+        // atom body all see the same values. (Cost functions saw raw AST nodes while the body saw
+        // values, so `i => i.items.length` billed 1 for a 10-element array — rc.2 review.)
+        const callInput = atom.resolveInputs
+          ? resolveAtomInputs(step, ctx)
+          : step
+        // Built only when a cost or timeout FUNCTION asks for it — most atoms have neither.
+        let fnInputMemo: any
+        const fnInput = () =>
+          (fnInputMemo ??= atom.resolveInputs
+            ? withoutControlKeys(callInput)
+            : inputData)
+        const overrideCost = ctx.costOverrides?.[op]
+        const baseCost = overrideCost !== undefined ? overrideCost : cost
+        // Through `checkedCost`, at the one place every charge happens: a negative cost MINTED
+        // fuel (a -400 override gave fuelUsed -398 at fuel 1), and a NaN one poisoned the
+        // meter. Checked here because a function cost only exists at call time.
+        const currentCost = checkedCost(
+          typeof baseCost === 'function' ? baseCost(fnInput(), ctx) : baseCost,
+          op
         )
+        if ((ctx.fuel.current -= currentCost) <= 0) {
+          ctx.error = new AgentError('Out of Fuel', op)
           return
-        // Mark as const if resultConst is set
-        if (step.resultConst) markConst(ctx, step.result)
+        }
+
+        // 3. Execution with Timeout (per-atom override > atom default)
+        const overrideTimeout = ctx.timeoutOverrides?.[op]
+        const baseTimeout =
+          overrideTimeout !== undefined ? overrideTimeout : atomTimeout
+        // `timerMs`: 0 and Infinity mean none, and a NaN (from a function override) is refused
+        // rather than read as `NaN > 0` — false, which silently disabled the timeout.
+        const armedTimeout = timerMs(
+          typeof baseTimeout === 'function'
+            ? baseTimeout(fnInput(), ctx)
+            : baseTimeout
+        )
+        let timer: any
+        // An atom whose inputs the VM resolved runs under a context that SAYS so, and
+        // `resolveValue` is the identity under it. Otherwise an atom written the old way — calling
+        // `resolveValue` on its own inputs — resolved a second time, and guest DATA shaped like
+        // `{ $expr: 'ident', name: 'secret' }` (or, in a v1 AST, a string naming a variable) was
+        // evaluated as code (rc.2 review B5). Harmless by construction, not by a CHANGELOG note.
+        const atomCtx = atom.resolveInputs ? inputsResolvedContext(ctx) : ctx
+        const execute = async () => fn(callInput as I, atomCtx)
+
+        result =
+          armedTimeout !== undefined
+            ? await Promise.race([
+                execute(),
+                new Promise<never>((_, reject) => {
+                  timer = setTimeout(
+                    () => reject(new Error(`Atom '${op}' timed out`)),
+                    armedTimeout
+                  )
+                }),
+              ]).finally(() => clearTimeout(timer))
+            : await execute()
+
+        // 4. Result - always set if step.result is specified (even for undefined values)
+        if (step.result) {
+          assertSafeProperty(step.result) // an atom result bound to __proto__/constructor would corrupt the scope
+          if (step.resultConst && own(ctx.state, step.result)) {
+            throw new Error(
+              `Cannot redeclare variable '${step.result}' as const`
+            )
+          }
+          // Capability-boundary membrane: an io atom's return value is host data
+          // crossing into guest state. Deep-copy pure data (rejecting functions /
+          // oversized payloads) so the guest can neither reach a host reference
+          // nor mutate a shared object. Pure atoms operate on data already inside
+          // the VM and need no crossing. See membraneValue.
+          // Read atom.effects (not the captured `effects` default): io tagging is
+          // applied post-construction via EFFECTFUL_CORE_OPS, mutating atom.effects.
+          if (atom.effects === 'io' && result !== undefined) {
+            const crossed = membraneValue(
+              result,
+              ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
+            )
+            if (!crossed.ok) {
+              ctx.error = new AgentError(
+                `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
+                op
+              )
+              return
+            }
+            result = crossed.value
+          }
+          // Validate output against schema (skip for undefined results)
+          if (
+            result !== undefined &&
+            outputSchema &&
+            !validate(result, outputSchema)
+          ) {
+            ctx.error = new AgentError(
+              `Output validation failed for '${op}'`,
+              op
+            )
+            return
+          }
+          // Space budget: an atom result is the other way large values enter guest
+          // scope (a capability return, a big parse). Fuel already charged for the
+          // work; this bounds what the run HOLDS.
+          //
+          // `setStateVar` does the tracking (it calls `trackHeapWrite` for every non-alias
+          // write), so the explicit call that used to sit on the line above was redundant.
+          // Not a double CHARGE — per-key accounting replaces rather than accumulates, so
+          // the byte total was identical, which is why nothing caught it — but it did pay
+          // the heap-walk fuel twice for a primitive, where the identity fast path does not
+          // apply. Removed rather than kept "for clarity": two calls that must agree is the
+          // shape every divergence in this codebase started as.
+          // `resultAssign`: the emitter's `x = atom(…)` — an ASSIGNMENT, so the result goes to
+          // the scope that owns `x` (tjs-lang#59), charged to that scope's ledger.
+          const owner = step.resultAssign
+            ? ownerOf(ctx, step.result)
+            : undefined
+          if (
+            !setStateVar(
+              ctx,
+              step.result,
+              result,
+              op,
+              owner ? { owner } : undefined
+            )
+          )
+            return
+          // Mark as const if resultConst is set
+          if (step.resultConst) markConst(ctx, step.result)
+        }
+      } catch (e: any) {
+        error = e.message || String(e)
+        // Convert exception to monadic error
+        ctx.error = new AgentError(error!, op, e)
+      } finally {
+        // --- Tracing End ---
+        if (ctx.trace && stateBefore) {
+          const stateDiff = diffObjects(stateBefore, ctx.state)
+          ctx.trace.push({
+            op,
+            input: inputData,
+            stateDiff,
+            result,
+            error,
+            fuelBefore,
+            fuelAfter: ctx.fuel.current,
+            timestamp: Date.now(),
+          })
+        }
       }
-    } catch (e: any) {
-      error = e.message || String(e)
-      // Convert exception to monadic error
-      ctx.error = new AgentError(error!, op, e)
     } finally {
-      // --- Tracing End ---
-      if (ctx.trace && stateBefore) {
-        const stateDiff = diffObjects(stateBefore, ctx.state)
-        ctx.trace.push({
-          op,
-          input: inputData,
-          stateDiff,
-          result,
-          error,
-          fuelBefore,
-          fuelAfter: ctx.fuel.current,
-          timestamp: Date.now(),
-        })
-      }
+      // The step is over: what it allocated is now either bound (charged to the estimate when
+      // it was) or garbage, so its transient bytes are released.
+      ctx.heapAccount.transient -= frame.bytes
+      ctx.allocFrame = outerFrame
     }
   }
 

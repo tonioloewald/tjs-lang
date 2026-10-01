@@ -470,7 +470,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       heapRoots,
       consts: new Set(),
       // Created WITH the run, never lazily: see `heapAccount` in runtime.ts.
-      heapAccount: { bytes: 0 },
+      heapAccount: { bytes: 0, transient: 0 },
       heapPerKey: new Map(),
       capabilities,
       resolver: (op) => this.resolve(op),

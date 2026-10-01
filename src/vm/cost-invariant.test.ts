@@ -824,20 +824,30 @@ describe('the heap walk charges and enforces on every path', () => {
     ],
   })
 
-  it('a run that exhausts its budget appending is stopped, and blames the append', async () => {
-    const r: any = await new AgentVM().run(
-      appendProgram(300) as any,
-      {} as any,
-      {
-        fuel: 1000,
-        // Deliberately generous, so this measures the FUEL budget and not the heap ceiling.
-        maxHeapBytes: 512 * 1024 * 1024,
-      }
-    )
-    expect(r.error).toBeDefined()
-    expect(r.error.message).toBe('Out of Fuel')
-    // The op that spent the budget, not the innocent one after it.
-    expect(r.error.op).toBe('push')
+  it('a run that exhausts its budget appending is stopped, and blames the op that crossed', async () => {
+    // Swept over budgets rather than pinned at one: WHICH op crosses zero depends on where the
+    // budget happens to fall in the loop (an iteration is ~5 fuel of append and 0.2 of loop
+    // bookkeeping), and a single budget made this assert an arithmetic coincidence. The promise
+    // is that no op absorbs an overshoot it did not cause — the bug this guards blamed the next
+    // op after an append had silently run far past zero.
+    let blamedPush = 0
+    for (let fuel = 990; fuel <= 1010; fuel++) {
+      const r: any = await new AgentVM().run(
+        appendProgram(300) as any,
+        {} as any,
+        {
+          fuel,
+          // Deliberately generous, so this measures the FUEL budget and not the heap ceiling.
+          maxHeapBytes: 512 * 1024 * 1024,
+        }
+      )
+      expect(r.error?.message).toBe('Out of Fuel')
+      if (r.error.op === 'push') blamedPush++
+      // A non-append op is blamed only when ITS OWN small charge crossed zero.
+      else expect(r.fuelUsed - fuel).toBeLessThan(0.11)
+    }
+    // ...which, at ~5 of every ~6.4 fuel per iteration, is mostly the append.
+    expect(blamedPush).toBeGreaterThan(13)
   })
 
   it('the budget is a ceiling, not a suggestion', async () => {
