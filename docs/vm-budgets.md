@@ -103,6 +103,32 @@ escaped `maxHeapBytes`; the atom returned the array where JavaScript returns the
 Consequence: `costOverrides` and `quotas` keyed on a data op such as `split` apply to v1 ASTs only.
 For v2 code a method call is an expression and costs what the evaluator charges.
 
+## Why not just ask the runtime?
+
+`process.memoryUsage()` and its browser cousins cannot do this job, and the reason is not
+asynchrony:
+
+- **It is after the fact.** `'x'.repeat(5e8)` is one synchronous native call. No moment exists
+  between asking for 1GB and having it where a reading could intervene, and no timeout can
+  interrupt it either. By the time the number moves, the host may already be gone. Only a bound
+  computed from the inputs, before the call, can refuse it (I1).
+- **It is the whole process, not this run.** A server running many agents, or a page hosting the
+  VM, has one heap. A per-run budget cannot be read off it.
+- **It counts garbage.** Dead objects stay in the figure until the collector runs, and forcing a
+  collection stops the world.
+- **It is not portable.** AJS runs in Node, Bun, Deno, workers and browsers. Browsers expose
+  almost nothing (`performance.memory` is non-standard; `measureUserAgentSpecificMemory` is async,
+  slow, and needs cross-origin isolation).
+
+**The runtime's real role is the floor under these budgets.** A host running untrusted code at
+scale should also give each run an isolation boundary with a hard limit, such as a Node `Worker`
+with `resourceLimits: { maxOldGenerationSizeMb }`. That limit is enforced by the engine, so it
+holds even where an estimate is wrong. What it cannot do is fail gracefully: the worker dies.
+`maxHeapBytes` is the budget that fails the RUN, with an error naming the operation, and leaves
+the host and the rest of the program intact. Use both. The native VM direction
+(`docs/ajs-native-vm.md`) eventually merges them, because a wasm instance's linear memory is a
+hard, synchronous, per-run cap.
+
 ## Checked by
 
 - `src/vm/vm-budgets.test.ts`: the method-table probe; every guest-callable method has an entry;

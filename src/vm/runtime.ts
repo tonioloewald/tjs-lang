@@ -2015,56 +2015,483 @@ const LEGACY_ACCESSOR_METHODS = new Set([
   '__lookupSetter__',
 ])
 
-const SAFE_METHOD_NAMES: Set<string> = (() => {
-  const names = new Set<string>()
-  for (const proto of [
-    String.prototype,
-    Array.prototype,
-    Number.prototype,
-    Boolean.prototype,
-    Object.prototype,
-    Date.prototype,
-  ]) {
-    for (const name of Object.getOwnPropertyNames(proto)) {
-      if (!FORBIDDEN_PROPERTIES.has(name) && !LEGACY_ACCESSOR_METHODS.has(name))
-        names.add(name)
-    }
+/**
+ * THE METHOD TABLE (docs/vm-budgets.md): every method guest code may call, and an upper bound on
+ * what a call allocates, computed from the receiver and arguments BEFORE the call (I1). A method
+ * with no entry is not guest-callable — the allowlist used to be "every method on these
+ * prototypes", which admitted amplifiers (`repeat`, `padStart`, `Array.from({ length })`) with
+ * no bound at all, legacy HTML methods, callback methods guest code cannot use, and
+ * `Array.prototype.keys`, which handed the guest a host iterator.
+ *
+ * Bounds are checked against real results by `vm-budgets.test.ts`, which calls every entry on
+ * receivers and arguments at several scales, including the amplifying dimensions.
+ *
+ * A bound returns bytes; 0 means "allocates nothing proportional to data". In-place growth
+ * (`push`, `fill`, a Set's `add`) is not an allocation here — it is charged where it lands
+ * (`accountMutation`, I2).
+ */
+type AllocBound = (receiver: any, args: any[], ctx: RuntimeContext) => number
+
+/** Bytes for a value's top level: a string's characters, a container's slots. O(1) except for
+ * a plain object, which costs O(keys) — no more than the method about to run on it. */
+function shallowBytes(x: unknown): number {
+  if (typeof x === 'string') return x.length * 2
+  if (x === null || typeof x !== 'object') return SLOT_BYTES
+  if (Array.isArray(x)) return 16 + x.length * SLOT_BYTES
+  if (HEAP_CONTENTS in x) return 16 + shallowBytes((x as any)[HEAP_CONTENTS])
+  let n = 16
+  for (const k of Object.keys(x)) n += k.length * 2 + SLOT_BYTES
+  return n
+}
+
+/** A value's deep size, the walk charged like any heap walk. */
+function deepBytes(ctx: RuntimeContext, x: unknown): number {
+  if (x === null || typeof x !== 'object') return shallowBytes(x)
+  const { bytes, nodes } = estimateBytes(x, ctx.maxHeapBytes ?? MAX_HEAP_BYTES)
+  if (!chargeHeapWalk(ctx, nodes, 'expr.measure'))
+    throw new Error('Out of Fuel')
+  return bytes
+}
+
+const sumOf = (xs: any[], f: (x: any) => number) =>
+  xs.reduce((n: number, x: any) => n + f(x), 0)
+
+const NONE: AllocBound = () => 0
+const CONST =
+  (bytes: number): AllocBound =>
+  () =>
+    bytes
+/** At most `c` × the top-level size of receiver and arguments. */
+const SHALLOW =
+  (c: number): AllocBound =>
+  (r, a) =>
+    c * (shallowBytes(r) + sumOf(a, shallowBytes)) + 64
+/** At most `c` × the deep size — for results that copy or print nested structure. */
+const DEEP =
+  (c: number): AllocBound =>
+  (r, a, ctx) =>
+    c * (deepBytes(ctx, r) + sumOf(a, (x) => deepBytes(ctx, x))) + 64
+/** Deep size of the ARGUMENTS only (a namespace receiver allocates nothing itself). */
+const DEEP_ARGS =
+  (c: number, base = 64): AllocBound =>
+  (_r, a, ctx) =>
+    c * sumOf(a, (x) => deepBytes(ctx, x)) + base
+
+const int = (x: unknown) =>
+  typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.floor(x)) : 0
+const strLen = (x: unknown) => (typeof x === 'string' ? x.length : 0)
+
+/** A namespace receiver (`JSON`, `Array`, …) — its methods allocate from their arguments. */
+const isNamespace = (r: unknown, name: string) => r === (builtins as any)[name]
+
+/** Iterators are host objects whose contents no budget can see: never handed to the guest. */
+const NOT_ON_ARRAYS =
+  (onObject: AllocBound): AllocBound =>
+  (r, a, ctx) => {
+    if (Array.isArray(r))
+      throw new Error(
+        'Array iterators are not available in AsyncJS; use Object.keys/values/entries'
+      )
+    return onObject(r, a, ctx)
   }
-  // Builtin static members (Math.floor, JSON.stringify, Object.keys, Array.from,
-  // Number.isNaN, …). Each builtin is a proxy over a plain `supported` object,
-  // so Object.keys returns its curated members.
-  for (const key of Object.keys(builtins)) {
-    const b = (builtins as Record<string, any>)[key]
-    if (b && typeof b === 'object') {
-      for (const name of Object.keys(b)) {
-        if (!FORBIDDEN_PROPERTIES.has(name)) names.add(name)
-      }
-    }
+
+/** A value's string form vs its estimated size (see STRING_FORM_FACTOR, declared later). */
+const STRINGIFY_FACTOR = 6
+
+/** A guest Set/Date wrapper, or a Schema builder: a fresh object of a dozen or so members. */
+const WRAPPER_BYTES = 4096
+
+/** The string form of an argument, in bytes (see `stringFormBound`). */
+const asString = (ctx: RuntimeContext, x: unknown): number =>
+  stringFormBound(ctx, x)
+
+/** Object.keys/values/entries/assign treat a STRING as its characters: an index string, a slot
+ * and (for entries) a pair array per character. */
+const perCharOrShallow = (x: unknown, c: number) =>
+  typeof x === 'string' ? x.length * 64 : c * shallowBytes(x)
+
+/** The arguments of a namespace call (`Object.keys(x)`), or the receiver itself. */
+const ENUMERATE =
+  (c: number): AllocBound =>
+  (r, a) =>
+    sumOf(isNamespace(r, 'Object') ? a : [r], (x) => perCharOrShallow(x, c)) +
+    64
+
+/** A function's string form is its SOURCE — host code. Never handed to the guest. */
+const NOT_ON_FUNCTIONS =
+  (onValue: AllocBound): AllocBound =>
+  (r, a, ctx) => {
+    if (typeof r === 'function')
+      throw new Error('A builtin function has no string form in AsyncJS')
+    return onValue(r, a, ctx)
   }
-  // The VM's own guest-facing wrapper types (Date, Set) are factory functions
-  // whose statics (`Date.now`) and instance methods (`.add`/`.format`/`.union`/
-  // `.has`, …) live on the wrapper, not on any standard prototype. Enumerate
-  // them from live samples so the allowlist tracks the factories without drift.
-  const addOwn = (o: any) => {
-    if (!o) return
-    for (const name of Object.getOwnPropertyNames(o)) {
-      if (!FORBIDDEN_PROPERTIES.has(name)) names.add(name)
+
+/** A number prints up to ~1100 digits in base 2, and ~400 characters grouped by locale. */
+const PRINT: AllocBound = NOT_ON_FUNCTIONS((r, a, ctx) =>
+  typeof r === 'number' ? 4096 : DEEP(STRINGIFY_FACTOR)(r, a, ctx)
+)
+
+const METHOD_ENTRIES: Record<string, AllocBound> = {
+  // --- no proportional allocation: queries, numbers, in-place mutators (charged by I2) ---
+  ...Object.fromEntries(
+    [
+      'charCodeAt',
+      'codePointAt',
+      'endsWith',
+      'startsWith',
+      'includes',
+      'indexOf',
+      'lastIndexOf',
+      'localeCompare',
+      'search',
+      'isWellFormed',
+      'valueOf',
+      'hasOwnProperty',
+      'propertyIsEnumerable',
+      'has',
+      'isValid',
+      'isArray',
+      'isFinite',
+      'isInteger',
+      'isNaN',
+      'isSafeInteger',
+      'hasOwn',
+      'parseFloat',
+      'parseInt',
+      'isAfter',
+      'isBefore',
+      'now',
+      // Math
+      'abs',
+      'acos',
+      'acosh',
+      'asin',
+      'asinh',
+      'atan',
+      'atan2',
+      'atanh',
+      'cbrt',
+      'ceil',
+      'clz32',
+      'cos',
+      'cosh',
+      'exp',
+      'expm1',
+      'floor',
+      'fround',
+      'hypot',
+      'imul',
+      'log',
+      'log10',
+      'log1p',
+      'log2',
+      'max',
+      'min',
+      'pow',
+      'random',
+      'round',
+      'sign',
+      'sin',
+      'sinh',
+      'sqrt',
+      'tan',
+      'tanh',
+      'trunc',
+      // Date getters/setters (a Date can arrive through a capability's structured clone)
+      'getDate',
+      'getDay',
+      'getFullYear',
+      'getHours',
+      'getMilliseconds',
+      'getMinutes',
+      'getMonth',
+      'getSeconds',
+      'getTime',
+      'getTimezoneOffset',
+      'getUTCDate',
+      'getUTCDay',
+      'getUTCFullYear',
+      'getUTCHours',
+      'getUTCMilliseconds',
+      'getUTCMinutes',
+      'getUTCMonth',
+      'getUTCSeconds',
+      'getYear',
+      'setDate',
+      'setFullYear',
+      'setHours',
+      'setMilliseconds',
+      'setMinutes',
+      'setMonth',
+      'setSeconds',
+      'setTime',
+      'setUTCDate',
+      'setUTCFullYear',
+      'setUTCHours',
+      'setUTCMilliseconds',
+      'setUTCMinutes',
+      'setUTCMonth',
+      'setUTCSeconds',
+      'setYear',
+      // in-place: growth is charged where it lands (accountMutation); what they RETURN is an
+      // element or a count that already existed
+      'push',
+      'pop',
+      'shift',
+      'unshift',
+      'fill',
+      'copyWithin',
+      'reverse',
+      'sort',
+      'remove',
+      'clear',
+      // console: host output, nothing retained
+      'log',
+      'info',
+      'warn',
+      'error',
+    ].map((n) => [n, NONE])
+  ),
+
+  // --- bounded by a constant ---
+  ...Object.fromEntries(
+    [
+      'toFixed',
+      'toExponential',
+      'toPrecision',
+      'toISOString',
+      'toDateString',
+      'toUTCString',
+      'toGMTString',
+      'toTimeString',
+      'toLocaleDateString',
+      'toLocaleTimeString',
+      'diff',
+      'format',
+      'uuid',
+      'email',
+      'ipv4',
+      'url',
+      'datetime',
+      'date',
+      'emoji',
+      'null',
+      'undefined',
+      'any',
+    ].map((n) => [n, CONST(WRAPPER_BYTES)])
+  ),
+  // one element (a string's is a new one-character string)
+  at: CONST(64),
+  charAt: CONST(64),
+  // a Set's `add` grows it in place (charged by I2); a Date's returns a new wrapper
+  add: CONST(WRAPPER_BYTES),
+
+  // --- at most a constant times the top-level input ---
+  slice: SHALLOW(1),
+  substring: SHALLOW(1),
+  substr: SHALLOW(1),
+  trim: SHALLOW(1),
+  trimStart: SHALLOW(1),
+  trimEnd: SHALLOW(1),
+  trimLeft: SHALLOW(1),
+  trimRight: SHALLOW(1),
+  toWellFormed: SHALLOW(1),
+  // case mapping can lengthen a string (ß → SS, ΐ → three characters)
+  toLowerCase: SHALLOW(3),
+  toUpperCase: SHALLOW(3),
+  toLocaleLowerCase: SHALLOW(3),
+  toLocaleUpperCase: SHALLOW(3),
+  // NFKD expands one code point to as many as 18 (U+FDFA)
+  normalize: SHALLOW(18),
+  // one string object and slot per piece: `split('')` turns 2 bytes into ~26
+  split: SHALLOW(16),
+  match: SHALLOW(4),
+  splice: SHALLOW(2),
+  toReversed: SHALLOW(1),
+  toSorted: SHALLOW(1),
+  toSpliced: SHALLOW(2),
+  with: SHALLOW(1),
+  of: SHALLOW(2),
+  fromCharCode: SHALLOW(1),
+  fromCodePoint: SHALLOW(2),
+  toArray: SHALLOW(1),
+  union: (r, a, ctx) => SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES,
+  intersection: (r, a, ctx) => SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES,
+  // Array concat copies slots; String concat converts every argument to its string form
+  concat: (r, a, ctx) =>
+    typeof r === 'string'
+      ? r.length * 2 + sumOf(a, (x) => asString(ctx, x)) + 64
+      : SHALLOW(1)(r, a, ctx),
+  // Object.keys/values/entries — on an object; arrays would get host iterators
+  keys: NOT_ON_ARRAYS(ENUMERATE(4)),
+  values: NOT_ON_ARRAYS(ENUMERATE(2)),
+  entries: NOT_ON_ARRAYS(ENUMERATE(8)),
+
+  // --- results that copy or print nested structure ---
+  flat: DEEP(1),
+  toString: PRINT,
+  toLocaleString: PRINT,
+  toJSON: NOT_ON_FUNCTIONS(DEEP(2)),
+  fromEntries: DEEP_ARGS(4),
+  // Schema builders: a schema object shaped by its argument
+  ...Object.fromEntries(
+    [
+      'pattern',
+      'union',
+      'enum',
+      'const',
+      'array',
+      'tuple',
+      'object',
+      'record',
+      'infer',
+      'response',
+      'fromExample',
+    ].map((n) => [n, DEEP_ARGS(32, WRAPPER_BYTES)])
+  ),
+
+  // --- amplifiers and products: explicit bounds ---
+  repeat: (r, a) => strLen(r) * int(a[0]) * 2 + 64,
+  padStart: (r, a) => Math.max(strLen(r), int(a[0])) * 2 + 64,
+  padEnd: (r, a) => Math.max(strLen(r), int(a[0])) * 2 + 64,
+  // every element's string form, plus the separator's between each pair
+  join: (r, a, ctx) =>
+    Array.isArray(r)
+      ? STRINGIFY_FACTOR * deepBytes(ctx, r) +
+        Math.max(0, r.length - 1) *
+          (a[0] === undefined ? 2 : asString(ctx, a[0])) +
+        64
+      : 64,
+  // A replacement is inserted once per match; `$'`, `$\``, `$&` insert parts of the subject,
+  // so with a `$` in the replacement every insertion may be as long as the whole string.
+  replace: (r, a, ctx) => replaceBound(ctx, r, a, false),
+  replaceAll: (r, a, ctx) => replaceBound(ctx, r, a, true),
+  // `Array.from({ length: n })` allocates n slots from a two-key object
+  from: (r, a, ctx) => {
+    if (!isNamespace(r, 'Array')) return SHALLOW(1)(r, a, ctx)
+    const src = a[0]
+    if (typeof src === 'string') return src.length * (SLOT_BYTES + 32) + 64
+    if (Array.isArray(src)) return shallowBytes(src) + 64
+    if (src && typeof src === 'object') {
+      if (HEAP_CONTENTS in src) return 2 * shallowBytes(src)
+      return 16 + int((src as any).length) * SLOT_BYTES + 64
     }
+    return 64
+  },
+  // JSON.parse vs Date.parse
+  parse: (r, a) =>
+    isNamespace(r, 'JSON') ? 16 * strLen(a[0]) + 64 : WRAPPER_BYTES,
+  stringify: (_r, a, ctx) => stringifyBound(ctx, a[0], a[2]),
+  // copies every source's own properties (a string source: one per character)
+  assign: (_r, a, ctx) =>
+    sumOf(a, (x) =>
+      typeof x === 'string' ? x.length * 64 : 2 * deepBytes(ctx, x)
+    ) + 64,
+}
+
+/** Null-prototype, so a method NAME can never resolve to an inherited member. */
+const METHOD_TABLE: Record<string, AllocBound> = Object.assign(
+  Object.create(null),
+  METHOD_ENTRIES
+)
+
+function replaceBound(
+  ctx: RuntimeContext,
+  r: unknown,
+  a: any[],
+  all: boolean
+): number {
+  if (typeof r !== 'string') return 64
+  const n = r.length
+  // both are converted to strings — a missing replacement is the string 'undefined'
+  const patternChars =
+    typeof a[0] === 'string' ? a[0].length : asString(ctx, a[0]) / 2
+  const replChars =
+    typeof a[1] === 'string' ? a[1].length : asString(ctx, a[1]) / 2
+  const dollar = typeof a[1] !== 'string' || a[1].includes('$')
+  // each inserted copy: the replacement, plus (with `$` patterns) up to the whole subject
+  const perMatch = replChars + (dollar ? 2 * n : 0)
+  const matches = all ? Math.floor(n / Math.max(1, patternChars)) + 1 : 1
+  return (n + matches * perMatch) * 2 + 64
+}
+
+/** JSON.stringify: the string form of the value, plus indentation — which repeats per LINE, so
+ * with an indent the bound grows with nesting depth. */
+function stringifyBound(
+  ctx: RuntimeContext,
+  x: unknown,
+  indent: unknown
+): number {
+  const base = STRINGIFY_FACTOR * deepBytes(ctx, x) + 64
+  const width =
+    typeof indent === 'number'
+      ? Math.min(10, int(indent))
+      : typeof indent === 'string'
+      ? Math.min(10, indent.length)
+      : 0
+  if (!width || x === null || typeof x !== 'object') return base
+  let nodes = 0
+  let depth = 0
+  const stack: Array<[unknown, number]> = [[x, 1]]
+  const seen = new WeakSet<object>()
+  while (stack.length) {
+    const [v, d] = stack.pop()!
+    nodes++
+    if (d > depth) depth = d
+    if (v === null || typeof v !== 'object' || seen.has(v)) continue
+    seen.add(v)
+    for (const desc of Object.values(Object.getOwnPropertyDescriptors(v)))
+      if ('value' in desc) stack.push([desc.value, d + 1])
   }
-  try {
-    const dateFactory = (builtins as any).Date
-    if (typeof dateFactory === 'function') {
-      addOwn(dateFactory) // now, parse
-      addOwn(dateFactory(0)) // add, diff, format, isBefore, …
-    }
-    const setFactory = (builtins as any).Set
-    if (typeof setFactory === 'function') addOwn(setFactory([])) // add, has, union, …
-  } catch {
-    // Sampling must never break module load; the standard prototype + static
-    // names above still cover the built-in surface.
-  }
-  return names
-})()
+  if (!chargeHeapWalk(ctx, nodes, 'expr.measure'))
+    throw new Error('Out of Fuel')
+  // every node is on a line of its own, indented `width` per level
+  return base + nodes * (2 + width * depth) * 2
+}
+
+/** The global functions (`parseInt(…)`, `Set(…)`, …) and what each call may allocate. */
+const GLOBAL_TABLE: Record<string, AllocBound> = Object.assign(
+  Object.create(null),
+  {
+    parseInt: NONE,
+    parseFloat: NONE,
+    isNaN: NONE,
+    isFinite: NONE,
+    // a UTF-16 unit is up to 3 UTF-8 bytes, each written as `%XX`
+    encodeURI: (_r, a, ctx) => 9 * asString(ctx, a[0]) + 64,
+    encodeURIComponent: (_r, a, ctx) => 9 * asString(ctx, a[0]) + 64,
+    decodeURI: (_r, a, ctx) => asString(ctx, a[0]) + 64,
+    decodeURIComponent: (_r, a, ctx) => asString(ctx, a[0]) + 64,
+    Set: (_r, a) => perCharOrShallow(a[0], 2) + WRAPPER_BYTES,
+    Date: CONST(WRAPPER_BYTES),
+    filter: DEEP_ARGS(2),
+  } as Record<string, AllocBound>
+)
+
+/**
+ * The table, read-only, for the behavioural probe (`vm-budgets.test.ts`): every guest-callable
+ * method name, and its bound for a given call. Not a public API.
+ */
+export const methodBudgets = {
+  names: (): string[] => Object.keys(METHOD_TABLE),
+  globals: (): string[] => Object.keys(GLOBAL_TABLE),
+  bound: (name: string, receiver: unknown, args: unknown[]): number =>
+    METHOD_TABLE[name](receiver, args, probeContext()),
+  globalBound: (name: string, args: unknown[]): number =>
+    GLOBAL_TABLE[name](undefined, args, probeContext()),
+}
+
+function probeContext(): RuntimeContext {
+  return {
+    fuel: { current: Number.MAX_SAFE_INTEGER },
+    maxHeapBytes: Number.MAX_SAFE_INTEGER,
+  } as RuntimeContext
+}
+
+/** The method allowlist: exactly the table's keys. */
+const SAFE_METHOD_NAMES: ReadonlySet<string> = new Set(
+  Object.keys(METHOD_TABLE)
+)
 
 // Built-ins that are NOT available with helpful messages
 const unsupportedBuiltins: Record<string, string> = Object.assign(
@@ -2237,9 +2664,15 @@ function estimateBytes(
         if (bytes > cap) break
       }
     } else if (!(v instanceof Date)) {
-      for (const k of Object.keys(v)) {
+      // Own DATA properties only — never `v[k]`, which runs a getter. A getter's result is not
+      // stored memory, and running one is executing host code mid-measurement: the VM's own
+      // wrappers have getters (a Set's `size`), and a tosijs-schema builder's `.optional` returns
+      // a NEW builder on every read, so walking `Schema` by `v[k]` never terminated.
+      const descriptors = Object.getOwnPropertyDescriptors(v)
+      for (const k of Object.keys(descriptors)) {
         bytes += k.length * 2 + SLOT_BYTES
-        stack.push((v as any)[k])
+        const d = descriptors[k]
+        if ('value' in d) stack.push(d.value)
         if (bytes > cap) break
       }
     }
@@ -2464,18 +2897,16 @@ export function allocate(ctx: RuntimeContext, bytes: number, op: string): void {
   if (!(bytes > 0)) return
   if (ctx.fuel) {
     ctx.fuel.current -= bytes * FUEL_PER_ALLOCATED_BYTE
-    if (ctx.fuel.current <= 0) throw new Error('Out of Fuel')
+    if (ctx.fuel.current <= 0) throw new AgentError('Out of Fuel', op)
   }
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
   const account = ctx.heapAccount
   if (account.bytes + account.transient + bytes > cap) {
     const live = reconcileHeap(ctx, [], op)
-    if (live === undefined) throw new Error('Out of Fuel')
+    if (live === undefined) throw new AgentError('Out of Fuel', op)
     account.bytes = live
-    if (live + account.transient + bytes > cap) {
-      const err = heapLimitError(live + account.transient + bytes, cap, op)
-      throw new Error(err.message)
-    }
+    if (live + account.transient + bytes > cap)
+      throw heapLimitError(live + account.transient + bytes, cap, op)
   }
   account.transient += bytes
   if (ctx.allocFrame) ctx.allocFrame.bytes += bytes
@@ -2670,41 +3101,6 @@ function chargeForSize(ctx: RuntimeContext, value: any, op: string): boolean {
   return true
 }
 
-/** Methods that allocate new arrays/strings and need proportional charging */
-const ALLOCATING_METHODS = new Set([
-  // Array methods that create new arrays
-  'concat',
-  'slice',
-  'map',
-  'filter',
-  'flatMap',
-  'flat',
-  'toReversed',
-  'toSorted',
-  'toSpliced',
-  // String methods that create new strings
-  'repeat',
-  'padStart',
-  'padEnd',
-  'split',
-  'join',
-  'replace',
-  'replaceAll',
-  'substring',
-  'substr',
-  'trim',
-  'trimStart',
-  'trimEnd',
-  'toLowerCase',
-  'toUpperCase',
-  // Regex methods that allocate (match returns array, split/replace covered above)
-  'match',
-  'matchAll',
-  // JSON parsing creates objects
-  'parse',
-  'stringify',
-])
-
 /**
  * Evaluates an expression node against the runtime context.
  * This replaces JSEP for new code - expressions are already parsed by Acorn.
@@ -2892,6 +3288,10 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         const fn = builtins[node.callee]
         if (typeof fn === 'function') {
           const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
+          const bound = GLOBAL_TABLE[node.callee]
+          if (!bound)
+            throw new Error(`${node.callee}() is not available in AsyncJS`)
+          allocate(ctx, bound(undefined, args, ctx), `expr.${node.callee}`) // I1
           return fn(...args)
         }
       }
@@ -2942,6 +3342,9 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       }
 
       const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
+      // I1: bound what the call will allocate from its inputs, and charge it, BEFORE calling.
+      // (It used to be charged from the RESULT — after `'x'.repeat(5e8)` had built 1GB.)
+      allocate(ctx, METHOD_TABLE[method](obj, args, ctx), `expr.${method}`)
       const result = fn.apply(obj, args)
       if (
         MUTATING_METHODS.has(method) &&
@@ -2949,27 +3352,14 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         !accountMutation(ctx, node.object, args, `expr.${method}`)
       )
         return undefined
-
-      // Charge fuel for allocating operations based on result size
-      if (ctx.fuel && ALLOCATING_METHODS.has(method)) {
-        let fuelCost = 0
-        if (typeof result === 'string') {
-          fuelCost = result.length * STRING_FUEL_PER_CHAR
-        } else if (Array.isArray(result)) {
-          fuelCost = result.length * ARRAY_FUEL_PER_ELEMENT
-        } else if (typeof result === 'object' && result !== null) {
-          // For JSON.parse and similar, estimate based on key count
-          // This is a rough estimate but catches large objects
-          const keys = Object.keys(result)
-          fuelCost = keys.length * ARRAY_FUEL_PER_ELEMENT
-        }
-        ctx.fuel.current -= fuelCost
-        if (ctx.fuel.current <= 0) {
-          ctx.error = new AgentError('Out of Fuel', `expr.${method}`)
-          return undefined
-        }
-      }
-
+      // `Object.assign(target, …sources)` grows its TARGET in place: the same I2 charge as a
+      // mutator, against the binding the target is reached through.
+      if (
+        method === 'assign' &&
+        obj === (builtins as any).Object &&
+        !accountMutation(ctx, node.arguments[0], args.slice(1), 'expr.assign')
+      )
+        return undefined
       return result
     }
 
@@ -3264,8 +3654,9 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         }
       } catch (e: any) {
         error = e.message || String(e)
-        // Convert exception to monadic error
-        ctx.error = new AgentError(error!, op, e)
+        // Convert exception to monadic error. An AgentError thrown from inside the step (the
+        // allocation gate) already names the operation that failed — keep it.
+        ctx.error = e instanceof AgentError ? e : new AgentError(error!, op, e)
       } finally {
         // --- Tracing End ---
         if (ctx.trace && stateBefore) {

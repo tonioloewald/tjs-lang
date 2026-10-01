@@ -157,9 +157,10 @@ describe('no false rejection: bytes that are gone stop counting', () => {
 
   it('re-binding a large value many times', async () => {
     const r = await run(`function f() {
-      let big = 'x'.repeat(200000)
+      let big = 'x'.repeat(120000)
       let k = 0
-      while (k < 100) { big = 'y'.repeat(200000) + k; k = k + 1 }
+      // in flight per iteration: the old value, the repeat, and the concatenation (~720KB)
+      while (k < 100) { big = 'y'.repeat(120000) + k; k = k + 1 }
       return { n: big.length }
     }`)
     expect(r.error).toBeUndefined()

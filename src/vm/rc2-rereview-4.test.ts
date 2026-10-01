@@ -105,10 +105,10 @@ describe('B2: every slot costs a pointer, whatever it holds', () => {
 
 describe('M1: the value a bind replaces is not live', () => {
   it('an immutable-update string loop under the cap', async () => {
-    // 400KB live, plus the 400KB concatenation in flight while it is built: ~800KB peak. Measuring
-    // the replaced value as well would count 1.2MB and refuse it.
+    // 280KB live, plus the slice and the concatenation in flight: ~840KB peak. Measuring the
+    // replaced value as well would count ~1.1MB and refuse it.
     const r = await run(`function f() {
-      let s = 'x'.repeat(200000)
+      let s = 'x'.repeat(140000)
       let i = 0
       while (i < 50) { s = s.slice(1) + 'a'; i = i + 1 }
       return { n: s.length }

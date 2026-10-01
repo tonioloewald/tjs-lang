@@ -842,7 +842,8 @@ describe('the heap walk charges and enforces on every path', () => {
         }
       )
       expect(r.error?.message).toBe('Out of Fuel')
-      if (r.error.op === 'push') blamedPush++
+      // the append, or the concatenation that builds its item (the allocation gate names it)
+      if (r.error.op === 'push' || r.error.op === 'expr.concat') blamedPush++
       // A non-append op is blamed only when ITS OWN small charge crossed zero.
       else expect(r.fuelUsed - fuel).toBeLessThan(0.11)
     }
