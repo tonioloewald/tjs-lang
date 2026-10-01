@@ -365,6 +365,16 @@
     "   protobufjs  ^7.6.5  GHSA-f38q-mgvj-vph7 (<=7.6.2) + GHSA-j3f2-48v5-ccww",
     "                       (<=7.6.4). Stays on 7.x; latest is 8.x and we do not",
     "                       need the major.",
+    "   @grpc/grpc-js ^1.14.5  GHSA-m9gg-hp2v-232j (<1.13.6, >=1.14.0 <1.14.5). TWO",
+    "                       versions resolved: 1.14.4 (firebase-admin > google-gax) and",
+    "                       1.9.16 (firebase > @firebase/firestore, pinned ~1.9.0, which",
+    "                       has no patched 1.9.x). This moves the firestore client",
+    "                       FORWARD within 1.x, never backward; dev-only here (the",
+    "                       demo's browser bundle does not include grpc-js).",
+    "   (brace-expansion is NOT here: two majors are in use — 5.x via eslint, 2.x via",
+    "   minimatch@9 — and an override cannot name two. Both were re-pinned in bun.lock",
+    "   to patched versions inside their parents' ranges, 5.0.12 and 2.1.7, with the",
+    "   registry's integrity hashes; GHSA-qhr7-859c-m2p7, -6j4f-fj2g-mc7p, -q2hr-2g5m-vwhr.)",
     "",
     "   A blanket override is safe for each ONLY because the tree resolves exactly",
     "   one version of each today (checked with `bun pm ls --all`). If a second",
@@ -380,6 +390,7 @@
     "form-data": "^2.5.6",
     "qs": "^6.16.0",
     "uuid": "^11.1.1",
-    "protobufjs": "^7.6.5"
+    "protobufjs": "^7.6.5",
+    "@grpc/grpc-js": "^1.14.5"
   }
 }
