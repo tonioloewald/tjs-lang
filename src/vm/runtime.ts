@@ -1204,6 +1204,18 @@ export function newScopeState(
   return state
 }
 
+/**
+ * Make a container an atom holds in a JS LOCAL — while guest steps run — a heap root for that
+ * long; returns the release. The true measurement (`reconcileHeap`) sees only registered roots,
+ * and resets the estimate to what it saw, so an unregistered holder is memory that measurement
+ * forgets: `map`'s results array accumulated ~94–196MB under a 1MB cap, the estimate lowered past
+ * it on every reconcile (rc.2 fourth re-review B1). Call it in a `try` whose `finally` releases.
+ */
+function holdRoot(ctx: RuntimeContext, holder: object): VoidFunction {
+  ctx.heapRoots.add(holder)
+  return () => ctx.heapRoots.delete(holder)
+}
+
 /** Register further roots owned by `child` (released with it). */
 function ownRoots(child: RuntimeContext, ...roots: unknown[]): void {
   const owned = OWNED_ROOTS.get(child) ?? []
@@ -2162,6 +2174,9 @@ const HEAP_WALK_FUEL_PER_NODE = 0.001
  * overestimating shared refs was deliberate and fail-closed; the WeakSet directly
  * contradicted it, so the claim is now gone rather than merely wrong.
  */
+/** A pointer: the cost of a slot in an array, Map, Set or object, whatever it holds. */
+const SLOT_BYTES = 8
+
 function estimateBytes(
   value: any,
   cap: number
@@ -2179,10 +2194,7 @@ function estimateBytes(
       bytes += (v as string).length * 2
       continue
     }
-    if (t !== 'object') {
-      bytes += 8
-      continue
-    }
+    if (t !== 'object') continue // its slot was charged by the container
     if (seen.has(v)) continue
     seen.add(v)
     bytes += 16
@@ -2192,21 +2204,30 @@ function estimateBytes(
     } else if (v instanceof ArrayBuffer) {
       bytes += v.byteLength
     } else if (Array.isArray(v)) {
-      for (let i = 0; i < v.length && bytes <= cap; i++) stack.push(v[i])
+      // EVERY slot holds a pointer, whatever is in it. A `null`/`undefined` slot, or a second
+      // reference to an already-counted object, used to cost nothing — so
+      // `Array.from({ length: 4e6 })` held ~256MB under a 1MB cap (rc.2 fourth re-review B2).
+      // The slot is charged here, by the container; the element adds only its own body.
+      for (let i = 0; i < v.length && bytes <= cap; i++) {
+        bytes += SLOT_BYTES
+        stack.push(v[i])
+      }
     } else if (v instanceof Map) {
       for (const [k, mv] of v) {
+        bytes += 2 * SLOT_BYTES
         stack.push(k)
         stack.push(mv)
         if (bytes > cap) break
       }
     } else if (v instanceof Set) {
       for (const sv of v) {
+        bytes += SLOT_BYTES
         stack.push(sv)
         if (bytes > cap) break
       }
     } else if (!(v instanceof Date)) {
       for (const k of Object.keys(v)) {
-        bytes += k.length * 2
+        bytes += k.length * 2 + SLOT_BYTES
         stack.push((v as any)[k])
         if (bytes > cap) break
       }
@@ -2484,7 +2505,7 @@ function trackHeapWrite(
     ref: value,
     witness,
   })
-  return chargeHeap(ctx, bytes, op, [value])
+  return chargeHeap(ctx, bytes, op, []) // already written: the root holds it
 }
 
 /**
@@ -2555,8 +2576,17 @@ function setStateVar(
     throw new Error(
       `Internal: no heap ledger for the scope that owns '${key}' — refusing an unaccounted write`
     )
-  if (!opts?.alias && !trackHeapWrite(ctx, key, value, op, ledger)) return false
+  // WRITE FIRST, then account: the value this bind replaces is no longer live, and a
+  // measurement taken before the write counted both — so `s = s + 'a'` was rejected at half the
+  // cap (rc.2 fourth re-review M1). A failed charge rolls the write back.
+  const had = Object.prototype.hasOwnProperty.call(target, key)
+  const previous = target[key]
   target[key] = value
+  if (!opts?.alias && !trackHeapWrite(ctx, key, value, op, ledger)) {
+    if (had) target[key] = previous
+    else delete target[key]
+    return false
+  }
   return true
 }
 
@@ -3827,33 +3857,38 @@ export const map = defineAtom(
   }),
   s.array(s.any),
   async ({ items, as, steps, loop }, ctx) => {
-    const results = []
+    const results: unknown[] = []
     const resolvedItems = resolveValue(items, ctx)
     if (!Array.isArray(resolvedItems))
       throw new Error('map: items is not an array')
-    for (const item of resolvedItems) {
-      // Check abort signal for clean cancellation
-      if (ctx.signal?.aborted) throw new Error('Execution aborted')
-      // A LOOP body is the enclosing function's own code: its `return` is the agent's
-      // return, under the agent's rules, and it ends the loop. A CALLBACK body is a function
-      // of its own (see callbackScope). One op served both, and when callbacks gained
-      // function semantics, a `return` inside for...of was silently swallowed.
-      const scopedCtx = callbackScope(ctx, { loop })
-      try {
-        if (!setStateVar(scopedCtx, as, item, 'map', { alias: true }))
-          return undefined
-        await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-        if (loop) {
-          if (scopedCtx.output !== undefined) {
-            ctx.output = scopedCtx.output
-            return results
+    const release = holdRoot(ctx, results)
+    try {
+      for (const item of resolvedItems) {
+        // Check abort signal for clean cancellation
+        if (ctx.signal?.aborted) throw new Error('Execution aborted')
+        // A LOOP body is the enclosing function's own code: its `return` is the agent's
+        // return, under the agent's rules, and it ends the loop. A CALLBACK body is a function
+        // of its own (see callbackScope). One op served both, and when callbacks gained
+        // function semantics, a `return` inside for...of was silently swallowed.
+        const scopedCtx = callbackScope(ctx, { loop })
+        try {
+          if (!setStateVar(scopedCtx, as, item, 'map', { alias: true }))
+            return undefined
+          await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+          if (loop) {
+            if (scopedCtx.output !== undefined) {
+              ctx.output = scopedCtx.output
+              return results
+            }
+            continue
           }
-          continue
+          results.push(callbackResult(scopedCtx) ?? null)
+        } finally {
+          releaseScope(scopedCtx)
         }
-        results.push(callbackResult(scopedCtx) ?? null)
-      } finally {
-        releaseScope(scopedCtx)
       }
+    } finally {
+      release()
     }
     return results
   },
@@ -3878,24 +3913,29 @@ export const filter = defineAtom(
   }),
   s.array(s.any),
   async ({ items, as, condition }, ctx) => {
-    const results = []
+    const results: unknown[] = []
     const resolvedItems = resolveValue(items, ctx)
     if (!Array.isArray(resolvedItems))
       throw new Error('filter: items is not an array')
-    for (const item of resolvedItems) {
-      // Check abort signal for clean cancellation
-      if (ctx.signal?.aborted) throw new Error('Execution aborted')
-      const scopedCtx = createChildScope(ctx)
-      try {
-        if (!setStateVar(scopedCtx, as, item, 'filter', { alias: true }))
-          return undefined
-        const passes = evaluateExpr(condition, scopedCtx)
-        if (passes) {
-          results.push(item)
+    const release = holdRoot(ctx, results)
+    try {
+      for (const item of resolvedItems) {
+        // Check abort signal for clean cancellation
+        if (ctx.signal?.aborted) throw new Error('Execution aborted')
+        const scopedCtx = createChildScope(ctx)
+        try {
+          if (!setStateVar(scopedCtx, as, item, 'filter', { alias: true }))
+            return undefined
+          const passes = evaluateExpr(condition, scopedCtx)
+          if (passes) {
+            results.push(item)
+          }
+        } finally {
+          releaseScope(scopedCtx)
         }
-      } finally {
-        releaseScope(scopedCtx)
       }
+    } finally {
+      release()
     }
     return results
   },
@@ -3942,28 +3982,37 @@ export const reduce = defineAtom(
      * already in the run's estimate, which nothing refunds.
      */
     let accEntry: HeapEntry | undefined
-    for (const item of resolvedItems) {
-      // Check abort signal for clean cancellation
-      if (ctx.signal?.aborted) throw new Error('Execution aborted')
-      const scopedCtx = callbackScope(ctx)
-      try {
-        // Only when it is the SAME object — a body that rebuilds the accumulator (`map`
-        // style) gets a fresh measurement, which is correct: it is a different value.
-        if (accEntry && accEntry.ref === acc && scopedCtx.heapPerKey) {
-          scopedCtx.heapPerKey.set(accumulator, accEntry)
+    // The accumulator lives in a JS local BETWEEN iterations: a root, through a box whose
+    // content changes as the accumulator is rebuilt (see `holdRoot`).
+    const held = { acc }
+    const release = holdRoot(ctx, held)
+    try {
+      for (const item of resolvedItems) {
+        // Check abort signal for clean cancellation
+        if (ctx.signal?.aborted) throw new Error('Execution aborted')
+        const scopedCtx = callbackScope(ctx)
+        try {
+          // Only when it is the SAME object — a body that rebuilds the accumulator (`map`
+          // style) gets a fresh measurement, which is correct: it is a different value.
+          if (accEntry && accEntry.ref === acc && scopedCtx.heapPerKey) {
+            scopedCtx.heapPerKey.set(accumulator, accEntry)
+          }
+          // The ITEM aliases the source array; the ACCUMULATOR does not — it can grow
+          // without bound, so it stays fully accounted.
+          if (!setStateVar(scopedCtx, as, item, 'reduce', { alias: true }))
+            return undefined
+          if (!setStateVar(scopedCtx, accumulator, acc, 'reduce'))
+            return undefined
+          await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+          acc = callbackResult(scopedCtx) ?? acc
+          held.acc = acc
+          accEntry = scopedCtx.heapPerKey?.get(accumulator)
+        } finally {
+          releaseScope(scopedCtx)
         }
-        // The ITEM aliases the source array; the ACCUMULATOR does not — it can grow
-        // without bound, so it stays fully accounted.
-        if (!setStateVar(scopedCtx, as, item, 'reduce', { alias: true }))
-          return undefined
-        if (!setStateVar(scopedCtx, accumulator, acc, 'reduce'))
-          return undefined
-        await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-        acc = callbackResult(scopedCtx) ?? acc
-        accEntry = scopedCtx.heapPerKey?.get(accumulator)
-      } finally {
-        releaseScope(scopedCtx)
       }
+    } finally {
+      release()
     }
     return acc
   },

@@ -65,7 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Now the estimate only grows — every bind, every in-place insertion (`push`, `fill`, `splice`,
 > the guest Set's `add`, …; the list is checked against behaviour) and every `memoize` store is
 > charged — and before a run fails, the VM measures the live heap from every registered scope,
-> memo cache and argument object, counting each object once. It fails only if that measurement
+> memo cache, argument object and in-progress `map`/`filter`/`reduce` result, counting each
+> object once and every slot as a pointer (a `null` slot or a repeat reference used to cost
+> nothing: `Array.from({ length: 4e6 })` held ~256MB under 1MB). A bind is measured after it
+> writes, so the value it replaces is not counted alongside it. It fails only if that measurement
 > is over the cap, and the error reports it. A long string held under several names still counts
 > once per name (equal strings cannot be told apart from shared ones) — an over-count, so it
 > fails closed. A guest Set's contents are now counted at all. Also: `Object.prototype`'s legacy
@@ -79,7 +82,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > outer `e` (with `errorOp`, bound in the catch block). v1 ASTs keep unscoped blocks. **A raw atom**
 > (`{ op, exec }`) that writes `ctx.state[step.result]` itself now declares in the innermost block
 > — use `defineAtom`, which honours assignment (`resultAssign`). A default parameter is now filled
-> by assignment, not a declaration in the `if` that tests it.
+> by assignment, not a declaration in the `if` that tests it. `var` is function-scoped, as in JavaScript: it is
+> declared once at function entry and `var x = v` assigns it, in any block (lowering it like
+> `let` lost `if (c) { var q = 5 }` silently). `errorOp`, like the catch parameter, is bound in
+> the catch block and is not visible after it.
 >
 > **Since rc.1 — `const` follows the scope a write lands in.** One rule, enforced where every
 > scope write passes: a write may not land on a `const` of the scope it writes. A block `let x`

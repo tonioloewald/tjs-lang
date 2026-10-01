@@ -308,6 +308,7 @@ export function transformFunction(
     })
   }
 
+  steps.push(...hoistedVars(func.body, new Set(parameters.keys())))
   steps.push(...bodySteps)
 
   // Build signature
@@ -480,10 +481,41 @@ function remedyFor(type: string): string {
 /**
  * Transform variable declaration: let x = value or const x = value
  */
+/**
+ * `var` is FUNCTION-scoped: every `var` in a body is declared once, at entry (as `undefined`,
+ * here `null`, as an uninitialised `let` already is), and each `var x = v` is an ASSIGNMENT to
+ * it. v2 blocks are scopes, and lowering `var` like `let` declared it in the innermost block, so
+ * `if (c) { var q = 5 } return { q }` silently lost `q` — legal JavaScript, wrong answer (rc.2
+ * fourth re-review M2). Parameters are already bound and are not re-declared. Nested functions
+ * have their own scope and are not entered.
+ */
+function hoistedVars(body: any, exclude: Set<string>): BaseNode[] {
+  const names = new Set<string>()
+  const walk = (node: any): void => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) return node.forEach(walk)
+    if (
+      node.type === 'FunctionDeclaration' ||
+      node.type === 'FunctionExpression' ||
+      node.type === 'ArrowFunctionExpression'
+    )
+      return
+    if (node.type === 'VariableDeclaration' && node.kind === 'var')
+      for (const d of node.declarations)
+        if (d.id?.type === 'Identifier' && !exclude.has(d.id.name))
+          names.add(d.id.name)
+    for (const key of Object.keys(node))
+      if (key !== 'loc' && key !== 'range') walk(node[key])
+  }
+  walk(body)
+  return [...names].map((key) => ({ op: 'varSet', key, value: null }))
+}
+
 function transformVariableDeclaration(
   decl: VariableDeclaration,
   ctx: TransformContext
 ): BaseNode[] {
+  if (decl.kind === 'var') return transformVarAsAssignment(decl, ctx)
   const steps: BaseNode[] = []
   const isConst = decl.kind === 'const'
   const opName = isConst ? 'constSet' : 'varSet'
@@ -542,6 +574,44 @@ function transformVariableDeclaration(
     }
   }
 
+  return steps
+}
+
+/** `var x = v` — an assignment to the binding `hoistedVars` declared at function entry. */
+function transformVarAsAssignment(
+  decl: VariableDeclaration,
+  ctx: TransformContext
+): BaseNode[] {
+  const steps: BaseNode[] = []
+  for (const declarator of decl.declarations) {
+    if (declarator.id.type !== 'Identifier')
+      throw new TranspileError(
+        'Only simple variable names are supported',
+        getLocation(declarator),
+        ctx.source,
+        ctx.filename
+      )
+    // `var x` with no initialiser keeps the value it has: nothing to emit.
+    if (!declarator.init) continue
+    const name = (declarator.id as Identifier).name
+    steps.push(
+      ...[
+        transformAssignment(
+          {
+            type: 'AssignmentExpression',
+            operator: '=',
+            left: declarator.id,
+            right: declarator.init,
+            start: (declarator as any).start,
+            end: (declarator as any).end,
+            loc: (declarator as any).loc,
+          } as any,
+          ctx
+        ),
+      ].flat()
+    )
+    ctx.locals.set(name, inferTypeFromValue(declarator.init as Expression))
+  }
   return steps
 }
 
@@ -1441,7 +1511,10 @@ function ensureHelperTransformed(
       helperSteps: ctx.helperSteps,
       helperTransforming: ctx.helperTransforming,
     }
-    const bodySteps = transformBlock(fn.body, helperCtx)
+    const bodySteps = [
+      ...hoistedVars(fn.body, new Set(paramNames)),
+      ...transformBlock(fn.body, helperCtx),
+    ]
     ctx.helperSteps!.set(name, { steps: bodySteps, paramNames })
   } finally {
     ctx.helperTransforming!.delete(name)

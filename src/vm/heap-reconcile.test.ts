@@ -183,6 +183,41 @@ describe('no false rejection: bytes that are gone stop counting', () => {
 })
 
 describe('the measurement sees every live scope, and only live ones', () => {
+  it('scopes opened by sub-programs that FAIL are released too', async () => {
+    // A caught failure keeps the run going, so a root leaked on the error path would stay
+    // counted for the rest of it.
+    const sizes: number[] = []
+    const count = defineAtom(
+      'count',
+      s.object({}),
+      s.any,
+      async (_i: any, ctx: any) => {
+        sizes.push(ctx.heapRoots.size)
+      },
+      { effects: 'pure' }
+    )
+    const code = { transpile: (src: string) => transpile(src).ast }
+    const failing = transpile(
+      `function g() { let a = [1].map(x => x); Error('boom'); return { a } }`
+    ).ast
+    const { ast } = transpile(`function f({ sub }) {
+      count({})
+      try { let r = runCode({ code: 'function g() { let a = [1].map(x => x); Error("boom"); return { a } }' }) } catch (e) { let t = 1 }
+      try { let r = agentRun({ agentId: sub, input: {} }) } catch (e) { let t = 2 }
+      try { let m = [1, 2].map(x => { Error('in map'); return x }) } catch (e) { let t = 3 }
+      count({})
+      return { ok: true }
+    }`)
+    const r = await new AgentVM({ count }).run(
+      ast,
+      { sub: failing },
+      { capabilities: { code } }
+    )
+    expect(r.error).toBeUndefined()
+    expect(sizes.length).toBe(2)
+    expect(sizes[1]).toBe(sizes[0])
+  })
+
   it('every scope a program opens is released by the time it ends', async () => {
     let before = -1
     let after = -1

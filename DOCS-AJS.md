@@ -993,7 +993,9 @@ atom that already resolves its own inputs keeps working — `resolveValue` is th
 input the VM resolved.) Dynamic `cost` and `timeoutMs` functions receive the same resolved
 input. An atom that takes **steps as input** (a control atom such as a custom loop) must pass
 `{ resolveInputs: false }`, or its steps arrive evaluated as values; steps an atom builds and
-runs itself — on the context it received, or a `createChildScope(ctx)` scope — run normally
+runs itself — on the context it received, or a `createChildScope(ctx)` scope, which you must
+pass to `releaseScope` in a `finally` (an unreleased scope stays a heap root for the rest of the
+run) — run normally
 either way (running them on a copy of the context is refused by name).
 
 Atoms must:
