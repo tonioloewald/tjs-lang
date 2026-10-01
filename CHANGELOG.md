@@ -56,25 +56,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > takes steps AS INPUT** must pass `{ resolveInputs: false }`, or its steps arrive evaluated
 > as values.
 >
-> **Since rc.1 — `maxHeapBytes` measures what is LIVE.** The ceiling accounted bytes per
-> binding NAME and refunded them when a name was rebound or its scope ended. Memory belongs to
-> values, which are aliased, mutated in place and outlive their names, so every refund rule was
-> wrong one way or the other: a transpiled `arr.push(x)` statement bound nothing (20MB held under
-> a 1MB cap), rows pushed onto an outer array were refunded when the loop body ended (~40MB
-> under 1MB), and pushes through a `for…of` alias were never refunded (a 4KB program rejected).
-> Now the estimate only grows — every bind, every in-place insertion (`push`, `fill`, `splice`,
-> the guest Set's `add`, …; the list is checked against behaviour) and every `memoize` store is
-> charged — and before a run fails, the VM measures the live heap from every registered scope,
-> memo cache, argument object and in-progress `map`/`filter`/`reduce` result, counting each
-> object once and every slot as a pointer (a `null` slot or a repeat reference used to cost
-> nothing: `Array.from({ length: 4e6 })` held ~256MB under 1MB). A bind is measured after it
-> writes, so the value it replaces is not counted alongside it. It fails only if that measurement
-> is over the cap, and the error reports it. A long string held under several names still counts
-> once per name (equal strings cannot be told apart from shared ones) — an over-count, so it
-> fails closed. A guest Set's contents are now counted at all. Also: `Object.prototype`'s legacy
-> `__lookupGetter__` family is no longer guest-callable (`o.__lookupGetter__('__proto__')`
-> returned a host function), and an AST step whose `op` names an `Object.prototype` member
-> (`toString`) is an `Unknown Atom` instead of a crash.
+> **Since rc.1 — the VM's budgets are invariants, not patches** ([`docs/vm-budgets.md`](docs/vm-budgets.md)).
+> Five rc.2 review rounds in a row found one more place where guest code could allocate or hold
+> memory that neither fuel nor `maxHeapBytes` saw — each fix closed one place and the next
+> review found another. They are now three rules, each checked by a test that probes behaviour:
+>
+> - **Nothing allocates before it is charged.** Every operation whose allocation depends on
+>   runtime data bounds it from its INPUTS and charges fuel and heap first. `'x'.repeat(5e8)`
+>   built 1GB and then charged; `Array.from({ length: 3e8 })` charged nothing — any guest could
+>   take the host's memory for under one unit of fuel, no capability needed.
+> - **Every byte that outlives its step is charged where it lands** — a bind, an in-place
+>   insertion (`push`, `fill`, a Set's `add`), a `memoize` store, a loop's results.
+> - **Everything holding guest values while guest steps run is measured** — scopes, memo caches,
+>   arguments, and the arrays a loop holds. Before a run fails, the VM measures the live heap
+>   from those (each object once, every slot a pointer) plus the in-flight allocations of the
+>   steps still running, and fails only if THAT is over; the error reports it.
+>
+> **The guest method allowlist is now a table,** and a method without a declared allocation
+> bound is not callable. Gone (breaking, though none of them could be used well): the legacy
+> HTML string methods (`bold`, `link`, …), callback methods that guest code has no functions to
+> pass to (`forEach`, `every`, `flatMap`, … — use `for…of` or `map`/`filter`/`find`/`reduce`),
+> `matchAll` and the array `keys`/`values`/`entries` (they returned host iterators), the
+> `__lookupGetter__` family (it returned a host function), and `toString` on a builtin function —
+> `Date.toString()` returned the host's SOURCE CODE. A long string held under several names
+> still counts once per name (fails closed). The VM grew ~10%: `tjs-lang/vm-ast` is 25 KB
+> gzipped, `tjs-lang/vm` 76 KB.
+>
+> **Since rc.1 — one implementation per operation (v2).** Method calls compile to the VM's
+> gated method call and template literals to its gated `+`, instead of `push`/`split`/`join`/
+> `template` atoms with their own budgets and their own semantics: `let n = arr.push(x)` is now
+> the new length (it was the array), `` `${null}` `` is `'null'` (it was `''`), and an unknown
+> method is a transpile error (it became a call to an atom named after the method). An
+> expression statement compiles to a new `evaluate` step — it bound `_`, clobbering a guest's
+> own `_`, and refused a program with `const _`. v1 ASTs keep the data atoms, now thin wrappers
+> over the same gate; the `template` atom reads only its own vars (`{{constructor}}` printed
+> `Object`'s source). `costOverrides`/`quotas` keyed on a data op apply to v1 ASTs only.
+> Hosts running untrusted code at scale should still give each run a hard engine-enforced
+> floor (a Node `Worker` with `resourceLimits`) — see "Why not just ask the runtime?" in the
+> budgets doc.
 >
 > **Since rc.1 — every v2 block is a scope.** `if`/`else`, `try` and `catch` blocks now scope
 > their declarations, as `while` bodies already did and as JavaScript does: sibling blocks may

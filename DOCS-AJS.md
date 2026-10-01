@@ -290,8 +290,8 @@ Helpers behave like ordinary functions, with a few deliberate rules:
 - **Recursion is allowed.** Helpers may call themselves or each other. Runaway
   recursion is bounded by fuel/timeout, with a hard call-depth cap (256) that
   surfaces as a normal monadic error — never a host crash.
-- **Call them at statement level.** Like template literals, a helper call cannot
-  be nested inside a larger expression — lift it to a variable first:
+- **Call them at statement level.** A helper call cannot be nested inside a larger
+  expression — lift it to a variable first:
 
   ```javascript
   // Fails at transpile time:
@@ -813,8 +813,13 @@ AJS compiles to a JSON AST. Here's what it looks like:
 // Member access
 { "$expr": "member", "object": {...}, "property": "foo" }
 
-// Template literal
-{ "$expr": "template", "tmpl": "Hello, ${name}!" }
+// Template literal: `Hello, ${name}!` compiles to string concatenation
+{ "$expr": "binary", "op": "+",
+  "left": { "$expr": "literal", "value": "Hello, " },
+  "right": { "$expr": "ident", "name": "name" } }   // …then + "!"
+
+// Method call (only methods the VM's method table lists — see docs/vm-budgets.md)
+{ "$expr": "methodCall", "object": {...}, "method": "split", "arguments": [...] }
 ```
 
 ### Conditionals
