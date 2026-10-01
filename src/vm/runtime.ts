@@ -1135,7 +1135,12 @@ export function createChildScope(ctx: RuntimeContext): RuntimeContext {
     // A scope runs STEPS, and steps resolve their values. Inherited from an atom's
     // `inputsResolvedContext`, this made every nested expression come back unevaluated.
     inputsResolved: false,
+    // Its own allocation frame, released with the scope: an expression evaluated DIRECTLY in
+    // it (a `filter`/`find` condition, per item) is garbage when the scope ends — charged to
+    // the enclosing step's frame, it accumulated over the whole loop.
+    allocFrame: { bytes: 0 },
   }
+  SCOPE_FRAMES.set(child, child.allocFrame!)
   // `heapBytes` is a NUMBER, so the spread copies it by value while `heapPerKey` (a Map)
   // is shared by reference. The two then drift: a child binding a key updates the shared
   // ledger but only its own copy of the total, and when the parent later rebinds that key
@@ -1190,8 +1195,19 @@ export function releaseScope(child: RuntimeContext): void {
   // so the next true measurement no longer counts it.
   child.heapRoots.delete(child.state)
   for (const root of OWNED_ROOTS.get(child) ?? []) child.heapRoots.delete(root)
+  // Its in-flight allocations are over (see `allocFrame` in createChildScope) — the frame it
+  // OWNS only. A hand-built context (callLocal, agentRun) inherits its step's frame by spread,
+  // and releasing THAT released a still-running step's in-flight bytes.
+  const frame = SCOPE_FRAMES.get(child)
+  if (frame) {
+    child.heapAccount.transient -= frame.bytes
+    frame.bytes = 0
+  }
   child.heapPerKey.clear()
 }
+
+/** The allocation frame each `createChildScope` scope owns (released by `releaseScope`). */
+const SCOPE_FRAMES = new WeakMap<RuntimeContext, { bytes: number }>()
 
 /** Roots a hand-built context registered beyond its state (its memo cache, its args). */
 const OWNED_ROOTS = new WeakMap<RuntimeContext, object[]>()
@@ -1217,9 +1233,19 @@ export function newScopeState(
  * forgets: `map`'s results array accumulated ~94–196MB under a 1MB cap, the estimate lowered past
  * it on every reconcile (rc.2 fourth re-review B1). Call it in a `try` whose `finally` releases.
  */
-function holdRoot(ctx: RuntimeContext, holder: object): VoidFunction {
-  ctx.heapRoots.add(holder)
-  return () => ctx.heapRoots.delete(holder)
+function holdRoot(ctx: RuntimeContext, ...holders: unknown[]): VoidFunction {
+  const held = holders.filter(
+    (h): h is object => h !== null && typeof h === 'object'
+  )
+  for (const h of held) ctx.heapRoots.add(h)
+  return () => {
+    for (const h of held) ctx.heapRoots.delete(h)
+  }
+}
+
+/** A loop's results array grew by one slot: an insertion into a root (I2). */
+function chargeResultSlot(ctx: RuntimeContext, op: string): void {
+  if (!chargeHeap(ctx, SLOT_BYTES, op, [])) throw ctx.error ?? new Error(op)
 }
 
 /** Register further roots owned by `child` (released with it). */
@@ -2464,17 +2490,15 @@ const GLOBAL_TABLE: Record<string, AllocBound> = Object.assign(
 export const methodBudgets = {
   names: (): string[] => Object.keys(METHOD_TABLE),
   globals: (): string[] => Object.keys(GLOBAL_TABLE),
-  bound: (name: string, receiver: unknown, args: unknown[]): number =>
-    METHOD_TABLE[name](receiver, args, probeContext()),
-  globalBound: (name: string, args: unknown[]): number =>
-    GLOBAL_TABLE[name](undefined, args, probeContext()),
-}
-
-function probeContext(): RuntimeContext {
-  return {
-    fuel: { current: Number.MAX_SAFE_INTEGER },
-    maxHeapBytes: Number.MAX_SAFE_INTEGER,
-  } as RuntimeContext
+  /** `ctx` supplies the fuel the bound's own measuring walk is charged to. */
+  bound: (
+    name: string,
+    receiver: unknown,
+    args: unknown[],
+    ctx: RuntimeContext
+  ) => METHOD_TABLE[name](receiver, args, ctx),
+  globalBound: (name: string, args: unknown[], ctx: RuntimeContext) =>
+    GLOBAL_TABLE[name](undefined, args, ctx),
 }
 
 /**
@@ -3077,10 +3101,20 @@ function setStateVar(
     )
   // WRITE FIRST, then account: the value this bind replaces is no longer live, and a
   // measurement taken before the write counted both — so `s = s + 'a'` was rejected at half the
-  // cap (rc.2 fourth re-review M1). A failed charge rolls the write back.
+  // cap (rc.2 fourth re-review M1). A failed charge rolls the write back. (Since the allocation
+  // gate, this is defence in depth: the gate already counts old + new when the new value is
+  // BUILT, which is the true peak — so a mutation test cannot tell the two orders apart.)
   const had = Object.prototype.hasOwnProperty.call(target, key)
   const previous = target[key]
   target[key] = value
+  // A bind ENDS the in-flight life of what this step allocated: the value is now held by a
+  // scope (and charged below), and every other intermediate it was computed from is garbage.
+  // Left in the frame until the step ended, the value counted twice — `let a = Array.from({
+  // length: 1e5 })` was refused at half the cap. (Alias binds move nothing, so they keep it.)
+  if (!opts?.alias && ctx.allocFrame && ctx.allocFrame.bytes) {
+    ctx.heapAccount.transient -= ctx.allocFrame.bytes
+    ctx.allocFrame.bytes = 0
+  }
   if (!opts?.alias && !trackHeapWrite(ctx, key, value, op, ledger)) {
     if (had) target[key] = previous
     else delete target[key]
@@ -4361,7 +4395,9 @@ export const map = defineAtom(
     const resolvedItems = resolveValue(items, ctx)
     if (!Array.isArray(resolvedItems))
       throw new Error('map: items is not an array')
-    const release = holdRoot(ctx, results)
+    // The SOURCE is held too: a callback can rebind the name it came from, leaving this loop as
+    // its only holder — invisible to the measurement (rc.2 fifth re-review B1).
+    const release = holdRoot(ctx, results, resolvedItems)
     try {
       for (const item of resolvedItems) {
         // Check abort signal for clean cancellation
@@ -4383,6 +4419,7 @@ export const map = defineAtom(
             continue
           }
           results.push(callbackResult(scopedCtx) ?? null)
+          chargeResultSlot(ctx, 'map')
         } finally {
           releaseScope(scopedCtx)
         }
@@ -4417,7 +4454,9 @@ export const filter = defineAtom(
     const resolvedItems = resolveValue(items, ctx)
     if (!Array.isArray(resolvedItems))
       throw new Error('filter: items is not an array')
-    const release = holdRoot(ctx, results)
+    // The SOURCE is held too: a callback can rebind the name it came from, leaving this loop as
+    // its only holder — invisible to the measurement (rc.2 fifth re-review B1).
+    const release = holdRoot(ctx, results, resolvedItems)
     try {
       for (const item of resolvedItems) {
         // Check abort signal for clean cancellation
@@ -4429,6 +4468,7 @@ export const filter = defineAtom(
           const passes = evaluateExpr(condition, scopedCtx)
           if (passes) {
             results.push(item)
+            chargeResultSlot(ctx, 'filter')
           }
         } finally {
           releaseScope(scopedCtx)
@@ -4485,7 +4525,7 @@ export const reduce = defineAtom(
     // The accumulator lives in a JS local BETWEEN iterations: a root, through a box whose
     // content changes as the accumulator is rebuilt (see `holdRoot`).
     const held = { acc }
-    const release = holdRoot(ctx, held)
+    const release = holdRoot(ctx, held, resolvedItems)
     try {
       for (const item of resolvedItems) {
         // Check abort signal for clean cancellation
@@ -4540,20 +4580,25 @@ export const find = defineAtom(
     const resolvedItems = resolveValue(items, ctx)
     if (!Array.isArray(resolvedItems))
       throw new Error('find: items is not an array')
-    for (const item of resolvedItems) {
-      // Check abort signal for clean cancellation
-      if (ctx.signal?.aborted) throw new Error('Execution aborted')
-      const scopedCtx = createChildScope(ctx)
-      try {
-        if (!setStateVar(scopedCtx, as, item, 'find', { alias: true }))
-          return undefined
-        const matches = evaluateExpr(condition, scopedCtx)
-        if (matches) {
-          return item
+    const release = holdRoot(ctx, resolvedItems)
+    try {
+      for (const item of resolvedItems) {
+        // Check abort signal for clean cancellation
+        if (ctx.signal?.aborted) throw new Error('Execution aborted')
+        const scopedCtx = createChildScope(ctx)
+        try {
+          if (!setStateVar(scopedCtx, as, item, 'find', { alias: true }))
+            return undefined
+          const matches = evaluateExpr(condition, scopedCtx)
+          if (matches) {
+            return item
+          }
+        } finally {
+          releaseScope(scopedCtx)
         }
-      } finally {
-        releaseScope(scopedCtx)
       }
+    } finally {
+      release()
     }
     return null
   },

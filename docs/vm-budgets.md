@@ -41,11 +41,14 @@ covers scope states, memo caches, run arguments, and the containers loop atoms k
   the run fails only if the measurement plus the transient total exceeds the cap. The error
   reports the measured figure.
 
-**What this deliberately over-counts (fails closed):**
-- A value allocated in a step and then bound in the same step is counted twice until the step
-  ends: once as transient, once as bound.
-- A long string held under several names is counted once per name. Equal strings cannot be told
-  apart from shared ones, and counting by value would let distinct equal strings count once.
+**A bind ends a step's in-flight bytes.** When a step binds its value, everything else it
+allocated is garbage and the value is now charged as bound, so the step's frame is cleared at the
+bind. Otherwise `let a = Array.from({ length: 1e5 })` would count twice and be refused at half
+the cap.
+
+**What this deliberately over-counts (fails closed):** a long string held under several names is
+counted once per name. Equal strings cannot be told apart from shared ones, and counting by value
+would let distinct equal strings count once.
 
 **What it deliberately does not count:** garbage. A value no root reaches and no active step
 holds is the JS collector's to reclaim. Peak *reachable* memory is the promise.

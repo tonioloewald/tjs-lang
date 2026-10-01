@@ -18,6 +18,12 @@ import { builtins, methodBudgets } from './runtime'
 
 const SLOT = 8
 
+/** Only what a bound's measuring walk reads: an unlimited fuel and heap budget. */
+const PROBE_CTX = {
+  fuel: { current: Number.MAX_SAFE_INTEGER },
+  maxHeapBytes: Number.MAX_SAFE_INTEGER,
+} as any
+
 /** What was reachable from the inputs BEFORE the call (a `pop` returns an existing element). */
 function snapshot(inputs: unknown[]) {
   const known = new WeakSet<object>()
@@ -170,7 +176,7 @@ describe('the method table bounds what every guest-callable method allocates', (
         const receiver = make() as any
         let bound: number
         try {
-          bound = methodBudgets.bound(name, receiver, args)
+          bound = methodBudgets.bound(name, receiver, args, PROBE_CTX)
         } catch {
           continue // the gate REFUSES this call (e.g. array iterators): nothing is allocated
         }
@@ -209,7 +215,7 @@ describe('the method table bounds what every guest-callable method allocates', (
       for (const args of CALLS) {
         let bound: number
         try {
-          bound = methodBudgets.globalBound(name, args)
+          bound = methodBudgets.globalBound(name, args, PROBE_CTX)
         } catch {
           continue
         }
@@ -259,10 +265,6 @@ describe('I1: nothing allocates before it is charged (through transpile())', () 
       "replaceAll with $'",
       `function f() { let s = 'a'.repeat(20000).replaceAll('a', "$'"); return { n: s.length } }`,
     ],
-    [
-      'concatenation',
-      `function f() { let s = 'x'.repeat(400000); let t = s + s + s; return { n: t.length } }`,
-    ],
   ]
   for (const [name, src] of rows)
     it(`${name} is refused before it allocates`, async () => {
@@ -274,6 +276,20 @@ describe('I1: nothing allocates before it is charged (through transpile())', () 
       // refused before the allocation: no 100MB+ jump in the host
       expect(process.memoryUsage().rss - before).toBeLessThan(100 * 1024 * 1024)
     })
+
+  it('concatenation is refused AT the concatenation, before the string exists', async () => {
+    // V8 builds concatenations as ropes, so the host's memory cannot show this; attribution can.
+    // Gated, the refusal names `expr.concat`; ungated, it surfaced later, at the bind.
+    const r = await new AgentVM().run(
+      transpile(
+        `function f({ s }) { let t = s + s + s + s; return { n: t.length } }`
+      ).ast,
+      { s: 'x'.repeat(300_000) },
+      { fuel: 1_000_000, maxHeapBytes: 1_500_000 }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
+    expect(r.error?.op).toBe('expr.concat')
+  })
 
   it('an ordinary program is not refused', async () => {
     const r = await tiny(
@@ -449,5 +465,77 @@ describe('I1 through the v1 data atoms (thin wrappers over the same gate)', () =
     )
     expect(r.error).toBeUndefined()
     expect(r.result).toEqual({ out: '[][][ok]' })
+  })
+})
+
+describe('I3: what a loop holds while guest steps run is measured (through transpile())', () => {
+  const CAP = { maxHeapBytes: 1_000_000, fuel: 50_000_000 }
+  const run = (src: string) => new AgentVM().run(transpile(src).ast, {}, CAP)
+  const TRIPPED = /Heap limit exceeded|Out of Fuel/
+
+  it('a recursive map over fresh arrays: every level is held at once', async () => {
+    const r = await run(`function h(n: 0) {
+      if (n > 0) {
+        let r = ['x'.repeat(100000) + n].map(x => { let d = h(n - 1); return 0 })
+      }
+      return 0
+    }
+    function f() { let d = h(40); return { ok: true } }`)
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+  })
+
+  it('a callback that rebinds the name its source came from', async () => {
+    // The loop becomes the source's only holder; unrooted, the measurement forgot ~600KB.
+    const r = await run(`function f() {
+      let big = []
+      let i = 0
+      while (i < 800) { big.push('s'.repeat(500) + i); i = i + 1 }
+      // results alone (~480KB) fit; results plus the now-unnamed ~800KB source do not
+      let out = big.map(x => { big = []; let y = 'y'.repeat(300) + 'k'; return y })
+      return { n: out.length }
+    }`)
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+  })
+
+  it("a loop's results are charged as they grow", async () => {
+    // 100k slots of source (~800KB) and 100k slots of results: a number result binds nothing
+    // the bind accounting can see, so only the per-insertion charge counts the results array.
+    // DISCARDED: a bound result is counted at its bind, so only a discarded (or in-progress)
+    // results array shows whether its growth is charged.
+    const r = await run(`function f() {
+      let src = Array.from({ length: 100000 })
+      src.map(x => 0)
+      return { ok: true }
+    }`)
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+  })
+
+  it('a discarded filter over an expression-produced array', async () => {
+    const r = await run(`function f() {
+      let n = 'x'.repeat(10000000).split('').filter(c => true)
+      return { ok: true }
+    }`)
+    expect(r.error?.message ?? 'completed').toMatch(TRIPPED)
+  })
+
+  it('a value allocated and bound in one step counts once (not refused at half the cap)', async () => {
+    const r = await run(`function f() {
+      let src = Array.from({ length: 100000 })
+      return { n: src.length }
+    }`)
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ n: 100000 })
+  })
+
+  it('a long filter whose condition allocates is NOT refused (per-item garbage is released)', async () => {
+    const r = await run(`function f() {
+      let xs = []
+      let i = 0
+      while (i < 5000) { xs.push(i); i = i + 1 }
+      let kept = xs.filter(x => (x + 'suffix'.repeat(20)).length > 0)
+      return { n: kept.length }
+    }`)
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ n: 5000 })
   })
 })
