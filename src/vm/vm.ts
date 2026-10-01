@@ -150,7 +150,12 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
   }
 
   resolve(op: string) {
-    return this.atoms[op]
+    // OWN atoms only: `op` comes from the AST, and `this.atoms` is a plain object, so a step
+    // with `op: 'toString'` (or `'__defineGetter__'`) found Object.prototype's method and failed
+    // as "atom.exec is not a function" instead of "Unknown Atom".
+    return Object.prototype.hasOwnProperty.call(this.atoms, op)
+      ? this.atoms[op]
+      : undefined
   }
 
   getTools(filter: 'flow' | 'all' | string[] = 'all') {

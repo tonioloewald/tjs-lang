@@ -33,9 +33,27 @@ const ALLOWED: Record<string, string> = {
     "`op` is this atom's registered name, fixed when the HOST defined it",
   'admission.ts › admitRunOptions › out[name]':
     '`name` iterates RUN_OPTION_KINDS (host), and `out` is null-prototype',
+  'runtime.ts › createChildScope › Object.defineProperty':
+    "the literal key 'error' on a VM context",
+  'runtime.ts › withHeapContents › Object.defineProperty':
+    'the VM-owned HEAP_CONTENTS symbol on a wrapper the VM built',
+  'runtime.ts › inputsResolvedContext › Object.defineProperty':
+    "`field` iterates the literal tuple ['error', 'output']",
+  'runtime.ts › <module> › Object.assign':
+    '`builtins` / `unsupportedBuiltins`: host object literals onto Object.create(null)',
   'admission.ts › admitRunOptions › table[op]':
     '`table` is null-prototype, where __proto__ is an ordinary own key, and frozen after',
 }
+
+const SETTING_CALLS = new Set([
+  'Reflect.set',
+  'Reflect.defineProperty',
+  'Reflect.setPrototypeOf',
+  'Object.assign',
+  'Object.defineProperty',
+  'Object.defineProperties',
+  'Object.setPrototypeOf',
+])
 
 const ASSIGNMENT_OPS = new Set([
   ts.SyntaxKind.EqualsToken,
@@ -88,11 +106,51 @@ function computedWrites(file: string): string[] {
         found.push(`${file} › ${enclosingName(node)} › ${target}`)
       }
     }
+    // Calls that set keys or prototypes by other means: the native `Object.assign` invokes
+    // the `__proto__` SETTER for an own `__proto__` key in its source (the guest
+    // `Object.assign` was exactly this bug), and the rest take a key or prototype as data.
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression.getText(sf)
+      if (SETTING_CALLS.has(callee))
+        found.push(`${file} › ${enclosingName(node)} › ${callee}`)
+    }
+    // Destructuring / for-of TARGETS are writes too: `[obj[k]] = xs`, `for (obj[k] of xs)`.
     if (
-      ts.isCallExpression(node) &&
-      node.expression.getText(sf) === 'Reflect.set'
+      ts.isArrayLiteralExpression(node) ||
+      ts.isObjectLiteralExpression(node)
+    ) {
+      const isTarget =
+        (ts.isBinaryExpression(node.parent) &&
+          node.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          node.parent.left === node) ||
+        (ts.isForOfStatement(node.parent) && node.parent.initializer === node)
+      if (isTarget)
+        for (const el of ts.isArrayLiteralExpression(node)
+          ? node.elements
+          : node.properties.map((p) =>
+              ts.isPropertyAssignment(p) ? p.initializer : p
+            ))
+          if (
+            ts.isElementAccessExpression(el as ts.Node) &&
+            !ts.isStringLiteral(
+              (el as ts.ElementAccessExpression).argumentExpression
+            )
+          )
+            found.push(
+              `${file} › ${enclosingName(node)} › destructure ${(
+                el as ts.Node
+              ).getText(sf)}`
+            )
+    }
+    if (
+      ts.isForOfStatement(node) &&
+      ts.isElementAccessExpression(node.initializer)
     )
-      found.push(`${file} › ${enclosingName(node)} › Reflect.set`)
+      found.push(
+        `${file} › ${enclosingName(node)} › for-of ${node.initializer.getText(
+          sf
+        )}`
+      )
     ts.forEachChild(node, visit)
   }
   visit(sf)

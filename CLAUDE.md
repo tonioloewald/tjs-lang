@@ -701,6 +701,7 @@ expectation is almost always the wrong move.
 - `src/vm/membrane-invariant.test.ts` / `src/vm/membrane-budget.test.ts` — the capability boundary never reads a host value directly, and bills what CROSSES rather than what the walk had to name. The budget file opens with an apparatus check: if the membrane is not engaged, it fails rather than passing vacuously.
 - `src/vm/state-writes.test.ts`, `src/vm/heap-scope.test.ts`, `src/vm/cost-invariant.test.ts` — scope writes, the live-heap ceiling, and "every evaluation step charges fuel ≥ c×(work performed)". That last docstring is worth reading: _fuel that doesn't track work isn't a budget, it's decoration._
 - `src/vm/atom-effects-scan.test.ts` — the source-level twin of `atom-effects.test.ts`.
+- `src/vm/heap-mutation.test.ts` — the mutator list behind in-place heap accounting is checked against BEHAVIOUR: every guest-callable method is called on every receiver kind, and one that mutates without being listed fails. The list it replaced was a comment ("`push` is the only atom that mutates in place") that was false. Paired with `src/vm/rc2-rereview-2.test.ts`, whose heap rows run `transpile()` output — the previous push test built a step shape the transpiler never emits.
 - `src/vm/guest-key-writes.test.ts` — every computed-key write (`obj[k] = v`) in `src/vm/**` goes through `setGuestKey` (which refuses `__proto__`) or is allowlisted with the reason its key is the host's. Parsed with TypeScript's parser, apparatus-checked, stale entries fail. `obj['__proto__'] = v` replaces the prototype and hides the payload from the heap walk; the site-by-site fix missed six siblings across two review rounds, so it is a rule now. Do not allowlist a site whose key the guest can choose — route it.
 - `src/budget-funnel.test.ts` + `RUN_OPTION_KINDS` (`src/vm/admission.ts`) — budgets are read through the admission funnel. The PRIMARY control is the type: `RUN_OPTION_KINDS` is keyed by `keyof RunOptions`, so a `vm.run` option added without being classified (`budget` / `budgetTable` / `counterTable` / `opaque`) fails to compile — four 0.14.0 re-reviews blocked on budgets missing from a NAME list, last `quotaUsed`. The test is the second line: it PARSES `src/**/*.ts` (not `.tjs`, `bin/`, `scripts/`) and fails on a budget-named read that does not reach a funnel by dominance (a preceding funnel statement in an enclosing block — not a sibling branch, closure or `try`), a forward into a budget-named key, or a `RuntimeContext`. It opens with an apparatus of the shapes it must catch; its header lists what it cannot see (reassignment after validation, computed keys, names outside `BUDGET_NAMES`). `ALLOWED` carries a reason per entry and fails when stale.
 - `src/vm/run-teardown.test.ts` — a REJECTED run cleans up as thoroughly as one that executes. Instrumenting `setTimeout` is the only way to see it: the leak has no effect on the return value, which is why it shipped.
@@ -761,9 +762,11 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
   marked `resolveInputs: false`. An atom whose inputs the VM resolved runs under a context marked
   `inputsResolved`, where `resolveValue` is the identity — so an atom written the old way
   (calling `resolveValue` itself) is harmless, never double-resolving guest data into code
-  (rc.2 review B5). **A CONTROL atom** — one that runs nested steps on the context it receives
-  (`seq.exec`, `evaluateExpr`) — must set `resolveInputs: false`, or those steps' values will not
-  resolve. Dynamic `cost`/`timeoutMs` functions see the same resolved input as the body.
+  (rc.2 review B5). Steps an atom runs itself (`seq.exec` on the context it received, or on a
+  `createChildScope(ctx)` scope) run under the ORIGINAL context — `exec` swaps it back — so they
+  resolve normally; a COPY of the context, or one with `state` replaced, is refused by name. An
+  atom that takes **steps as input** must set `resolveInputs: false`, or they arrive evaluated.
+  Dynamic `cost`/`timeoutMs` functions see the same resolved input as the body.
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
 - Access IO only via `ctx.capabilities`

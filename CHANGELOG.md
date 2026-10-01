@@ -49,9 +49,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > and cannot re-evaluate guest data shaped like `{ $expr: … }` as code. Dynamic `cost` and
 > `timeoutMs` functions see the same resolved input — so a cost function written against raw
 > nodes (testing for `$expr`, or for a variable name) now receives values and must be updated.
-> Steps an atom builds and runs itself run normally under either setting: the VM never runs a
-> step under the resolved-inputs context. **An atom that takes steps AS INPUT** must pass
-> `{ resolveInputs: false }`, or its steps arrive evaluated as values.
+> Steps an atom builds and runs itself — on the context it received, or on a scope from
+> `createChildScope(ctx)` — run normally under either setting: the VM never runs a step under
+> the resolved-inputs context. Running them on a COPY of that context, or after replacing its
+> `state`, is refused by name rather than silently writing the caller's scope. **An atom that
+> takes steps AS INPUT** must pass `{ resolveInputs: false }`, or its steps arrive evaluated
+> as values.
+>
+> **Since rc.1 — in-place mutation counts against `maxHeapBytes`.** The heap ledger was kept
+> when a value was BOUND, and a transpiled `arr.push(x)` statement binds nothing: 20MB sat
+> under a 1MB cap. Every in-place mutation (`push`, `fill`, `splice`, `sort`, … and the guest
+> Set's `add`) now charges what it inserts as it happens, still linear in an append loop; the
+> mutator list is checked against behaviour by a test that calls every guest-callable method.
+> A guest Set's contents are now counted at all (they lived in a closure the heap walk could not
+> see). Also: `Object.prototype`'s legacy `__lookupGetter__` family is no longer guest-callable
+> (`o.__lookupGetter__('__proto__')` returned a host function), and an AST step whose `op` names
+> an `Object.prototype` member (`toString`) is an `Unknown Atom` instead of a crash.
+>
+> **Since rc.1 — `const` follows the scope a write lands in.** One rule, enforced where every
+> scope write passes: a write may not land on a `const` of the scope it writes. A block `let x`
+> beside an outer `const x` was refused as a reassignment — legal JavaScript rejected — while
+> `varsImport`, `varsLet` and `catch` checked nothing and could overwrite a `const`.
 >
 > **Since rc.1 — guest code cannot set an object's prototype.** `__proto__` is refused as an object
 > key — at transpile time, in object literals, in resolved values, in atom inputs, and in the
@@ -82,7 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > child of the caller's scope, so model-written source could read every caller binding (keys,
 > tokens), reassign them (stopped at a scope boundary in the first rc.2 fix), and — what that
 > boundary could not stop — mutate them in place (`allowed.push('evil')`). A fresh scope has
-> nothing on the other side to reach. Pass what the code needs in `args`; what it is given it
+> nothing on the other side to reach. **Symptom:** a caller variable that runCode source used to
+> read now reads as `undefined`. Pass what the code needs in `args`; what it is given it
 > holds by reference, as a function holds its arguments. Likewise `agentRun` now runs a
 > sub-agent's OWN local helpers — it was handed the caller's, so a call by name ran the wrong
 > body.

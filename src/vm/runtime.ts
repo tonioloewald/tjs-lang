@@ -1505,6 +1505,19 @@ function convertExampleToSchema(example: any): any {
  * Built-in objects available in expressions.
  * These are Proxy objects that provide JS-like APIs mapped to safe implementations.
  */
+/**
+ * Where a VM wrapper keeps state the heap walk cannot see. The guest `Set` holds its items in
+ * a CLOSURE, so `estimateBytes` — which walks own keys — counted a Set of 20MB as a handful of
+ * methods (rc.2 second re-review, sibling of B2). A wrapper with hidden state exposes it here,
+ * non-enumerable and symbol-keyed, so it never surfaces to the guest or to JSON.
+ */
+const HEAP_CONTENTS = Symbol('tjs.heapContents')
+
+function withHeapContents<T extends object>(contents: unknown, wrapper: T): T {
+  Object.defineProperty(wrapper, HEAP_CONTENTS, { value: contents })
+  return wrapper
+}
+
 export const builtins: Record<string, any> = Object.assign(
   Object.create(null),
   {
@@ -1730,7 +1743,7 @@ export const builtins: Record<string, any> = Object.assign(
     // Set factory - creates a set-like object backed by an array
     Set: (items: any[] = []) => {
       const data = [...new globalThis.Set(items)] // dedupe initial items
-      return {
+      return withHeapContents(data, {
         // Mutable operations
         add(item: any) {
           if (!data.includes(item)) {
@@ -1786,7 +1799,7 @@ export const builtins: Record<string, any> = Object.assign(
         toJSON() {
           return [...data]
         },
-      }
+      })
     },
 
     // Date factory - creates a date-like object
@@ -1945,6 +1958,18 @@ export const builtins: Record<string, any> = Object.assign(
  * if a function reference ever leaked past the membrane, `methodCall` could not
  * use it to re-enter arbitrary host code with a chosen `this`/args.
  */
+/**
+ * `Object.prototype`'s legacy accessor methods. Never guest-callable: `o.__lookupGetter__(
+ * '__proto__')` handed the guest Object.prototype's own `__proto__` getter as a value — a live
+ * host function — and `__defineGetter__`/`__defineSetter__` reshape an object in place.
+ */
+const LEGACY_ACCESSOR_METHODS = new Set([
+  '__defineGetter__',
+  '__defineSetter__',
+  '__lookupGetter__',
+  '__lookupSetter__',
+])
+
 const SAFE_METHOD_NAMES: Set<string> = (() => {
   const names = new Set<string>()
   for (const proto of [
@@ -1956,7 +1981,8 @@ const SAFE_METHOD_NAMES: Set<string> = (() => {
     Date.prototype,
   ]) {
     for (const name of Object.getOwnPropertyNames(proto)) {
-      if (!FORBIDDEN_PROPERTIES.has(name)) names.add(name)
+      if (!FORBIDDEN_PROPERTIES.has(name) && !LEGACY_ACCESSOR_METHODS.has(name))
+        names.add(name)
     }
   }
   // Builtin static members (Math.floor, JSON.stringify, Object.keys, Array.from,
@@ -2133,6 +2159,7 @@ function estimateBytes(
     if (seen.has(v)) continue
     seen.add(v)
     bytes += 16
+    if (HEAP_CONTENTS in v) stack.push((v as any)[HEAP_CONTENTS])
     if (ArrayBuffer.isView(v)) {
       bytes += (v as ArrayBufferView).byteLength
     } else if (v instanceof ArrayBuffer) {
@@ -2165,10 +2192,10 @@ function estimateBytes(
  * An O(1) stand-in for "have these contents changed?", used to qualify the identity fast
  * path in `trackHeapWrite`.
  *
- * Only arrays get a real witness, because `push` is the only atom that mutates a value in
- * place (the rest return fresh objects, which fail the reference check anyway). `-1` means
- * "no witness available", which is stable — a non-array that keeps its identity keeps its
- * fast path, exactly as before.
+ * Only arrays get a real witness. In-place mutation does NOT rely on it: every mutation
+ * charges what it adds as it happens (`accountMutation`), and re-stamps the witness so a later
+ * re-bind of the same reference is not charged twice. `-1` means "no witness available",
+ * which is stable — a non-array that keeps its identity keeps its fast path.
  *
  * It must stay O(1). Anything that walks the value defeats the purpose of the fast path
  * and reintroduces the quadratic it was added to remove.
@@ -2225,6 +2252,97 @@ function chargeHeapWalk(
  * spent several commits removing elsewhere. A consumer matching on the message would have
  * seen two different strings for one condition depending on which path tripped.
  */
+/**
+ * Methods that change their receiver IN PLACE — the Array mutators, and the guest Set's. The
+ * list is checked against BEHAVIOUR, not maintained by hand: `heap-mutation.test.ts` calls
+ * every method `methodCall` permits on every receiver kind and fails on any that mutates and
+ * is missing here.
+ */
+const MUTATING_METHODS: ReadonlySet<string> = new Set([
+  'copyWithin',
+  'fill',
+  'pop',
+  'push',
+  'reverse',
+  'shift',
+  'sort',
+  'splice',
+  'unshift',
+  // the guest Set (`builtins.Set`)
+  'add',
+  'remove',
+  'clear',
+])
+
+/** May guest code call `method` at all? (For the behavioural guards.) */
+export function isGuestCallableMethod(method: string): boolean {
+  return SAFE_METHOD_NAMES.has(method)
+}
+
+/** Does `methodCall` treat `method` as mutating its receiver? (For the behavioural guard.) */
+export function isMutatingMethod(method: string): boolean {
+  return MUTATING_METHODS.has(method)
+}
+
+/** The binding a receiver expression is reached through: `a` for `a`, `a.b[i]`, … */
+function receiverRoot(node: any, ctx: RuntimeContext): string | undefined {
+  for (let n = node; n && typeof n === 'object'; n = n.object) {
+    if (n.$expr === 'ident') return n.name
+    if (n.$expr !== 'member') return undefined
+  }
+  // v1: a bare string names a binding (`'list'`, `'obj.items'`)
+  if (typeof node === 'string' && (ctx.astVersion ?? 1) < 2)
+    return node.split('.')[0]
+  return undefined
+}
+
+/**
+ * Charge what an IN-PLACE mutation adds to the heap budget, where it happens.
+ *
+ * The heap ledger is kept at BIND time, and a mutation binds nothing: a transpiled
+ * `arr.push(x)` statement (or `a.fill(s)`, `set.add(x)`, `a.splice(0, 0, …)`) grew a held
+ * value with no write for `trackHeapWrite` to see — 20MB under a 1MB cap (rc.2 second
+ * re-review B2). So the two doors that mutate in place, `methodCall` and the `push` atom, call
+ * this with what they inserted. The bytes go to the ledger entry of the binding the receiver
+ * hangs off (freed when that binding is released or re-bound), or, when the receiver has no
+ * accounted binding, to the run's total for good — an over-count, never an escape.
+ *
+ * Shrinking (`pop`, `shift`, `remove`) is not refunded: fail-closed, and the next re-bind
+ * re-measures. Cost is O(what was inserted), so an append loop stays linear.
+ */
+function accountMutation(
+  ctx: RuntimeContext,
+  receiver: unknown,
+  inserted: unknown[],
+  op: string
+): boolean {
+  const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  const account = ctx.heapAccount
+  const { bytes, nodes } = estimateBytes(
+    inserted,
+    Math.max(0, cap - account.bytes)
+  )
+  if (!chargeHeapWalk(ctx, nodes, op)) return false
+  const name = receiverRoot(receiver, ctx)
+  if (name !== undefined) {
+    const owner = ownerOf(ctx, name)
+    const ledger =
+      owner === ctx.state ? ctx.heapPerKey : STATE_LEDGERS.get(owner)
+    const entry = ledger?.get(name)
+    if (entry) {
+      entry.size += bytes
+      // Re-stamp so a re-bind of this same reference is not charged a second time.
+      if (entry.ref === owner[name]) entry.witness = heapWitness(entry.ref)
+    }
+  }
+  account.bytes += bytes
+  if (account.bytes > cap) {
+    ctx.error = heapLimitError(account.bytes, cap, op)
+    return false
+  }
+  return true
+}
+
 function heapLimitError(total: number, cap: number, op: string): AgentError {
   return new AgentError(
     `Heap limit exceeded: guest state holds ~${Math.round(
@@ -2277,9 +2395,12 @@ function trackHeapWrite(
   // ceiling. The guard documented as the space budget for untrusted code was evaded by the
   // most ordinary program shape there is.
   //
-  // So the fast path also requires a cheap CHANGE WITNESS to match. `push` is the only
-  // atom that mutates in place (verified by scan), and length is O(1), so an array's
-  // length is sufficient and costs nothing. The quadratic this path exists to prevent —
+  // So the fast path also requires a cheap CHANGE WITNESS to match. (This used to add "`push`
+  // is the only atom that mutates in place (verified by scan)" — false: `methodCall` reaches
+  // every Array mutator and the Set wrapper's `add`, and a transpiled `arr.push(x)` statement
+  // never re-binds at all, so 20MB sat under a 1MB cap — rc.2 second re-review B2. Mutation is
+  // now charged where it HAPPENS, by `accountMutation`; this witness only keeps a re-bind of
+  // the same reference from being measured twice.) Length is O(1), so it costs nothing. The quadratic this path exists to prevent —
   // 500 rebinds of an unchanged 300k-element array — still takes it, because an unchanged
   // array's length is unchanged.
   const witness = heapWitness(value)
@@ -2304,10 +2425,8 @@ function trackHeapWrite(
   // guard still sees every byte, it just stops paying to re-count the ones it already
   // counted.
   //
-  // The assumption is that elements before `prevEntry.witness` are unchanged. That is
-  // exactly the assumption the identity path above already makes, and it holds because
-  // `push` is the only atom that mutates an array in place: there is no atom that rewrites
-  // an existing element. A future one would have to invalidate the entry.
+  // Elements before `prevEntry.witness` are assumed already counted: any in-place change to
+  // them was charged when it happened (`accountMutation`), which also re-stamps the witness.
   if (
     prevEntry &&
     prevEntry.ref === value &&
@@ -2422,6 +2541,15 @@ function setStateVar(
   assertSafeProperty(key)
   // `owner`: the scope object that holds the binding (`varAssign`), charged to ITS ledger.
   const target = opts?.owner ?? ctx.state
+  // THE const rule, at the one place every scope write passes: a write may not land on a
+  // const binding of the scope it writes. One rule serves both kinds of write, because it asks
+  // about the scope actually written — a declaration writes the current scope (so a block
+  // `let x` may shadow an outer `const x`), an assignment writes the owner (so it may not
+  // reassign one). Per-site checks drifted: three atoms walked to the nearest owner for a
+  // write to the current scope and refused legal JavaScript, while `varsImport`, `varsLet` and
+  // `catch` checked nothing (rc.2 second re-review B1).
+  if (constAt(target, key))
+    throw new Error(`Cannot reassign const variable '${key}'`)
   const ledger =
     target === ctx.state ? undefined : STATE_LEDGERS.get(target) ?? undefined
   if (target !== ctx.state && !ledger)
@@ -2722,6 +2850,12 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
       const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
       const result = fn.apply(obj, args)
+      if (
+        MUTATING_METHODS.has(method) &&
+        typeof obj === 'object' &&
+        !accountMutation(ctx, node.object, args, `expr.${method}`)
+      )
+        return undefined
 
       // Charge fuel for allocating operations based on result size
       if (ctx.fuel && ALLOCATING_METHODS.has(method)) {
@@ -2843,9 +2977,13 @@ export function defineAtom<I extends Record<string, any>, O = any>(
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
     if (ctx.inputsResolved) {
       const origin = RESOLVED_ORIGIN.get(ctx)
-      if (!origin)
+      // A replaced `state` would be silently dropped by the swap below — the steps would write
+      // the caller's scope instead of the one the atom built — so it is refused like a copy.
+      if (!origin || origin.state !== ctx.state)
         throw new Error(
-          `Internal: '${op}' was executed under an inputs-resolved context with no origin`
+          `'${op}' was run on a copy of an atom's context. An atom that runs steps must hand ` +
+            `them the context it received, or a scope from createChildScope(ctx) — or be ` +
+            `defined with { resolveInputs: false }`
         )
       ctx = origin
     }
@@ -2957,9 +3095,6 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // 4. Result - always set if step.result is specified (even for undefined values)
       if (step.result) {
         assertSafeProperty(step.result) // an atom result bound to __proto__/constructor would corrupt the scope
-        if (isConstBinding(ctx, step.result)) {
-          throw new Error(`Cannot reassign const variable '${step.result}'`)
-        }
         if (step.resultConst && own(ctx.state, step.result)) {
           throw new Error(`Cannot redeclare variable '${step.result}' as const`)
         }
@@ -3233,7 +3368,9 @@ export const ret = defineAtom(
     let res: any = {}
     if (step.schema?.properties) {
       for (const key of Object.keys(step.schema.properties)) {
-        setGuestKey(res, key, ctx.state[key])
+        // A BINDING's value, never an inherited one: `ctx.state['toString']` read
+        // Object.prototype's method into the result.
+        setGuestKey(res, key, ownValue(ownerOf(ctx, key), key))
       }
 
       // If schema has nested structure, filter to strip extra properties
@@ -3335,15 +3472,6 @@ function constAt(owner: Record<string, any>, key: string): boolean {
   )
 }
 
-/**
- * Is the binding `key` resolves to — the nearest scope that owns it — a `const`? The SAME walk
- * as the write (`ownerOf`), so the check and the assignment can never disagree about which
- * binding they mean; they used to be two walks with two different stopping rules.
- */
-function isConstBinding(ctx: RuntimeContext, key: string): boolean {
-  return constAt(ownerOf(ctx, key), key)
-}
-
 // 2. State (Low cost: 0.1)
 export const varSet = defineAtom(
   'varSet',
@@ -3351,9 +3479,6 @@ export const varSet = defineAtom(
   undefined,
   async ({ key, value }, ctx) => {
     assertSafeProperty(key) // a variable named __proto__/constructor would mutate the scope object's prototype
-    if (isConstBinding(ctx, key)) {
-      throw new Error(`Cannot reassign const variable '${key}'`)
-    }
     const v = resolveValue(value, ctx)
     if (!setStateVar(ctx, key, v, 'varSet')) return undefined
   },
@@ -3389,12 +3514,7 @@ export const varAssign = defineAtom(
   undefined,
   async ({ key, value }, ctx) => {
     assertSafeProperty(key)
-    // The const check follows the SAME boundary as the write: the binding this assignment
-    // would actually change.
-    const owner = ownerOf(ctx, key)
-    if (constAt(owner, key)) {
-      throw new Error(`Cannot reassign const variable '${key}'`)
-    }
+    const owner = ownerOf(ctx, key) // the const check is setStateVar's, on this same owner
     const v = resolveValue(value, ctx)
     if (!setStateVar(ctx, key, v, 'varAssign', { owner })) return undefined
   },
@@ -3413,7 +3533,7 @@ export const constSet = defineAtom(
     // passed a `total` (0.14.0 final re-review, M-1). A block `const` shadows, as in JS.
     if (own(ctx.state, key)) {
       throw new Error(
-        isConstBinding(ctx, key)
+        constAt(ctx.state, key)
           ? `Cannot reassign const variable '${key}'`
           : `Cannot redeclare variable '${key}' as const`
       )
@@ -3879,7 +3999,10 @@ export const push = defineAtom(
   async ({ list, item }, ctx) => {
     const resolvedList = resolveValue(list, ctx)
     const resolvedItem = resolveValue(item, ctx)
-    if (Array.isArray(resolvedList)) resolvedList.push(resolvedItem)
+    if (Array.isArray(resolvedList)) {
+      resolvedList.push(resolvedItem)
+      if (!accountMutation(ctx, list, [resolvedItem], 'push')) return undefined
+    }
     return resolvedList
   },
   { docs: 'Push to Array', cost: 1 }
