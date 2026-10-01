@@ -1074,6 +1074,21 @@ function isSuspiciousRegex(pattern: string): boolean {
  * Creates a child scope for the context.
  * Uses prototype inheritance so reads fall through to parent, but writes stay local.
  */
+/**
+ * Each scope's STATE object → that scope's heap ledger. `varAssign` writes to the scope that
+ * owns a binding, which may be an ancestor; the bytes must be charged to THAT scope's ledger,
+ * or a child scope's `releaseScope` would free budget the ancestor still holds (or the
+ * ancestor would hold bytes no ledger records). Weak, so a discarded scope costs nothing.
+ */
+const STATE_LEDGERS = new WeakMap<object, Map<string, HeapEntry>>()
+function ledgerFor(
+  state: object,
+  ledger: Map<string, HeapEntry>
+): Map<string, HeapEntry> {
+  if (!STATE_LEDGERS.has(state)) STATE_LEDGERS.set(state, ledger)
+  return STATE_LEDGERS.get(state)!
+}
+
 export function createChildScope(ctx: RuntimeContext): RuntimeContext {
   const child: RuntimeContext = {
     ...ctx,
@@ -1089,6 +1104,7 @@ export function createChildScope(ctx: RuntimeContext): RuntimeContext {
   // The ledger, by contrast, must NOT be shared: a scope accounts what it owns. See the
   // `heapPerKey` doc — sharing it made shadowing a name a way to free its budget.
   child.heapPerKey = new Map()
+  ledgerFor(child.state, child.heapPerKey)
 
   // `error` is the one field that must be shared BY REFERENCE, and the spread made it a
   // detached slot on every child. Nothing copied it back, so an error raised inside ANY
@@ -2146,11 +2162,16 @@ function trackHeapWrite(
   ctx: RuntimeContext,
   key: string,
   value: any,
-  op: string
+  op: string,
+  ownerLedger?: Map<string, HeapEntry>
 ): boolean {
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
   if (!ctx.heapPerKey) ctx.heapPerKey = new Map()
-  const prevEntry = ctx.heapPerKey.get(key)
+  ledgerFor(ctx.state, ctx.heapPerKey)
+  // The ledger of the scope that OWNS the binding (`varAssign` to an outer variable); a
+  // binding is accounted where it lives, so a child scope's release never frees it.
+  const ledger = ownerLedger ?? ctx.heapPerKey
+  const prevEntry = ledger.get(key)
 
   // IDENTITY FAST PATH. Re-binding the same reference under the same key cannot change
   // the total, so there is nothing to re-measure. Without this, per-key accounting
@@ -2220,7 +2241,7 @@ function trackHeapWrite(
     // gets introduced later, by someone reading the fast path as the pattern to follow.
     if (!chargeHeapWalk(ctx, nodes, op)) return false
     const total = account.bytes + added
-    ctx.heapPerKey.set(key, {
+    ledger.set(key, {
       size: prevEntry.size + added,
       ref: value,
       witness,
@@ -2251,7 +2272,7 @@ function trackHeapWrite(
   if (!chargeHeapWalk(ctx, nodes, op)) return false
 
   const total = account.bytes - prevSize + size
-  ctx.heapPerKey.set(key, { size, ref: value, witness })
+  ledger.set(key, { size, ref: value, witness })
   account.bytes = total
   if (total > cap) {
     ctx.error = heapLimitError(total, cap, op)
@@ -2308,11 +2329,19 @@ function setStateVar(
   key: string,
   value: unknown,
   op: string,
-  opts?: { alias?: boolean }
+  opts?: { alias?: boolean; owner?: Record<string, any> }
 ): boolean {
   assertSafeProperty(key)
-  if (!opts?.alias && !trackHeapWrite(ctx, key, value, op)) return false
-  ctx.state[key] = value
+  // `owner`: the scope object that holds the binding (`varAssign`), charged to ITS ledger.
+  const target = opts?.owner ?? ctx.state
+  const ledger =
+    target === ctx.state ? undefined : STATE_LEDGERS.get(target) ?? undefined
+  if (target !== ctx.state && !ledger)
+    throw new Error(
+      `Internal: no heap ledger for the scope that owns '${key}' — refusing an unaccounted write`
+    )
+  if (!opts?.alias && !trackHeapWrite(ctx, key, value, op, ledger)) return false
+  target[key] = value
   return true
 }
 
@@ -2804,7 +2833,19 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // the heap-walk fuel twice for a primitive, where the identity fast path does not
         // apply. Removed rather than kept "for clarity": two calls that must agree is the
         // shape every divergence in this codebase started as.
-        if (!setStateVar(ctx, step.result, result, op)) return
+        // `resultAssign`: the emitter's `x = atom(…)` — an ASSIGNMENT, so the result goes to
+        // the scope that owns `x` (tjs-lang#59), charged to that scope's ledger.
+        const owner = step.resultAssign ? ownerOf(ctx, step.result) : undefined
+        if (
+          !setStateVar(
+            ctx,
+            step.result,
+            result,
+            op,
+            owner ? { owner } : undefined
+          )
+        )
+          return
         // Mark as const if resultConst is set
         if (step.resultConst) markConst(ctx, step.result)
       }
@@ -3120,6 +3161,41 @@ export const varSet = defineAtom(
     if (!setStateVar(ctx, key, v, 'varSet')) return undefined
   },
   { docs: 'Set Variable', cost: 0.1 }
+)
+
+/**
+ * ASSIGNMENT (`x = v`, and every compound form, lowered to it): writes to the scope that OWNS
+ * `x` — the nearest one that declared it — as JavaScript does. `varSet` is DECLARATION and
+ * always writes the current scope; compiling both to `varSet` lost every assignment to an
+ * outer variable made inside a `for…of` body (tjs-lang#59). An undeclared name is bound in
+ * the current scope, which is what `varSet` did, so no program that worked stops working.
+ */
+/** The scope object that owns `key` — the nearest that declared it — else the current one. */
+function ownerOf(ctx: RuntimeContext, key: string): Record<string, any> {
+  for (
+    let o: any = ctx.state;
+    o != null && o !== Object.prototype;
+    o = Object.getPrototypeOf(o)
+  ) {
+    if (Object.prototype.hasOwnProperty.call(o, key)) return o
+  }
+  return ctx.state
+}
+
+export const varAssign = defineAtom(
+  'varAssign',
+  s.object({ key: s.string, value: s.any }),
+  undefined,
+  async ({ key, value }, ctx) => {
+    assertSafeProperty(key)
+    if (isConstBinding(ctx, key)) {
+      throw new Error(`Cannot reassign const variable '${key}'`)
+    }
+    const v = resolveValue(value, ctx)
+    if (!setStateVar(ctx, key, v, 'varAssign', { owner: ownerOf(ctx, key) }))
+      return undefined
+  },
+  { docs: 'Assign Variable (writes the scope that owns it)', cost: 0.1 }
 )
 
 export const constSet = defineAtom(
@@ -4905,6 +4981,7 @@ export const coreAtoms = {
   try: tryCatch,
   Error: errorAtom,
   varSet,
+  varAssign,
   constSet,
   varGet,
   varsImport,

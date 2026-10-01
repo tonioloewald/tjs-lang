@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > (`{ role?, content?, tool_calls? }`) via `.open`, still admitting provider additions such as
 > `reasoning_content`, where `s.record(s.any)` rejected nothing at all.
 >
+> **Since rc.1 — AJS assignment means what it means in JavaScript** ([#59](https://github.com/tonioloewald/tjs-lang/issues/59)).
+> Found by tosijs-platform; every one of these was a SILENT wrong answer:
+> - Every compound assignment stored only its right-hand side: `n -= 2` gave `2`, `s += 'b'` gave
+>   `'b'`, `n *= 3` gave `3`. They now lower to `x = x op y`.
+> - `i++` / `i--` / `++i` as a statement were dropped (a warning, then nothing). They now assign.
+>   Used as a VALUE (`j = i++`) they are refused, as is any expression AJS does not support — the
+>   transpiler used to turn an unrecognised expression into `null` and carry on.
+> - Assigning an outer variable inside a `for…of` body was lost (`s = s + w` left `s` empty):
+>   assignment and declaration compiled to the same step, which wrote the loop body's own
+>   scope. Assignment now compiles to a new `varAssign` step that writes the scope that OWNS the
+>   variable, as JavaScript does, charged to that scope's heap ledger. Declarations are
+>   unchanged, and ASTs already stored keep their meaning. **An AST from this transpiler needs a
+>   VM that knows `varAssign`**: an older one refuses it with "Unknown Atom", never silently.
+>
 > **Since rc.1 — two exports removed. Technically breaking; neither had a real use.**
 > - **`setTranspiler` is no longer exported** from any entry. It lived in `vm.ts`, which every
 >   entry re-exports, so it was public everywhere — including `tjs-lang/vm-ast`, whose whole

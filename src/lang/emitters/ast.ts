@@ -549,12 +549,37 @@ function transformVariableDeclaration(
 function transformExpressionStatement(
   stmt: ExpressionStatement,
   ctx: TransformContext
-): BaseNode | null {
+): BaseNode | BaseNode[] | null {
   const expr = stmt.expression
 
-  // Assignment expression: x = value
+  // Assignment expression: x = value (and every compound form)
   if (expr.type === 'AssignmentExpression') {
     return transformAssignment(expr as AssignmentExpression, ctx)
+  }
+
+  // `i++` / `--i` as a STATEMENT is `i = i ± 1`. It used to fall through to "expression
+  // statement has no effect" below — dropped, with only a warning (tjs-lang#59). As a value
+  // (`j = i++`) it is refused where it appears; prefix and postfix differ there, and a
+  // silent guess would be the same class of bug.
+  if (expr.type === 'UpdateExpression') {
+    const up = expr as any
+    if (up.argument.type !== 'Identifier')
+      throw new TranspileError(
+        `'${up.operator}' is supported only on a simple variable`,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
+    return transformAssignment(
+      {
+        ...up,
+        type: 'AssignmentExpression',
+        operator: up.operator === '++' ? '+=' : '-=',
+        left: up.argument,
+        right: { ...up.argument, type: 'Literal', value: 1, raw: '1' },
+      } as AssignmentExpression,
+      ctx
+    )
   }
 
   // Function call (side effect)
@@ -586,12 +611,18 @@ function transformExpressionStatement(
 }
 
 /**
- * Transform assignment: x = value
+ * Transform assignment: `x = value`, and every compound form.
+ *
+ * Compiles to `varAssign`, which writes to the scope that OWNS `x`. Compiling it to `varSet`
+ * (declaration: current scope) lost every assignment to an outer variable made inside a
+ * `for…of` body, and the operator was never read at all, so `x -= 2` stored `2`
+ * (tjs-lang#59). `x op= y` is lowered to `x = x op y`; for `||=`, `&&=` and `??=` the
+ * result is the same value as JavaScript's short-circuit form for a plain variable.
  */
 function transformAssignment(
   expr: AssignmentExpression,
   ctx: TransformContext
-): BaseNode {
+): BaseNode | BaseNode[] {
   if (expr.left.type !== 'Identifier') {
     throw new TranspileError(
       'Only simple variable assignment is supported',
@@ -602,14 +633,41 @@ function transformAssignment(
   }
 
   const name = (expr.left as Identifier).name
-  const { step, resultVar } = transformExpressionToStep(expr.right, ctx, name)
+  let right = expr.right as Expression
+  if (expr.operator !== '=') {
+    const op = expr.operator.slice(0, -1)
+    const logical = op === '||' || op === '&&' || op === '??'
+    right = {
+      ...(expr as any),
+      type: logical ? 'LogicalExpression' : 'BinaryExpression',
+      operator: op,
+      left: expr.left,
+      right: expr.right,
+    } as Expression
+  }
+
+  // `transformExpressionToStep` binds the value to `name` itself. Turn its declaration into
+  // an assignment, never via a temporary: a temporary held a SECOND copy of every value
+  // assigned, so `s = s + …` in a loop counted twice against the heap ceiling.
+  const { step, resultVar } = transformExpressionToStep(right, ctx, name)
 
   if (step) {
-    return step
+    const st = step as any
+    // A pure expression: `varSet name <expr>` → `varAssign name <expr>`.
+    if (st.op === 'varSet' && st.key === name)
+      return { op: 'varAssign', key: name, value: st.value }
+    // An atom call binding its result to `name`: the binding itself assigns.
+    if (st.result === name) return { ...st, resultAssign: true }
+    throw new TranspileError(
+      `Internal: cannot compile this assignment to '${name}' (step '${st.op}')`,
+      getLocation(expr),
+      ctx.source,
+      ctx.filename
+    )
   }
 
   return {
-    op: 'varSet',
+    op: 'varAssign',
     key: name,
     value: resultVar,
   }
@@ -2166,8 +2224,25 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       // Complex expressions need to be ExprNodes for runtime evaluation
       return expressionToExprNode(expr, ctx)
 
-    default:
-      return null
+    default: {
+      // Never `null`: an expression this function did not recognise used to become `null`
+      // silently, so `let j = i++` set j to null and the run reported success (tjs-lang#59
+      // follow-up). Unsupported syntax in AJS fails loudly everywhere else; so does this.
+      const hint =
+        expr.type === 'UpdateExpression'
+          ? ` — use \`${
+              (expr as any).operator
+            }\` as its own statement, or \`x = x + 1\``
+          : expr.type === 'AssignmentExpression'
+          ? ' — assign in its own statement, then use the variable'
+          : ''
+      throw new TranspileError(
+        `Unsupported expression in AsyncJS: ${expr.type}${hint}`,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
+    }
   }
 }
 

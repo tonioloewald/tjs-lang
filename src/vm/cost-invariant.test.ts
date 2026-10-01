@@ -77,6 +77,18 @@ const CASES: Array<{
     }),
   },
   {
+    // The same walk, reached through ASSIGNMENT (tjs-lang#59): varAssign charges the OWNER
+    // scope's ledger, but the walk itself must still cost fuel in proportion to the structure.
+    atom: 'varAssign (heap walk over a structure)',
+    build: (n) => ({
+      steps: [
+        { op: 'varSet', key: 'v', value: 0 },
+        { op: 'varAssign', key: 'v', value: { $kind: 'arg', path: 'd' } },
+      ],
+      args: { d: arr(n).map((x) => ({ x })) },
+    }),
+  },
+  {
     atom: 'constSet (heap walk over a structure)',
     build: (n) => ({
       steps: [{ op: 'constSet', key: 'v', value: { $kind: 'arg', path: 'd' } }],
@@ -313,6 +325,8 @@ describe('cost invariant: every atom is accounted for', () => {
 
     // O(1) reads and writes. Binding is separately charged by trackHeapWrite.
     varSet: 'binds one name; the heap walk is charged by trackHeapWrite',
+    varAssign:
+      'assigns one name in its owning scope; the heap walk is charged by trackHeapWrite',
     constSet: 'binds one name; the heap walk is charged by trackHeapWrite',
     varsLet: 'binds names; charged by trackHeapWrite',
     varsImport: 'binds names; charged by trackHeapWrite',
