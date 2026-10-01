@@ -29,6 +29,12 @@ describe('X-Agent-Depth and CORS', () => {
     expect(depthHeaderFor('/run', 1, browser)).toEqual({ 'X-Agent-Depth': '1' })
   })
 
+  it("an OPAQUE origin ('null' — sandboxed iframe, file:, data:) sends it nowhere", () => {
+    const opaque = { server: false, origin: 'null' }
+    expect(depthHeaderFor('https://api.example.com/v1', 1, opaque)).toEqual({})
+    expect(depthHeaderFor('/run', 1, opaque)).toEqual({})
+  })
+
   it('a server runtime sends it everywhere — even with a DOM shim defining `location`', () => {
     const shimmed = { server: true, origin: 'http://localhost:3000' }
     expect(depthHeaderFor('https://api.example.com/v1', 1, shimmed)).toEqual({

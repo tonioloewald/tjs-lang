@@ -828,6 +828,27 @@ function transformTryStatement(
 }
 
 /**
+ * An object literal's key — refusing `__proto__`, which in an object literal sets the
+ * PROTOTYPE rather than a property: it would hide its value from the VM's heap accounting
+ * (rc.2 review B4), and assigned here it would set the prototype of the very object the
+ * emitter is building. The VM refuses it at run time too (`setGuestKey`).
+ */
+function propertyKeyName(prop: any, ctx: TransformContext): string {
+  const key =
+    prop.key.type === 'Identifier'
+      ? (prop.key as Identifier).name
+      : String((prop.key as Literal).value)
+  if (key === '__proto__')
+    throw new TranspileError(
+      "'__proto__' is not allowed as an object key in AsyncJS",
+      getLocation(prop),
+      ctx.source,
+      ctx.filename
+    )
+  return key
+}
+
+/**
  * Transform return statement
  */
 function transformReturnStatement(
@@ -1959,10 +1980,7 @@ function expressionToExprNode(
         // properties that happened to be recognised, with no error (#52).
         if (prop.type !== 'Property') rejectSpread(prop)
         if (prop.type === 'Property') {
-          const key =
-            prop.key.type === 'Identifier'
-              ? (prop.key as Identifier).name
-              : String((prop.key as Literal).value)
+          const key = propertyKeyName(prop, ctx)
           properties.push({
             key,
             value: expressionToExprNode(prop.value as Expression, ctx),
@@ -2195,10 +2213,7 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       for (const prop of (expr as ObjectExpression).properties) {
         if (prop.type !== 'Property') rejectSpread(prop)
         if (prop.type === 'Property') {
-          const key =
-            prop.key.type === 'Identifier'
-              ? (prop.key as Identifier).name
-              : String((prop.key as Literal).value)
+          const key = propertyKeyName(prop, ctx)
           result[key] = expressionToValue(prop.value as Expression, ctx)
         }
       }
@@ -2260,10 +2275,7 @@ function extractCallArguments(
 
     for (const prop of obj.properties) {
       if (prop.type === 'Property') {
-        const key =
-          prop.key.type === 'Identifier'
-            ? (prop.key as Identifier).name
-            : String((prop.key as Literal).value)
+        const key = propertyKeyName(prop, ctx)
         result[key] = expressionToValue(prop.value as Expression, ctx)
       }
     }

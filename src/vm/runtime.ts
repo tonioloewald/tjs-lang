@@ -316,6 +316,9 @@ export interface RuntimeContext {
    * LITERAL; v1 as a reference when a variable of that name is in scope. Absent means v1.
    */
   astVersion?: number
+  /** Set on the context an atom runs under when the VM resolved its inputs (see
+   * `inputsResolvedContext`): `resolveValue` is the identity there. */
+  inputsResolved?: boolean
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
   localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
   helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
@@ -1197,7 +1200,111 @@ function diffObjects(
   return diff
 }
 
+/**
+ * Set `key` on an object the VM is building from GUEST keys — refusing `__proto__`.
+ *
+ * `obj['__proto__'] = v` does not add a property: it replaces the object's prototype. The heap
+ * walk counts own properties only, so whatever hung off that prototype was never charged —
+ * ~15MB held under an 8MB `maxHeapBytes` — and the guest could still read it through the
+ * prototype (rc.2 review B4). Every site that builds an object from guest-chosen keys goes
+ * through here: object literals, resolved values, atom inputs, and the guest `Object.assign`.
+ * (`constructor`/`prototype` as KEYS are ordinary own properties — counted, and readable only
+ * through the member guards — so data that uses them, e.g. model JSON, still works.)
+ */
+export function setGuestKey(
+  obj: Record<string, any>,
+  key: string,
+  value: unknown
+): void {
+  if (key === '__proto__')
+    throw new Error(
+      "Security Error: '__proto__' is not allowed as an object key (it would replace the object's prototype)"
+    )
+  obj[key] = value
+}
+
+/**
+ * Read a binding BY NAME: `'x'`, `'obj.a.b'`, `'args.k'` — v1's rule for a bare string, and the
+ * rule for any atom input that IS a name (`varGet`'s `key`, `varsExport`'s `keys`) in every AST
+ * version. Under v2 `resolveValue` reads a bare string as a literal, so those atoms asked for
+ * variable `x` and got the string `'x'` back (rc.2 review B1). A name is a name in both formats.
+ */
+export function resolveName(val: string, ctx: RuntimeContext): any {
+  // Special case: args.foo looks up ctx.args['foo'] directly
+  // BUT only if 'args' is not a state variable (which takes precedence)
+  if (val.startsWith('args.') && !('args' in ctx.state)) {
+    return ctx.args[val.replace('args.', '')]
+  }
+  // Dot notation support
+  if (val.includes('.')) {
+    const parts = val.split('.')
+    // Security: check each property name for forbidden access
+    for (const part of parts) {
+      if (FORBIDDEN_PROPERTIES.has(part)) {
+        throw new Error(`Security Error: Access to '${part}' is forbidden`)
+      }
+    }
+    let current = ctx.state[parts[0]]
+    // If root variable exists, try to traverse
+    if (current !== undefined) {
+      for (let i = 1; i < parts.length; i++) {
+        current = current?.[parts[i]]
+      }
+      return current
+    }
+  }
+  // Simple state lookup (not an expression, just key)
+  // Check if the key exists in state (even if value is undefined)
+  //
+  // `own`, not `in` — the THIRD site of the same defect, and the one that survived fixing
+  // the other two. `ctx.state` is a plain object literal, so `'toString' in ctx.state` is
+  // true and this handed the guest `Object.prototype.toString` itself. Verified after the
+  // `evaluateExpr` fix: a bare `hasOwnProperty` / `valueOf` / `constructor` still came back
+  // `typeof === 'function'`, because a bare identifier reaches state through HERE, not
+  // through `evaluateExpr`'s `ident` case.
+  //
+  // Worth noting why the earlier fix looked complete: the exploitable shape
+  // (`constructor('abc')`, a CALL) does route through `evaluateExpr`, so the dangerous
+  // case went away and the merely-leaking case did not. Fixing what reproduces is not the
+  // same as fixing the class.
+  if (scopeHas(ctx.state, val)) {
+    return ctx.state[val]
+  }
+  // Key doesn't exist in state — return the literal string.
+  //
+  // RECORDED, not changed. This fallback is what turned a failed lookup into data in #52:
+  // the emitter handed `resolveValue` the string "data.a", the root was not in state (it
+  // came from args), and the caller got back the source text they had written, silently.
+  //
+  // The emitter no longer produces dot-path strings, so compiled code cannot reach this.
+  // But the behaviour itself cannot simply become an error, because the ambiguity is real
+  // and load-bearing: a hand-built AST legitimately says `value: 'obj.prop'` (the builder
+  // API, 35+ call sites), and a program just as legitimately says `value: 'not.a.path'`
+  // meaning a string. Once both are `typeof val === 'string'` they are indistinguishable —
+  // which is exactly why the emitter must never add to the pile.
+  //
+  // So: leave the semantics alone and make the near-miss VISIBLE. This is the flight
+  // recorder's stated purpose — record liberally, never change behaviour — and a
+  // dotted string whose root is absent from scope is the highest-value thing it can
+  // report, because the alternative is a plausible wrong value nobody can trace.
+  if (val.includes('.')) {
+    recordVmEvent({
+      source: 'vm',
+      severity: 'warning',
+      message:
+        `'${val}' looks like a path but its root '${
+          val.split('.')[0]
+        }' is not in scope — ` +
+        `returning it as a literal string. If you meant a value, this is silently wrong.`,
+      data: { value: val, root: val.split('.')[0] },
+    })
+  }
+  return val
+}
+
 export function resolveValue(val: any, ctx: RuntimeContext): any {
+  // Inside an atom whose inputs the VM already resolved: everything is a value now.
+  if (ctx.inputsResolved) return val
   if (val && typeof val === 'object' && val.$kind === 'arg') {
     return ctx.args[val.path]
   }
@@ -1207,79 +1314,10 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
   }
   if (typeof val === 'string') {
     // v2: a bare string is ALWAYS a literal; references are explicit nodes (board #1860).
-    // Everything below is v1's guess — reference if a variable of that name exists — kept
-    // for ASTs that say they are v1 (and the builder, which writes v1).
+    // v1 (and the builder, which writes v1) guesses: a reference if a variable of that name
+    // is in scope — `resolveName`.
     if ((ctx.astVersion ?? AST_VERSION_LEGACY) >= 2) return val
-    // Special case: args.foo looks up ctx.args['foo'] directly
-    // BUT only if 'args' is not a state variable (which takes precedence)
-    if (val.startsWith('args.') && !('args' in ctx.state)) {
-      return ctx.args[val.replace('args.', '')]
-    }
-    // Dot notation support
-    if (val.includes('.')) {
-      const parts = val.split('.')
-      // Security: check each property name for forbidden access
-      for (const part of parts) {
-        if (FORBIDDEN_PROPERTIES.has(part)) {
-          throw new Error(`Security Error: Access to '${part}' is forbidden`)
-        }
-      }
-      let current = ctx.state[parts[0]]
-      // If root variable exists, try to traverse
-      if (current !== undefined) {
-        for (let i = 1; i < parts.length; i++) {
-          current = current?.[parts[i]]
-        }
-        return current
-      }
-    }
-    // Simple state lookup (not an expression, just key)
-    // Check if the key exists in state (even if value is undefined)
-    //
-    // `own`, not `in` — the THIRD site of the same defect, and the one that survived fixing
-    // the other two. `ctx.state` is a plain object literal, so `'toString' in ctx.state` is
-    // true and this handed the guest `Object.prototype.toString` itself. Verified after the
-    // `evaluateExpr` fix: a bare `hasOwnProperty` / `valueOf` / `constructor` still came back
-    // `typeof === 'function'`, because a bare identifier reaches state through HERE, not
-    // through `evaluateExpr`'s `ident` case.
-    //
-    // Worth noting why the earlier fix looked complete: the exploitable shape
-    // (`constructor('abc')`, a CALL) does route through `evaluateExpr`, so the dangerous
-    // case went away and the merely-leaking case did not. Fixing what reproduces is not the
-    // same as fixing the class.
-    if (scopeHas(ctx.state, val)) {
-      return ctx.state[val]
-    }
-    // Key doesn't exist in state — return the literal string.
-    //
-    // RECORDED, not changed. This fallback is what turned a failed lookup into data in #52:
-    // the emitter handed `resolveValue` the string "data.a", the root was not in state (it
-    // came from args), and the caller got back the source text they had written, silently.
-    //
-    // The emitter no longer produces dot-path strings, so compiled code cannot reach this.
-    // But the behaviour itself cannot simply become an error, because the ambiguity is real
-    // and load-bearing: a hand-built AST legitimately says `value: 'obj.prop'` (the builder
-    // API, 35+ call sites), and a program just as legitimately says `value: 'not.a.path'`
-    // meaning a string. Once both are `typeof val === 'string'` they are indistinguishable —
-    // which is exactly why the emitter must never add to the pile.
-    //
-    // So: leave the semantics alone and make the near-miss VISIBLE. This is the flight
-    // recorder's stated purpose — record liberally, never change behaviour — and a
-    // dotted string whose root is absent from scope is the highest-value thing it can
-    // report, because the alternative is a plausible wrong value nobody can trace.
-    if (val.includes('.')) {
-      recordVmEvent({
-        source: 'vm',
-        severity: 'warning',
-        message:
-          `'${val}' looks like a path but its root '${
-            val.split('.')[0]
-          }' is not in scope — ` +
-          `returning it as a literal string. If you meant a value, this is silently wrong.`,
-        data: { value: val, root: val.split('.')[0] },
-      })
-    }
-    return val
+    return resolveName(val, ctx)
   }
   // Recursively resolve plain object values (but not arrays or special objects)
   if (
@@ -1290,7 +1328,7 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
   ) {
     const result: Record<string, any> = {}
     for (const key of Object.keys(val)) {
-      result[key] = resolveValue(val[key], ctx)
+      setGuestKey(result, key, resolveValue(val[key], ctx))
     }
     return result
   }
@@ -1561,8 +1599,15 @@ export const builtins: Record<string, any> = Object.assign(
         values: (obj: any) => Object.values(obj),
         entries: (obj: any) => Object.entries(obj),
         fromEntries: (entries: any) => Object.fromEntries(entries),
-        assign: (target: any, ...sources: any[]) =>
-          Object.assign({}, target, ...sources),
+        // Not the native `Object.assign`: it would invoke the `__proto__` SETTER for a source
+        // that has an own `__proto__` key (e.g. from `JSON.parse`) — see `setGuestKey`.
+        assign: (target: any, ...sources: any[]) => {
+          const out: Record<string, any> = {}
+          for (const src of [target, ...sources])
+            if (src != null)
+              for (const k of Object.keys(src)) setGuestKey(out, k, src[k])
+          return out
+        },
         hasOwn: (obj: any, prop: string) => Object.hasOwn(obj, prop),
       },
       {
@@ -2587,7 +2632,7 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
     case 'object': {
       const result: Record<string, any> = {}
       for (const prop of node.properties) {
-        result[prop.key] = evaluateExpr(prop.value, ctx)
+        setGuestKey(result, prop.key, evaluateExpr(prop.value, ctx))
       }
       return result
     }
@@ -2691,6 +2736,33 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
 // --- Atom Factory ---
 
+/** The input a user callback sees: the step minus the VM's own fields. */
+function withoutControlKeys(step: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {}
+  for (const key of Object.keys(step))
+    if (!STEP_CONTROL_KEYS.has(key)) out[key] = step[key]
+  return out
+}
+
+/**
+ * The context an atom whose inputs the VM resolved runs under: the same run (state, fuel,
+ * heap, capabilities — all shared by reference) marked `inputsResolved`, with `error` and
+ * `output` forwarded to the real context so an atom that sets them still affects the run.
+ */
+function inputsResolvedContext(ctx: RuntimeContext): RuntimeContext {
+  const derived: RuntimeContext = { ...ctx, inputsResolved: true }
+  for (const field of ['error', 'output'] as const)
+    Object.defineProperty(derived, field, {
+      get: () => (ctx as any)[field],
+      set: (v: unknown) => {
+        ;(ctx as any)[field] = v
+      },
+      enumerable: true,
+      configurable: true,
+    })
+  return derived
+}
+
 /** Fields of a step that are the VM's, not the atom's input. */
 const STEP_CONTROL_KEYS = new Set([
   'op',
@@ -2703,9 +2775,11 @@ const STEP_CONTROL_KEYS = new Set([
 function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
   const out: Record<string, any> = {}
   for (const key of Object.keys(step)) {
-    out[key] = STEP_CONTROL_KEYS.has(key)
-      ? step[key]
-      : resolveValue(step[key], ctx)
+    setGuestKey(
+      out,
+      key,
+      STEP_CONTROL_KEYS.has(key) ? step[key] : resolveValue(step[key], ctx)
+    )
   }
   return out
 }
@@ -2788,13 +2862,20 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       }
 
       // 2. Deduct Fuel (check for cost overrides first)
+      // Resolve ONCE, before anything reads the input: the cost and timeout functions and the
+      // atom body all see the same values. (Cost functions saw raw AST nodes while the body saw
+      // values, so `i => i.items.length` billed 1 for a 10-element array — rc.2 review.)
+      const callInput = atom.resolveInputs ? resolveAtomInputs(step, ctx) : step
+      const fnInput = atom.resolveInputs
+        ? withoutControlKeys(callInput)
+        : inputData
       const overrideCost = ctx.costOverrides?.[op]
       const baseCost = overrideCost !== undefined ? overrideCost : cost
       // Through `checkedCost`, at the one place every charge happens: a negative cost MINTED
       // fuel (a -400 override gave fuelUsed -398 at fuel 1), and a NaN one poisoned the
       // meter. Checked here because a function cost only exists at call time.
       const currentCost = checkedCost(
-        typeof baseCost === 'function' ? baseCost(inputData, ctx) : baseCost,
+        typeof baseCost === 'function' ? baseCost(fnInput, ctx) : baseCost,
         op
       )
       if ((ctx.fuel.current -= currentCost) <= 0) {
@@ -2810,14 +2891,17 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // rather than read as `NaN > 0` — false, which silently disabled the timeout.
       const armedTimeout = timerMs(
         typeof baseTimeout === 'function'
-          ? baseTimeout(inputData, ctx)
+          ? baseTimeout(fnInput, ctx)
           : baseTimeout
       )
       let timer: any
-      // Inputs resolved for the atom unless it resolves its own (core and battery atoms do):
-      // a reference must arrive as its VALUE, never as the variable's name or a node.
-      const callInput = atom.resolveInputs ? resolveAtomInputs(step, ctx) : step
-      const execute = async () => fn(callInput as I, ctx)
+      // An atom whose inputs the VM resolved runs under a context that SAYS so, and
+      // `resolveValue` is the identity under it. Otherwise an atom written the old way — calling
+      // `resolveValue` on its own inputs — resolved a second time, and guest DATA shaped like
+      // `{ $expr: 'ident', name: 'secret' }` (or, in a v1 AST, a string naming a variable) was
+      // evaluated as code (rc.2 review B5). Harmless by construction, not by a CHANGELOG note.
+      const atomCtx = atom.resolveInputs ? inputsResolvedContext(ctx) : ctx
+      const execute = async () => fn(callInput as I, atomCtx)
 
       result =
         armedTimeout !== undefined
@@ -3239,7 +3323,19 @@ export const varSet = defineAtom(
  * outer variable made inside a `for…of` body (tjs-lang#59). An undeclared name is bound in
  * the current scope, which is what `varSet` did, so no program that worked stops working.
  */
-/** The scope object that owns `key` — the nearest that declared it — else the current one. */
+/**
+ * Scopes that ASSIGNMENT may not cross. `runCode` runs guest-built (often model-written)
+ * source in a child of the caller's scope; reads see the caller's variables, but its
+ * assignments must not reach them — the docs promise it isolates its variables, and before
+ * `varAssign` it did (every assignment was a local declaration). Without this, `target =
+ * 'https://evil.example'` in runCode source rewrote the CALLER's `target` (rc.2 review B2).
+ */
+const SCOPE_ROOTS = new WeakSet<object>()
+
+/**
+ * The scope object that owns `key` — the nearest that declared it — else the current one. The
+ * walk stops at a scope root: past it, an assignment declares locally instead.
+ */
 function ownerOf(ctx: RuntimeContext, key: string): Record<string, any> {
   for (
     let o: any = ctx.state;
@@ -3247,6 +3343,7 @@ function ownerOf(ctx: RuntimeContext, key: string): Record<string, any> {
     o = Object.getPrototypeOf(o)
   ) {
     if (Object.prototype.hasOwnProperty.call(o, key)) return o
+    if (SCOPE_ROOTS.has(o)) break
   }
   return ctx.state
 }
@@ -3257,12 +3354,17 @@ export const varAssign = defineAtom(
   undefined,
   async ({ key, value }, ctx) => {
     assertSafeProperty(key)
-    if (isConstBinding(ctx, key)) {
+    // The const check follows the SAME boundary as the write: the binding this assignment
+    // would actually change.
+    const owner = ownerOf(ctx, key)
+    if (
+      Object.prototype.hasOwnProperty.call(owner, key) &&
+      CONST_BINDINGS.get(owner)?.has(key)
+    ) {
       throw new Error(`Cannot reassign const variable '${key}'`)
     }
     const v = resolveValue(value, ctx)
-    if (!setStateVar(ctx, key, v, 'varAssign', { owner: ownerOf(ctx, key) }))
-      return undefined
+    if (!setStateVar(ctx, key, v, 'varAssign', { owner })) return undefined
   },
   { docs: 'Assign Variable (writes the scope that owns it)', cost: 0.1 }
 )
@@ -3296,7 +3398,7 @@ export const varGet = defineAtom(
   s.object({ key: s.string }),
   s.any,
   async ({ key }, ctx) => {
-    return resolveValue(key, ctx)
+    return resolveName(key, ctx)
   },
   { docs: 'Get Variable', cost: 0.1 }
 )
@@ -3353,11 +3455,11 @@ export const varsExport = defineAtom(
     const result: Record<string, any> = {}
     if (Array.isArray(keys)) {
       for (const key of keys) {
-        result[key] = resolveValue(key, ctx)
+        result[key] = resolveName(key, ctx)
       }
     } else {
       for (const [alias, path] of Object.entries(keys)) {
-        result[alias] = resolveValue(path, ctx)
+        result[alias] = resolveName(String(path), ctx)
       }
     }
     return result
@@ -3957,7 +4059,10 @@ export function depthHeaderFor(
   depth: number,
   env: { server: boolean; origin: string | undefined } = fetchEnvironment()
 ): Record<string, string> {
-  if (!env.server && env.origin && env.origin !== 'null') {
+  if (!env.server && env.origin) {
+    // An OPAQUE origin ('null': a sandboxed iframe, a file: or data: page) is same-origin with
+    // nothing, so every request is cross-origin and the header would force a preflight.
+    if (env.origin === 'null') return {}
     try {
       if (new URL(url, env.origin).origin !== env.origin) return {}
     } catch {
@@ -4316,6 +4421,9 @@ export const agentRun = defineAtom(
         args: resolvedInput,
         state: {},
         consts: new Set(),
+        // A sub-agent is a different program: its own memoize cache, or it could read — or
+        // poison — the caller's entries by choosing the same key.
+        memo: new Map(),
         output: undefined,
         error: undefined,
         // A sub-agent is an AGENT, under the agent's return rule — never a callback's
@@ -4354,6 +4462,9 @@ export const agentRun = defineAtom(
         args: resolvedInput,
         state: {},
         consts: new Set(),
+        // A sub-agent is a different program: its own memoize cache, or it could read — or
+        // poison — the caller's entries by choosing the same key.
+        memo: new Map(),
         output: undefined,
         error: undefined,
         // A sub-agent is an AGENT, under the agent's return rule — never a callback's
@@ -4552,6 +4663,8 @@ export const runCode = defineAtom(
     // Create a child scope for the dynamic code execution
     // This isolates its variables but shares fuel, capabilities, trace
     const childCtx = createChildScope(ctx)
+    SCOPE_ROOTS.add(childCtx.state)
+    childCtx.memo = new Map() // its own cache, like its own scope root (see agentRun)
     // The guest-built code is its OWN document: read it in its own format.
     childCtx.astVersion = astVersionOf(ast) ?? AST_VERSION_LEGACY
     try {

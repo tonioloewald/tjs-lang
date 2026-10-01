@@ -1,7 +1,7 @@
 // Wire the VM's transpiler EXPLICITLY, before anything else.
 //
 // `AgentVM.run()` accepts AJS source as well as an AST, and the transpiler that resolves it
-// is injected rather than imported (see `setTranspiler` in `./vm/vm`) so that
+// is injected rather than imported (see `setTranspiler` in `./vm/transpiler-slot`) so that
 // `tjs-lang/vm-ast` can ship without a parser. Every entry point that promises the
 // source-accepting behaviour has to supply it.
 //

@@ -757,8 +757,12 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
   their inputs resolved before they are called (`resolveInputs`, default `true`). Before 0.14.0
   they did not: an atom written like the documented example received a variable's NAME
   (`echo({ v: local })` got `"local"`). Core and battery atoms resolve their own inputs and are
-  marked `resolveInputs: false`; set that only if your atom calls `resolveValue` itself —
-  resolving twice can misread a resolved value.
+  marked `resolveInputs: false`. An atom whose inputs the VM resolved runs under a context marked
+  `inputsResolved`, where `resolveValue` is the identity — so an atom written the old way
+  (calling `resolveValue` itself) is harmless, never double-resolving guest data into code
+  (rc.2 review B5). **A CONTROL atom** — one that runs nested steps on the context it receives
+  (`seq.exec`, `evaluateExpr`) — must set `resolveInputs: false`, or those steps' values will not
+  resolve. Dynamic `cost`/`timeoutMs` functions see the same resolved input as the body.
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
 - Access IO only via `ctx.capabilities`

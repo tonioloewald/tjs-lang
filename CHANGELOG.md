@@ -44,8 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > **Since rc.1 — custom atoms receive VALUES.** An atom defined with `defineAtom` and written like
 > the documented example (`async ({ url }) => fetch(url)`) received the variable's NAME when a
 > program passed one — `echo({ v: local })` got `"local"` — in every earlier release. The VM now
-> resolves inputs before calling it. If your atom already calls `resolveValue` on its inputs,
-> pass `{ resolveInputs: false }`, or it resolves twice.
+> resolves inputs before calling it, and runs it under a context where `resolveValue` is the
+> identity: an atom written the old way, calling `resolveValue` on its own inputs, keeps working
+> and cannot re-evaluate guest data shaped like `{ $expr: … }` as code. Dynamic `cost` and
+> `timeoutMs` functions see the same resolved input. **A control atom** — one that runs nested
+> steps on the context it receives — must pass `{ resolveInputs: false }`.
+>
+> **Since rc.1 — guest code cannot set an object's prototype.** `__proto__` is refused as an object
+> key — at transpile time, in object literals, in resolved values, in atom inputs, and in the
+> guest `Object.assign` (which used the native one, and so the `__proto__` setter). Set as a key,
+> it replaced the object's prototype, hiding whatever hung off it from `maxHeapBytes`.
 >
 > **Since rc.1 — AJS assignment means what it means in JavaScript** ([#59](https://github.com/tonioloewald/tjs-lang/issues/59)).
 > Found by tosijs-platform; every one of these was a SILENT wrong answer:
@@ -57,9 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > - Assigning an outer variable inside a `for…of` body was lost (`s = s + w` left `s` empty):
 >   assignment and declaration compiled to the same step, which wrote the loop body's own
 >   scope. Assignment now compiles to a new `varAssign` step that writes the scope that OWNS the
->   variable, as JavaScript does, charged to that scope's heap ledger. Declarations are
->   unchanged, and ASTs already stored keep their meaning. **An AST from this transpiler needs a
->   VM that knows `varAssign`**: an older one refuses it with "Unknown Atom", never silently.
+>   variable, as JavaScript does, charged to that scope's heap ledger. `runCode` is a scope root:
+>   its source reads the caller's variables, but its assignments stay its own. Declarations are
+>   unchanged, and ASTs already stored keep their meaning. An AST from this transpiler is format
+>   v2 (below), so an older VM refuses it by version, never silently.
 >
 > **Since rc.1 — two exports removed. Technically breaking; neither had a real use.**
 > - **`setTranspiler` is no longer exported** from any entry. It lived in `vm.ts`, which every

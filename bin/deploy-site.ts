@@ -24,6 +24,21 @@ import { join } from 'path'
 const repo = (await $`git rev-parse --show-toplevel`.text()).trim()
 const ref = process.argv[2] ?? 'HEAD'
 const sha = (await $`git rev-parse --short ${ref}`.cwd(repo).text()).trim()
+
+// A site that says "built from <sha>" must name a commit others can see. Refuse one that is
+// not on any remote branch (unpushed, or a local experiment) rather than publish a receipt
+// that points at nothing.
+const onRemote = (
+  await $`git branch -r --contains ${sha}`.cwd(repo).nothrow().text()
+).trim()
+if (!onRemote) {
+  console.error(
+    `✖ ${sha} is not on any remote branch — push it first, then deploy.`
+  )
+  process.exit(1)
+}
+// Clear worktrees left by an interrupted earlier run.
+await $`git worktree prune`.cwd(repo).quiet()
 const work = mkdtempSync(join(tmpdir(), 'tjs-site-'))
 const tree = join(work, 'tree')
 

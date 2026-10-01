@@ -19,7 +19,7 @@ import { builtins } from '../vm/runtime'
 import { BUILTIN_GLOBALS, BUILTIN_OBJECTS } from './emitters/ast'
 
 // This entry exists to execute SOURCE, so it must supply the transpiler the VM no longer
-// imports for itself (see `setTranspiler` in `../vm/vm` — injected so `tjs-lang/vm-ast` can
+// imports for itself (see `setTranspiler` in `../vm/transpiler-slot` — injected so `tjs-lang/vm-ast` can
 // ship without a parser). Done explicitly, and at module scope, rather than leaning on some
 // other module having been evaluated first: `src/index.ts` learned that lesson the hard way.
 // `Eval`/`SafeFunction` already transpile before calling `run()`, so this is belt-and-braces
