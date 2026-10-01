@@ -37,8 +37,10 @@ if (!onRemote) {
   )
   process.exit(1)
 }
-// Clear worktrees left by an interrupted earlier run.
-await $`git worktree prune`.cwd(repo).quiet()
+// Clear worktrees left by an interrupted earlier run. `prune` only drops the records of
+// worktrees whose directories are already gone, but it is repo-wide, so it says what it drops
+// (`-v`) rather than doing it silently.
+await $`git worktree prune -v`.cwd(repo)
 const work = mkdtempSync(join(tmpdir(), 'tjs-site-'))
 const tree = join(work, 'tree')
 

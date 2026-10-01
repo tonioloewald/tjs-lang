@@ -989,7 +989,11 @@ const myVM = new AgentVM({ scrape: myScraper })
 Your atom receives its inputs as **values**: if a program calls `scrape({ url: target })`, `url`
 is the value of `target`. (Before 0.14.0 it was the string `"target"` unless the atom called
 `resolveValue` itself; the VM now resolves inputs for any atom defined with `defineAtom`. An
-atom that already resolves its own inputs should pass `{ resolveInputs: false }`.)
+atom that already resolves its own inputs keeps working — `resolveValue` is the identity on an
+input the VM resolved.) Dynamic `cost` and `timeoutMs` functions receive the same resolved
+input. An atom that takes **steps as input** (a control atom such as a custom loop) must pass
+`{ resolveInputs: false }`, or its steps arrive evaluated as values; steps an atom builds and
+runs itself run normally either way.
 
 Atoms must:
 

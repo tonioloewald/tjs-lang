@@ -292,8 +292,14 @@ export interface RuntimeContext {
    * `createChildScope` spreads the context, which copies a number by value while sharing a
    * Map by reference — so the total and the per-key ledger drifted apart across scopes and
    * the running total could go negative, silently buying back budget.
+   *
+   * REQUIRED, and created with the run (`AgentVM.run`), never lazily. A lazily created
+   * account belongs to whichever context object first wrote — and every derived context is a
+   * spread, so one created on a derived context (an atom's `inputsResolvedContext`, a
+   * sub-agent's) was invisible to the run, and those writes were simply not counted (rc.2
+   * re-review M1). Required means the compiler finds every context built without one.
    */
-  heapAccount?: { bytes: number }
+  heapAccount: { bytes: number }
   /**
    * Per-key size AND the reference it was measured from, so overwriting a variable frees
    * its budget and re-binding an UNCHANGED reference costs nothing to re-measure.
@@ -309,8 +315,10 @@ export interface RuntimeContext {
    * rather than replaces; the ledger now says the same thing. `releaseScope` gives the
    * bytes back when the scope is discarded — see `src/vm/heap-scope.test.ts`, which
    * asserts both directions (shadowing must not free; discarding must).
+   *
+   * Required for the same reason as `heapAccount`.
    */
-  heapPerKey?: Map<string, HeapEntry>
+  heapPerKey: Map<string, HeapEntry>
   /**
    * The format version of the AST this context runs (`$ajs`). v2 reads a bare string as a
    * LITERAL; v1 as a reference when a variable of that name is in scope. Absent means v1.
@@ -1118,13 +1126,16 @@ export function createChildScope(ctx: RuntimeContext): RuntimeContext {
   const child: RuntimeContext = {
     ...ctx,
     state: Object.create(ctx.state),
+    // A scope runs STEPS, and steps resolve their values. Inherited from an atom's
+    // `inputsResolvedContext`, this made every nested expression come back unevaluated.
+    inputsResolved: false,
   }
   // `heapBytes` is a NUMBER, so the spread copies it by value while `heapPerKey` (a Map)
   // is shared by reference. The two then drift: a child binding a key updates the shared
   // ledger but only its own copy of the total, and when the parent later rebinds that key
   // it subtracts a size it never added — driving the running total negative and silently
   // buying back budget. Sharing the accounting object keeps the two halves together.
-  child.heapAccount = ctx.heapAccount ?? (ctx.heapAccount = { bytes: 0 })
+  child.heapAccount = ctx.heapAccount
 
   // The ledger, by contrast, must NOT be shared: a scope accounts what it owns. See the
   // `heapPerKey` doc — sharing it made shadowing a name a way to free its budget.
@@ -1169,7 +1180,7 @@ export function createChildScope(ctx: RuntimeContext): RuntimeContext {
 export function releaseScope(child: RuntimeContext): void {
   const account = child.heapAccount
   const ledger = child.heapPerKey
-  if (!account || !ledger || ledger.size === 0) return
+  if (ledger.size === 0) return
   for (const { size } of ledger.values()) account.bytes -= size
   // Clamp: an under-run would hand the guest free budget, the exact drift the shared
   // `heapAccount` object was introduced to stop.
@@ -1194,7 +1205,7 @@ function diffObjects(
     if (afterVal !== beforeVal) {
       // For simplicity in tracing, we'll just show the new value.
       // A more complex diff could show { before: ..., after: ... }.
-      diff[key] = afterVal
+      setGuestKey(diff, key, afterVal)
     }
   }
   return diff
@@ -1221,6 +1232,13 @@ export function setGuestKey(
       "Security Error: '__proto__' is not allowed as an object key (it would replace the object's prototype)"
     )
   obj[key] = value
+}
+
+/** `obj[key]` if it is an OWN property, else `undefined` — never an inherited host value. */
+function ownValue(obj: any, key: string): unknown {
+  return obj != null && Object.prototype.hasOwnProperty.call(obj, key)
+    ? obj[key]
+    : undefined
 }
 
 /**
@@ -1468,7 +1486,7 @@ function convertExampleToSchema(example: any): any {
     const required: string[] = []
 
     for (const [key, value] of Object.entries(example)) {
-      properties[key] = convertExampleToSchema(value)
+      setGuestKey(properties, key, convertExampleToSchema(value))
       required.push(key)
     }
 
@@ -2237,7 +2255,6 @@ function trackHeapWrite(
   ownerLedger?: Map<string, HeapEntry>
 ): boolean {
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
-  if (!ctx.heapPerKey) ctx.heapPerKey = new Map()
   ledgerFor(ctx.state, ctx.heapPerKey)
   // The ledger of the scope that OWNS the binding (`varAssign` to an outer variable); a
   // binding is accounted where it lives, so a child scope's release never frees it.
@@ -2297,7 +2314,7 @@ function trackHeapWrite(
     Array.isArray(value) &&
     witness > prevEntry.witness
   ) {
-    const account = (ctx.heapAccount ??= { bytes: 0 })
+    const account = ctx.heapAccount
     const tail = value.slice(prevEntry.witness)
     const headroom = cap - account.bytes
     const { bytes: added, nodes } = estimateBytes(tail, Math.max(0, headroom))
@@ -2329,7 +2346,7 @@ function trackHeapWrite(
   // absolute 64MB, so the early exit only fired for values that would abort anyway and
   // the estimator happily walked 300k nodes to discover it was under budget.
   const prevSize = prevEntry?.size ?? 0
-  const account = (ctx.heapAccount ??= { bytes: 0 })
+  const account = ctx.heapAccount
   const headroom = cap - (account.bytes - prevSize)
   const { bytes: size, nodes } = estimateBytes(value, Math.max(0, headroom))
 
@@ -2740,7 +2757,7 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 function withoutControlKeys(step: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {}
   for (const key of Object.keys(step))
-    if (!STEP_CONTROL_KEYS.has(key)) out[key] = step[key]
+    if (!STEP_CONTROL_KEYS.has(key)) setGuestKey(out, key, step[key])
   return out
 }
 
@@ -2751,6 +2768,7 @@ function withoutControlKeys(step: Record<string, any>): Record<string, any> {
  */
 function inputsResolvedContext(ctx: RuntimeContext): RuntimeContext {
   const derived: RuntimeContext = { ...ctx, inputsResolved: true }
+  RESOLVED_ORIGIN.set(derived, ctx)
   for (const field of ['error', 'output'] as const)
     Object.defineProperty(derived, field, {
       get: () => (ctx as any)[field],
@@ -2762,6 +2780,15 @@ function inputsResolvedContext(ctx: RuntimeContext): RuntimeContext {
     })
   return derived
 }
+
+/**
+ * The context each `inputsResolvedContext` was derived from. A STEP is never executed under a
+ * derived context: an atom that runs nested steps hands its context back to `exec`, which
+ * swaps the original in — so nested steps resolve their values, write the run's real state
+ * and accounting, and see the run's real `error` (rc.2 re-review M1). One place, at the one
+ * door every step goes through, rather than a rule each control atom has to remember.
+ */
+const RESOLVED_ORIGIN = new WeakMap<RuntimeContext, RuntimeContext>()
 
 /** Fields of a step that are the VM's, not the atom's input. */
 const STEP_CONTROL_KEYS = new Set([
@@ -2814,6 +2841,14 @@ export function defineAtom<I extends Record<string, any>, O = any>(
   ) as number
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
+    if (ctx.inputsResolved) {
+      const origin = RESOLVED_ORIGIN.get(ctx)
+      if (!origin)
+        throw new Error(
+          `Internal: '${op}' was executed under an inputs-resolved context with no origin`
+        )
+      ctx = origin
+    }
     const { op: _op, result: _res, ...inputData } = step
 
     // Skip if already in error state (monadic flow)
@@ -2866,16 +2901,19 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // atom body all see the same values. (Cost functions saw raw AST nodes while the body saw
       // values, so `i => i.items.length` billed 1 for a 10-element array — rc.2 review.)
       const callInput = atom.resolveInputs ? resolveAtomInputs(step, ctx) : step
-      const fnInput = atom.resolveInputs
-        ? withoutControlKeys(callInput)
-        : inputData
+      // Built only when a cost or timeout FUNCTION asks for it — most atoms have neither.
+      let fnInputMemo: any
+      const fnInput = () =>
+        (fnInputMemo ??= atom.resolveInputs
+          ? withoutControlKeys(callInput)
+          : inputData)
       const overrideCost = ctx.costOverrides?.[op]
       const baseCost = overrideCost !== undefined ? overrideCost : cost
       // Through `checkedCost`, at the one place every charge happens: a negative cost MINTED
       // fuel (a -400 override gave fuelUsed -398 at fuel 1), and a NaN one poisoned the
       // meter. Checked here because a function cost only exists at call time.
       const currentCost = checkedCost(
-        typeof baseCost === 'function' ? baseCost(fnInput, ctx) : baseCost,
+        typeof baseCost === 'function' ? baseCost(fnInput(), ctx) : baseCost,
         op
       )
       if ((ctx.fuel.current -= currentCost) <= 0) {
@@ -2891,7 +2929,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // rather than read as `NaN > 0` — false, which silently disabled the timeout.
       const armedTimeout = timerMs(
         typeof baseTimeout === 'function'
-          ? baseTimeout(fnInput, ctx)
+          ? baseTimeout(fnInput(), ctx)
           : baseTimeout
       )
       let timer: any
@@ -3195,7 +3233,7 @@ export const ret = defineAtom(
     let res: any = {}
     if (step.schema?.properties) {
       for (const key of Object.keys(step.schema.properties)) {
-        res[key] = ctx.state[key]
+        setGuestKey(res, key, ctx.state[key])
       }
 
       // If schema has nested structure, filter to strip extra properties
@@ -3289,15 +3327,21 @@ function markConst(ctx: RuntimeContext, key: string): void {
   ctx.consts.add(key) // kept for readers of the context shape; never consulted for rules
 }
 
-/** Is the binding `key` resolves to — the NEAREST scope that owns it — a `const`? */
+/** Is `key` a `const` binding OF `owner` — the scope object that holds it? */
+function constAt(owner: Record<string, any>, key: string): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(owner, key) &&
+    (CONST_BINDINGS.get(owner)?.has(key) ?? false)
+  )
+}
+
+/**
+ * Is the binding `key` resolves to — the nearest scope that owns it — a `const`? The SAME walk
+ * as the write (`ownerOf`), so the check and the assignment can never disagree about which
+ * binding they mean; they used to be two walks with two different stopping rules.
+ */
 function isConstBinding(ctx: RuntimeContext, key: string): boolean {
-  let o: any = ctx.state
-  while (o != null && o !== Object.prototype) {
-    if (Object.prototype.hasOwnProperty.call(o, key))
-      return CONST_BINDINGS.get(o)?.has(key) ?? false
-    o = Object.getPrototypeOf(o)
-  }
-  return false
+  return constAt(ownerOf(ctx, key), key)
 }
 
 // 2. State (Low cost: 0.1)
@@ -3324,17 +3368,9 @@ export const varSet = defineAtom(
  * the current scope, which is what `varSet` did, so no program that worked stops working.
  */
 /**
- * Scopes that ASSIGNMENT may not cross. `runCode` runs guest-built (often model-written)
- * source in a child of the caller's scope; reads see the caller's variables, but its
- * assignments must not reach them — the docs promise it isolates its variables, and before
- * `varAssign` it did (every assignment was a local declaration). Without this, `target =
- * 'https://evil.example'` in runCode source rewrote the CALLER's `target` (rc.2 review B2).
- */
-const SCOPE_ROOTS = new WeakSet<object>()
-
-/**
- * The scope object that owns `key` — the nearest that declared it — else the current one. The
- * walk stops at a scope root: past it, an assignment declares locally instead.
+ * The scope object that owns `key` — the nearest that declared it — else the current one.
+ * (`runCode` needs no boundary here: it runs in a fresh scope of its own, not a child of the
+ * caller's, so the caller's bindings are not on this chain at all.)
  */
 function ownerOf(ctx: RuntimeContext, key: string): Record<string, any> {
   for (
@@ -3343,7 +3379,6 @@ function ownerOf(ctx: RuntimeContext, key: string): Record<string, any> {
     o = Object.getPrototypeOf(o)
   ) {
     if (Object.prototype.hasOwnProperty.call(o, key)) return o
-    if (SCOPE_ROOTS.has(o)) break
   }
   return ctx.state
 }
@@ -3357,10 +3392,7 @@ export const varAssign = defineAtom(
     // The const check follows the SAME boundary as the write: the binding this assignment
     // would actually change.
     const owner = ownerOf(ctx, key)
-    if (
-      Object.prototype.hasOwnProperty.call(owner, key) &&
-      CONST_BINDINGS.get(owner)?.has(key)
-    ) {
+    if (constAt(owner, key)) {
       throw new Error(`Cannot reassign const variable '${key}'`)
     }
     const v = resolveValue(value, ctx)
@@ -3455,11 +3487,11 @@ export const varsExport = defineAtom(
     const result: Record<string, any> = {}
     if (Array.isArray(keys)) {
       for (const key of keys) {
-        result[key] = resolveName(key, ctx)
+        setGuestKey(result, key, resolveName(key, ctx))
       }
     } else {
       for (const [alias, path] of Object.entries(keys)) {
-        result[alias] = resolveName(String(path), ctx)
+        setGuestKey(result, alias, resolveName(String(path), ctx))
       }
     }
     return result
@@ -3565,8 +3597,8 @@ export const callLocal = defineAtom(
         if (arg && typeof arg === 'object' && ctx.heapPerKey) {
           for (const entry of ctx.heapPerKey.values()) {
             if (entry.ref !== arg) continue
-            scopedCtx.heapPerKey!.set(helper.paramNames[i], entry)
-            ;(scopedCtx.heapAccount ??= { bytes: 0 }).bytes += entry.size
+            scopedCtx.heapPerKey.set(helper.paramNames[i], entry)
+            scopedCtx.heapAccount.bytes += entry.size
             break
           }
         }
@@ -3779,7 +3811,7 @@ export const reduce = defineAtom(
         // style) gets a fresh measurement, which is correct: it is a different value.
         if (accEntry && accEntry.ref === acc && scopedCtx.heapPerKey) {
           scopedCtx.heapPerKey.set(accumulator, accEntry)
-          ;(scopedCtx.heapAccount ??= { bytes: 0 }).bytes += accEntry.size
+          scopedCtx.heapAccount.bytes += accEntry.size
         }
         // The ITEM aliases the source array; the ACCUMULATOR does not — it can grow
         // without bound, so it stays fully accounted.
@@ -3960,7 +3992,10 @@ export const pick = defineAtom(
     if (!chargeForSize(ctx, resolvedKeys, 'pick')) return undefined
     const res: any = {}
     if (resolvedObj && Array.isArray(resolvedKeys)) {
-      resolvedKeys.forEach((k: string) => (res[k] = resolvedObj[k]))
+      // OWN properties only: `pick(o, ['constructor'])` read the inherited `Object` function and
+      // handed the guest a live host function.
+      for (const k of resolvedKeys)
+        setGuestKey(res, k, ownValue(resolvedObj, k))
     }
     return res
   },
@@ -3979,7 +4014,7 @@ export const omit = defineAtom(
     const res: any = {}
     if (resolvedObj) {
       Object.keys(resolvedObj).forEach((k) => {
-        if (!resolvedKeys.has(k)) res[k] = resolvedObj[k]
+        if (!resolvedKeys.has(k)) setGuestKey(res, k, resolvedObj[k])
       })
     }
     return res
@@ -4404,8 +4439,8 @@ export const agentRun = defineAtom(
     let resolvedInput = rawInput
     if (rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)) {
       resolvedInput = {}
-      for (const k in rawInput) {
-        resolvedInput[k] = resolveValue(rawInput[k], ctx)
+      for (const k of Object.keys(rawInput)) {
+        setGuestKey(resolvedInput, k, resolveValue(rawInput[k], ctx))
       }
     }
 
@@ -4442,6 +4477,9 @@ export const agentRun = defineAtom(
         // `ast-version-boundaries.test.ts` checks exactly that, and cannot see through calls.
         checkAstVersion(ast, 'agentRun')
         childCtx.astVersion = astVersionOf(ast) ?? AST_VERSION_LEGACY
+        // ITS helpers, not the caller's: the spread handed a sub-agent the caller's local
+        // functions, so a call by name ran the caller's body, or missed its own.
+        childCtx.helpers = (ast as any).helpers
         await seqAtom.exec(ast, childCtx)
 
         if (childCtx.error) {
@@ -4483,6 +4521,7 @@ export const agentRun = defineAtom(
         // review's own repro (0.14.0 re-review, M-1).
         checkAstVersion(resolvedId, 'agentRun')
         childCtx.astVersion = astVersionOf(resolvedId) ?? AST_VERSION_LEGACY
+        childCtx.helpers = (resolvedId as any).helpers // its own (see above)
         await seqAtom.exec(resolvedId, childCtx)
 
         if (childCtx.error) {
@@ -4596,8 +4635,10 @@ export const transpileCode = defineAtom(
 /*#
 ## runCode (Dynamic Code Execution)
 
-Transpiles and executes AsyncJS code at runtime. The generated code
-runs in the same context, sharing fuel budget, capabilities, and trace.
+Transpiles and executes AsyncJS code at runtime. The generated code is its
+own program: it sees only the `args` it is given — not the caller's
+variables or helpers — and shares the run's fuel, heap budget,
+capabilities, and trace.
 
 This enables agents to write and execute code to solve problems.
 
@@ -4660,11 +4701,24 @@ export const runCode = defineAtom(
       throw new Error('Transpiled code must be a seq node')
     }
 
-    // Create a child scope for the dynamic code execution
-    // This isolates its variables but shares fuel, capabilities, trace
+    // The dynamic code is its OWN PROGRAM, like a sub-agent: a fresh scope that sees only the
+    // `args` it is handed, not the caller's variables or helpers. It shares the run — fuel,
+    // heap account, capabilities, trace, and `error` (via `createChildScope`).
+    //
+    // It used to run in a CHILD of the caller's scope. Assignment then reached the caller's
+    // variables (rc.2 review B2), and once that was stopped at a scope boundary, in-place
+    // mutation still did — `allowed.push(…)`, `config.fill(…)` on any caller array, by name,
+    // with no `args` involved (rc.2 re-review M2). And its reads exposed every caller binding
+    // — keys, tokens — to code a model wrote. A boundary drawn on writes leaves reads and
+    // mutation open; a fresh scope has nothing on the other side to reach. What it is GIVEN
+    // in `args` it holds by reference, as a function holds its arguments.
     const childCtx = createChildScope(ctx)
-    SCOPE_ROOTS.add(childCtx.state)
-    childCtx.memo = new Map() // its own cache, like its own scope root (see agentRun)
+    childCtx.state = {}
+    childCtx.heapPerKey = new Map()
+    ledgerFor(childCtx.state, childCtx.heapPerKey)
+    childCtx.consts = new Set()
+    childCtx.helpers = (ast as any).helpers
+    childCtx.memo = new Map() // its own cache, like its own scope (see agentRun)
     // The guest-built code is its OWN document: read it in its own format.
     childCtx.astVersion = astVersionOf(ast) ?? AST_VERSION_LEGACY
     try {

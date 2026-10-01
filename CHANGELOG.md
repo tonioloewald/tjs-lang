@@ -47,13 +47,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > resolves inputs before calling it, and runs it under a context where `resolveValue` is the
 > identity: an atom written the old way, calling `resolveValue` on its own inputs, keeps working
 > and cannot re-evaluate guest data shaped like `{ $expr: … }` as code. Dynamic `cost` and
-> `timeoutMs` functions see the same resolved input. **A control atom** — one that runs nested
-> steps on the context it receives — must pass `{ resolveInputs: false }`.
+> `timeoutMs` functions see the same resolved input — so a cost function written against raw
+> nodes (testing for `$expr`, or for a variable name) now receives values and must be updated.
+> Steps an atom builds and runs itself run normally under either setting: the VM never runs a
+> step under the resolved-inputs context. **An atom that takes steps AS INPUT** must pass
+> `{ resolveInputs: false }`, or its steps arrive evaluated as values.
 >
 > **Since rc.1 — guest code cannot set an object's prototype.** `__proto__` is refused as an object
 > key — at transpile time, in object literals, in resolved values, in atom inputs, and in the
-> guest `Object.assign` (which used the native one, and so the `__proto__` setter). Set as a key,
-> it replaced the object's prototype, hiding whatever hung off it from `maxHeapBytes`.
+> guest `Object.assign` (which used the native one, and so the `__proto__` setter), and in every
+> atom that builds an object from guest keys (`pick`, `omit`, `varsExport`, `agentRun`'s input,
+> the return projection). Set as a key, it replaced the object's prototype, hiding whatever hung
+> off it from `maxHeapBytes` (~19MB held under an 8MB cap). Every computed-key write in the VM
+> now goes through one guarded function, and a source scan (`guest-key-writes.test.ts`) fails on
+> any new one. `pick` also reads own properties only: `pick(o, ['constructor'])` returned the
+> inherited `Object` function, a live host function in guest hands.
 >
 > **Since rc.1 — AJS assignment means what it means in JavaScript** ([#59](https://github.com/tonioloewald/tjs-lang/issues/59)).
 > Found by tosijs-platform; every one of these was a SILENT wrong answer:
@@ -65,10 +73,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > - Assigning an outer variable inside a `for…of` body was lost (`s = s + w` left `s` empty):
 >   assignment and declaration compiled to the same step, which wrote the loop body's own
 >   scope. Assignment now compiles to a new `varAssign` step that writes the scope that OWNS the
->   variable, as JavaScript does, charged to that scope's heap ledger. `runCode` is a scope root:
->   its source reads the caller's variables, but its assignments stay its own. Declarations are
+>   variable, as JavaScript does, charged to that scope's heap ledger. Declarations are
 >   unchanged, and ASTs already stored keep their meaning. An AST from this transpiler is format
 >   v2 (below), so an older VM refuses it by version, never silently.
+>
+> **Since rc.1 — `runCode` is its own program. Breaking.** Code run by `runCode` sees only the
+> `args` it is given; it no longer sees the caller's variables or local helpers. It ran in a
+> child of the caller's scope, so model-written source could read every caller binding (keys,
+> tokens), reassign them (stopped at a scope boundary in the first rc.2 fix), and — what that
+> boundary could not stop — mutate them in place (`allowed.push('evil')`). A fresh scope has
+> nothing on the other side to reach. Pass what the code needs in `args`; what it is given it
+> holds by reference, as a function holds its arguments. Likewise `agentRun` now runs a
+> sub-agent's OWN local helpers — it was handed the caller's, so a call by name ran the wrong
+> body.
 >
 > **Since rc.1 — two exports removed. Technically breaking; neither had a real use.**
 > - **`setTranspiler` is no longer exported** from any entry. It lived in `vm.ts`, which every
