@@ -775,22 +775,37 @@ Date.format(date, 'YYYY-MM-DD')
 
 ### Schema
 
-Build JSON schemas for structured LLM outputs:
+Build JSON schemas for structured LLM outputs and validation. In AsyncJS a schema is plain
+**data** (0.14.0): `Schema.string`, `Schema.email`, … are JSON schemas, and `Schema.object(…)`,
+`array`, `record`, `union`, `tuple`, `enum`, `const`, `fromExample`, `response` and `isValid` build
+or check plain JSON. There is no builder chaining (`.min()`, `.optional`): write the keyword.
 
 ```javascript
 // From example
 let schema = Schema.response('person', { name: '', age: 0 })
 
-// With constraints
+// With constraints: plain keywords
 let schema = Schema.response(
   'user',
   Schema.object({
-    email: Schema.string.email,
-    age: Schema.number.int.min(0).max(150).optional,
+    email: Schema.email,
+    age: { type: 'integer', minimum: 0, maximum: 150 },
+    nickname: { type: ['string', 'null'] }, // a nullable field is optional
     role: Schema.enum(['admin', 'user', 'guest']),
   })
 )
+
+let ok = Schema.isValid(input, schema.json_schema.schema)
 ```
+
+**A guest schema is a closed dialect.** It may use `type`, `properties`, `items`,
+`additionalProperties`, `anyOf`, `oneOf`, `required`, `enum`, `const`, the numeric bounds
+(`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`,
+`maxLength`, `minItems`, `maxItems`, `minProperties`, `maxProperties`), `format` (`email`, `uuid`,
+`uri`, `ipv4`, `date`, `date-time`, `emoji`), `title`, `description`, `default` and `examples` —
+nothing else, each with exactly its JSON value type, at most 10,000 nodes and 64 levels deep. A
+`pattern` would compile on the host's regex engine, so it is refused: match inside the program with
+`regexMatch`. Validation costs fuel in proportion to schema size × data size.
 
 ---
 

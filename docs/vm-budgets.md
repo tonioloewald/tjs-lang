@@ -119,6 +119,11 @@ seconds on a few fuel. The engine is now metered by construction:
   each allocation through `alloc` as they make it (no per-character estimate: a flat one missed
   class escapes by ~10×, eleventh review M1), and every byte allocated also counts as compile
   work, so a pre-run `RegexCompiler`'s single work budget bounds memory too;
+- **guest `Schema` is data, and a method is never a value**: guest code holds only plain JSON
+  schemas (`Schema.*` constants and VM-implemented constructors), never a library builder whose
+  methods are host closures, and a member read never returns a host function (fourteenth review
+  B1: a stolen builder `validate` validated against a smuggled pattern). Validation is charged as
+  schema nodes × data nodes before it runs, at every door;
 - **guest schemas are a closed dialect**: `admitGuestSchema` is an ALLOWLIST — a plain JSON tree
   using only admitted keywords, each with exactly its value type (derived from what tosijs-schema
   enforces), capped in size because it can run before fuel exists. It runs at every door a guest

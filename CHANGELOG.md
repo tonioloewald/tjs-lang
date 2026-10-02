@@ -79,9 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `matchAll` and the array `keys`/`values`/`entries` (they returned host iterators), the
 > `__lookupGetter__` family (it returned a host function), and `toString` on a builtin function —
 > `Date.toString()` returned the host's SOURCE CODE. A long string held under several names
-> still counts once per name (fails closed). With everything since rc.1 below, the VM grew ~26%:
-> `tjs-lang/vm-ast` is 35 KB gzipped, `tjs-lang/vm` 86 KB (68 KB at rc.1); the regex engine is
-> about 7 KB of it.
+> still counts once per name (fails closed). With everything since rc.1 below, the VM grew ~30%:
+> `tjs-lang/vm-ast` is 37 KB gzipped, `tjs-lang/vm` 88 KB (68 KB at rc.1); the regex engine is
+> about 7 KB of it, the closed schema dialect and data-only `Schema` about 2 KB.
 >
 > **Since rc.1 — `$predicate` runs only source the host trusts (breaking).** A predicate compiles
 > to native JavaScript, and a syntactic verifier cannot make hostile JavaScript safe: one review
@@ -97,6 +97,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > once (the evaluator checks trust on every call); its cache is bounded. In predicates, a
 > string-literal pattern (`s.search('@')`) runs on the metered engine rather than being refused.
 >
+> **Since rc.1 — in AsyncJS, `Schema` is data, and a method is not a value (breaking).** Guest
+> code held live tosijs-schema builders, whose methods are host closures: a `validate` read as a
+> value and spliced next to a harmless `schema` validated against a pattern smuggled in through
+> `meta` (51s on Node, at fuel 50). Now `Schema.string`, `Schema.email`, … are frozen plain JSON
+> schemas, and `Schema.object`, `array`, `record`, `union`, `tuple`, `enum`, `const`,
+> `fromExample`, `response` and `isValid` are VM-implemented, returning plain JSON built only from
+> admitted parts. **Migration:** builder chaining is gone — write the keyword
+> (`Schema.number.int.min(0)` → `{ type: 'integer', minimum: 0 }`; `.optional` → a nullable type,
+> `{ type: ['string', 'null'] }`). And reading a method as a value (`const f = s.trim`,
+> `'a'.toUpperCase`) is refused: call it. Validation is charged as schema size × data size, before
+> it runs, at every door (an `anyOf` of 3,300 branches over a 97×97 array ran 630ms for 63 fuel
+> when charged as a sum), including the AST's `inputSchema`, paid at admission. Every LLM door —
+> the core `llmPredict` too — admits its `responseFormat` (shape allowlisted: `json_schema`,
+> `json_object`, `text`) and every tool's `parameters` schema.
+>
 > **Since rc.1 — guest schemas are a closed dialect (breaking).** Every schema that comes from
 > guest code or the guest AST — `Schema.*` and `filter` arguments (after an example is converted),
 > an AST's `inputSchema`, a `return` step's schema, an LLM `responseFormat` — must be a plain JSON
@@ -110,7 +125,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > engine, at the inputSchema door before fuel or the timeout existed. **Migration:** a builder or
 > persisted AST whose `.take()`/`.return()` schema uses `.pattern()`, `patternProperties` or
 > `$predicate` (the `tjs-lang/css` schemas included) is now refused by the VM; validate those on
-> the host after `vm.run`, or match inside the program with `regexMatch`.
+> the host after `vm.run`, or match inside the program with `regexMatch`. Also refused, and failing
+> at `vm.run` for a persisted AST: `$schema`, `$id`, `$ref`, `definitions`, `uniqueItems`,
+> `prefixItems`, `nullable`, `additionalItems`, any other keyword, an accessor, a non-plain object,
+> a non-finite number, more than 10,000 nodes or 64 levels. An object with a string `type` field
+> (or an array of type names) is read as a schema, not an example. The predicate trust registry
+> moved from a string global to a `Symbol.for` slot, so bundles of different 0.14 prereleases in
+> one realm do not share trust.
 >
 > **Since rc.1 — every resource a regex uses is charged.** Everything a regex costs is now a
 > function of its program size and its input. A compiled regex is charged its program's size

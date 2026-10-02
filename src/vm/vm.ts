@@ -10,6 +10,7 @@ import {
   recordVmEvent,
   newScopeState,
   admitGuestSchema,
+  VALIDATION_FUEL_PER_STEP,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate, isBuilder } from 'tosijs-schema'
@@ -86,6 +87,21 @@ let deprecationNoted = false
 export const DEFAULT_ARGS_MAX_BYTES = 4 * 1024 * 1024
 
 export type { RunOptions } from './admission'
+
+/** Nodes in plain data (objects, arrays, slots, primitives); shared objects counted once. */
+function countNodes(value: unknown): number {
+  let n = 0
+  const seen = new WeakSet<object>()
+  const stack = [value]
+  while (stack.length) {
+    const v = stack.pop()
+    n++
+    if (!v || typeof v !== 'object' || seen.has(v)) continue
+    seen.add(v)
+    for (const x of Object.values(v)) stack.push(x)
+  }
+  return n
+}
 
 export class AgentVM<M extends Record<string, Atom<any, any>>> {
   readonly atoms: typeof coreAtoms & M
@@ -398,13 +414,22 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // The AST's own schema is GUEST data: admitted before tosijs-schema compiles anything in it,
     // and before any fuel or timeout exists (rc.2 twelfth re-review B1).
     let refused: AgentError | undefined
+    // Validation is (schema nodes) × (argument nodes) of work, done before the run's fuel
+    // counter exists: it is added to the admission fuel the run starts by paying (fourteenth
+    // re-review M3). Argument nodes are counted on the copy that crossed (plain data, already
+    // charged by size): a 2MB string is one node, not 250,000.
+    let validationFuel = 0
     if (inputSchema)
       try {
-        admitGuestSchema(inputSchema, 'vm.run')
+        const nodes = admitGuestSchema(inputSchema, 'vm.run')
+        validationFuel = nodes * countNodes(args) * VALIDATION_FUEL_PER_STEP
       } catch (e) {
         if (!(e instanceof AgentError)) throw e
         refused = e
       }
+    // paid BEFORE the validation runs: a run that cannot afford it is refused without it
+    if (!refused && admissionFuel + validationFuel >= startFuel)
+      refused = new AgentError('Out of Fuel', 'vm.run')
     if (inputSchema && (refused || !validate(args, inputSchema))) {
       const error =
         refused ??
@@ -477,7 +502,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       // scope's context and died with it, so a memoized call in a loop re-ran — and re-billed
       // fuel and quota — every pass (rc.2 review B3). Child scopes share it by reference.
       memo,
-      fuel: { current: startFuel - admissionFuel },
+      fuel: { current: startFuel - admissionFuel - validationFuel },
       args,
       state: newScopeState({ heapRoots }),
       heapRoots,

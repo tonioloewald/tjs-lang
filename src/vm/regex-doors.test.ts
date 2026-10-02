@@ -51,8 +51,8 @@ const SCHEMA_SITES: Record<string, string> = {
     "the AST's inputSchema: admitGuestSchema at admission, before validate",
   'vm/runtime.ts › filter › schemaFilter':
     "the `filter` builtin: its schema argument is typed 'schema', admitted by checkArgs",
-  'vm/runtime.ts › isValid › validate':
-    "Schema.isValid: its schema argument is typed 'schema', admitted by checkArgs",
+  'vm/runtime.ts › vmSchemaMethod › validate':
+    'Schema.isValid (VM-implemented): validates the ADMITTED plain copy, validation charged first',
   'vm/runtime.ts › exec › validate':
     "an atom's outputSchema: defined by the HOST with the atom, never by guest code",
   'vm/runtime.ts › ret › schemaFilter':

@@ -974,20 +974,31 @@ describe('round 3 (docs/reviews/0.14.0-rc.2-rereview-7.md): one view of every op
   })
 
   describe("a schema 'pattern' would run on the host's engine: refused (B7)", () => {
-    for (const [name, body] of [
-      ['Schema.pattern', `let p = Schema.pattern('^(a+)+$')`],
+    // Since round 10 (Schema as data) there is no builder chaining: `Schema.pattern` and `.meta`
+    // are not callable at all, and a `pattern` keyword is refused by the closed dialect.
+    for (const [name, body, why] of [
+      ['Schema.pattern', `let p = Schema.pattern('^(a+)+$')`, /not callable/],
       [
         'a pattern in isValid',
         `let v = Schema.isValid('aaa', { type: 'string', pattern: '^(a+)+$' })`,
+        /'pattern' is compiled by the host/,
       ],
       [
         'a pattern via meta',
         `let v = Schema.object({}).meta({ pattern: '^(a+)+$' }).validate({})`,
+        /not available|not callable/,
       ],
     ] as const)
       it(name, async () => {
-        const r = await run(`function f() { ${body}; return { ok: true } }`)
-        expect(r.error?.message ?? 'completed').toMatch(/pattern/)
+        // refused at transpile time (no such method) or at run time
+        let message: string
+        try {
+          const r = await run(`function f() { ${body}; return { ok: true } }`)
+          message = r.error?.message ?? 'completed'
+        } catch (e: any) {
+          message = e.message
+        }
+        expect(message).toMatch(why)
       })
 
     it("the library's own patterns still work (emoji)", async () => {

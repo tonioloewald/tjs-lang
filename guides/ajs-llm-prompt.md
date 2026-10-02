@@ -80,6 +80,10 @@ AJS looks like JavaScript but has strict differences. You must adhere to these r
   - `Math.max(1, 2)`, `JSON.parse(str)`, `str.split(',')`, `arr.map(x => x * 2)`
   - Arguments have exactly the documented types, and no extras: `'ab'.repeat(3)` not `'ab'.repeat('3')`.
   - Operators take primitives: `'n=' + arr.join(',')`, never `'n=' + arr`.
+- **Schemas are plain JSON data.** `Schema.object({ a: Schema.string })`, `Schema.isValid(x, schema)`,
+  `Schema.response('name', example)`. No chaining (`.min()`, `.optional`): write keywords
+  (`{ type: 'integer', minimum: 0 }`). No `pattern` in a schema.
+- A method is not a value: call it (`s.trim()`), never read it (`const f = s.trim`).
 - **Regex literals** work as patterns (`s.replace(/\s+/g, ' ')`, `/^\d+$/.test(s)` is NOT available — use `s.search(/^\d+$/) !== -1`).
   - Supported: classes, `.`, `^ $ \b`, groups, `|`, `* + ? {n,m}` (lazy too), flags `gimsuy`.
   - NOT supported: backreferences (`\1`), lookahead/lookbehind (`(?=`, `(?<=`), `\p{...}`.

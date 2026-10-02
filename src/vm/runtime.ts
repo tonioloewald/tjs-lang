@@ -8,13 +8,7 @@ import {
   quotaCount,
   checkedQuota,
 } from './admission'
-import {
-  s,
-  validate,
-  isBuilder,
-  filter as schemaFilter,
-  ENFORCED_FORMATS,
-} from 'tosijs-schema'
+import { s, validate, isBuilder, filter as schemaFilter } from 'tosijs-schema'
 import {
   compileRegex,
   isGuestRegex,
@@ -1512,12 +1506,16 @@ function convertExampleToSchema(example: any): any {
     return {}
   }
 
-  // Already a JSON Schema object (has 'type' property)
+  // Already a JSON Schema object: its 'type' is a type name, or an array of them (a nullable
+  // field, `['string', 'null']`, was read as an EXAMPLE with a field named `type`)
   if (
     typeof example === 'object' &&
     example !== null &&
     'type' in example &&
-    typeof example.type === 'string'
+    (typeof example.type === 'string' ||
+      (Array.isArray(example.type) &&
+        example.type.length > 0 &&
+        example.type.every((t: unknown) => SCHEMA_TYPES.has(t as string))))
   ) {
     return example
   }
@@ -1596,6 +1594,46 @@ function withHeapContents<T extends object>(contents: unknown, wrapper: T): T {
   Object.defineProperty(wrapper, HEAP_CONTENTS, { value: contents })
   return wrapper
 }
+
+/** Deep-freeze plain JSON (the guest Schema constants are shared by every run). */
+function deepFreeze<T>(v: T): T {
+  if (v && typeof v === 'object') {
+    for (const x of Object.values(v)) deepFreeze(x)
+    Object.freeze(v)
+  }
+  return v
+}
+
+/**
+ * The guest `Schema` namespace: frozen plain JSON schemas, copied out of tosijs-schema's
+ * builders once, at load. Its methods are not here — they are VM-implemented (`vmSchemaMethod`),
+ * so reading `Schema.object` as a value finds nothing to steal.
+ */
+export const GUEST_SCHEMA: Readonly<Record<string, unknown>> = deepFreeze(
+  Object.assign(
+    Object.create(null),
+    Object.fromEntries(
+      (
+        [
+          'string',
+          'number',
+          'integer',
+          'boolean',
+          'null',
+          'any',
+          'undefined',
+          'email',
+          'uuid',
+          'ipv4',
+          'url',
+          'datetime',
+          'date',
+          'emoji',
+        ] as const
+      ).map((n) => [n, structuredClone((s as any)[n].schema)])
+    )
+  )
+)
 
 export const builtins: Record<string, any> = Object.assign(
   Object.create(null),
@@ -1782,42 +1820,10 @@ export const builtins: Record<string, any> = Object.assign(
       return result
     },
 
-    // Schema builder - exposes tosijs-schema's fluent API for building JSON Schemas
-    // Usage: Schema.object({ name: Schema.string, age: Schema.number.int.min(0) })
-    // Usage: Schema.response('my_schema', Schema.object({ ... })) for LLM responseFormat
-    Schema: {
-      // Re-export all of tosijs-schema's `s` object
-      ...s,
-
-      // Convenience: wrap schema in OpenAI responseFormat structure
-      // Accepts either a tosijs-schema builder or a plain example object
-      response: (name: string, schemaOrExample: any) => {
-        // Branded, not duck-typed (tjs-lang#58): an example with a `schema` field is an example.
-        const jsonSchema = isBuilder(schemaOrExample)
-          ? schemaOrExample.schema
-          : convertExampleToSchema(schemaOrExample)
-
-        return {
-          type: 'json_schema',
-          json_schema: {
-            name,
-            strict: true,
-            schema: jsonSchema,
-          },
-        }
-      },
-
-      // Convert example value to JSON Schema (for simple cases)
-      fromExample: (example: any) => convertExampleToSchema(example),
-
-      // Validation: returns boolean
-      isValid: (data: any, schemaOrExample: any): boolean => {
-        if (isBuilder(schemaOrExample)) {
-          return validate(data, schemaOrExample)
-        }
-        return validate(data, convertExampleToSchema(schemaOrExample))
-      },
-    },
+    // Schema, as DATA (rc.2 fourteenth re-review, Tonio 2026-10-02): guest code never holds a
+    // tosijs-schema builder, whose methods are host closures. These are frozen plain JSON
+    // schemas; `Schema.object(…)`, `isValid(…)` and the rest are VM-implemented (`vmSchemaMethod`).
+    Schema: GUEST_SCHEMA,
 
     // Set factory - creates a set-like object backed by an array
     Set: (items: any[] = []) => {
@@ -2115,10 +2121,6 @@ const CONST =
   () =>
     bytes
 /** A printed or copied TREE of the arguments, `c` times over (see `treeBytes`). */
-const TREE_ARGS =
-  (c: number, base = 64): AllocBound =>
-  (_r, a, ctx) =>
-    c * sumOf(a, (x) => treeBytes(ctx, x).bytes) + base
 
 /** A guest Set/Date wrapper, or a Schema builder: a fresh object of a dozen or so members. */
 const WRAPPER_BYTES = 4096
@@ -2531,36 +2533,24 @@ const SIGS: Record<string, Record<string, Sig>> = {
     parseFloat: NONE_SIG('str'),
     parseInt: NONE_SIG('str', 'num?'),
   },
-  'ns:Schema': {
-    // a schema mirrors its argument's TREE (every path); `pattern` is not here — a guest regex
-    // would run on the host's engine when the schema validates
-    object: {
-      args: ['schema', 'objOrArr?'],
-      bound: TREE_ARGS(32, WRAPPER_BYTES),
-    },
-    array: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    record: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    union: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    tuple: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    enum: { args: ['array'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    const: { args: ['prim'], bound: CONST(WRAPPER_BYTES) },
-    infer: { args: ['any'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    fromExample: { args: ['any'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    response: { args: ['str', 'schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
-    // validation visits every PATH of the value: charged as its tree
-    isValid: { args: ['any', 'schema'], bound: TREE_ARGS(1) },
-  },
-  // a schema builder (`Schema.number`, `Schema.string.min(1)`)
-  builder: {
-    title: { args: ['str'], bound: CONST(WRAPPER_BYTES) },
-    describe: { args: ['str'], bound: CONST(WRAPPER_BYTES) },
-    default: { args: ['any'], bound: TREE_ARGS(2, WRAPPER_BYTES) },
-    meta: { args: ['schema'], bound: TREE_ARGS(2, WRAPPER_BYTES) },
-    min: { args: ['num'], bound: CONST(WRAPPER_BYTES) },
-    max: { args: ['num'], bound: CONST(WRAPPER_BYTES) },
-    step: { args: ['num'], bound: CONST(WRAPPER_BYTES) },
-    validate: { args: ['any'], bound: TREE_ARGS(1) },
-  },
+  // Schema, as data: every method is VM-implemented (`vmSchemaMethod`), which admits each
+  // argument, charges what it builds and what validation visits, and returns plain JSON. There is
+  // no `builder` kind: no builder object ever enters guest state.
+  'ns:Schema': Object.fromEntries(
+    [
+      ['object', ['any']],
+      ['array', ['any']],
+      ['record', ['any']],
+      ['union', ['array']],
+      ['tuple', ['array']],
+      ['enum', ['array']],
+      ['const', ['prim']],
+      ['fromExample', ['any']],
+      ['infer', ['any']],
+      ['response', ['str', 'any']],
+      ['isValid', ['any', 'any']],
+    ].map(([n, args]) => [n, { args, bound: 'vm' }])
+  ),
   'ns:console': Object.fromEntries(
     ['log', 'info', 'warn', 'error'].map((n) => [
       n,
@@ -2597,8 +2587,14 @@ const GLOBAL_SIGS: Record<string, Sig> = {
   Date: CONST_SIG(WRAPPER_BYTES, 'dateLike?'),
   // a filtered COPY of its data, as a tree
   filter: {
-    args: ['any', 'schema'],
-    bound: (_r, a, ctx) => 2 * treeBytes(ctx, a[0]).bytes + 64,
+    args: ['any', 'any'],
+    // admits the schema (after example conversion, what the library validates), charges the
+    // validation (schema nodes × data nodes), and bounds the filtered copy (a tree)
+    bound: (_r, a, ctx) => {
+      const nodes = admitGuestSchema(convertExampleToSchema(a[1]), 'filter')
+      chargeValidation(ctx, nodes, a[0], 'filter')
+      return 2 * treeBytes(ctx, a[0]).bytes + 64
+    },
   },
 }
 
@@ -2849,141 +2845,10 @@ const LIBRARY_PATTERNS = new Set<string>(
  * Every door through which a guest schema reaches validation calls this; the doors are listed
  * in `regex-doors.test.ts` and exercised in `regex-doors-behaviour.test.ts`.
  */
-export function admitGuestSchema(schema: unknown, op = 'Schema'): void {
-  let nodes = 0
-  const refuse = (path: string, why: string): never => {
-    throw new AgentError(
-      `This schema is not available in AsyncJS (${
-        path || 'the schema'
-      }: ${why}). Guest schemas may use only the validation keywords the VM admits; for a pattern, use regexMatch (it runs on the VM's regex engine).`,
-      op
-    )
-  }
-  const schemaAt = (v: unknown, path: string, depth: number): void => {
-    if (++nodes > GUEST_SCHEMA_MAX_NODES)
-      refuse(path, `more than ${GUEST_SCHEMA_MAX_NODES} nodes`)
-    if (depth > GUEST_SCHEMA_MAX_DEPTH)
-      refuse(path, `nested more than ${GUEST_SCHEMA_MAX_DEPTH} deep`)
-    if (typeof v === 'boolean') return // `true` / `false` schemas
-    const node = plainObject(v, path)
-    for (const [k, value] of Object.entries(node)) {
-      // an absent keyword (JSON drops it, and so does the validator)
-      if (value === undefined) continue
-      const check = GUEST_SCHEMA_KEYWORDS[k]
-      if (!check) refuse(`${path}.${k}`, `'${k}' is not an admitted keyword`)
-      check(value, `${path}.${k}`, depth)
-    }
-  }
-  const plainObject = (v: unknown, path: string): Record<string, unknown> => {
-    if (!v || typeof v !== 'object' || Array.isArray(v))
-      refuse(path, 'not a schema object')
-    const proto = Object.getPrototypeOf(v)
-    if (proto !== Object.prototype && proto !== null)
-      refuse(path, 'not a plain object')
-    const out: Record<string, unknown> = Object.create(null)
-    for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(v))) {
-      if (!('value' in d)) refuse(`${path}.${k}`, 'an accessor')
-      out[k] = d.value
-    }
-    return out
-  }
-  const arrayOf = (
-    v: unknown,
-    path: string,
-    each: (x: unknown, p: string) => void
-  ) => {
-    if (!Array.isArray(v) || Object.getPrototypeOf(v) !== Array.prototype)
-      refuse(path, 'not an array')
-    ;(v as unknown[]).forEach((x, i) => {
-      if (++nodes > GUEST_SCHEMA_MAX_NODES)
-        refuse(path, `more than ${GUEST_SCHEMA_MAX_NODES} nodes`)
-      each(x, `${path}[${i}]`)
-    })
-  }
-  const primitive = (x: unknown, p: string) => {
-    if (
-      !(
-        x === null ||
-        typeof x === 'string' ||
-        typeof x === 'boolean' ||
-        (typeof x === 'number' && Number.isFinite(x))
-      )
-    )
-      refuse(p, 'not a JSON primitive')
-  }
-  const json = (x: unknown, p: string, depth: number): void => {
-    if (++nodes > GUEST_SCHEMA_MAX_NODES)
-      refuse(p, `more than ${GUEST_SCHEMA_MAX_NODES} nodes`)
-    if (depth > GUEST_SCHEMA_MAX_DEPTH)
-      refuse(p, `nested more than ${GUEST_SCHEMA_MAX_DEPTH} deep`)
-    if (Array.isArray(x)) arrayOf(x, p, (y, q) => json(y, q, depth + 1))
-    else if (x && typeof x === 'object')
-      for (const [k, y] of Object.entries(plainObject(x, p)))
-        json(y, `${p}.${k}`, depth + 1)
-    else primitive(x, p)
-  }
-  const number = (x: unknown, p: string) => {
-    if (typeof x !== 'number' || !Number.isFinite(x))
-      refuse(p, 'not a finite number')
-  }
-  const string = (x: unknown, p: string) => {
-    if (typeof x !== 'string') refuse(p, 'not a string')
-  }
-  const sub = (x: unknown, p: string, depth: number) =>
-    schemaAt(x, p, depth + 1)
-  const GUEST_SCHEMA_KEYWORDS: Record<
-    string,
-    (v: unknown, path: string, depth: number) => void
-  > = Object.assign(Object.create(null), {
-    type: (v: unknown, p: string) =>
-      Array.isArray(v)
-        ? arrayOf(v, p, (x, q) => {
-            if (!SCHEMA_TYPES.has(x as string)) refuse(q, 'not a type name')
-          })
-        : SCHEMA_TYPES.has(v as string) || refuse(p, 'not a type name'),
-    properties: (v: unknown, p: string, d: number) => {
-      for (const [k, x] of Object.entries(plainObject(v, p)))
-        sub(x, `${p}.${k}`, d)
-    },
-    items: (v: unknown, p: string, d: number) =>
-      Array.isArray(v) ? arrayOf(v, p, (x, q) => sub(x, q, d)) : sub(v, p, d),
-    additionalProperties: (v: unknown, p: string, d: number) => sub(v, p, d),
-    anyOf: (v: unknown, p: string, d: number) =>
-      arrayOf(v, p, (x, q) => sub(x, q, d)),
-    oneOf: (v: unknown, p: string, d: number) =>
-      arrayOf(v, p, (x, q) => sub(x, q, d)),
-    required: (v: unknown, p: string) => arrayOf(v, p, string),
-    enum: (v: unknown, p: string) => arrayOf(v, p, primitive),
-    const: primitive,
-    minimum: number,
-    maximum: number,
-    exclusiveMinimum: number,
-    exclusiveMaximum: number,
-    multipleOf: number,
-    minLength: number,
-    maxLength: number,
-    minItems: number,
-    maxItems: number,
-    minProperties: number,
-    maxProperties: number,
-    // only the formats tosijs-schema enforces, all linear (anchored fixed-width, or `new URL`)
-    format: (v: unknown, p: string) =>
-      typeof v === 'string' && ENFORCED_FORMATS.has(v)
-        ? undefined
-        : refuse(p, 'not an enforced format'),
-    // only the library's own patterns, by the identity of their text
-    pattern: (v: unknown, p: string) =>
-      typeof v === 'string' && LIBRARY_PATTERNS.has(v)
-        ? undefined
-        : refuse(p, "a 'pattern' is compiled by the host's regex engine"),
-    title: string,
-    description: string,
-    default: (v: unknown, p: string, d: number) => json(v, p, d + 1),
-    examples: (v: unknown, p: string, d: number) => json(v, p, d + 1),
-    'x-tjs-undefined': (v: unknown, p: string) =>
-      typeof v === 'boolean' || refuse(p, 'not a boolean'),
-  })
-  schemaAt(isBuilder(schema) ? (schema as any).schema : schema, '', 0)
+export function admitGuestSchema(schema: unknown, op = 'Schema'): number {
+  const walk: SchemaWalk = { nodes: 0, trail: [], op }
+  admitSchemaNode(walk, isBuilder(schema) ? (schema as any).schema : schema, 0)
+  return walk.nodes
 }
 
 /** The JSON-Schema type names a guest schema may use. */
@@ -2999,6 +2864,199 @@ const SCHEMA_TYPES = new Set([
 /** A guest schema's walk runs before fuel exists (an AST's inputSchema), so it is capped. */
 const GUEST_SCHEMA_MAX_NODES = 10_000
 const GUEST_SCHEMA_MAX_DEPTH = 64
+
+/** One admission walk: its node count, and the path to where it is (built into a string only
+ * when something is refused — rc.2 fourteenth re-review M4). */
+interface SchemaWalk {
+  nodes: number
+  trail: string[]
+  op: string
+}
+
+function refuseSchema(w: SchemaWalk, why: string): never {
+  throw new AgentError(
+    `This schema is not available in AsyncJS (${
+      w.trail.join('') || 'the schema'
+    }: ${why}). Guest schemas may use only the validation keywords the VM admits; for a pattern, use regexMatch (it runs on the VM's regex engine).`,
+    w.op
+  )
+}
+
+function countSchemaNode(w: SchemaWalk, depth: number): void {
+  if (++w.nodes > GUEST_SCHEMA_MAX_NODES)
+    refuseSchema(w, `more than ${GUEST_SCHEMA_MAX_NODES} nodes`)
+  if (depth > GUEST_SCHEMA_MAX_DEPTH)
+    refuseSchema(w, `nested more than ${GUEST_SCHEMA_MAX_DEPTH} deep`)
+}
+
+/** The own data properties of a plain object; anything else is refused. */
+function schemaEntries(w: SchemaWalk, v: unknown): Array<[string, unknown]> {
+  if (!v || typeof v !== 'object' || Array.isArray(v))
+    refuseSchema(w, 'not a schema object')
+  const proto = Object.getPrototypeOf(v)
+  if (proto !== Object.prototype && proto !== null)
+    refuseSchema(w, 'not a plain object')
+  const out: Array<[string, unknown]> = []
+  const descriptors = Object.getOwnPropertyDescriptors(v)
+  for (const k of Object.keys(descriptors)) {
+    const d = descriptors[k]
+    if (!('value' in d)) {
+      w.trail.push(`.${k}`)
+      refuseSchema(w, 'an accessor')
+    }
+    out.push([k, d.value])
+  }
+  return out
+}
+
+function schemaArray(
+  w: SchemaWalk,
+  v: unknown,
+  depth: number,
+  each: (w: SchemaWalk, x: unknown, depth: number) => void
+): void {
+  if (!Array.isArray(v) || Object.getPrototypeOf(v) !== Array.prototype)
+    refuseSchema(w, 'not an array')
+  for (let i = 0; i < v.length; i++) {
+    countSchemaNode(w, depth)
+    w.trail.push(`[${i}]`)
+    each(w, v[i], depth)
+    w.trail.pop()
+  }
+}
+
+function admitPrimitive(w: SchemaWalk, x: unknown): void {
+  if (
+    !(
+      x === null ||
+      typeof x === 'string' ||
+      typeof x === 'boolean' ||
+      (typeof x === 'number' && Number.isFinite(x))
+    )
+  )
+    refuseSchema(w, 'not a JSON primitive')
+}
+
+function admitJson(w: SchemaWalk, x: unknown, depth: number): void {
+  countSchemaNode(w, depth)
+  if (Array.isArray(x)) schemaArray(w, x, depth + 1, admitJson)
+  else if (x && typeof x === 'object')
+    for (const [k, y] of schemaEntries(w, x)) {
+      w.trail.push(`.${k}`)
+      admitJson(w, y, depth + 1)
+      w.trail.pop()
+    }
+  else admitPrimitive(w, x)
+}
+
+function admitSchemaNode(w: SchemaWalk, v: unknown, depth: number): void {
+  countSchemaNode(w, depth)
+  if (typeof v === 'boolean') return // `true` / `false` schemas
+  for (const [k, value] of schemaEntries(w, v)) {
+    // an absent keyword (JSON drops it, and so does the validator)
+    if (value === undefined) continue
+    w.trail.push(`.${k}`)
+    const check = GUEST_SCHEMA_KEYWORDS[k]
+    if (!check) refuseSchema(w, `'${k}' is not an admitted keyword`)
+    check(w, value, depth)
+    w.trail.pop()
+  }
+}
+
+const sub = (w: SchemaWalk, x: unknown, d: number) =>
+  admitSchemaNode(w, x, d + 1)
+const finiteNumber = (w: SchemaWalk, x: unknown) =>
+  typeof x === 'number' && Number.isFinite(x)
+    ? undefined
+    : refuseSchema(w, 'not a finite number')
+const aString = (w: SchemaWalk, x: unknown) =>
+  typeof x === 'string' ? undefined : refuseSchema(w, 'not a string')
+
+/**
+ * The closed guest-schema dialect: every admitted keyword and exactly its value type. The
+ * keywords are those tosijs-schema ENFORCES (`ENFORCED_KEYWORDS`; `guest-schema.test.ts` checks
+ * this table is a subset of it), minus the ones that run host code (`$predicate`) or the host's
+ * regex engine (`pattern`, except the library's own), plus annotations that do nothing.
+ */
+const GUEST_SCHEMA_KEYWORDS: Record<
+  string,
+  (w: SchemaWalk, v: unknown, depth: number) => void
+> = Object.assign(Object.create(null), {
+  type: (w: SchemaWalk, v: unknown, d: number) =>
+    Array.isArray(v)
+      ? schemaArray(w, v, d, (w2, x) =>
+          SCHEMA_TYPES.has(x as string)
+            ? undefined
+            : refuseSchema(w2, 'not a type name')
+        )
+      : SCHEMA_TYPES.has(v as string) || refuseSchema(w, 'not a type name'),
+  properties: (w: SchemaWalk, v: unknown, d: number) => {
+    for (const [k, x] of schemaEntries(w, v)) {
+      w.trail.push(`.${k}`)
+      sub(w, x, d)
+      w.trail.pop()
+    }
+  },
+  items: (w: SchemaWalk, v: unknown, d: number) =>
+    Array.isArray(v)
+      ? schemaArray(w, v, d, (w2, x) => sub(w2, x, d))
+      : sub(w, v, d),
+  additionalProperties: sub,
+  anyOf: (w: SchemaWalk, v: unknown, d: number) =>
+    schemaArray(w, v, d, (w2, x) => sub(w2, x, d)),
+  oneOf: (w: SchemaWalk, v: unknown, d: number) =>
+    schemaArray(w, v, d, (w2, x) => sub(w2, x, d)),
+  required: (w: SchemaWalk, v: unknown, d: number) =>
+    schemaArray(w, v, d, aString),
+  enum: (w: SchemaWalk, v: unknown, d: number) =>
+    schemaArray(w, v, d, admitPrimitive),
+  const: admitPrimitive,
+  minimum: finiteNumber,
+  maximum: finiteNumber,
+  exclusiveMinimum: finiteNumber,
+  exclusiveMaximum: finiteNumber,
+  multipleOf: finiteNumber,
+  minLength: finiteNumber,
+  maxLength: finiteNumber,
+  minItems: finiteNumber,
+  maxItems: finiteNumber,
+  minProperties: finiteNumber,
+  maxProperties: finiteNumber,
+  // only the formats this release reviewed: anchored fixed-width regexes, or `new URL`
+  format: (w: SchemaWalk, v: unknown) =>
+    typeof v === 'string' && GUEST_FORMATS.has(v)
+      ? undefined
+      : refuseSchema(w, 'not an admitted format'),
+  // only the library's own patterns, by the identity of their text
+  pattern: (w: SchemaWalk, v: unknown) =>
+    typeof v === 'string' && LIBRARY_PATTERNS.has(v)
+      ? undefined
+      : refuseSchema(w, "a 'pattern' is compiled by the host's regex engine"),
+  title: aString,
+  description: aString,
+  default: (w: SchemaWalk, v: unknown, d: number) => admitJson(w, v, d + 1),
+  examples: (w: SchemaWalk, v: unknown, d: number) => admitJson(w, v, d + 1),
+  'x-tjs-undefined': (w: SchemaWalk, v: unknown) =>
+    typeof v === 'boolean' ? undefined : refuseSchema(w, 'not a boolean'),
+})
+
+/** The formats reviewed for 0.14.0 (all linear). Pinned, not read live from the library, so a
+ * new upstream format is not admitted until someone has looked at it; `guest-schema.test.ts`
+ * fails if one of these stops being enforced upstream. */
+export const GUEST_FORMATS: ReadonlySet<string> = new Set([
+  'email',
+  'uuid',
+  'uri',
+  'ipv4',
+  'date',
+  'date-time',
+  'emoji',
+])
+
+/** The admitted keywords, for the drift test. */
+export const GUEST_SCHEMA_KEYWORD_NAMES: readonly string[] = Object.keys(
+  GUEST_SCHEMA_KEYWORDS
+)
 
 /**
  * An atom input as a string: itself if it is one, else its JSON — charged, as a JSON-escaped
@@ -3051,9 +3109,206 @@ function guestCall(
   op: string
 ): any {
   const bound = methodGate(receiver, method, args, ctx)
-  if (bound === 'vm') return vmStringMethod(ctx, receiver, method, args)
+  if (bound === 'vm') return vmMethod(ctx, receiver, method, args)
   allocate(ctx, bound, op)
   return receiver[method](...args)
+}
+
+/**
+ * A response format is a GUEST schema handed to a model server, whose grammar compiler (llama.cpp,
+ * outlines) turns a `pattern` into an automaton outside every budget; a host may also validate the
+ * reply against it. So its SHAPE is allowlisted — the forms the OpenAI-compatible APIs define — and
+ * the schema it carries is admitted like any guest schema. Anything else is refused: a shape this
+ * did not anticipate (`{ type: 'json_object', schema }`) passed through unadmitted (rc.2
+ * fourteenth re-review M2). Every LLM door calls this, the core `llmPredict` included (M1).
+ */
+export function admitResponseFormat(format: any, op: string): any {
+  if (format === undefined || format === null) return format
+  const keys = format && typeof format === 'object' ? Object.keys(format) : []
+  const refuse = (why: string): never => {
+    throw new AgentError(
+      `responseFormat is not available in AsyncJS: ${why}`,
+      op
+    )
+  }
+  if (format.type === 'text' || format.type === 'json_object') {
+    if (keys.some((k) => k !== 'type'))
+      refuse(`a '${format.type}' format takes no other keys`)
+    return format
+  }
+  if (
+    format.type !== 'json_schema' ||
+    keys.some((k) => k !== 'type' && k !== 'json_schema')
+  )
+    refuse(
+      "use { type: 'json_schema', json_schema: { name, schema } } (Schema.response builds it)"
+    )
+  const js = format.json_schema
+  if (
+    !js ||
+    typeof js !== 'object' ||
+    Object.keys(js).some(
+      (k) => !['name', 'strict', 'description', 'schema'].includes(k)
+    )
+  )
+    refuse('json_schema takes name, strict, description and schema')
+  admitGuestSchema(js.schema, op)
+  return format
+}
+
+/** Tool definitions carry guest schemas too (`function.parameters`): each is admitted. */
+export function admitTools(tools: any, op: string): any {
+  if (tools === undefined || tools === null) return tools
+  if (!Array.isArray(tools)) throw new AgentError('tools must be an array', op)
+  for (const t of tools) {
+    const params = t?.function?.parameters
+    if (params !== undefined) admitGuestSchema(params, op)
+  }
+  return tools
+}
+
+/** A VM-implemented method: the string methods over the VM's regex engine, or Schema's. */
+function vmMethod(
+  ctx: RuntimeContext,
+  receiver: any,
+  method: string,
+  args: any[]
+): unknown {
+  return receiver === GUEST_SCHEMA
+    ? vmSchemaMethod(ctx, method, args)
+    : vmStringMethod(ctx, receiver, method, args)
+}
+
+/** Fuel per schema-node × data-node step of validation (a step is a keyword check). */
+export const VALIDATION_FUEL_PER_STEP = 0.00005
+
+/**
+ * Charge a validation BEFORE it runs: its work is (schema nodes) × (data nodes), not their sum —
+ * an `anyOf` of 3,300 branches against a 97×97 array ran 630ms for 63 fuel when charged as a
+ * sum (rc.2 fourteenth re-review M3). The data's own walk is metered by `treeBytes`.
+ */
+function chargeValidation(
+  ctx: RuntimeContext,
+  schemaNodes: number,
+  data: unknown,
+  op: string
+): void {
+  if (!ctx.fuel) return
+  const dataNodes = Math.max(1, treeBytes(ctx, data).nodes)
+  if (
+    (ctx.fuel.current -= schemaNodes * dataNodes * VALIDATION_FUEL_PER_STEP) <=
+    0
+  )
+    throw new AgentError('Out of Fuel', op)
+}
+
+/** A schema or example, as an ADMITTED plain-JSON copy: what guest code may hold and validate
+ * against. The copy is made only after admission proved the tree plain data. */
+function admittedSchema(
+  x: unknown,
+  op: string
+): { schema: any; nodes: number } {
+  const converted = convertExampleToSchema(x)
+  const nodes = admitGuestSchema(converted, op)
+  return { schema: structuredClone(converted), nodes }
+}
+
+/** The guest Schema namespace's methods: arguments admitted, results plain JSON built only from
+ * admitted parts, output bounded before it is built, validation charged before it runs. */
+function vmSchemaMethod(
+  ctx: RuntimeContext,
+  method: string,
+  args: any[]
+): unknown {
+  const op = `Schema.${method}`
+  // the result mirrors its arguments' tree
+  allocate(ctx, 32 * treeBytes(ctx, args).bytes + 512, op)
+  const each = (list: unknown[]) =>
+    list.map((x) => admittedSchema(x, op).schema)
+  const primitives = (list: unknown[]) => {
+    for (const v of list)
+      if (
+        !(
+          v === null ||
+          typeof v === 'string' ||
+          typeof v === 'boolean' ||
+          (typeof v === 'number' && Number.isFinite(v))
+        )
+      )
+        throw new AgentError(`${op} takes JSON primitives`, op)
+    return list
+  }
+  switch (method) {
+    case 'object': {
+      const props = args[0]
+      if (!props || typeof props !== 'object' || Array.isArray(props))
+        throw new AgentError(`${op} takes an object of schemas`, op)
+      const properties: Record<string, unknown> = Object.create(null)
+      const required: string[] = []
+      for (const [k, d] of Object.entries(
+        Object.getOwnPropertyDescriptors(props)
+      )) {
+        if (!('value' in d))
+          throw new AgentError(`${op}: '${k}' is an accessor`, op)
+        assertSafeProperty(k)
+        const schema = admittedSchema(d.value, op).schema
+        setGuestKey(properties, k, schema)
+        const type = schema?.type
+        if (!(Array.isArray(type) && type.includes('null'))) required.push(k)
+      }
+      return {
+        type: 'object',
+        properties: { ...properties },
+        required,
+        additionalProperties: false,
+      }
+    }
+    case 'array':
+      return { type: 'array', items: admittedSchema(args[0], op).schema }
+    case 'record':
+      return {
+        type: 'object',
+        additionalProperties: admittedSchema(args[0], op).schema,
+      }
+    case 'union':
+      return { anyOf: each(args[0]) }
+    case 'tuple':
+      return {
+        type: 'array',
+        items: each(args[0]),
+        minItems: args[0].length,
+        maxItems: args[0].length,
+      }
+    case 'enum': {
+      const values = primitives(args[0])
+      const type = values.every((v) => typeof v === 'string')
+        ? 'string'
+        : values.every((v) => typeof v === 'number')
+        ? 'number'
+        : undefined
+      return type ? { type, enum: [...values] } : { enum: [...values] }
+    }
+    case 'const':
+      return { const: primitives([args[0]])[0] }
+    case 'fromExample':
+    case 'infer':
+      return admittedSchema(args[0], op).schema
+    case 'response':
+      return {
+        type: 'json_schema',
+        json_schema: {
+          name: args[0],
+          strict: true,
+          schema: admittedSchema(args[1], op).schema,
+        },
+      }
+    case 'isValid': {
+      const { schema, nodes } = admittedSchema(args[1], op)
+      chargeValidation(ctx, nodes, args[0], op)
+      return validate(args[0], schema)
+    }
+  }
+  throw new AgentError(`'${method}' is not a Schema method`, op)
 }
 
 /** The regex engine's meter for this run: its work, as fuel, refused when the fuel runs out. */
@@ -3978,7 +4233,19 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       primitiveOperand(prop, 'a computed key', 'expr.member')
       assertSafeProperty(String(prop))
 
-      return obj?.[prop]
+      const value = obj?.[prop]
+      // A member read never hands guest code a host FUNCTION: a method is something to call, not
+      // a value to hold. Held, it could be called on another receiver or spliced onto a harmless
+      // object — a stolen builder `validate` ran a smuggled pattern on the host's regex engine
+      // (rc.2 fourteenth re-review B1), and `'a'.toUpperCase` was the same hole, carded earlier.
+      if (typeof value === 'function')
+        throw new AgentError(
+          `'${String(
+            prop
+          )}' is a method: call it — a method is not a value in AsyncJS`,
+          'expr.member'
+        )
+      return value
     }
 
     case 'binary': {
@@ -4174,8 +4441,9 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         throw new Error(`Cannot call method '${method}' on ${obj}`)
       }
 
-      const fn = obj[method]
-      if (typeof fn !== 'function') {
+      // a VM-implemented namespace (the data-only Schema) has no host functions to look up
+      const fn = obj === GUEST_SCHEMA ? undefined : obj[method]
+      if (obj !== GUEST_SCHEMA && typeof fn !== 'function') {
         throw new Error(`'${method}' is not a function`)
       }
 
@@ -4183,7 +4451,9 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       // I1: bound what the call will allocate from its inputs, and charge it, BEFORE calling.
       // (It used to be charged from the RESULT — after `'x'.repeat(5e8)` had built 1GB.)
       const bound = methodGate(obj, method, args, ctx)
-      if (bound === 'vm') return vmStringMethod(ctx, obj, method, args)
+      if (bound === 'vm') return vmMethod(ctx, obj, method, args)
+      if (typeof fn !== 'function')
+        throw new Error(`'${method}' is not a function`)
       allocate(ctx, bound, `expr.${method}`)
       const result = fn.apply(obj, args)
       if (
@@ -4744,7 +5014,8 @@ export const ret = defineAtom(
       // If schema has nested structure, filter to strip extra properties
       // This makes return types act as projections
       if (step.filter !== false) {
-        admitGuestSchema(step.schema, 'return')
+        const nodes = admitGuestSchema(step.schema, 'return')
+        chargeValidation(ctx, nodes, res, 'return')
         const filterResult = schemaFilter(res, step.schema)
         if (!(filterResult instanceof Error)) {
           res = filterResult
@@ -5998,10 +6269,13 @@ export const llmPredict = defineAtom(
   async ({ prompt, options }, ctx) => {
     if (!ctx.capabilities.llm?.predict)
       throw new Error("Capability 'llm.predict' missing")
-    return ctx.capabilities.llm.predict(
-      resolveValue(prompt, ctx),
-      resolveValue(options, ctx)
-    )
+    const resolved = resolveValue(options, ctx)
+    // the response format and any tool schemas are GUEST schemas handed to a model server
+    if (resolved && typeof resolved === 'object') {
+      admitResponseFormat(resolved.responseFormat, 'llmPredict')
+      admitTools(resolved.tools, 'llmPredict')
+    }
+    return ctx.capabilities.llm.predict(resolveValue(prompt, ctx), resolved)
   },
   { docs: 'LLM Predict', timeoutMs: 120000, cost: 100 }
 )
