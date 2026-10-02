@@ -211,6 +211,27 @@ count those as passes. Each grok task carries test inputs the model never sees, 
 included (possessive repetition among them), and both styles are scored on what they return. The
 expectation (Tonio, 2026-10-02) is that Pattern wins this, not merely ties.
 
+## Later: the transpiler itself (Tonio, 2026-10-02)
+
+The same engine could replace the regex and hand-rolled scanning transforms in our own front
+ends. That is where three of this project's chronic problems live:
+
+- **Literal-blindness**, the dominant defect class (`src/lang/literal-blindness.test.ts`): a pass
+  that mis-reads code mentioning the syntax it scans for. `quoted` and `balanced` make literal-
+  and brace-awareness part of the grammar instead of something each pass re-implements.
+- **Pre-budget parse cost.** Parsing runs before any budget exists, which is why the 0.14.0
+  reviews spent nine rounds on super-linear shapes in the AJS preprocessor, and why front ends
+  must run outside the VM host's trust boundary or behind `maxSourceBytes`. A Pattern-based front
+  end charges every step, so transpiling untrusted AJS gets a fuel budget like everything else.
+- **The parser-primitives direction** (`docs/parser-primitives.md`): scoped parsers for
+  expression extent and colon disambiguation are grammar fragments; Pattern is the substrate.
+
+The point is **correctness**; speed is the cost (Tonio, 2026-10-02). Native regex is fast and
+a Pattern pass may be slower; that is measured and reported per pass, and accepted where the pass
+becomes correct by construction. It is not a gate. Migration is per pass, each held to its old self
+byte-for-byte over the dogfood and compat corpora: the AJS preprocessor first (four steps,
+untrusted input), then the TJS transforms one at a time. Not before `Pattern` itself is solid.
+
 ## Out of scope for now: predicates
 
 `compilePredicate`, `tjs-lang/css` and `$predicate` keep regex on the linear engine. JSON

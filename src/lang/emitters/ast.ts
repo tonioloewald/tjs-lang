@@ -29,7 +29,7 @@ import type {
 } from 'acorn'
 import { AST_VERSION, AST_VERSION_KEY } from '../../vm/ast-version'
 import { GUEST_METHODS } from '../../vm/guest-methods'
-import { compileRegex, RegexError } from '../../vm/regex'
+import { RegexCompiler, RegexError } from '../../vm/regex'
 import type { BaseNode } from '../../builder'
 import type { ExprNode } from '../../runtime'
 import type {
@@ -500,7 +500,11 @@ function regexNode(lit: Literal, ctx: TransformContext): any {
     | undefined
   if (!rx) return undefined
   try {
-    compileRegex(rx.pattern, rx.flags)
+    // every literal in this source shares one budget, proportional to the source (M2)
+    let root = ctx
+    while (root.parent) root = root.parent
+    root.regexCompiler ??= new RegexCompiler(ctx.source.length)
+    root.regexCompiler.compile(rx.pattern, rx.flags)
   } catch (e: any) {
     if (!(e instanceof RegexError)) throw e
     throw new TranspileError(

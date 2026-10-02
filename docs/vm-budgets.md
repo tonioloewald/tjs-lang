@@ -111,8 +111,15 @@ seconds on a few fuel. The engine is now metered by construction:
   class probe (classes are merged range tables, binary-searched) and every compiled instruction
   and quantifier iteration goes through the caller's `charge`;
 - every quantity that grows with the PATTERN is capped — counts (`{10000}`), nesting depth,
-  program size, compile work, capture slots, closure states — so even an unmetered compile (the
-  transpiler validates regex literals) terminates promptly;
+  program size, compile work, capture slots, closure states. One regex's compile is capped at
+  1M steps (~20ms). Where no run has a fuel budget yet — the transpiler validating literals, the
+  predicate verifier — a SOURCE gets one compile budget proportional to its length
+  (`RegexCompiler`), and each distinct literal is compiled once (ninth review M2);
+- **retained memory is charged where it is created**: a compiled regex holds its program
+  (`regexBytes`), charged through `allocate` when the regex is built and counted by the heap walk
+  wherever it is held. The matching state table belongs to one operation, never to the regex
+  (keeping it on the regex retained ~690MB for 1000 held regexes under an 8MB ceiling — ninth
+  review B1);
 - worst-case thread memory (`threadBytes`) is charged once per operation, through `allocate`;
 - `replace` charges each substitution at its exact length, from the template's shape, before
   building it.

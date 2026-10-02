@@ -135,6 +135,25 @@ Two prompts from the 0.14.0 admission cycle, where five re-reviews blocked on on
 
 ---
 
+## 6. Every resource dimension — "by construction" in which dimension?
+
+When a change claims a budget holds "by construction", check it in **every** dimension, not the
+one the change was about:
+
+- **work per step** (fuel),
+- **retained bytes** (what outlives the step, and whether the heap walk can see it),
+- **setup cost per source** (compile/verify/transpile work before any run has a budget),
+- **transient → retained moves** (an optimisation that caches per-call state on a long-lived
+  object turns temporary memory into held memory).
+
+The regex engine blocked three review rounds in a row this way (0.14.0-rc.2 rereviews 7–9):
+each fix metered one dimension and the next review found another. Round 8 charged every step;
+its cache of the matching table on the compiled regex then retained ~690MB for 1000 regexes
+under an 8MB ceiling, and compiling literals before any run had a budget cost seconds per few
+KB. The design answer is to make cost a function of a few quantities you charge once — for a
+regex, its program size (at creation) and its input (per match) — so there is no fourth
+dimension to find. `docs/pattern.md` takes that further: one engine step is one charge.
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

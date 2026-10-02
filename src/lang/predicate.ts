@@ -24,7 +24,7 @@ import * as acorn from 'acorn'
 import * as walk from 'acorn-walk'
 // Regex literals are compiled by the VM's own linear engine — at verification, so the verifier
 // refuses exactly what the engine refuses, and at compilation, where they RUN on it.
-import { compileRegex, RegexError, type GuestRegex } from '../vm/regex'
+import { RegexCompiler, RegexError, type GuestRegex } from '../vm/regex'
 import { hostRegex, PREDICATE_FUEL_PER_REGEX_STEP } from './predicate-regex'
 import { budgetOption } from '../vm/admission'
 import { RT_NS } from './rt-namespace'
@@ -188,6 +188,9 @@ const PURE_INSTANCE_METHODS = new Set([
   'hasOwnProperty',
 ])
 
+/** Names the compiled form injects; a predicate may not use them (see `verifyWith`). */
+const RESERVED_INJECTED = new Set(['__fuel', '__rx'])
+
 /** JS globals that perform IO / are nondeterministic / have side effects. */
 const EFFECTFUL_GLOBALS = [
   'fetch',
@@ -264,6 +267,16 @@ export function verifyPredicate(
   source: string,
   opts: VerifyPredicateOptions = {}
 ): PredicateVerifyResult {
+  return verifyWith(source, opts, new RegexCompiler(source.length))
+}
+
+/** `verifyPredicate`, compiling regex literals through `regexes` — one per-source budget, and
+ * one compile per literal, shared with `compilePredicate`'s lowering (rc.2 ninth re-review M2). */
+function verifyWith(
+  source: string,
+  opts: VerifyPredicateOptions,
+  regexes: RegexCompiler
+): PredicateVerifyResult {
   const effectful = opts.effectful ?? new Set(EFFECTFUL_GLOBALS)
   let ast: any
   try {
@@ -327,6 +340,19 @@ export function verifyPredicate(
 
   const diagnostics: PredicateDiagnostic[] = []
 
+  // The compiled form injects `__fuel` (the meter) and `__rx` (the regex constructor) by name. A
+  // predicate that declares or reassigns either would replace the meter with its own function
+  // (rc.2 ninth re-review m2), so both names are reserved.
+  walk.full(ast, (n: any) => {
+    if (n.type === 'Identifier' && RESERVED_INJECTED.has(n.name))
+      diagnostics.push({
+        predicate: '',
+        message: `'${n.name}' is reserved: the compiled predicate injects it`,
+        line: n.loc?.start?.line ?? 0,
+        column: n.loc?.start?.column ?? 0,
+      })
+  })
+
   for (const fn of ast.body) {
     if (fn.type !== 'FunctionDeclaration' || !fn.id) continue
     const pname = fn.id.name
@@ -363,7 +389,7 @@ export function verifyPredicate(
         // already rejected — `RegExp` isn't a pure global and `new` is banned.)
         if (n.regex && typeof n.regex.pattern === 'string') {
           try {
-            compileRegex(n.regex.pattern, n.regex.flags)
+            regexes.compile(n.regex.pattern, n.regex.flags)
           } catch (e) {
             if (!(e instanceof RegexError)) throw e
             flag(
@@ -711,7 +737,10 @@ function injectFuel(source: string): string {
  * Lower every regex literal to `__rx(k)`, compiling each with the VM's linear engine (M5).
  * Splices by source offset, as `injectFuel` does; the literal's text is not otherwise read.
  */
-function lowerRegexLiterals(source: string): {
+function lowerRegexLiterals(
+  source: string,
+  compiler: RegexCompiler
+): {
   source: string
   regexes: GuestRegex[]
 } {
@@ -723,7 +752,7 @@ function lowerRegexLiterals(source: string): {
         found.push([
           n.start,
           n.end,
-          compileRegex(n.regex.pattern, n.regex.flags),
+          compiler.compile(n.regex.pattern, n.regex.flags),
         ])
     },
   })
@@ -756,7 +785,8 @@ export function compilePredicate(
   // Through the funnel, FIRST: `--fuel < 0` is never true for NaN, so an unvalidated budget
   // was no budget at all (0.14.0 final re-review 12, B-1).
   const budget = budgetOption('fuel', opts.fuel, DEFAULT_PREDICATE_FUEL)
-  const result = verifyPredicate(source, opts)
+  const regexes = new RegexCompiler(source.length)
+  const result = verifyWith(source, opts, regexes)
   if (!result.safe)
     throw new Error(
       `Not predicate-safe:\n${formatPredicateDiagnostics(result.diagnostics)}`
@@ -769,7 +799,7 @@ export function compilePredicate(
         `compilePredicate: '${name}' is not a predicate in the verified cluster`
       )
 
-  const lowered = lowerRegexLiterals(source)
+  const lowered = lowerRegexLiterals(source, regexes)
   const instrumented = injectFuel(lowered.source)
 
   // Shadow the effectful globals to undefined (defense-in-depth under the
@@ -931,7 +961,7 @@ export function emitVerifiedPredicate(
       safe: false,
       diagnostics: regexAt.map((n) => ({
         predicate: entryName,
-        message: `regex /${n.regex.pattern}/ in an emitted guard would run on the host's backtracking engine, which fuel cannot bound — compile it with compilePredicate (linear engine) or validate without it`,
+        message: `regex /${n.regex.pattern}/ cannot be verified in an emitted guard: a native match is one call that fuel cannot see inside. Write the check with string methods (includes, indexOf, startsWith, split) to keep it verified, or accept an unverified predicate; compilePredicate (a library call) can run regexes on the metered engine`,
         line: n.loc?.start?.line ?? 0,
         column: n.loc?.start?.column ?? 0,
       })),

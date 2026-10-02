@@ -295,6 +295,8 @@ export interface TransformContext {
   filename: string
   /** Options */
   options: TranspileOptions
+  /** Compiles this source's regex literals against one per-source budget (shared by children) */
+  regexCompiler?: import('../vm/regex').RegexCompiler
   /**
    * Helper functions (top-level functions declared before the entry function).
    * Calls to these names emit `callLocal` instead of treating them as atom calls.
@@ -327,6 +329,7 @@ export function createChildContext(parent: TransformContext): TransformContext {
     helpers: parent.helpers,
     helperSteps: parent.helperSteps,
     helperTransforming: parent.helperTransforming,
+    regexCompiler: parent.regexCompiler,
   }
 }
 

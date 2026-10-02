@@ -43,8 +43,8 @@ export const MAX_REGEX_PROGRAM = 20_000
 export const MAX_REGEX_COUNT = 10_000
 /** Groups nested deeper than this are refused (the parser and compiler recurse). */
 export const MAX_REGEX_DEPTH = 200
-/** Compile work (instructions emitted plus quantifier iterations) above this is refused, so a
- * pattern compiled with no meter at all — at transpile time — still terminates promptly. */
+/** Compile work (instructions emitted plus quantifier iterations) for ONE regex above this is
+ * refused (~20ms). Across a source, `RegexCompiler` adds a budget proportional to its length. */
 export const MAX_REGEX_COMPILE_WORK = 1_000_000
 /** Capture slots plus empty-check registers per thread. */
 export const MAX_REGEX_SLOTS = 512
@@ -729,10 +729,36 @@ interface Compiled {
   liveOf: number[][]
   /** where each instruction's 2^live states begin in `mark` */
   stateBase: Int32Array
-  /** Visited closure states, reused across calls with a generation counter: per-call setup was
-   * O(program) and uncharged (M3). execRegex is synchronous and never re-entered. */
+  /** What this compiled program holds for as long as the regex lives: charged as heap where the
+   * regex is created and counted by the heap walk wherever it is held (rc.2 ninth re-review B1). */
+  bytes: number
+}
+
+/**
+ * The visited-state table for matching, owned by ONE OPERATION, never by the regex. Keeping it
+ * on the regex (to stop re-allocating it per call) turned transient memory into retained memory
+ * the heap never saw: 1000 held regexes kept ~690MB under an 8MB ceiling (B1). An operation that
+ * calls `execRegex` many times (split, global replace) makes one and passes it to each call; it
+ * is part of `threadBytes`, which the operation charges up front.
+ */
+export interface RegexScratch {
   mark: Int32Array
   generation: number
+}
+
+export function regexScratch(re: GuestRegex): RegexScratch {
+  const { stateBase, prog } = re[PROGRAM]
+  return {
+    mark: new Int32Array(stateBase[prog.length]).fill(-1),
+    generation: 0,
+  }
+}
+
+/** Bytes a compiled regex retains: its program, its state layout and its character tables.
+ * Every cost of a regex is a function of its program size (charged here, once) and of the input
+ * it is run on (charged per match). */
+export function regexBytes(re: GuestRegex): number {
+  return re[PROGRAM].bytes
 }
 
 export function isGuestRegex(x: unknown): x is GuestRegex {
@@ -820,13 +846,72 @@ export function compileRegex(
         prog[1]?.op === 'assert' && prog[1].kind === '^' && !flags.multiline,
       liveOf: cs.liveOf,
       stateBase,
-      mark: new Int32Array(stateBase[prog.length]).fill(-1),
-      generation: 0,
+      bytes: programBytes(source, prog, cs.liveOf, stateBase),
     } satisfies Compiled,
   })
   // prints as JavaScript prints a RegExp: one shared, frozen function, not a closure per regex
   Object.defineProperty(re, 'toString', { value: regexToString })
   return Object.freeze(re) as GuestRegex
+}
+
+/** An upper bound on what a compiled program holds: instructions, the state layout, the live
+ * register lists, character-class range tables (counted per instruction, so a class shared by
+ * expanded copies is over-counted, which fails closed) and the source. */
+function programBytes(
+  source: string,
+  prog: Instr[],
+  liveOf: number[][],
+  stateBase: Int32Array
+): number {
+  let bytes = 64 + source.length * 2 + stateBase.length * 4
+  for (let pc = 0; pc < prog.length; pc++) {
+    const ins = prog[pc]
+    bytes += 64 + liveOf[pc].length * 8
+    if (ins.op === 'char') bytes += 48 + ins.cls.ranges.length * 40
+    else if (ins.op === 'reset') bytes += ins.groups.length * 8
+  }
+  return bytes
+}
+
+/** Compile work a SOURCE may spend on its regex literals, per byte of source (with a floor).
+ * A per-regex cap alone let 100 literals in 3KB cost seconds at transpile and verify time, past
+ * the source-size admission cap (rc.2 ninth re-review M2). Compilation is ~50 units per µs, so
+ * this is a few milliseconds per KB at most. */
+export const REGEX_COMPILE_WORK_PER_SOURCE_BYTE = 200
+export const REGEX_COMPILE_WORK_FLOOR = 50_000
+
+/**
+ * Compiles the regex literals of ONE source against a budget proportional to its length, and
+ * compiles each distinct literal once. Used where regexes are compiled before any run has a fuel
+ * budget: the AJS transpiler (validating literals) and the predicate verifier and compiler.
+ */
+export class RegexCompiler {
+  private used = 0
+  private readonly limit: number
+  private readonly cache = new Map<string, GuestRegex>()
+  constructor(sourceLength: number) {
+    this.limit = Math.max(
+      REGEX_COMPILE_WORK_FLOOR,
+      sourceLength * REGEX_COMPILE_WORK_PER_SOURCE_BYTE
+    )
+  }
+  compile(pattern: string, flags = ''): GuestRegex {
+    const key = flags + '/' + pattern
+    const hit = this.cache.get(key)
+    if (hit) return hit
+    const re = compileRegex(pattern, flags, (n) => {
+      if ((this.used += n) > this.limit)
+        throw new RegexError(
+          `The regexes in this source are too large to compile (over ${
+            this.limit
+          } steps for its ${Math.round(
+            this.limit / REGEX_COMPILE_WORK_PER_SOURCE_BYTE
+          )} bytes)`
+        )
+    })
+    this.cache.set(key, re)
+    return re
+  }
 }
 
 /**
@@ -899,10 +984,15 @@ export function execRegex(
   input: string,
   from: number,
   charge: Charge,
-  stickyOverride?: boolean
+  stickyOverride?: boolean,
+  scratch?: RegexScratch
 ): RegexMatch | null {
   const compiled = re[PROGRAM]
-  const { prog, regs, groups, names, flags, mark, liveOf, stateBase } = compiled
+  const { prog, regs, groups, names, flags, liveOf, stateBase } = compiled
+  // without an operation's scratch, this call makes (and is charged for) its own
+  const own = !scratch
+  const table = scratch ?? regexScratch(re)
+  const { mark } = table
   const sticky = stickyOverride ?? flags.sticky
   // a new attempt begins at each later position unless the match must start HERE
   const restart = !sticky && !compiled.anchored
@@ -914,7 +1004,7 @@ export function execRegex(
   const unicode = flags.unicode
   const multiline = flags.multiline
   const wordChar = flags.ignoreCase && unicode ? isWordCharIU : isWordChar
-  let work = 0
+  let work = own ? 1 + (stateBase[prog.length] >> 3) : 0
   classWork = 0
   const flush = () => {
     work += classWork
@@ -926,9 +1016,9 @@ export function execRegex(
     }
   }
   const nextGeneration = () => {
-    if (++compiled.generation >= 0x7fffffff) {
+    if (++table.generation >= 0x7fffffff) {
       mark.fill(-1)
-      compiled.generation = 1
+      table.generation = 1
     }
   }
 
@@ -967,8 +1057,8 @@ export function execRegex(
       for (let k = 0; k < live.length; k++)
         if (c[capSlots + live[k]] === pos) state += 1 << k
       work += 1 + live.length
-      if (mark[state] === compiled.generation) continue
-      mark[state] = compiled.generation
+      if (mark[state] === table.generation) continue
+      mark[state] = table.generation
       switch (ins.op) {
         case 'jmp':
           stackPc[sp] = ins.x

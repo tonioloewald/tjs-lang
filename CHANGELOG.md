@@ -100,8 +100,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `$predicate`, `tjs-lang/css`) run regex literals on the same engine**, charged to the predicate's
 > fuel — `/a*a*c/`, which the old star-height screen certified, took 13s on 6k characters inside a
 > `$predicate` that travels as data. A `Type` predicate with a regex is no longer emitted as a
-> verified guard (standalone output cannot carry the engine; it still runs). Cost: `tjs-lang/css`
-> validates a theme in ~7ms (was ~0.7ms on the host's engine) — still well inside a frame. Also:
+> verified guard (standalone output cannot carry the engine; it still runs, unverified). **That
+> means a warning from `tjs check`, so a `--max-warnings 0` gate fails on such a file.** Write
+> the check with string methods (`includes`, `indexOf`, `startsWith`, `split`) to keep it
+> verified — the Email example in the declarations guide now does. Cost: `tjs-lang/css`
+> validates a theme in 7.3ms (0.20ms on the host's engine, measured — ~36× slower; ~15× per value), still inside a frame. Making this fast is card #2767, and `Pattern` (`docs/pattern.md`) is the longer-term answer. Also:
 > the ASI guard recognises a control header from its parenthesis structure, so a header spanning
 > lines, `label: for (…)` and `for await (…)` keep their brace-less bodies.
 >

@@ -14,6 +14,7 @@ import {
   isGuestRegex,
   RegexError,
   REGEX_FUEL_PER_STEP,
+  regexBytes,
   type Charge,
   type GuestRegex,
 } from './regex'
@@ -3101,6 +3102,8 @@ function estimateBytes(
       // a Set wrapper's membership index: one more slot per item
       if (Array.isArray(contents)) bytes += contents.length * SLOT_BYTES
     }
+    // a compiled regex retains its program behind a hidden symbol the key walk cannot see
+    if (isGuestRegex(v)) bytes += regexBytes(v)
     if (ArrayBuffer.isView(v)) {
       bytes += (v as ArrayBufferView).byteLength
     } else if (v instanceof ArrayBuffer) {
@@ -3911,8 +3914,9 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       // backtracking engine never sees a guest pattern
       if (typeof node.pattern !== 'string' || typeof node.flags !== 'string')
         throw new Error('A regex node needs a string pattern and flags')
+      let re: GuestRegex
       try {
-        return compileRegex(
+        re = compileRegex(
           node.pattern,
           node.flags,
           regexFuel(ctx, 'expr.regex')
@@ -3921,6 +3925,10 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         if (e instanceof AgentError) throw e
         throw new AgentError(e.message, 'expr.regex')
       }
+      // A compiled regex HOLDS its program for as long as it lives: charged here, where it is
+      // created, and counted by the heap walk wherever it is held (rc.2 ninth re-review B1).
+      allocate(ctx, regexBytes(re), 'expr.regex')
+      return re
     }
 
     case 'conditional': {

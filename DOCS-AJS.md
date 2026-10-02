@@ -268,7 +268,7 @@ linear-time engine, so no pattern can hang a run: its work is charged as fuel li
 That engine supports classes, `.`, anchors, `\b`, groups (capturing, non-capturing, named),
 alternation and every quantifier, greedy and lazy, with flags `g i m s u y`. It does NOT support
 backreferences (`\1`, `\k<n>`), lookahead or lookbehind, `\p{…}`, or the `d`/`v` flags; a regex
-literal using one is a transpile error at its source location. Counts above `{10000}` are refused.
+literal using one is a transpile error at its source location. Counts above `{10000}` are refused, and so is a pattern that compiles to more than 20,000 instructions — an optional range costs about four per count, so `\w{0,5000}` and `.{0,10000}` are refused too.
 Methods take exactly the arguments JavaScript documents, with exactly the types they read, and
 no extra ones: `'x'.repeat('3')` is an error (a count is a number), as is `s.slice(0, 1, 2)`. Arguments must have the type the method reads (a count is a number). Why:
 [`docs/vm-budgets.md`](docs/vm-budgets.md).

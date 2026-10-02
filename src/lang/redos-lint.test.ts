@@ -131,7 +131,9 @@ describe('emitted guards cannot carry the engine, so a regex is not certified th
       )
       expect(r.safe).toBe(false)
       expect(r.code).toBeUndefined()
-      expect(r.diagnostics[0].message).toMatch(/backtracking engine/)
+      expect(r.diagnostics[0].message).toMatch(
+        /cannot be verified in an emitted guard/
+      )
     }
   })
 
@@ -148,5 +150,54 @@ describe('emitted guards cannot carry the engine, so a regex is not certified th
       `Type Short 'ab' { predicate(s) { return s.length < 5 } }`
     ).source
     expect(out).toContain('__fuel')
+  })
+})
+
+describe('round 5 (rc.2 ninth re-review)', () => {
+  it('M1: an empty `u` match over astral input advances by a code point, as JavaScript does', () => {
+    const src = `function p(s) {
+      return [s.replace(/(?:)/gu, (m) => '-'), [...s.matchAll(/(?:)/gu)].length, s.replace(/(?:)/gu, '-')]
+    }`
+    const { p } = compilePredicate(src, ['p'])
+    const native = new Function(`${src}; return p`)()
+    for (const s of ['😀', 'a😀b', ''])
+      expect(JSON.stringify(p(s))).toBe(JSON.stringify(native(s)))
+  })
+
+  it('m3: a sticky, non-global regex honours and updates lastIndex', () => {
+    const src = `function p(s) {
+      const a = /a/y
+      a.lastIndex = 1
+      const r1 = s.replace(a, 'x')
+      const b = /a/y
+      b.lastIndex = 1
+      const m = s.match(b)
+      return [r1, a.lastIndex, m && m.index, b.lastIndex, s.search(/a/y)]
+    }`
+    const { p } = compilePredicate(src, ['p'])
+    const native = new Function(`${src}; return p`)()
+    for (const s of ['ba', 'ab', 'bb'])
+      expect(JSON.stringify(p(s))).toBe(JSON.stringify(native(s)))
+  })
+
+  it('m2: the names the compiled form injects are reserved', () => {
+    for (const src of [
+      'function p(s) { const __rx = () => /x/; return __rx().test(s) }',
+      'function p(s) { const __fuel = () => 0; return __fuel() === 0 }',
+    ])
+      expect(
+        verifyPredicate(src).diagnostics.some((d) => /reserved/.test(d.message))
+      ).toBe(true)
+  })
+
+  it('M2: verification has a per-source compile budget', () => {
+    const lits = Array.from(
+      { length: 100 },
+      () => '/(?:(?:){10000}){99}/.test(s)'
+    ).join(' || ')
+    const t = performance.now()
+    const r = verifyPredicate(`function p(s) { return ${lits} }`)
+    expect(r.safe).toBe(false)
+    expect(performance.now() - t).toBeLessThan(500)
   })
 })

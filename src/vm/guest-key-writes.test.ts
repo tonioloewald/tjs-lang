@@ -57,7 +57,7 @@ const ALLOWED: Record<string, string> = {
     "a thread's capture slots, indexed by group number",
   'regex.ts › add › n[capSlots + ins.r]':
     "a thread's empty-check registers (VM-internal)",
-  'string-methods.ts › match › Object.assign':
+  'string-methods.ts › matchArray › Object.assign':
     'named groups onto Object.create(null): a group named __proto__ is an ordinary key there',
   'runtime.ts › tagDateWrapper › Object.defineProperty':
     'the VM-owned DATE_WRAPPER symbol on a wrapper the VM built',

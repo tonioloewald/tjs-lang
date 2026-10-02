@@ -63,6 +63,10 @@ that takes the value explicitly.
 A predicate that is pure and synchronous is **verified** when it is transpiled and compiled
 to a fuel-bounded guard, so a hostile input cannot hang validation; it simply fails. One
 that cannot be verified still works, as a plain function.
+
+A regex makes a predicate unverifiable here: a native match is one call that fuel cannot see
+inside, so a pattern like `/a*a*c/` could stall validation on a long input. `Email` below uses
+string methods instead, and is verified.
 */
 
 Type Even {
@@ -78,7 +82,11 @@ Type Positive {
 Type Email {
   description: 'an email address'
   example: 'user@example.com'
-  predicate(x) { return typeof x === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) }
+  predicate(x) {
+    if (typeof x !== 'string' || x.includes(' ')) return false
+    const at = x.indexOf('@')
+    return at > 0 && at === x.lastIndexOf('@') && x.lastIndexOf('.') > at + 1 && !x.endsWith('.')
+  }
 }
 
 test 'predicates add the rule the example cannot state' {

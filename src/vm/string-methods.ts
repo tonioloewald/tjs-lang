@@ -18,6 +18,7 @@ import {
   compileRegex,
   execRegex,
   isGuestRegex,
+  regexScratch,
   threadBytes,
   type GuestRegex,
   type RegexMatch,
@@ -30,18 +31,29 @@ export interface Meters {
 
 /** A string pattern, or a regex. A STRING passed to match/search is compiled as a pattern, as
  * JavaScript does (`'a.c'.search('.')` is 0); to replace/replaceAll/split it is literal. */
-type Pattern = string | GuestRegex
+export type Pattern = string | GuestRegex
 
-/** The regex an operation will run, its compile work charged and its worst-case thread memory
- * charged ONCE for the operation (rc.2 eighth re-review B1). */
-function prepare(p: Pattern, m: Meters): GuestRegex {
+/** A regex prepared for ONE operation: its compile work charged, its worst-case thread memory
+ * (including the visited-state table) charged once, and one scratch table shared by every match
+ * the operation runs — so a split that matches at each position does not rebuild it each time,
+ * and nothing outlives the operation (rc.2 eighth re-review B1, ninth re-review B1). */
+export interface Prepared {
+  re: GuestRegex
+  exec(s: string, from: number, sticky?: boolean): RegexMatch | null
+}
+
+export function prepare(p: Pattern, m: Meters): Prepared {
   const re = isGuestRegex(p) ? p : compileRegex(String(p), '', m.steps)
   m.alloc(threadBytes(re))
-  return re
+  const scratch = regexScratch(re)
+  return {
+    re,
+    exec: (s, from, sticky) => execRegex(re, s, from, m.steps, sticky, scratch),
+  }
 }
 
 /** AdvanceStringIndex: past an empty match by one code unit, or one code point with `u`. */
-function advance(s: string, i: number, unicode: boolean): number {
+export function advance(s: string, i: number, unicode: boolean): number {
   if (!unicode || i + 1 >= s.length) return i + 1
   const c = s.charCodeAt(i)
   const d = s.charCodeAt(i + 1)
@@ -50,18 +62,49 @@ function advance(s: string, i: number, unicode: boolean): number {
     : i + 1
 }
 
-/** Every match of a regex from 0, as `matchAll`/global methods find them. */
-function allMatches(re: GuestRegex, s: string, m: Meters): RegexMatch[] {
+/** Every match from 0, as `matchAll`/global methods find them; one match for a non-global regex.
+ * The ONE copy of this loop: the predicate adapter reuses it (a second copy advanced one code
+ * unit past an empty `u` match and looped — rc.2 ninth re-review M1). */
+export function allMatches(
+  p: Prepared,
+  s: string,
+  m: Meters,
+  all = p.re.global
+): RegexMatch[] {
   const out: RegexMatch[] = []
   let from = 0
   while (from <= s.length) {
-    const hit = execRegex(re, s, from, m.steps)
+    const hit = p.exec(s, from)
     if (!hit) break
     m.alloc(64 + hit.captures.length * 24) // the match record, a slot per group
     out.push(hit)
+    if (!all) break
     // past an empty match by one character, so the scan always advances
-    from = hit.end === hit.index ? advance(s, hit.end, re.unicode) : hit.end
+    from = hit.end === hit.index ? advance(s, hit.end, p.re.unicode) : hit.end
   }
+  return out
+}
+
+/** JavaScript's match array for one hit — `index`, `input` and `groups` — charged first. */
+export function matchArray(hit: RegexMatch, s: string, m: Meters): any {
+  m.alloc(
+    hit.captures.reduce((n, c) => n + (c ? (c[1] - c[0]) * 2 : 0) + 16, 0) +
+      hit.names.size * 48 +
+      128
+  )
+  const text = (c: [number, number] | undefined) =>
+    c ? s.slice(c[0], c[1]) : undefined
+  const out: any = hit.captures.map(text)
+  out.index = hit.index
+  out.input = s
+  out.groups = hit.names.size
+    ? Object.assign(
+        Object.create(null),
+        Object.fromEntries(
+          [...hit.names].map(([name, g]) => [name, text(hit.captures[g])])
+        )
+      )
+    : undefined
   return out
 }
 
@@ -256,19 +299,42 @@ export function replace(
       m
     )
   }
-  prepare(pattern, m)
-  const hits = pattern.global
-    ? allMatches(pattern, s, m)
-    : [execRegex(pattern, s, 0, m.steps)].filter((h): h is RegexMatch => !!h)
-  const groups = hits[0] ? hits[0].captures.length - 1 : 0
-  return substitute(
-    s,
-    hits.map(substitutionOf),
-    repl,
-    groups,
-    !!hits[0]?.names.size,
-    m
-  )
+  return replaceHits(s, allMatches(prepare(pattern, m), s, m), repl, m)
+}
+
+/** Apply a replacement to matches already found: a template (`$1`, `$<name>`, …) charged
+ * before it is built, or a function called per match as JavaScript calls it, each piece
+ * charged before it is appended. Shared with the predicate adapter. */
+export function replaceHits(
+  s: string,
+  hits: RegexMatch[],
+  repl: string | ((...args: any[]) => unknown),
+  m: Meters
+): string {
+  if (typeof repl !== 'function') {
+    const groups = hits[0] ? hits[0].captures.length - 1 : 0
+    return substitute(
+      s,
+      hits.map(substitutionOf),
+      repl,
+      groups,
+      !!hits[0]?.names.size,
+      m
+    )
+  }
+  let out = ''
+  let last = 0
+  for (const hit of hits) {
+    const a = matchArray(hit, s, m)
+    const args = [...a, hit.index, s]
+    if (a.groups) args.push(a.groups)
+    const piece = String(repl(...args))
+    m.alloc((hit.index - last + piece.length) * 2)
+    out += s.slice(last, hit.index) + piece
+    last = hit.end
+  }
+  m.alloc((s.length - last) * 2)
+  return out + s.slice(last)
 }
 
 export function replaceAll(
@@ -298,39 +364,18 @@ export function replaceAll(
 }
 
 export function search(s: string, pattern: Pattern, m: Meters): number {
-  const re = prepare(pattern, m)
-  const hit = execRegex(re, s, 0, m.steps)
+  const hit = prepare(pattern, m).exec(s, 0)
   return hit ? hit.index : -1
 }
 
 /** JavaScript's match result: an array with `index`, `input` and `groups`, or every match. */
 export function match(s: string, pattern: Pattern, m: Meters): unknown {
-  const re = prepare(pattern, m)
-  if (!re.global) {
-    const hit = execRegex(re, s, 0, m.steps)
-    if (!hit) return null
-    // the record: a slot per group (and per name), plus each capture's text
-    m.alloc(
-      hit.captures.reduce((n, c) => n + (c ? (c[1] - c[0]) * 2 : 0) + 16, 0) +
-        hit.names.size * 48 +
-        128
-    )
-    const text = (c: [number, number] | undefined) =>
-      c ? s.slice(c[0], c[1]) : undefined
-    const out: any = hit.captures.map(text)
-    out.index = hit.index
-    out.input = s
-    out.groups = hit.names.size
-      ? Object.assign(
-          Object.create(null),
-          Object.fromEntries(
-            [...hit.names].map(([name, g]) => [name, text(hit.captures[g])])
-          )
-        )
-      : undefined
-    return out
+  const p = prepare(pattern, m)
+  if (!p.re.global) {
+    const hit = p.exec(s, 0)
+    return hit ? matchArray(hit, s, m) : null
   }
-  const hits = allMatches(re, s, m)
+  const hits = allMatches(p, s, m)
   if (!hits.length) return null
   m.alloc(hits.reduce((n, h) => n + (h.end - h.index) * 2 + 8, 0) + 64)
   return hits.map((h) => s.slice(h.index, h.end))
@@ -374,17 +419,17 @@ export function split(
     if (out.length < lim) push(s.slice(p))
     return out
   }
-  prepare(sep, m)
+  const sepRe = prepare(sep, m)
   if (s.length === 0) {
-    if (!execRegex(sep, s, 0, m.steps, true)) push(s)
+    if (!sepRe.exec(s, 0, true)) push(s)
     return out
   }
   let p = 0
   let q = 0
   while (q < s.length) {
-    const hit = execRegex(sep, s, q, m.steps, true)
+    const hit = sepRe.exec(s, q, true)
     if (!hit || hit.end === p) {
-      q = advance(s, q, sep.unicode)
+      q = advance(s, q, sepRe.re.unicode)
       continue
     }
     push(s.slice(p, q))

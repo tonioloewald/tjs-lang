@@ -1046,3 +1046,61 @@ describe('round 4: the regex engine and the methods over it are metered by const
       }
     })
 })
+
+describe('round 5: every resource a regex uses is charged (rc.2 ninth re-review)', () => {
+  // Every cost of a regex is a function of its program size (charged once, where it is created,
+  // and counted wherever it is held) and of the input it runs on (charged per match).
+  const nested = '(?:'.repeat(15) + 'a' + ')?'.repeat(15)
+  const hold = (re: string) =>
+    new AgentVM().run(
+      transpile(
+        `function f() { let rs = []\n let i = 0\n while (i < 1000) { rs.push(${re})\n i = i + 1 }\n return { n: rs.length } }`
+      ).ast,
+      {},
+      { fuel: 100_000, maxHeapBytes: 8 * 1024 * 1024, timeoutMs: 600_000 }
+    )
+
+  it('B1: a held regex does not retain its matching state (it was ~690MB for 1000)', async () => {
+    const before = process.memoryUsage().rss
+    const r = await hold(`/${nested}/`)
+    const grew = process.memoryUsage().rss - before
+    expect(r.error).toBeUndefined() // nothing large is retained, so nothing to refuse
+    expect(grew).toBeLessThan(150 * 1024 * 1024)
+  })
+
+  it('B1: a held regex is charged for its program, so many large ones are refused', async () => {
+    const r = await hold('/a{10000}/')
+    expect(r.error?.message ?? 'completed').toMatch(/Heap limit/)
+  })
+
+  it('B1/I1: a regex is charged for its program where it is created, even if never held', async () => {
+    // ~1.1MB of program, created and dropped without running: no match charges it and the heap
+    // walk never sees it, so only the charge at creation can refuse it under a 256KB ceiling
+    const r = await new AgentVM().run(
+      transpile(`function f() { return { n: [/a{10000}/].length } }`).ast,
+      {},
+      { fuel: 100_000, maxHeapBytes: 256 * 1024 }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(/Heap limit/)
+  })
+
+  it('M2: a source of many costly regex literals is refused at transpile, promptly', () => {
+    const lits = Array.from(
+      { length: 100 },
+      () => '/(?:(?:){10000}){99}/'
+    ).join(', ')
+    const t = performance.now()
+    expect(() =>
+      transpile(`function f() { let a = [${lits}]\n return { n: a.length } }`)
+    ).toThrow(/too large to compile/)
+    expect(performance.now() - t).toBeLessThan(500)
+  })
+
+  it('M2: a repeated literal is compiled once per source', () => {
+    // 400 × ~3000 steps is over this source's budget unless each distinct literal compiles once
+    const lits = Array.from({ length: 400 }, () => '/a{3000}b/').join(', ')
+    expect(() =>
+      transpile(`function f() { let a = [${lits}]\n return { n: a.length } }`)
+    ).not.toThrow()
+  })
+})
