@@ -19,6 +19,7 @@
  * etc.) and, later, property-aware validation (phase 3 shorthands).
  */
 import type { PredicateSchema } from '../lang/predicate-schema'
+import { trustPredicate } from '../lang/predicate'
 import { CSS_COLOR_SOURCE } from './predicates'
 import { CSS_DIMENSION_SOURCE } from './dimensions'
 import { CSS_SHORTHAND_FRAGMENT } from './shorthands'
@@ -111,7 +112,7 @@ export function cssStyleSchema(): PredicateSchema {
     title: 'CSSStyleObject',
     description:
       'An open, recursive CSS style object (properties + nested selectors/at-rules).',
-    $predicate: CSS_STYLE_SOURCE,
+    $predicate: trustPredicate(CSS_STYLE_SOURCE),
   }
 }
 
@@ -121,7 +122,11 @@ export function cssStyleSchema(): PredicateSchema {
  * 'string'`; aware ones validate the color grammar.
  */
 export function cssColorSchema(): PredicateSchema {
-  return { type: 'string', title: 'CSSColor', $predicate: CSS_COLOR_SOURCE }
+  return {
+    type: 'string',
+    title: 'CSSColor',
+    $predicate: trustPredicate(CSS_COLOR_SOURCE),
+  }
 }
 
 /**
@@ -130,5 +135,8 @@ export function cssColorSchema(): PredicateSchema {
  * string (`10px`) or a number — so aware validators do all the work.
  */
 export function cssDimensionSchema(): PredicateSchema {
-  return { title: 'CSSDimension', $predicate: CSS_DIMENSION_SOURCE }
+  return {
+    title: 'CSSDimension',
+    $predicate: trustPredicate(CSS_DIMENSION_SOURCE),
+  }
 }

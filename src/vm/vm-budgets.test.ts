@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
+import { AgentVM as AstVM } from './ast'
 import { builtins, defineAtom, methodBudgets } from './runtime'
 
 const SLOT = 8
@@ -1136,4 +1137,62 @@ describe('round 7: a guest string pattern of class escapes (rc.2 eleventh re-rev
     void r // charged and admitted, or refused: either way, bounded
     expect(grew).toBeLessThan(200 * 1024 * 1024)
   })
+})
+
+describe("round 8: a guest AST's schemas are admitted before tosijs-schema sees them (rc.2 twelfth re-review B1)", () => {
+  const evil = 'a'.repeat(26) + '!'
+  const shapes: Array<[string, any]> = [
+    ['pattern', { type: 'string', pattern: '^(a+)+$' }],
+    [
+      'patternProperties',
+      { type: 'object', patternProperties: { '^(a+)+$': {} } },
+    ],
+    [
+      '$predicate',
+      { type: 'string', $predicate: 'function p(s) { return true }' },
+    ],
+  ]
+  for (const entry of ['vm', 'vm-ast'] as const)
+    for (const [name, schema] of shapes) {
+      it(`${entry}: inputSchema with ${name} is refused before validation`, async () => {
+        const VM = entry === 'vm' ? AgentVM : AstVM
+        const t = performance.now()
+        const r = await new VM().run(
+          {
+            op: 'seq',
+            steps: [],
+            inputSchema: { type: 'object', properties: { x: schema } },
+          } as any,
+          { x: evil },
+          { fuel: 10, timeoutMs: 50 }
+        )
+        expect(r.error?.message ?? 'admitted').toMatch(
+          /not available in AsyncJS/
+        )
+        expect(performance.now() - t).toBeLessThan(50)
+      })
+
+      it(`${entry}: a return step's schema with ${name} is refused`, async () => {
+        const VM = entry === 'vm' ? AgentVM : AstVM
+        const t = performance.now()
+        const r = await new VM().run(
+          {
+            op: 'seq',
+            steps: [
+              { op: 'varSet', key: 'x', value: evil },
+              {
+                op: 'return',
+                schema: { type: 'object', properties: { x: schema } },
+              },
+            ],
+          } as any,
+          {},
+          { fuel: 10, timeoutMs: 50 }
+        )
+        expect(r.error?.message ?? 'admitted').toMatch(
+          /not available in AsyncJS/
+        )
+        expect(performance.now() - t).toBeLessThan(50)
+      })
+    }
 })

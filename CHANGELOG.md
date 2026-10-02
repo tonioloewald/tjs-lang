@@ -83,6 +83,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `tjs-lang/vm-ast` is 35 KB gzipped, `tjs-lang/vm` 86 KB (68 KB at rc.1); the regex engine is
 > about 7 KB of it.
 >
+> **Since rc.1 — `$predicate` runs only source the host trusts (breaking).** A predicate compiles
+> to native JavaScript, and a syntactic verifier cannot make hostile JavaScript safe: one review
+> round found five more routes from a "verified" predicate to the host's regex engine
+> (`['(a+)+$',''].reduce(RegExp)`, a method passed as a callback, a tagged template, a class
+> shadowing a name, overwriting a field). So the `$predicate` paths — `createPredicateEvaluator`
+> (what `tjs-lang/schema` installs), `compilePredicateSchema`, `validatePredicateSchema` — run a
+> source only if the host registered it with `trustPredicate(source)` (`tjs-lang/css`'s schema
+> builders register theirs), or passed `trustAllPredicates: true`. Anything else fails closed,
+> saying why. **Migration:** wrap your own `$predicate` sources in `trustPredicate(…)`; never
+> trust a source that arrived as data. Running untrusted predicates on the AJS VM, whose surface
+> is a closed table, is planned and will lift this. Also: a guest AST's own schemas (its
+> `inputSchema`, a `return` step's schema) are admitted like any guest schema — `pattern`
+> (except the library's own), `patternProperties` and `$predicate` are refused at any depth; they
+> reached tosijs-schema's host regex engine before fuel or the timeout existed. In predicates, a
+> string-literal pattern (`s.search('@')`) now runs on the metered engine rather than being
+> refused; the evaluator's cache is bounded.
+>
 > **Since rc.1 — every resource a regex uses is charged.** Everything a regex costs is now a
 > function of its program size and its input. A compiled regex is charged its program's size
 > against `maxHeapBytes` as the program is built, and counted while it is held (it used to keep

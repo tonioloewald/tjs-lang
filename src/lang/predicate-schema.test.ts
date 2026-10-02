@@ -4,23 +4,25 @@ import {
   validatePredicateSchema,
   type PredicateSchema,
 } from './predicate-schema'
+import { trustPredicate } from './predicate'
 
 // A composable color predicate cluster (entry = last function, takes the value).
-const COLOR = `
+// The HOST's sources (this test wrote them), registered as trusted.
+const COLOR = trustPredicate(`
   function isHex(v){ return typeof v == 'string' && /^#[0-9a-f]{3,8}$/i.test(v) }
   function isVar(v){ return typeof v == 'string' && v.startsWith('var(--') && v.endsWith(')') }
   function isCalc(v){ return typeof v == 'string' && v.startsWith('calc(') && v.endsWith(')') }
   function isColor(v){ return isHex(v) || isVar(v) || isCalc(v) }
-`
+`)
 
 // A recursive predicate cluster — validates a tree of string/number leaves.
 // Note the `!Array.isArray(o)` guard: arrays are objects in JS, so a node check
 // must exclude them explicitly (a real predicate-authoring nuance).
-const TREE = `
+const TREE = trustPredicate(`
   function isLeaf(v){ return typeof v == 'string' || typeof v == 'number' }
   function isEntry(pair){ var val = pair[1]; return isLeaf(val) || isNode(val) }
   function isNode(o){ return typeof o == 'object' && o != null && !Array.isArray(o) && Object.entries(o).every(isEntry) }
-`
+`)
 
 const colorSchema: PredicateSchema = {
   type: 'object',
@@ -84,9 +86,20 @@ describe('predicate-schema — the computational half of JSON-Schema', () => {
   it('rejects an unsafe predicate at compile time (IO never embeds)', () => {
     const evil: PredicateSchema = {
       type: 'string',
-      $predicate: `function check(v){ return fetch(v) }`,
+      $predicate: trustPredicate(`function check(v){ return fetch(v) }`),
     }
     expect(() => compilePredicateSchema(evil)).toThrow(/Not predicate-safe/)
+  })
+
+  it('an untrusted $predicate source is refused (rc.2 twelfth re-review)', () => {
+    const schema: PredicateSchema = {
+      type: 'string',
+      $predicate:
+        "function p(s) { return ['(a+)+$', ''].reduce(RegExp).test(s) }",
+    }
+    expect(() => compilePredicateSchema(schema)).toThrow(
+      /untrusted \$predicate/
+    )
   })
 
   it('one-shot helper works too', () => {

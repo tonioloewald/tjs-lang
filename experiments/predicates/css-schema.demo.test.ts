@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { compilePredicateSchema } from '../../src/lang/predicate-schema'
-import { effectfulFromAtoms } from '../../src/lang/predicate'
+import { effectfulFromAtoms, trustPredicate } from '../../src/lang/predicate'
 import { coreAtoms } from '../../src/vm/runtime'
 import { CSS_PREDICATE_SOURCE } from './css.predicates'
 
@@ -44,8 +44,12 @@ const ANIMATION = String.raw`
 const ruleSchema = {
   type: 'object' as const,
   properties: {
-    color: { type: 'string' as const, $predicate: COLOR },
-    animation: { type: 'string' as const, $predicate: ANIMATION },
+    // this demo is the HOST: its own sources are registered as trusted
+    color: { type: 'string' as const, $predicate: trustPredicate(COLOR) },
+    animation: {
+      type: 'string' as const,
+      $predicate: trustPredicate(ANIMATION),
+    },
   },
 }
 
@@ -84,7 +88,10 @@ describe('CSS as a predicate-aware JSON-Schema — recursive whole-spec', () => 
   // selectors. It is permissive on unknown values by design (partial
   // validation), so it catches *structural* breaks; precise per-value checking
   // is the per-property form above (and the real CSS library's job).
-  const schema = { type: 'object' as const, $predicate: CSS_PREDICATE_SOURCE }
+  const schema = {
+    type: 'object' as const,
+    $predicate: trustPredicate(CSS_PREDICATE_SOURCE),
+  }
   const aware = compilePredicateSchema(schema, opts)
 
   it('validates a nested styleSpec and rejects a structural break', () => {

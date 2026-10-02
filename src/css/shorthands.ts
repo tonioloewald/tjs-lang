@@ -11,6 +11,7 @@
  * regexes are single-quantifier `\s+` / `,`; classifier regexes are flat).
  */
 import type { PredicateSchema } from '../lang/predicate-schema'
+import { trustPredicate } from '../lang/predicate'
 import { CSS_DIMENSION_SOURCE } from './dimensions'
 
 /**
@@ -98,7 +99,9 @@ function schemaFor(entry: string): PredicateSchema {
   // is last regardless of its position in the cluster.
   return {
     type: 'string',
-    $predicate: `${CSS_SHORTHAND_SOURCE}\nfunction __entry(v) { return ${entry}(v) }`,
+    $predicate: trustPredicate(
+      `${CSS_SHORTHAND_SOURCE}\nfunction __entry(v) { return ${entry}(v) }`
+    ),
   }
 }
 

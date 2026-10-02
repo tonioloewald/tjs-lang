@@ -9,6 +9,7 @@ import {
   membraneValueFrom,
   recordVmEvent,
   newScopeState,
+  admitGuestSchema,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate, isBuilder } from 'tosijs-schema'
@@ -394,11 +395,23 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     args = crossed.value as Record<string, any>
 
     const inputSchema = (ast as any).inputSchema
-    if (inputSchema && !validate(args, inputSchema)) {
-      const error = new AgentError(
-        `Input validation failed: args do not match expected schema`,
-        'vm.run'
-      )
+    // The AST's own schema is GUEST data: admitted before tosijs-schema compiles anything in it,
+    // and before any fuel or timeout exists (rc.2 twelfth re-review B1).
+    let refused: AgentError | undefined
+    if (inputSchema)
+      try {
+        admitGuestSchema(inputSchema, 'vm.run')
+      } catch (e) {
+        if (!(e instanceof AgentError)) throw e
+        refused = e
+      }
+    if (inputSchema && (refused || !validate(args, inputSchema))) {
+      const error =
+        refused ??
+        new AgentError(
+          `Input validation failed: args do not match expected schema`,
+          'vm.run'
+        )
       return {
         result: error,
         error,

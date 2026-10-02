@@ -119,6 +119,13 @@ seconds on a few fuel. The engine is now metered by construction:
   each allocation through `alloc` as they make it (no per-character estimate: a flat one missed
   class escapes by ~10×, eleventh review M1), and every byte allocated also counts as compile
   work, so a pre-run `RegexCompiler`'s single work budget bounds memory too;
+- **guest schemas are admitted before any library sees them**: `admitGuestSchema` refuses
+  `pattern`, `patternProperties` and `$predicate` at any depth, at every door a guest schema
+  reaches validation (Schema.* arguments, `filter`, the AST's `inputSchema`, a `return` step's
+  schema). tosijs-schema compiles `pattern` on the host's engine (twelfth review B1);
+- **only trusted predicate source runs**: a predicate compiles to native JavaScript, which no
+  syntactic screen makes safe against hostile code, so the `$predicate` paths run only sources
+  the host registered (`trustPredicate`) — twelfth review, Tonio 2026-10-02;
 - **predicates cannot hand a string to the host's regex engine**: a pattern argument to
   `match`/`search`/`matchAll` must be a regex literal or a `const` bound to one (eleventh
   review B1);

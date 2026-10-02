@@ -2730,7 +2730,7 @@ function argOk(type: string, v: unknown): boolean {
             'number')
       )
     case 'schema':
-      return true // checked separately, for patterns (see assertNoGuestPatterns)
+      return true // checked separately, for patterns (see admitGuestSchema)
   }
   return false
 }
@@ -2777,8 +2777,7 @@ function methodGate(
     )
   checkArgs(sig, args, `${method}()`, `expr.${method}`)
   // a builder validates on the host's engine: `meta({ pattern })` would smuggle a guest regex in
-  if (kind === 'builder' && method === 'validate')
-    assertNoGuestPatterns(receiver)
+  if (kind === 'builder' && method === 'validate') admitGuestSchema(receiver)
   return sig.bound === 'vm' ? 'vm' : sig.bound(receiver, args, ctx)
 }
 
@@ -2800,7 +2799,7 @@ function checkArgs(sig: Sig, args: unknown[], what: string, op: string): void {
             : " — convert it explicitly (e.g. arr.join(','), JSON.stringify(obj))"),
         op
       )
-    if (type.replace('?', '') === 'schema') assertNoGuestPatterns(v)
+    if (type.replace('?', '') === 'schema') admitGuestSchema(v)
   })
 }
 
@@ -2829,7 +2828,16 @@ const ARG_NAMES: Record<string, string> = {
 const LIBRARY_PATTERNS = new Set<string>(
   [(s as any).emoji?.schema?.pattern].filter((p) => typeof p === 'string')
 )
-function assertNoGuestPatterns(schema: unknown): void {
+/**
+ * THE admission check for a schema that came from guest code or the guest AST. tosijs-schema
+ * compiles a schema's `pattern` (and `patternProperties` keys) on the HOST's regex engine when it
+ * validates, and runs a `$predicate` through whatever evaluator the host registered — both
+ * outside every budget. Refused at any depth (the library's own patterns are allowed). Every door
+ * through which a guest schema reaches validation calls this, and the doors are listed in
+ * `regex-doors.test.ts` (rc.2 twelfth re-review B1: `inputSchema` and the `return` step's schema
+ * reached tosijs-schema unscreened, before fuel or the timeout existed).
+ */
+export function admitGuestSchema(schema: unknown, op = 'Schema'): void {
   const seen = new Set<object>()
   const stack = [isBuilder(schema) ? (schema as any).schema : schema]
   while (stack.length) {
@@ -2845,7 +2853,17 @@ function assertNoGuestPatterns(schema: unknown): void {
       )
         throw new AgentError(
           "A schema 'pattern' is not available in AsyncJS — use regexMatch (it runs on the VM's regex engine)",
-          'Schema'
+          op
+        )
+      if (k === 'patternProperties')
+        throw new AgentError(
+          "A schema's 'patternProperties' is not available in AsyncJS: its keys are regexes the host would compile",
+          op
+        )
+      if (k === '$predicate')
+        throw new AgentError(
+          "A schema's '$predicate' is not available in AsyncJS: it would run outside the run's budgets",
+          op
         )
       stack.push(d.value)
     }
@@ -4596,6 +4614,7 @@ export const ret = defineAtom(
       // If schema has nested structure, filter to strip extra properties
       // This makes return types act as projections
       if (step.filter !== false) {
+        admitGuestSchema(step.schema, 'return')
         const filterResult = schemaFilter(res, step.schema)
         if (!(filterResult instanceof Error)) {
           res = filterResult

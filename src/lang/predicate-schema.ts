@@ -20,7 +20,7 @@
  * full JSON-Schema structural validation is `tosijs-schema`'s job. The novel
  * part is `$predicate`.
  */
-import { compilePredicateEntry } from './predicate'
+import { compilePredicateEntry, isTrustedPredicate } from './predicate'
 import type { CompilePredicateOptions } from './predicate'
 
 /** A JSON-Schema node, optionally carrying a `$predicate` (predicate source). */
@@ -63,6 +63,8 @@ export interface PredicateSchemaOptions extends CompilePredicateOptions {
    * JSON-Schema validator). Useful for demonstrating progressive enhancement.
    */
   ignorePredicates?: boolean
+  /** Run every `$predicate` source, trusted or not (see `trustPredicate`). Default false. */
+  trustAllPredicates?: boolean
 }
 
 const typeOf = (v: unknown): string =>
@@ -83,7 +85,7 @@ export function compilePredicateSchema(
   schema: PredicateSchema,
   opts: PredicateSchemaOptions = {}
 ): (value: unknown) => SchemaValidationResult {
-  const { ignorePredicates, ...compileOpts } = opts
+  const { ignorePredicates, trustAllPredicates, ...compileOpts } = opts
   // Compile every distinct $predicate once.
   const compiled = new Map<string, (value: unknown) => boolean>()
   const prepare = (node: PredicateSchema) => {
@@ -93,6 +95,11 @@ export function compilePredicateSchema(
       !compiled.has(node.$predicate)
     ) {
       const src = node.$predicate
+      // only source the host trusts compiles to native code (rc.2 twelfth re-review)
+      if (!trustAllPredicates && !isTrustedPredicate(src))
+        throw new Error(
+          'untrusted $predicate source: register it with trustPredicate(source), or pass trustAllPredicates: true'
+        )
       // one verification and one regex budget for the source (rc.2 tenth re-review)
       compiled.set(
         src,

@@ -1,5 +1,14 @@
 /**
- * The regex surface is a CLOSED set of doors, pinned by parsing (rc.2 eleventh re-review plan).
+ * The regex surface is a CLOSED set of doors, pinned two ways: statically by parsing, and
+ * behaviourally by running a corpus of guest attacks with the host's regex entry points
+ * instrumented (rc.2 eleventh and twelfth re-reviews).
+ *
+ * What the static half can see: direct calls in OUR source. What it cannot see, and why the
+ * behavioural half exists: a library that compiles a pattern internally (tosijs-schema's
+ * `pattern`), and routes that are not calls in our source at all. The behavioural half is the
+ * claim; the static half keeps the list honest.
+ *
+ * (Original header follows.)
  *
  * Four review rounds in a row found one more way to compile or run a pattern outside the meters:
  * a literal, a string pattern to a method, a predicate, transpile time, verify time, a helper
@@ -35,6 +44,21 @@ const COMPILE_SITES: Record<string, { args: number; why: string }> = {
   },
 }
 
+/** Every schema validation in the VM, and how its schema is admitted. tosijs-schema compiles a
+ * schema's `pattern` on the host's engine, so a guest schema must pass `admitGuestSchema` first. */
+const SCHEMA_SITES: Record<string, string> = {
+  'vm/vm.ts › run › validate':
+    "the AST's inputSchema: admitGuestSchema at admission, before validate",
+  'vm/runtime.ts › filter › schemaFilter':
+    "the `filter` builtin: its schema argument is typed 'schema', admitted by checkArgs",
+  'vm/runtime.ts › isValid › validate':
+    "Schema.isValid: its schema argument is typed 'schema', admitted by checkArgs",
+  'vm/runtime.ts › exec › validate':
+    "an atom's outputSchema: defined by the HOST with the atom, never by guest code",
+  'vm/runtime.ts › ret › schemaFilter':
+    "the return step's schema: admitGuestSchema before schemaFilter",
+}
+
 /** The guest and predicate surface: no host RegExp may be constructed here. */
 const NO_HOST_REGEXP = (file: string) =>
   file.startsWith('vm/') || /^lang\/predicate[^/]*\.ts$/.test(file)
@@ -63,9 +87,16 @@ function enclosingName(node: ts.Node): string {
       return n.name.getText()
     if (
       (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) &&
-      ts.isVariableDeclaration(n.parent)
+      (ts.isVariableDeclaration(n.parent) || ts.isPropertyAssignment(n.parent))
     )
       return n.parent.name.getText()
+    // an atom body: `const ret = defineAtom(…, async (…) => {…})`
+    if (
+      (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) &&
+      ts.isCallExpression(n.parent) &&
+      ts.isVariableDeclaration(n.parent.parent)
+    )
+      return n.parent.parent.name.getText()
   }
   return '<module>'
 }
@@ -73,10 +104,11 @@ function enclosingName(node: ts.Node): string {
 interface Found {
   compiles: Array<{ site: string; args: number }>
   hostRegExp: string[]
+  schemaCalls: string[]
 }
 
 function scan(): Found {
-  const found: Found = { compiles: [], hostRegExp: [] }
+  const found: Found = { compiles: [], hostRegExp: [], schemaCalls: [] }
   for (const path of sources(SRC)) {
     const file = relative(SRC, path)
     const sf = ts.createSourceFile(
@@ -92,6 +124,14 @@ function scan(): Found {
             site: `${file} › ${enclosingName(n)}`,
             args: n.arguments.length,
           })
+        if (
+          file.startsWith('vm/') &&
+          (n.expression.text === 'validate' ||
+            n.expression.text === 'schemaFilter')
+        )
+          found.schemaCalls.push(
+            `${file} › ${enclosingName(n)} › ${n.expression.text}`
+          )
         if (n.expression.text === 'RegExp' && NO_HOST_REGEXP(file))
           found.hostRegExp.push(
             `${file}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`
@@ -130,6 +170,13 @@ describe('the regex doors are closed and listed', () => {
   it('no listed site is stale', () => {
     const seen = new Set(found.compiles.map((c) => c.site))
     expect(Object.keys(COMPILE_SITES).filter((s) => !seen.has(s))).toEqual([])
+  })
+
+  it('every schema validation in the VM is listed, with how its schema is admitted', () => {
+    const listed = new Set(
+      Object.keys(SCHEMA_SITES).map((k) => k.replace(/ \(.*\)$/, ''))
+    )
+    expect(found.schemaCalls.filter((c) => !listed.has(c))).toEqual([])
   })
 
   it('no host RegExp is constructed in the guest or predicate surface', () => {

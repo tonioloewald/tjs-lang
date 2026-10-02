@@ -379,6 +379,8 @@ function verifyWith(
   })
   const isRegexValue = (arg: any) =>
     (arg.type === 'Literal' && !!arg.regex) ||
+    // a string LITERAL is compiled by the engine, as JavaScript would compile it (lowered below)
+    (arg.type === 'Literal' && typeof arg.value === 'string') ||
     (arg.type === 'Identifier' &&
       regexConsts.has(arg.name) &&
       declarations.get(arg.name) === 1)
@@ -483,6 +485,23 @@ function verifyWith(
               `method '.${method}()' is not a known pure method`,
               callee.property
             )
+          } else if (
+            PATTERN_METHODS.has(method) &&
+            n.arguments[0]?.type === 'Literal' &&
+            typeof n.arguments[0].value === 'string'
+          ) {
+            try {
+              regexes.compile(
+                n.arguments[0].value,
+                method === 'matchAll' ? 'g' : ''
+              )
+            } catch (e) {
+              if (!(e instanceof RegexError)) throw e
+              flag(
+                `pattern '${n.arguments[0].value}' is not supported by the linear regex engine: ${e.message}`,
+                n.arguments[0]
+              )
+            }
           } else if (
             PATTERN_METHODS.has(method) &&
             n.arguments.length &&
@@ -808,6 +827,28 @@ function lowerRegexLiterals(
           compiler.compile(n.regex.pattern, n.regex.flags),
         ])
     },
+    // A string literal passed as a PATTERN is compiled by the engine, as JavaScript would compile
+    // it (`matchAll` with a string uses the global flag). Nothing else ever reaches a pattern
+    // method: the verifier refuses any other argument.
+    CallExpression(n: any) {
+      const callee = n.callee
+      const arg = n.arguments[0]
+      if (
+        callee.type === 'MemberExpression' &&
+        !callee.computed &&
+        PATTERN_METHODS.has(callee.property.name) &&
+        arg?.type === 'Literal' &&
+        typeof arg.value === 'string'
+      )
+        found.push([
+          arg.start,
+          arg.end,
+          compiler.compile(
+            arg.value,
+            callee.property.name === 'matchAll' ? 'g' : ''
+          ),
+        ])
+    },
   })
   found.sort((a, b) => b[0] - a[0])
   const regexes = found.map(([, , re]) => re).reverse()
@@ -1073,7 +1114,47 @@ export function emitVerifiedPredicate(
 
 // --- $predicate evaluator (#6: the tosijs-schema integration point) ---------
 
+/**
+ * Predicate sources the HOST trusts. `$predicate` source can arrive as data (a schema from a
+ * request, a file, a database), and a verified predicate compiles to native JavaScript, which a
+ * syntactic verifier cannot make safe against hostile code: rc.2's twelfth re-review found five
+ * more routes to the host's regex engine in one round. So the `$predicate` paths run only sources
+ * the host registered (Tonio, 2026-10-02); untrusted ones fail closed. Running untrusted
+ * predicates on the AJS VM is the follow-up that lifts this.
+ *
+ * A shared global slot, not a module set: `tjs-lang/css` and `tjs-lang/schema` are separate
+ * bundles with separate copies of this module, and a source one registers must be trusted by
+ * the other. It holds strings only (data unions; `docs/runtime-fusion.md`).
+ */
+const TRUSTED_SLOT = '__tjs_trustedPredicates_1'
+/** Distinct sources one evaluator keeps compiled. */
+const EVALUATOR_CACHE_ENTRIES = 256
+function trustedSources(): Set<string> {
+  const g = globalThis as any
+  return (g[TRUSTED_SLOT] ??= new Set<string>())
+}
+
+/** Trust a predicate source for the `$predicate` paths. Returns it, so a schema builder can
+ * write `{ $predicate: trustPredicate(SOURCE) }`. Only for source the host wrote or vetted. */
+export function trustPredicate(source: string): string {
+  trustedSources().add(source)
+  return source
+}
+
+export function isTrustedPredicate(source: string): boolean {
+  return trustedSources().has(source)
+}
+
+function untrustedPredicate(): Error {
+  return new Error(
+    'untrusted $predicate source: a predicate compiles to native JavaScript, so only source the host trusts may run. Register it with trustPredicate(source), or pass trustAllPredicates: true if every source this evaluator sees is yours.'
+  )
+}
+
 export interface PredicateEvaluatorOptions extends CompilePredicateOptions {
+  /** Run every source, trusted or not. Only when no `$predicate` this evaluator sees can come
+   * from untrusted data. Default false: unregistered sources fail closed. */
+  trustAllPredicates?: boolean
   /**
    * Called once per source that fails to verify/compile. Default: `console.warn`.
    * The evaluator fails **closed** on such a source (returns `false`), so an
@@ -1099,7 +1180,9 @@ export interface PredicateEvaluatorOptions extends CompilePredicateOptions {
 export function createPredicateEvaluator(
   opts: PredicateEvaluatorOptions = {}
 ): (source: string, value: unknown) => boolean {
-  const { onUnsafe, ...compileOpts } = opts
+  const { onUnsafe, trustAllPredicates, ...compileOpts } = opts
+  // Bounded: a long-lived evaluator sees sources from data, and each compiled entry holds its
+  // programs (rc.2 twelfth re-review M3). Least-recently-compiled entries are dropped first.
   const cache = new Map<string, ((value: unknown) => boolean) | null>()
   const warned = new Set<string>()
 
@@ -1107,6 +1190,8 @@ export function createPredicateEvaluator(
     let fn = cache.get(source)
     if (fn === undefined) {
       try {
+        if (!trustAllPredicates && !isTrustedPredicate(source))
+          throw untrustedPredicate()
         fn = compilePredicateEntry(source, compileOpts) as (
           value: unknown
         ) => boolean
@@ -1122,6 +1207,9 @@ export function createPredicateEvaluator(
             )
         }
       }
+      if (cache.size >= EVALUATOR_CACHE_ENTRIES)
+        cache.delete(cache.keys().next().value as string)
+      if (warned.size >= EVALUATOR_CACHE_ENTRIES) warned.clear()
       cache.set(source, fn)
     }
     if (fn === null) return false

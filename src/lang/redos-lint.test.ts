@@ -213,8 +213,9 @@ describe('round 5 (rc.2 ninth re-review)', () => {
 describe('a pattern argument must be a regex (rc.2 eleventh re-review B1)', () => {
   // JavaScript compiles a STRING passed to match/search/matchAll as a regex, on its own
   // unmetered engine: `s.match('(a+)+$')` was certified and ran for seconds past its fuel.
+  // A string LITERAL is now compiled by the metered engine instead (twelfth re-review m3); any
+  // other non-regex argument is refused.
   for (const [label, body] of [
-    ['a string literal', `return s.match('(a+)+$') != null`],
     ['a parameter', `return s.search(p) !== -1`],
     [
       'a let holding a regex',
@@ -224,7 +225,6 @@ describe('a pattern argument must be a regex (rc.2 eleventh re-review B1)', () =
       'a const shadowed by a parameter',
       `const r = /a/\n return [1].some((r) => s.search(r) !== -1)`,
     ],
-    ['matchAll with a string', `return [...s.matchAll('a')].length > 0`],
   ] as const)
     it(`refused: ${label}`, () => {
       const r = verifyPredicate(`function f(s, p) { ${body} }`)
@@ -252,16 +252,41 @@ describe('a pattern argument must be a regex (rc.2 eleventh re-review B1)', () =
       })
     })
 
-  it('the review repro: a string-pattern predicate is refused, so it cannot hang', () => {
-    expect(() =>
-      compilePredicate(
-        `function p(s) { return s.match('(a+)+$') != null }`,
-        ['p'],
-        {
-          fuel: 1000,
-        }
-      )
-    ).toThrow(/needs a regex literal/)
+  it('the review repro: a string-literal pattern runs on the metered engine, so it cannot hang', () => {
+    const { p } = compilePredicate(
+      `function p(s) { return s.match('(a+)+$') != null }`,
+      ['p'],
+      { fuel: 1000 }
+    )
+    const t = performance.now()
+    let outcome: unknown
+    try {
+      outcome = p('a'.repeat(5000) + '!')
+    } catch (e) {
+      outcome = e
+    }
+    expect(
+      typeof outcome === 'boolean' || outcome instanceof PredicateFuelExhausted
+    ).toBe(true)
+    expect(performance.now() - t).toBeLessThan(500)
+  })
+
+  it('string-literal patterns match as JavaScript does (match, search, matchAll)', () => {
+    const src = `function p(s) { return [s.search('@'), s.match('b+'), [...s.matchAll('a')].length] }`
+    const { p } = compilePredicate(src, ['p'])
+    const native = new Function(`${src}; return p`)()
+    for (const s of ['a@bba', 'nothing', ''])
+      expect(JSON.stringify(p(s))).toBe(JSON.stringify(native(s)))
+  })
+
+  it("M1: a predicate cannot replace the regex adapter's meter", () => {
+    const { p } = compilePredicate(
+      `function p(s) { const r = /a*a*c/; r.m = { steps: Math.abs, alloc: Math.abs }; return r.test(s) }`,
+      ['p'],
+      { fuel: 1000 }
+    )
+    // sealed: the write throws (strict code), and the meter stays the run's
+    expect(() => p('a'.repeat(100_000))).toThrow()
   })
 })
 

@@ -5,11 +5,19 @@
  * unverifiable source (never a thrown error, never a silent pass).
  */
 import { describe, it, expect } from 'bun:test'
-import { createPredicateEvaluator } from './predicate'
+import {
+  createPredicateEvaluator,
+  isTrustedPredicate,
+  trustPredicate,
+} from './predicate'
 
-const POS = 'function isPos(x) { return typeof x === "number" && x > 0 }'
-const LOOPY =
+// These sources are the HOST's (this test wrote them), so they are registered as trusted.
+const POS = trustPredicate(
+  'function isPos(x) { return typeof x === "number" && x > 0 }'
+)
+const LOOPY = trustPredicate(
   'function bad(xs) { for (const x of xs) { if (x < 0) return false } return true }'
+)
 
 describe('createPredicateEvaluator', () => {
   it('evaluates a safe source against values', () => {
@@ -43,7 +51,53 @@ describe('createPredicateEvaluator', () => {
 
   it('fails closed on a runaway (fuel) rather than throwing', () => {
     const evaluate = createPredicateEvaluator({ fuel: 100 })
-    const recur = 'function deep(n) { return deep(n + 1) }'
+    const recur = trustPredicate('function deep(n) { return deep(n + 1) }')
     expect(evaluate(recur, 0)).toBe(false)
+  })
+})
+
+describe('only trusted sources run (rc.2 twelfth re-review: Tonio, 2026-10-02)', () => {
+  // A predicate compiles to native JavaScript, and a syntactic verifier cannot make hostile
+  // JavaScript safe: `['(a+)+$',''].reduce(RegExp).test(s)` verified, and ran exponentially.
+  const HOSTILE =
+    "function p(s) { return ['(a+)+$', ''].reduce(RegExp).test(s) }"
+
+  it('an unregistered source fails closed, saying why, without compiling', () => {
+    const reasons: string[] = []
+    const evaluate = createPredicateEvaluator({
+      onUnsafe: (_src, e) => reasons.push(e.message),
+    })
+    const t = performance.now()
+    expect(evaluate(HOSTILE, 'a'.repeat(30) + '!')).toBe(false)
+    expect(performance.now() - t).toBeLessThan(50)
+    expect(reasons[0]).toMatch(/untrusted \$predicate source/)
+  })
+
+  it('a registered source runs; trustAllPredicates opts in to everything', () => {
+    const src = 'function isNeg(x) { return x < 0 }'
+    expect(createPredicateEvaluator({ onUnsafe: () => {} })(src, -1)).toBe(
+      false
+    )
+    expect(
+      createPredicateEvaluator({ trustAllPredicates: true })(src, -1)
+    ).toBe(true)
+    trustPredicate(src)
+    expect(isTrustedPredicate(src)).toBe(true)
+    expect(createPredicateEvaluator()(src, -1)).toBe(true)
+  })
+
+  it('the registry is shared across bundles (a global slot)', () => {
+    const src = 'function isZero(x) { return x === 0 }'
+    ;(globalThis as any).__tjs_trustedPredicates_1.add(src)
+    expect(isTrustedPredicate(src)).toBe(true)
+  })
+
+  it('the cache is bounded', () => {
+    const evaluate = createPredicateEvaluator({ trustAllPredicates: true })
+    for (let i = 0; i < 1000; i++)
+      evaluate(`function p${i}(x) { return x === ${i} }`, i)
+    // nothing to observe directly but memory; the bound is the cache's size cap — this row
+    // pins that a long stream of distinct sources keeps working (no unbounded growth path)
+    expect(evaluate('function q(x) { return x === 1 }', 1)).toBe(true)
   })
 })

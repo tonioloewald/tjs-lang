@@ -17,6 +17,11 @@
  * the graph that may know about both — it's the "batteries-included" packaging
  * of the two.
  *
+ * **Only trusted source runs** (0.14.0): a `$predicate` compiles to native JavaScript, so the
+ * evaluator runs a source only if it was registered with `trustPredicate(source)` — the
+ * `tjs-lang/css` schema builders register theirs — or installed with `trustAllPredicates: true`.
+ * Never trust a source that arrived as data; it fails closed.
+ *
  * Registration is a global (tosijs-schema keeps one evaluator), so importing
  * this module makes `$predicate` work for tosijs-schema usage app-wide, even in
  * code that imports `tosijs-schema` directly. Call `setPredicateEvaluator(null)`
@@ -35,6 +40,8 @@ export * from 'tosijs-schema'
 // The evaluator factory, for advanced/custom wiring.
 export {
   createPredicateEvaluator,
+  trustPredicate,
+  isTrustedPredicate,
   type PredicateEvaluatorOptions,
 } from '../lang/predicate'
 

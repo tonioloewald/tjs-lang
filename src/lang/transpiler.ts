@@ -37,6 +37,8 @@ export {
   compilePredicate,
   emitVerifiedPredicate,
   createPredicateEvaluator,
+  trustPredicate,
+  isTrustedPredicate,
   suggest,
   effectfulFromAtoms,
   formatPredicateDiagnostics,

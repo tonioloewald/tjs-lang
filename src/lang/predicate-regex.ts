@@ -35,65 +35,73 @@ export const PREDICATE_FUEL_PER_REGEX_STEP = 0.01
 class HostRegex {
   lastIndex = 0
   readonly hasIndices = false
-  constructor(private readonly re: GuestRegex, private readonly m: Meters) {}
+  // TRUE private fields, and a sealed instance: TypeScript's `private` is erased, so a predicate
+  // could write `r.m = { steps: Math.abs, … }` and run unmetered (rc.2 twelfth re-review M1).
+  readonly #re: GuestRegex
+  readonly #m: Meters
+  constructor(re: GuestRegex, m: Meters) {
+    this.#re = re
+    this.#m = m
+    Object.seal(this) // lastIndex stays writable, as JavaScript's is; nothing can be added
+  }
   get source() {
-    return this.re.source
+    return this.#re.source
   }
   get flags() {
-    return this.re.flags
+    return this.#re.flags
   }
   get global() {
-    return this.re.global
+    return this.#re.global
   }
   get ignoreCase() {
-    return this.re.ignoreCase
+    return this.#re.ignoreCase
   }
   get multiline() {
-    return this.re.multiline
+    return this.#re.multiline
   }
   get sticky() {
-    return this.re.sticky
+    return this.#re.sticky
   }
   get unicode() {
-    return this.re.unicode
+    return this.#re.unicode
   }
   get dotAll() {
-    return this.re.dotAll
+    return this.#re.dotAll
   }
   /** RegExpBuiltinExec: global or sticky regexes start at, and update, `lastIndex`. */
   private execRaw(s: string) {
-    const stateful = this.re.global || this.re.sticky
+    const stateful = this.#re.global || this.#re.sticky
     const from = stateful ? Math.max(0, Math.trunc(this.lastIndex) || 0) : 0
     if (from > s.length) {
       if (stateful) this.lastIndex = 0
       return null
     }
-    const hit = prepare(this.re, this.m).exec(s, from)
+    const hit = prepare(this.#re, this.#m).exec(s, from)
     if (stateful) this.lastIndex = hit ? hit.end : 0
     return hit
   }
   exec(input: unknown) {
     const s = String(input)
     const hit = this.execRaw(s)
-    return hit ? matchArray(hit, s, this.m) : null
+    return hit ? matchArray(hit, s, this.#m) : null
   }
   test(input: unknown) {
     return this.execRaw(String(input)) !== null
   }
   toString() {
-    return `/${this.re.source}/${this.re.flags}`
+    return `/${this.#re.source}/${this.#re.flags}`
   }
   [Symbol.match](input: unknown) {
-    if (!this.re.global) return this.exec(input)
+    if (!this.#re.global) return this.exec(input)
     this.lastIndex = 0
-    return stringMethods.match(String(input), this.re, this.m)
+    return stringMethods.match(String(input), this.#re, this.#m)
   }
   [Symbol.search](input: unknown) {
     // as JavaScript does: search from 0, and leave lastIndex as it was
-    return stringMethods.search(String(input), this.re, this.m)
+    return stringMethods.search(String(input), this.#re, this.#m)
   }
   [Symbol.split](input: unknown, limit?: number) {
-    return stringMethods.split(String(input), this.re, limit, this.m)
+    return stringMethods.split(String(input), this.#re, limit, this.#m)
   }
   [Symbol.replace](input: unknown, replacement: unknown) {
     const s = String(input)
@@ -102,25 +110,25 @@ class HostRegex {
         ? (replacement as (...a: any[]) => unknown)
         : String(replacement)
     let hits
-    if (this.re.global) {
+    if (this.#re.global) {
       this.lastIndex = 0
-      hits = allMatches(prepare(this.re, this.m), s, this.m)
+      hits = allMatches(prepare(this.#re, this.#m), s, this.#m)
     } else {
       const hit = this.execRaw(s)
       hits = hit ? [hit] : []
     }
-    return replaceHits(s, hits, repl, this.m)
+    return replaceHits(s, hits, repl, this.#m)
   }
   [Symbol.matchAll](input: unknown) {
     // As JavaScript does, AT THE CALL: refuse a non-global regex, and take the start from this
     // regex's lastIndex now (a clone iterates; this regex's lastIndex is left unchanged). A
     // generator method would read both on the first next() instead (rc.2 eleventh re-review m2).
-    if (!this.re.global)
+    if (!this.#re.global)
       throw new TypeError('matchAll must be called with a global RegExp')
     const s = String(input)
     const start = Math.max(0, Math.trunc(this.lastIndex) || 0)
-    const p = prepare(this.re, this.m)
-    const m = this.m
+    const p = prepare(this.#re, this.#m)
+    const m = this.#m
     return (function* () {
       for (const hit of allMatches(p, s, m, true, start))
         yield matchArray(hit, s, m)
