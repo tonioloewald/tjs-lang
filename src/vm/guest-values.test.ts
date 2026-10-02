@@ -588,3 +588,62 @@ describe('round 14: one reading of every member and call shape (eighteenth re-re
     expect(v1.result).toEqual({ n: 3, p: { size: 3 } })
   })
 })
+
+describe('round 15: one definition per rule, and the empty case (nineteenth re-review)', () => {
+  it('a zero-argument call to an atom with all-optional named inputs runs (random())', async () => {
+    const r = await attempt(
+      'function f() { const r = random()\n return { ok: typeof r == "number" } }'
+    )
+    expect((r as any).result).toEqual({ ok: true })
+  })
+
+  it('each layer alone: the emitter writes no args for foo(), and a persisted args: [] still runs', async () => {
+    const step = (
+      transpile('function f() { const r = random()\n return { r } }').ast as any
+    ).steps[0]
+    expect('args' in step).toBe(false)
+    // hand-built on purpose: a v1 AST as persisted before the emitter dropped the empty `args`
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'random', args: [], result: 'r' },
+          { op: 'return', value: { r: 'r' } },
+        ],
+      } as any,
+      {},
+      { fuel: 100 }
+    )
+    expect(r.error).toBeUndefined()
+    expect(typeof (r.result as any).r).toBe('number')
+  })
+
+  it('Date() accepts every form a date takes: a guest Date, its JSON copy, its value, its timestamp', async () => {
+    const r = await attempt(`function f() {
+      const d = Date('2024-01-15T10:00:00Z')
+      const copy = JSON.parse(JSON.stringify(d))
+      return {
+        a: Date(d).value,
+        b: Date(copy).value,
+        c: Date(d.value).value,
+        e: Date(d.timestamp).value,
+        later: Date(copy).add({ days: 1 }).isAfter(copy),
+      }
+    }`)
+    const iso = '2024-01-15T10:00:00.000Z'
+    expect((r as any).result).toEqual({
+      a: iso,
+      b: iso,
+      c: iso,
+      e: iso,
+      later: true,
+    })
+  })
+
+  it('a date that is not one is refused by name, before the factory', async () => {
+    const r = await attempt('function f() { return { d: Date({ a: 1 }) } }')
+    expect('refused' in r ? r.refused : 'admitted').toMatch(
+      /a Date, a number or a string/
+    )
+  })
+})

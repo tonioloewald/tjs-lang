@@ -1713,10 +1713,25 @@ export const SET_METHODS: Record<
   },
 })
 
-const timeOf = (other: unknown): number =>
-  isGuestDate(other)
-    ? other.timestamp
-    : new globalThis.Date(other as any).getTime()
+/**
+ * THE meaning of "a date value", for every door that takes one: the `dateLike` admission, the
+ * `Date()` factory, `Date.parse`, and `diff`/`isBefore`/`isAfter`. A number (ms), a string that
+ * parses, a guest Date, or a plain object with a finite numeric `timestamp` — a Date after JSON, a
+ * store or a capability (it is data, so that is what it becomes). NaN when it is none of these.
+ * Three doors used to decide separately, and a guest Date passed admission then failed in the
+ * factory (rc.2 nineteenth re-review).
+ */
+function timestampOf(v: unknown): number {
+  if (typeof v === 'number') return v
+  if (typeof v === 'string') return new globalThis.Date(v).getTime()
+  if (isGuestDate(v)) return v.timestamp
+  if (isPlainObject(v)) {
+    const d = Object.getOwnPropertyDescriptor(v, 'timestamp')
+    if (d && typeof d.value === 'number') return d.value
+  }
+  return NaN
+}
+const timeOf = timestampOf
 
 /** A Date's methods, called with `this` = the date (a frozen object of fields). */
 export const DATE_METHODS: Record<
@@ -2057,17 +2072,20 @@ export const builtins: Record<string, any> = Object.assign(
     // a guest Date is DATA: a frozen object of fields the VM recognises (see `makeGuestDate`).
     // Also supports Date.now() / Date.parse() for compatibility.
     Date: (() => {
-      const DateFactory = (init?: string | number) => {
-        const date =
-          init !== undefined ? new globalThis.Date(init) : new globalThis.Date()
-        if (isNaN(date.getTime())) {
-          throw new Error(`Invalid date: ${init}`)
-        }
+      const DateFactory = (init?: unknown) => {
+        const date = new globalThis.Date(
+          init === undefined ? globalThis.Date.now() : timestampOf(init)
+        )
+        if (isNaN(date.getTime()))
+          throw new Error(
+            typeof init === 'string'
+              ? `Invalid date: '${init}' does not parse`
+              : 'Invalid date: pass a Date, a number of ms, an ISO string, or a stored date'
+          )
         return makeGuestDate(date)
       }
       DateFactory.now = () => globalThis.Date.now()
-      DateFactory.parse = (str: string) =>
-        makeGuestDate(new globalThis.Date(str))
+      DateFactory.parse = (str: unknown) => DateFactory(str)
       return DateFactory
     })(),
   }
@@ -2745,7 +2763,9 @@ function argOk(type: string, v: unknown): boolean {
     case 'setSource':
       return typeof v === 'string' || argOk('setLike', v)
     case 'dateLike':
-      return typeof v === 'number' || typeof v === 'string' || isGuestDate(v)
+      // the same rule the factory applies (a string is admitted here and parsed there, so a bad
+      // one gets the factory's message)
+      return typeof v === 'string' || !Number.isNaN(timestampOf(v))
     case 'amounts':
       return (
         isPlainObject(v) &&
@@ -2855,7 +2875,7 @@ const ARG_NAMES: Record<string, string> = {
   array: 'an array',
   setLike: 'a Set or an array',
   setSource: 'an array, a string or a Set',
-  dateLike: 'a Date, a number or a string',
+  dateLike: 'a Date, a number or a string (a stored date works too)',
   amounts: 'an object of numbers',
   entries: 'an array of [key, value] pairs',
   arrayLike: 'an array, a string, a Set or { length: number }',
@@ -4742,7 +4762,8 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     // A positional call (`agentRun(id, input)`) emits `args: [...]`. An atom with named inputs
     // never read it, so the call ran with every input undefined and reported success (rc.2
     // eighteenth re-review). Refused, naming the call shape that works.
-    if (Array.isArray(inputData.args)) {
+    // Only NON-empty: `args: []` (persisted ASTs from before the emitter dropped it) loses nothing.
+    if (Array.isArray(inputData.args) && inputData.args.length > 0) {
       const named = namedInputs(inputSchema)
       if (named && !named.includes('args'))
         throw new AgentError(

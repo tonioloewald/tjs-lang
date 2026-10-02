@@ -245,12 +245,12 @@ AJS uses monadic error handling. When an error occurs, subsequent atoms are skip
 
 ```javascript
 try {
-  const data = fetch(url) // If this fails...
+  const data = httpFetch({ url }) // If this fails...
   const parsed = JSON.parse(data) // ...this is skipped
-  storeSet('data', parsed) // ...this is skipped too
+  storeSet({ key: 'data', value: parsed }) // ...this is skipped too
 } catch (err) {
   console.warn('Fetch failed, using cached data')
-  const cached = storeGet('data')
+  const cached = storeGet({ key: 'data' })
   return cached ?? { fallback: true }
 }
 ```
@@ -265,11 +265,11 @@ Use `try/catch` with fallbacks:
 let result
 
 try {
-  result = llmPredict(prompt, { model: 'gpt-4' })
+  result = llmPredict({ prompt, options: { model: 'gpt-4' } })
 } catch (err) {
   // Fall back to simpler model
   try {
-    result = llmPredict(prompt, { model: 'gpt-3.5-turbo' })
+    result = llmPredict({ prompt, options: { model: 'gpt-3.5-turbo' } })
   } catch (err2) {
     // Fall back to static response
     result = "I'm unable to process your request right now."
@@ -344,13 +344,16 @@ Agent.take().memoize(
 
 ### Caching
 
-Use `cache` atom with TTL for persistence across executions:
+Use the `cache` atom with a TTL for persistence across executions. Like `memoize`, it takes a
+list of steps, so it is written with the builder (AsyncJS source has no callbacks):
 
 ```javascript
-// Cache for 1 hour
-const result = cache('weather-' + city, 3600000, () => {
-  return fetch('https://api.weather.com/' + city)
-})
+// Builder API: cache for 1 hour
+Agent.take().cache(
+  (b) => b.httpFetch({ url: 'https://api.weather.com/' + city }).as('weather'),
+  'weather-' + city,
+  3600000
+)
 ```
 
 ### Fuel Budgeting
@@ -360,14 +363,15 @@ Monitor and limit computation:
 <!-- tjs-doc: fragment -->
 
 ```javascript
-// Check remaining fuel before expensive operation
-if (fuel.current < 100) {
-  console.warn('Low fuel, using cached result')
-  return storeGet('cached-result')
+// A program cannot read its remaining fuel: the HOST sets the budget, and a run that
+// exhausts it stops with an 'Out of Fuel' error the host sees. Bound the work in the
+// program instead, and let the host choose `fuel`, `timeoutMs` and per-atom `quotas`.
+const cached = storeGet({ key: 'cached-result' })
+if (cached) {
+  return cached
 }
-
-// Proceed with expensive operation
 const result = complexComputation()
+storeSet({ key: 'cached-result', value: result })
 ```
 
 ---

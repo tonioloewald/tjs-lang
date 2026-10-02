@@ -175,6 +175,15 @@ program returned different bytes on a UTC server and a laptop. The structural an
 fix each serializer. It was to remove the special form, so there is nothing to keep in sync. Also
 run a test under a non-UTC `TZ` whenever dates are involved.
 
+## 9. A refusal must not catch the empty case — and one rule has one definition
+
+When a change adds a refusal, test the empty input, the all-defaults input and the zero-argument
+call, not only the shape it targets. In rc.2 round 14 the positional-call refusal also caught
+`random()`, because the emitter writes `args: []` for every call with no arguments. When a rule
+is enforced at more than one door, it must have one definition that every door calls. In the
+same round, the method table admitted a guest Date that the `Date()` factory then rejected,
+because each decided separately what a date is (`timestampOf` is now the single definition).
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

@@ -103,9 +103,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `hours`, `minutes`, `seconds`, `dayOfWeek` — all in UTC, so a program's output does not depend
 > on the host's time zone (fields, `add` and `format` used local time). A Date has ONE form:
 > guest `JSON.stringify`, a capability's input and the run result all see the object, where rc.1
-> wrote the ISO string — write `d.value` for that. A regex is an object of its `source` and flags.
+> wrote the ISO string — write `d.value` for that. `Date(x)` takes every form a date takes: a
+> guest Date, a stored one (an object with a numeric `timestamp`, which is what a Date becomes
+> after JSON, a store or a capability), a number of ms, or a string that parses. A regex is an object of its `source` and flags.
 > A positional call to an atom with named inputs (`agentRun(id, input)`) is refused with the named
-> shape (`agentRun({ agentId, input })`); it used to run with every input undefined. Their methods are the VM's, dispatched by kind, so a value never carries a
+> shape (`agentRun({ agentId, input })`); it used to run with every input undefined. A call with
+> no arguments (`random()`) is not positional and runs as before. Their methods are the VM's, dispatched by kind, so a value never carries a
 > function: the sealed wrappers and the run-result conversion that kept their methods away from
 > guest code are gone, with the four defects the seventeenth re-review found in them (a recursive
 > conversion that a deep or self-containing Set crashed, a `__proto__` key, an uncharged walk of
