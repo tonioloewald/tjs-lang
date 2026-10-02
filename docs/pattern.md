@@ -211,6 +211,30 @@ count those as passes. Each grok task carries test inputs the model never sees, 
 included (possessive repetition among them), and both styles are scored on what they return. The
 expectation (Tonio, 2026-10-02) is that Pattern wins this, not merely ties.
 
+## Design input: editing source (Tonio, 2026-10-02)
+
+Regex-driven edits fail often, for agents as much as people. One session's record (the agent
+that wrote this note, editing this repo):
+
+1. **Formatting drift** (most common): an exact-text edit fails because a formatter re-wrapped
+   the line in between. The intent was "the call to `compileRegex` with these arguments", not
+   "these characters". A pattern of tokens with flexible whitespace, plus `balanced('(', ')')`
+   for the argument list, matches the intent regardless of line breaks.
+2. **Escaping layers**: regex inside sed inside a heredoc, or inside a Python string, needs
+   escaping at every layer, and several patterns needed a second try. A builder takes literals
+   literally (`exactly('compileRegex(')`): there is nothing to escape.
+3. **Semantic slips**: a replacement string `false && a || b` did not mean what was intended,
+   because precedence inside a replacement is invisible. A structured edit replaces a node.
+
+So Pattern should be good at editing code, not only at reading data:
+
+- **A code mode**: whitespace and comments between tokens are skipped, and `balanced` and
+  `quoted` understand the host language's strings, template literals and comments.
+- **Edit safety**: an edit can require a unique match (or state how many), and a dry run shows
+  each match in context before anything is written.
+- **A CLI** (for example `tjs pattern replace <file> …`), so agents and people can use it
+  outside the VM. That is also where its value is easiest to measure: edits that apply first time.
+
 ## Later: the transpiler itself (Tonio, 2026-10-02)
 
 The same engine could replace the regex and hand-rolled scanning transforms in our own front

@@ -589,6 +589,9 @@ interface CompileState {
   groupsOf: Map<Node, number[]>
   work: number
   charge: Charge
+  /** bytes the program retains so far, each charged through `alloc` as it is built */
+  bytes: number
+  alloc: Charge
 }
 
 /** Charge compile work, and refuse past the cap even when nothing is metering (transpile time). */
@@ -607,6 +610,18 @@ function emit(prog: Instr[], ins: Instr, cs: CompileState): void {
       `Regex too large (over ${MAX_REGEX_PROGRAM} instructions)`
     )
   compileWork(cs, 1)
+  // charged BEFORE the instruction exists (I1): its slot, its live-register list, and its
+  // character table or reset list
+  const bytes =
+    64 +
+    cs.live.length * 8 +
+    (ins.op === 'char'
+      ? 48 + ins.cls.ranges.length * 40
+      : ins.op === 'reset'
+      ? ins.groups.length * 8
+      : 0)
+  cs.alloc(bytes)
+  cs.bytes += bytes
   prog.push(ins)
   cs.liveOf.push(cs.live)
 }
@@ -773,7 +788,8 @@ export function isGuestRegex(x: unknown): x is GuestRegex {
 export function compileRegex(
   source: string,
   flagText = '',
-  charge: Charge = noCharge
+  charge: Charge = noCharge,
+  alloc: Charge = noCharge
 ): GuestRegex {
   if (typeof source !== 'string')
     throw new RegexError('A regex pattern must be a string')
@@ -793,6 +809,9 @@ export function compileRegex(
     sticky: flagText.includes('y'),
   }
   charge(source.length) // the parser reads each character a bounded number of times
+  // The parse tree and the unmerged class ranges are transient, and a constant per source
+  // character: a 400k-character class builds 400k range pairs before they are merged.
+  alloc(64 + source.length * PARSE_BYTES_PER_CHAR)
   const { node, groups, names } = parse(source, flags)
   const cs: CompileState = {
     regs: 0,
@@ -802,12 +821,16 @@ export function compileRegex(
     groupsOf: new Map(),
     work: 0,
     charge,
+    bytes: 64 + source.length * 2,
+    alloc,
   }
   const prog: Instr[] = []
   emit(prog, { op: 'save', n: 0 }, cs)
   compileNode(node, prog, cs)
   emit(prog, { op: 'save', n: 1 }, cs)
   emit(prog, { op: 'match' }, cs)
+  alloc((prog.length + 1) * 4)
+  cs.bytes += (prog.length + 1) * 4
   const stateBase = new Int32Array(prog.length + 1)
   for (let pc = 0; pc < prog.length; pc++) {
     if (cs.liveOf[pc].length > 16 || stateBase[pc] > MAX_REGEX_STATES)
@@ -846,7 +869,7 @@ export function compileRegex(
         prog[1]?.op === 'assert' && prog[1].kind === '^' && !flags.multiline,
       liveOf: cs.liveOf,
       stateBase,
-      bytes: programBytes(source, prog, cs.liveOf, stateBase),
+      bytes: cs.bytes,
     } satisfies Compiled,
   })
   // prints as JavaScript prints a RegExp: one shared, frozen function, not a closure per regex
@@ -854,24 +877,8 @@ export function compileRegex(
   return Object.freeze(re) as GuestRegex
 }
 
-/** An upper bound on what a compiled program holds: instructions, the state layout, the live
- * register lists, character-class range tables (counted per instruction, so a class shared by
- * expanded copies is over-counted, which fails closed) and the source. */
-function programBytes(
-  source: string,
-  prog: Instr[],
-  liveOf: number[][],
-  stateBase: Int32Array
-): number {
-  let bytes = 64 + source.length * 2 + stateBase.length * 4
-  for (let pc = 0; pc < prog.length; pc++) {
-    const ins = prog[pc]
-    bytes += 64 + liveOf[pc].length * 8
-    if (ins.op === 'char') bytes += 48 + ins.cls.ranges.length * 40
-    else if (ins.op === 'reset') bytes += ins.groups.length * 8
-  }
-  return bytes
-}
+/** Transient parse memory per source character (tree nodes, unmerged class ranges). */
+const PARSE_BYTES_PER_CHAR = 64
 
 /** Compile work a SOURCE may spend on its regex literals, per byte of source (with a floor).
  * A per-regex cap alone let 100 literals in 3KB cost seconds at transpile and verify time, past

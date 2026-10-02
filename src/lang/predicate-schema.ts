@@ -20,7 +20,7 @@
  * full JSON-Schema structural validation is `tosijs-schema`'s job. The novel
  * part is `$predicate`.
  */
-import { verifyPredicate, compilePredicate } from './predicate'
+import { compilePredicateEntry } from './predicate'
 import type { CompilePredicateOptions } from './predicate'
 
 /** A JSON-Schema node, optionally carrying a `$predicate` (predicate source). */
@@ -93,12 +93,11 @@ export function compilePredicateSchema(
       !compiled.has(node.$predicate)
     ) {
       const src = node.$predicate
-      const names = verifyPredicate(src, compileOpts).predicates
-      const entry = names[names.length - 1]
-      if (!entry)
-        throw new Error('$predicate must declare at least one function')
-      const mod = compilePredicate(src, [entry], compileOpts)
-      compiled.set(src, mod[entry] as (value: unknown) => boolean)
+      // one verification and one regex budget for the source (rc.2 tenth re-review)
+      compiled.set(
+        src,
+        compilePredicateEntry(src, compileOpts) as (value: unknown) => boolean
+      )
     }
     if (node.properties)
       for (const child of Object.values(node.properties)) prepare(child)

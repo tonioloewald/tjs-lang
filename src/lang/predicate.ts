@@ -644,22 +644,20 @@ export function suggest(
   // Validate mined values against the predicate unless told not to / unsafe.
   let accept: ((v: string) => boolean) | null = null
   if (opts.validate !== false) {
-    const verified = verifyPredicate(source, opts)
-    if (verified.safe && verified.predicates.length) {
-      const entry =
-        opts.entry ?? verified.predicates[verified.predicates.length - 1]
-      try {
-        const mod = compilePredicate(source, [entry], opts)
-        const fn = mod[entry]
-        accept = (v) => {
-          try {
-            return fn(v) === true
-          } catch {
-            return false // fuel exhaustion / runtime miss → not a suggestion
-          }
+    let fn: ((v: string) => unknown) | null
+    try {
+      fn = compilePredicateEntry(source, opts, opts.entry)
+    } catch {
+      fn = null // unverifiable or not compilable → fall back to raw mining
+    }
+    if (fn) {
+      const check = fn
+      accept = (v) => {
+        try {
+          return check(v) === true
+        } catch {
+          return false // fuel exhaustion / runtime miss → not a suggestion
         }
-      } catch {
-        accept = null // not compilable → fall back to raw mining
       }
     }
   }
@@ -782,6 +780,34 @@ export function compilePredicate(
   exportNames: string[],
   opts: CompilePredicateOptions = {}
 ): Record<string, (...args: any[]) => any> {
+  return compileVerified(source, opts, () => exportNames)
+}
+
+/**
+ * Verify ONCE and compile the cluster's entry (the last declared predicate, or `entry`), with
+ * one per-source regex budget. Callers that verified to find the entry and then compiled used to
+ * build two budgets for one source (rc.2 tenth re-review).
+ */
+export function compilePredicateEntry(
+  source: string,
+  opts: CompilePredicateOptions = {},
+  entry?: string
+): (...args: any[]) => any {
+  let name = ''
+  const mod = compileVerified(source, opts, (verified) => {
+    name = entry ?? verified.predicates[verified.predicates.length - 1] ?? ''
+    if (!name)
+      throw new Error('a predicate source must declare at least one function')
+    return [name]
+  })
+  return mod[name]
+}
+
+function compileVerified(
+  source: string,
+  opts: CompilePredicateOptions,
+  pick: (verified: PredicateVerifyResult) => string[]
+): Record<string, (...args: any[]) => any> {
   // Through the funnel, FIRST: `--fuel < 0` is never true for NaN, so an unvalidated budget
   // was no budget at all (0.14.0 final re-review 12, B-1).
   const budget = budgetOption('fuel', opts.fuel, DEFAULT_PREDICATE_FUEL)
@@ -791,6 +817,7 @@ export function compilePredicate(
     throw new Error(
       `Not predicate-safe:\n${formatPredicateDiagnostics(result.diagnostics)}`
     )
+  const exportNames = pick(result)
   // The export names are spliced into `new Function` source below, so only names the
   // verifier certified may appear there — anything else is code built from an argument.
   for (const name of exportNames)
@@ -1025,11 +1052,9 @@ export function createPredicateEvaluator(
     let fn = cache.get(source)
     if (fn === undefined) {
       try {
-        const names = verifyPredicate(source, compileOpts).predicates
-        const entry = names[names.length - 1]
-        if (!entry) throw new Error('$predicate declares no function')
-        const mod = compilePredicate(source, [entry], compileOpts)
-        fn = mod[entry] as (value: unknown) => boolean
+        fn = compilePredicateEntry(source, compileOpts) as (
+          value: unknown
+        ) => boolean
       } catch (e) {
         fn = null // fail closed
         if (!warned.has(source)) {

@@ -1096,6 +1096,25 @@ describe('round 5: every resource a regex uses is charged (rc.2 ninth re-review)
     expect(performance.now() - t).toBeLessThan(500)
   })
 
+  it('M2 (tenth re-review M1): helper functions share the source budget', () => {
+    // one costly literal per helper: each helper used to get a fresh budget of its own
+    const source = (lit: (i: number) => string) =>
+      Array.from(
+        { length: 80 },
+        (_, i) => `function h${i}() { return { r: ${lit(i)} } }`
+      ).join('\n') +
+      '\nfunction f() {\n' +
+      Array.from({ length: 80 }, (_, i) => `let a${i} = h${i}()`).join('\n') +
+      '\nreturn { n: 1 } }'
+    // apparatus: the same shape with an ordinary literal transpiles
+    expect(() => transpile(source(() => '/a/'))).not.toThrow()
+    const t = performance.now()
+    expect(() =>
+      transpile(source((i) => `/(?:(?:){10000}){${50 + i}}/`))
+    ).toThrow(/too large to compile/)
+    expect(performance.now() - t).toBeLessThan(500)
+  })
+
   it('M2: a repeated literal is compiled once per source', () => {
     // 400 × ~3000 steps is over this source's budget unless each distinct literal compiles once
     const lits = Array.from({ length: 400 }, () => '/a{3000}b/').join(', ')

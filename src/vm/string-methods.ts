@@ -43,7 +43,8 @@ export interface Prepared {
 }
 
 export function prepare(p: Pattern, m: Meters): Prepared {
-  const re = isGuestRegex(p) ? p : compileRegex(String(p), '', m.steps)
+  // a string pattern is compiled here: its program charged as it is built, like a literal's
+  const re = isGuestRegex(p) ? p : compileRegex(String(p), '', m.steps, m.alloc)
   m.alloc(threadBytes(re))
   const scratch = regexScratch(re)
   return {
@@ -69,10 +70,11 @@ export function allMatches(
   p: Prepared,
   s: string,
   m: Meters,
-  all = p.re.global
+  all = p.re.global,
+  start = 0
 ): RegexMatch[] {
   const out: RegexMatch[] = []
-  let from = 0
+  let from = start
   while (from <= s.length) {
     const hit = p.exec(s, from)
     if (!hit) break

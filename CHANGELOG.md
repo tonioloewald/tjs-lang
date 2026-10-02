@@ -83,6 +83,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `tjs-lang/vm-ast` is 35 KB gzipped, `tjs-lang/vm` 86 KB (68 KB at rc.1); the regex engine is
 > about 7 KB of it.
 >
+> **Since rc.1 — every resource a regex uses is charged.** Everything a regex costs is now a
+> function of its program size and its input. A compiled regex is charged its program's size
+> against `maxHeapBytes` as the program is built, and counted while it is held (it used to keep
+> its matching table for as long as it lived: 1000 held regexes kept ~690MB under an 8MB
+> ceiling). Regex literals in one source share a compile budget of max(50k, 200 × source bytes),
+> with each distinct literal compiled once; an over-budget source is refused with "The regexes
+> in this source are too large to compile". That holds in AJS helper functions too, and for
+> `$predicate` sources. In predicates, `__fuel` and `__rx` are reserved identifiers.
+>
 > **Since rc.1 — the regex engine is metered by construction, and predicates use it too.** A
 > linear algorithm is not a bounded one unless its work is CHARGED: the first version charged one
 > step per thread per position, and the work it did not see (following zero-width instructions,

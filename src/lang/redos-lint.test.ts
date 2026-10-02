@@ -180,6 +180,14 @@ describe('round 5 (rc.2 ninth re-review)', () => {
       expect(JSON.stringify(p(s))).toBe(JSON.stringify(native(s)))
   })
 
+  it('matchAll starts at lastIndex and leaves it unchanged (tenth re-review)', () => {
+    const src = `function p(s) { const r = /a/g; r.lastIndex = 2; const out = [...s.matchAll(r)].map((m) => m.index); return [out, r.lastIndex] }`
+    const { p } = compilePredicate(src, ['p'])
+    const native = new Function(`${src}; return p`)()
+    for (const s of ['aaaa', 'a', ''])
+      expect(JSON.stringify(p(s))).toBe(JSON.stringify(native(s)))
+  })
+
   it('m2: the names the compiled form injects are reserved', () => {
     for (const src of [
       'function p(s) { const __rx = () => /x/; return __rx().test(s) }',

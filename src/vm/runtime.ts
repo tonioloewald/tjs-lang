@@ -3916,18 +3916,19 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         throw new Error('A regex node needs a string pattern and flags')
       let re: GuestRegex
       try {
+        // A compiled regex HOLDS its program for as long as it lives: each piece is charged as
+        // it is built (I1; rc.2 tenth re-review), and the heap walk counts the whole program
+        // (`regexBytes`) wherever the regex is held (ninth re-review B1).
         re = compileRegex(
           node.pattern,
           node.flags,
-          regexFuel(ctx, 'expr.regex')
+          regexFuel(ctx, 'expr.regex'),
+          (bytes) => allocate(ctx, bytes, 'expr.regex')
         )
       } catch (e: any) {
         if (e instanceof AgentError) throw e
         throw new AgentError(e.message, 'expr.regex')
       }
-      // A compiled regex HOLDS its program for as long as it lives: charged here, where it is
-      // created, and counted by the heap walk wherever it is held (rc.2 ninth re-review B1).
-      allocate(ctx, regexBytes(re), 'expr.regex')
       return re
     }
 

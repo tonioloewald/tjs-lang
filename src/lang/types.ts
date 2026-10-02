@@ -295,8 +295,12 @@ export interface TransformContext {
   filename: string
   /** Options */
   options: TranspileOptions
-  /** Compiles this source's regex literals against one per-source budget (shared by children) */
-  regexCompiler?: import('../vm/regex').RegexCompiler
+  /**
+   * Compiles this source's regex literals against ONE per-source budget. Required, and created
+   * once with the root context: a context built without it (a helper's, in rc.2 tenth re-review
+   * M1) used to mint a fresh budget lazily, so the budget failed open. Every context shares it.
+   */
+  regexCompiler: import('../vm/regex').RegexCompiler
   /**
    * Helper functions (top-level functions declared before the entry function).
    * Calls to these names emit `callLocal` instead of treating them as atom calls.

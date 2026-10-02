@@ -115,7 +115,15 @@ class HostRegex {
     if (!this.re.global)
       throw new TypeError('matchAll must be called with a global RegExp')
     const s = String(input)
-    for (const hit of allMatches(prepare(this.re, this.m), s, this.m))
+    // as JavaScript does: from this regex's lastIndex, which is left unchanged (a clone iterates)
+    const start = Math.max(0, Math.trunc(this.lastIndex) || 0)
+    for (const hit of allMatches(
+      prepare(this.re, this.m),
+      s,
+      this.m,
+      true,
+      start
+    ))
       yield matchArray(hit, s, this.m)
   }
 }

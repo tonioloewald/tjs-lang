@@ -253,6 +253,7 @@ export function transformFunction(
     helpers,
     helperSteps: helpers ? new Map() : undefined,
     helperTransforming: helpers ? new Set() : undefined,
+    regexCompiler: new RegexCompiler(source.length),
   }
 
   // Transform function body
@@ -501,10 +502,7 @@ function regexNode(lit: Literal, ctx: TransformContext): any {
   if (!rx) return undefined
   try {
     // every literal in this source shares one budget, proportional to the source (M2)
-    let root = ctx
-    while (root.parent) root = root.parent
-    root.regexCompiler ??= new RegexCompiler(ctx.source.length)
-    root.regexCompiler.compile(rx.pattern, rx.flags)
+    ctx.regexCompiler.compile(rx.pattern, rx.flags)
   } catch (e: any) {
     if (!(e instanceof RegexError)) throw e
     throw new TranspileError(
@@ -1478,6 +1476,7 @@ function ensureHelperTransformed(
       ),
       atoms: ctx.atoms,
       warnings: ctx.warnings,
+      regexCompiler: ctx.regexCompiler,
       source: ctx.source,
       filename: ctx.filename,
       options: ctx.options,
