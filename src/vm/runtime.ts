@@ -1332,7 +1332,8 @@ export function resolveName(val: string, ctx: RuntimeContext): any {
       for (let i = 1; i < parts.length; i++) {
         current = current?.[parts[i]]
       }
-      return current
+      // a dot-path is a value read too: `'s.add'` on a Set wrapper is a host function
+      return guestValue(current)
     }
   }
   // Simple state lookup (not an expression, just key)
@@ -1587,12 +1588,56 @@ const HEAP_CONTENTS = Symbol('tjs.heapContents')
 const DATE_WRAPPER = Symbol('tjs.dateWrapper')
 function tagDateWrapper<T extends object>(wrapper: T): T {
   Object.defineProperty(wrapper, DATE_WRAPPER, { value: true })
-  return wrapper
+  return sealMethods(wrapper)
 }
 
 function withHeapContents<T extends object>(contents: unknown, wrapper: T): T {
   Object.defineProperty(wrapper, HEAP_CONTENTS, { value: contents })
+  return sealMethods(wrapper)
+}
+
+/**
+ * A VM wrapper's methods are callable, not values: non-enumerable (so `Object.values`, `assign`,
+ * spread and `JSON.stringify` cannot harvest them), non-writable and non-configurable (so guest
+ * code cannot replace one). Rc.2 fifteenth re-review B1: `Object.values(s)` handed out `s.add`.
+ */
+function sealMethods<T extends object>(wrapper: T): T {
+  for (const [k, d] of Object.entries(
+    Object.getOwnPropertyDescriptors(wrapper)
+  ))
+    if (typeof d.value === 'function')
+      Object.defineProperty(wrapper, k, {
+        value: d.value,
+        enumerable: false,
+        writable: false,
+        configurable: false,
+      })
   return wrapper
+}
+
+/**
+ * The function a method call runs: the INTRINSIC for the receiver's kind, never a property the
+ * guest owns. `{ hasOwnProperty: stolenAdd }.hasOwnProperty(x)` dispatched to the guest's
+ * property under `hasOwnProperty`'s bound, and grew a Set past `maxHeapBytes` (rc.2 fifteenth
+ * re-review B1). Namespaces and the VM's wrappers carry their own (VM-built, sealed) methods.
+ */
+function intrinsicMethod(obj: any, method: string): unknown {
+  // `Date` is the one namespace that is itself a function (`Date.now()`)
+  if (typeof obj === 'function')
+    return obj === (builtins as any).Date ? obj[method] : undefined
+  if (typeof obj === 'string') return (String.prototype as any)[method]
+  if (typeof obj === 'number') return (Number.prototype as any)[method]
+  if (typeof obj === 'boolean') return (Boolean.prototype as any)[method]
+  if (Array.isArray(obj)) return (Array.prototype as any)[method]
+  if (
+    NAMESPACE_OBJECTS.has(obj) ||
+    HEAP_CONTENTS in obj ||
+    DATE_WRAPPER in obj ||
+    isGuestRegex(obj)
+  )
+    return obj[method]
+  if (obj instanceof Date) return (Date.prototype as any)[method]
+  return (Object.prototype as any)[method]
 }
 
 /** Deep-freeze plain JSON (the guest Schema constants are shared by every run). */
@@ -1811,8 +1856,8 @@ export const builtins: Record<string, any> = Object.assign(
     // Schema-based filtering - strips extra properties, validates structure
     // Returns filtered data or throws on validation failure
     filter: (data: any, schema: any): any => {
-      // Convert example-value schema to JSON Schema if needed
-      const jsonSchema = convertExampleToSchema(schema)
+      // the ADMITTED copy of the schema (or example) — what was checked is what validates
+      const jsonSchema = admittedSchema(schema, 'filter').schema
       const result = schemaFilter(data, jsonSchema)
       if (result instanceof Error) {
         throw result
@@ -2474,7 +2519,8 @@ const SIGS: Record<string, Record<string, Sig>> = {
   'ns:JSON': {
     // a parsed value is at most ~16 bytes per source character (`[0,0,…]`: a slot per 2 chars)
     parse: { args: ['str'], bound: (_r, a) => 16 * a[0].length + 64 },
-    // no replacer (guest code has no functions); an indent of a number or a string
+    // no replacer: guest code holds no functions — enforced by the closed value domain
+    // (`evaluateExpr`/`guestValue`), not assumed; an indent of a number or a string
     stringify: {
       args: ['any', 'nullish?', 'prim?'],
       bound: (_r, a, ctx) => stringifyBound(ctx, a[0], a[2]),
@@ -2644,11 +2690,18 @@ function kindOf(r: unknown): string {
     if (HEAP_CONTENTS in r) return 'set'
     if (DATE_WRAPPER in r) return 'date'
     if (isGuestRegex(r)) return 'regex'
-    if (isBuilder(r)) return 'builder'
     if (r instanceof Date) return 'native-date'
     return 'object'
   }
   return typeof r
+}
+/** The builtin namespace objects (proxies over host APIs): never guest values. Built lazily,
+ * after `builtins` exists. */
+const NAMESPACE_OBJECTS: { has(v: object): boolean } = {
+  has(v: object) {
+    for (const ns of NAMESPACES) if (v === (builtins as any)[ns]) return true
+    return false
+  },
 }
 const NAMESPACES = [
   'Math',
@@ -2778,8 +2831,6 @@ function methodGate(
       `expr.${method}`
     )
   checkArgs(sig, args, `${method}()`, `expr.${method}`)
-  // a builder validates on the host's engine: `meta({ pattern })` would smuggle a guest regex in
-  if (kind === 'builder' && method === 'validate') admitGuestSchema(receiver)
   return sig.bound === 'vm' ? 'vm' : sig.bound(receiver, args, ctx)
 }
 
@@ -3111,7 +3162,10 @@ function guestCall(
   const bound = methodGate(receiver, method, args, ctx)
   if (bound === 'vm') return vmMethod(ctx, receiver, method, args)
   allocate(ctx, bound, op)
-  return receiver[method](...args)
+  const fn = intrinsicMethod(receiver, method)
+  if (typeof fn !== 'function')
+    throw new AgentError(`'${method}' is not a method of this value`, op)
+  return fn.apply(receiver, args)
 }
 
 /**
@@ -3156,16 +3210,57 @@ export function admitResponseFormat(format: any, op: string): any {
   return format
 }
 
-/** Tool definitions carry guest schemas too (`function.parameters`): each is admitted. */
+/**
+ * Tool definitions carry guest schemas too. The SHAPE is allowlisted —
+ * `{ type: 'function', function: { name, description?, parameters?, strict? } }` — and the
+ * parameters schema admitted; any other spelling (`input_schema`, a flattened tool) is refused,
+ * since an unanticipated shape is exactly what passed unexamined (fifteenth re-review M2).
+ */
 export function admitTools(tools: any, op: string): any {
   if (tools === undefined || tools === null) return tools
-  if (!Array.isArray(tools)) throw new AgentError('tools must be an array', op)
+  const refuse = (why: string): never => {
+    throw new AgentError(`tools are not available in AsyncJS: ${why}`, op)
+  }
+  if (!Array.isArray(tools)) refuse('tools must be an array')
   for (const t of tools) {
-    const params = t?.function?.parameters
-    if (params !== undefined) admitGuestSchema(params, op)
+    if (
+      !t ||
+      typeof t !== 'object' ||
+      t.type !== 'function' ||
+      Object.keys(t).some((k) => k !== 'type' && k !== 'function')
+    )
+      refuse(
+        "each tool is { type: 'function', function: { name, parameters } }"
+      )
+    const fn = t.function
+    if (
+      !fn ||
+      typeof fn !== 'object' ||
+      typeof fn.name !== 'string' ||
+      Object.keys(fn).some(
+        (k) => !['name', 'description', 'parameters', 'strict'].includes(k)
+      )
+    )
+      refuse('a tool function takes name, description, parameters and strict')
+    if (fn.parameters !== undefined) admitGuestSchema(fn.parameters, op)
   }
   return tools
 }
+
+/** The options `llmPredict` passes to a model: an allowlist, so no other key (`response_format`,
+ * `functions`) carries an unadmitted schema to the provider (fifteenth re-review M2). */
+const LLM_OPTION_KEYS = new Set([
+  'model',
+  'temperature',
+  'maxTokens',
+  'max_tokens',
+  'topP',
+  'top_p',
+  'stop',
+  'seed',
+  'responseFormat',
+  'tools',
+])
 
 /** A VM-implemented method: the string methods over the VM's regex engine, or Schema's. */
 function vmMethod(
@@ -3180,7 +3275,9 @@ function vmMethod(
 }
 
 /** Fuel per schema-node × data-node step of validation (a step is a keyword check). */
-export const VALIDATION_FUEL_PER_STEP = 0.00005
+/** Calibrated against the VM's own rate: at 0.00005 validation bought ~38× more host time per
+ * fuel than a loop (rc.2 fifteenth re-review), and it is one synchronous, uninterruptible call. */
+export const VALIDATION_FUEL_PER_STEP = 0.002
 
 /**
  * Charge a validation BEFORE it runs: its work is (schema nodes) × (data nodes), not their sum —
@@ -3221,8 +3318,16 @@ function vmSchemaMethod(
   args: any[]
 ): unknown {
   const op = `Schema.${method}`
-  // the result mirrors its arguments' tree
-  allocate(ctx, 32 * treeBytes(ctx, args).bytes + 512, op)
+  // Per method (fourteenth/fifteenth re-review M1): a constructor's result mirrors its
+  // arguments' tree (a copy, plus the wrapping keywords); `isValid` allocates only the admitted
+  // copy of its SCHEMA — charging 32× its data refused ordinary 2MB payloads.
+  allocate(
+    ctx,
+    method === 'isValid'
+      ? 2 * treeBytes(ctx, args[1]).bytes + 512
+      : 4 * treeBytes(ctx, args).bytes + 512,
+    op
+  )
   const each = (list: unknown[]) =>
     list.map((x) => admittedSchema(x, op).schema)
   const primitives = (list: unknown[]) => {
@@ -4164,7 +4269,36 @@ function chargeForSize(ctx: RuntimeContext, value: any, op: string): boolean {
  * This replaces JSEP for new code - expressions are already parsed by Acorn.
  * Each node evaluation consumes a small amount of fuel to prevent runaway expressions.
  */
+/**
+ * Evaluate an expression to a GUEST VALUE. The guest value domain is closed: data (JSON-like
+ * values) and the VM's own wrappers (Set, Date, regex) — never a host function or a builtin
+ * namespace. Enforced HERE, where every expression's value is produced, not at the read sites
+ * where an instance was once observed: the `member` guard alone left idents (`parseInt`),
+ * namespace copies (`Object.values(Math)`), `toJSON` and dot-paths open (rc.2 fifteenth
+ * re-review B1). The only positions that may name a function or namespace are the ones that CALL
+ * or READ FROM it — a method call's receiver and a member read's object — which use
+ * `evaluateCallable` and check their own results.
+ */
 export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
+  return guestValue(evaluateCallable(node, ctx))
+}
+
+/** Refuse a host function or builtin namespace as a guest value. */
+export function guestValue<T>(v: T): T {
+  if (
+    typeof v === 'function' ||
+    (v && typeof v === 'object' && NAMESPACE_OBJECTS.has(v as any))
+  )
+    throw new AgentError(
+      'A function or builtin namespace is not a value in AsyncJS: call it (e.g. Math.max(a, b), s.trim())',
+      'expr'
+    )
+  return v
+}
+
+/** An expression in a position that may name a function or namespace (a call's receiver, a
+ * member read's object). Everything else goes through `evaluateExpr`. */
+function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
   // Handle non-expression values (literals passed directly)
   if (node === null || node === undefined) {
     return node
@@ -4216,7 +4350,8 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
     }
 
     case 'member': {
-      const obj = evaluateExpr(node.object, ctx)
+      // may be a namespace (`Math.PI`); the member's own result is checked by `evaluateExpr`
+      const obj = evaluateCallable(node.object, ctx)
 
       // Short-circuit for optional chaining
       if (node.optional && (obj === null || obj === undefined)) {
@@ -4418,7 +4553,8 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
     case 'methodCall': {
       // Method call on an object (e.g., Math.floor(x), arr.length, str.toUpperCase())
-      const obj = evaluateExpr(node.object, ctx)
+      // — the receiver may be a namespace; the call's RESULT is checked by `evaluateExpr`
+      const obj = evaluateCallable(node.object, ctx)
 
       // Short-circuit for optional chaining
       if (node.optional && (obj === null || obj === undefined)) {
@@ -4442,7 +4578,7 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       }
 
       // a VM-implemented namespace (the data-only Schema) has no host functions to look up
-      const fn = obj === GUEST_SCHEMA ? undefined : obj[method]
+      const fn = obj === GUEST_SCHEMA ? undefined : intrinsicMethod(obj, method)
       if (obj !== GUEST_SCHEMA && typeof fn !== 'function') {
         throw new Error(`'${method}' is not a function`)
       }
@@ -6271,7 +6407,20 @@ export const llmPredict = defineAtom(
       throw new Error("Capability 'llm.predict' missing")
     const resolved = resolveValue(options, ctx)
     // the response format and any tool schemas are GUEST schemas handed to a model server
-    if (resolved && typeof resolved === 'object') {
+    if (resolved !== undefined && resolved !== null) {
+      if (typeof resolved !== 'object' || Array.isArray(resolved))
+        throw new AgentError(
+          'llmPredict options must be an object',
+          'llmPredict'
+        )
+      for (const k of Object.keys(resolved))
+        if (!LLM_OPTION_KEYS.has(k))
+          throw new AgentError(
+            `llmPredict option '${k}' is not available in AsyncJS (allowed: ${[
+              ...LLM_OPTION_KEYS,
+            ].join(', ')})`,
+            'llmPredict'
+          )
       admitResponseFormat(resolved.responseFormat, 'llmPredict')
       admitTools(resolved.tools, 'llmPredict')
     }

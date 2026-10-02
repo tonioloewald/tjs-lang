@@ -97,15 +97,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > once (the evaluator checks trust on every call); its cache is bounded. In predicates, a
 > string-literal pattern (`s.search('@')`) runs on the metered engine rather than being refused.
 >
+> **Since rc.1 — the AsyncJS value domain is closed (breaking).** A guest value is data — JSON
+> values and the VM's own Set, Date and regex wrappers — and never a host function or a builtin
+> namespace. It is enforced where values are produced (every expression, every dot-path read), not
+> at the one read site where a leak was first seen: `const g = parseInt`, `Object.values(Math)`,
+> `{ toJSON: encodeURIComponent }`, `[Set].join('')` (which printed VM source) and a dot-path
+> `'s.add'` all handed out host functions, and a stolen `Set.add` called through a guest object's
+> own `hasOwnProperty` property grew a Set past `maxHeapBytes`. Method calls now dispatch to the
+> receiver kind's INTRINSIC, never to a property the guest owns; the VM wrappers' methods are
+> sealed and non-enumerable; a namespace can no longer reach the host's result (where
+> `JSON.stringify` threw). `llmPredict` options are allowlisted (`model`, `temperature`,
+> `maxTokens`, `topP`, `stop`, `seed`, `responseFormat`, `tools`) and tools must be
+> `{ type: 'function', function: { name, description?, parameters?, strict? } }`. Validation is
+> charged at the VM's own rate (it bought ~38× more host time per fuel), and an AST's
+> `inputSchema` counts its arguments per path, as validation walks them.
+>
 > **Since rc.1 — in AsyncJS, `Schema` is data, and a method is not a value (breaking).** Guest
 > code held live tosijs-schema builders, whose methods are host closures: a `validate` read as a
 > value and spliced next to a harmless `schema` validated against a pattern smuggled in through
 > `meta` (51s on Node, at fuel 50). Now `Schema.string`, `Schema.email`, … are frozen plain JSON
 > schemas, and `Schema.object`, `array`, `record`, `union`, `tuple`, `enum`, `const`,
 > `fromExample`, `response` and `isValid` are VM-implemented, returning plain JSON built only from
-> admitted parts. **Migration:** builder chaining is gone — write the keyword
-> (`Schema.number.int.min(0)` → `{ type: 'integer', minimum: 0 }`; `.optional` → a nullable type,
-> `{ type: ['string', 'null'] }`). And reading a method as a value (`const f = s.trim`,
+> admitted parts. **Migration:** builder chaining is gone — write the keyword:
+> `.int` → `type: 'integer'`; `.min`/`.max` → `minimum`/`maximum` (or `minLength`/`maxLength`,
+> `minItems`/`maxItems`); `.step` → `multipleOf`; `.title`/`.describe` → `title`/`description`;
+> `.default` → `default`; `.open` → `additionalProperties: true`; `Schema.pattern` → refused (use
+> `regexMatch`). `.optional` → a nullable type, `{ type: ['string', 'null'] }`, which
+> `Schema.object` leaves out of `required` — note that a nullable key may be absent; a present key
+> must be the type or `null`. And reading a method as a value (`const f = s.trim`,
 > `'a'.toUpperCase`) is refused: call it. Validation is charged as schema size × data size, before
 > it runs, at every door (an `anyOf` of 3,300 branches over a 97×97 array ran 630ms for 63 fuel
 > when charged as a sum), including the AST's `inputSchema`, paid at admission. Every LLM door —

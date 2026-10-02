@@ -12,10 +12,11 @@
  * input string.
  */
 import { describe, it, expect } from 'bun:test'
+import { join } from 'path'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { AgentVM as AstVM } from './ast'
-import { builtins, defineAtom, methodBudgets } from './runtime'
+import { builtins, methodBudgets } from './runtime'
 
 const SLOT = 8
 
@@ -709,71 +710,16 @@ describe('round 2 (docs/reviews/0.14.0-rc.2-rereview-6.md), through transpile()'
     // Hand-built: the helper declares ONE parameter; each recursive call passes two, the second
     // a fresh 300K-character string. Held for the call (unbound AND uncharged), 40 levels kept
     // ~12MB alive under a 1MB cap; dropped, they are garbage. Measured at the deepest level,
-    // after a forced collection, because an escape completes just as a correct run does.
-    const lit = (value: unknown) => ({ $expr: 'literal', value })
-    const n = { $expr: 'ident', name: 'n' }
-    let held = -1
-    const baseline = () => {
-      Bun.gc(true)
-      return process.memoryUsage().heapUsed
-    }
-    const sample = defineAtom(
-      'sample',
-      undefined,
-      undefined,
-      async () => {
-        held = baseline() - start
-      },
-      { effects: 'pure' }
-    )
-    const ast = {
-      $ajs: 2,
-      op: 'seq',
-      helpers: {
-        h: {
-          paramNames: ['n'],
-          steps: [
-            {
-              op: 'if',
-              condition: { $expr: 'binary', op: '>', left: n, right: lit(0) },
-              then: [
-                {
-                  op: 'callLocal',
-                  name: 'h',
-                  args: [
-                    { $expr: 'binary', op: '-', left: n, right: lit(1) },
-                    {
-                      $expr: 'methodCall',
-                      object: lit('p'),
-                      method: 'repeat',
-                      arguments: [lit(300_000)],
-                    },
-                  ],
-                },
-              ],
-              else: [{ op: 'sample' }],
-            },
-            { op: 'return', value: lit(0) },
-          ],
-        },
-      },
-      steps: [
-        { op: 'callLocal', name: 'h', args: [lit(40), lit('x')], result: 'r' },
-        { op: 'return', value: { ok: lit(true) } },
-      ],
-    }
-    const start = baseline()
-    const r = await new AgentVM({ sample }).run(
-      ast as any,
-      {},
-      {
-        fuel: 5_000_000,
-        maxHeapBytes: 1_000_000,
-      }
-    )
-    expect(r.error).toBeUndefined()
-    expect(held).toBeGreaterThan(-Infinity) // apparatus: the deepest level was reached
-    expect(held).toBeLessThan(6 * 1024 * 1024)
+    // after a forced collection, in its OWN process (`helper-args-heap.probe.ts`): process-wide
+    // heapUsed is disturbed by other test files sharing the process.
+    const proc = Bun.spawnSync([
+      'bun',
+      join(import.meta.dir, 'helper-args-heap.probe.ts'),
+    ])
+    const out = JSON.parse(proc.stdout.toString().trim().split('\n').pop()!)
+    expect(out.error).toBeNull()
+    expect(out.held).toBeGreaterThan(-Infinity) // apparatus: the deepest level was reached
+    expect(out.held).toBeLessThan(6 * 1024 * 1024)
   })
 
   it("a Set's intersection is O(n + m), not O(n × m) (M2)", async () => {

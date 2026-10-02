@@ -154,6 +154,16 @@ KB. The design answer is to make cost a function of a few quantities you charge 
 regex, its program size (at creation) and its input (per match) — so there is no fourth
 dimension to find. `docs/pattern.md` takes that further: one engine step is one charge.
 
+## 7. Where is the class PRODUCED? — enforcing an invariant
+
+A fix that states an invariant for a class ("a method is never a value", "a guest schema cannot
+reach the host's regex engine") must be enforced where values of that class are PRODUCED, not at
+the read site where one instance was observed. Before accepting "closes the general class", list
+every producer of the value and check each one. In 0.14.0-rc.2, rounds 9 and 10 each closed one
+read site of a general claim and the next review found its siblings (idents, namespace copies,
+`toJSON`, dot-paths, method shadowing); round 11 moved the check to `evaluateExpr`, the one place
+every expression's value comes from. This is lens 1 (sibling sites) applied to invariants.
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

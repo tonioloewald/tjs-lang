@@ -171,6 +171,26 @@ describe('validation is charged as schema × data, before it runs (fourteenth re
     expect(b.fuelUsed).toBeGreaterThan(product)
   })
 
+  it('inputSchema: DAG-shaped arguments are counted per path, as validation walks them (M3)', async () => {
+    // one array referenced 97 times at each of 4 levels: ~88M paths, almost no distinct objects
+    let v: any = 1
+    for (let i = 0; i < 4; i++) v = Array(97).fill(v)
+    const nested = (n: number): any =>
+      n === 0 ? { type: 'number' } : { type: 'array', items: nested(n - 1) }
+    const t = performance.now()
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [],
+        inputSchema: { type: 'object', properties: { d: nested(4) } },
+      } as any,
+      { d: v },
+      { fuel: 1000 }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(/Out of Fuel/)
+    expect(performance.now() - t).toBeLessThan(300)
+  })
+
   it('inputSchema: validation paid at admission, refused if it cannot be afforded', async () => {
     const t = performance.now()
     const anyOf = Array.from({ length: 3300 }, (_, i) => ({ const: i }))
@@ -249,6 +269,38 @@ describe('every LLM door admits its schemas (fourteenth re-review M1, M2)', () =
       expect(r.error?.message ?? 'admitted').toMatch(/not available in AsyncJS/)
       expect(calls.length).toBe(0)
     })
+
+  for (const [name, options] of [
+    [
+      'a response_format key',
+      `{ response_format: { type: 'json_object', schema: { pattern: '^(a+)+$' } } }`,
+    ],
+    [
+      'a functions key',
+      `{ functions: [{ name: 'f', parameters: { type: 'string', pattern: '^(a+)+$' } }] }`,
+    ],
+    [
+      'a tool with input_schema',
+      `{ tools: [{ name: 't', input_schema: { type: 'string', pattern: '^(a+)+$' } }] }`,
+    ],
+    [
+      'a flattened tool',
+      `{ tools: [{ type: 'function', name: 't', parameters: { type: 'string', pattern: '^(a+)+$' } }] }`,
+    ],
+  ] as const)
+    it(`core llmPredict refuses ${name} (fifteenth re-review M2)`, async () => {
+      const { r, calls } = await llmRun(options)
+      expect(r.error?.message ?? 'admitted').toMatch(/not available in AsyncJS/)
+      expect(calls.length).toBe(0)
+    })
+
+  it('ordinary options still reach the model', async () => {
+    const { r, calls } = await llmRun(
+      `{ model: 'm', temperature: 0.5, maxTokens: 10 }`
+    )
+    expect(r.error).toBeUndefined()
+    expect(calls[0]).toEqual({ model: 'm', temperature: 0.5, maxTokens: 10 })
+  })
 
   it('an admitted format reaches the model', async () => {
     const { r, calls } = await llmRun(

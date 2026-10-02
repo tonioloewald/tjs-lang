@@ -34,12 +34,14 @@ const RECEIVERS: Record<
   set: {
     make: () => builtins.Set([3, 1, 2]),
     snapshot: (r) => JSON.stringify(r.toArray()),
-    names: (r) => Object.keys(r),
+    // a wrapper's methods are non-enumerable (round 11): list its own names, not its keys
+    names: (r) => Object.getOwnPropertyNames(r),
   },
   date: {
     make: () => builtins.Date('2020-01-02T03:04:05Z'),
     snapshot: (r) => String(r.timestamp),
-    names: (r) => Object.keys(r),
+    // a wrapper's methods are non-enumerable (round 11): list its own names, not its keys
+    names: (r) => Object.getOwnPropertyNames(r),
   },
 }
 

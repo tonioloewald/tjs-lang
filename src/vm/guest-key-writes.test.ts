@@ -41,6 +41,8 @@ const ALLOWED: Record<string, string> = {
     "the VM-owned PROGRAM symbol and a literal 'toString', on a regex object the VM built",
   'regex.ts › add › mark[state]':
     'an Int32Array indexed by closure state (VM-internal)',
+  'runtime.ts › sealMethods › Object.defineProperty':
+    "`k` iterates a VM-built wrapper's OWN method names, defined by the VM",
   'regex.ts › add › stackPc[sp]':
     "the closure stack's own array, indexed by its depth (VM-internal)",
   'regex.ts › add › stackCaps[sp++]':

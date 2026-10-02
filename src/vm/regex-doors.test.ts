@@ -38,7 +38,7 @@ const COMPILE_SITES: Record<string, { args: number; why: string }> = {
     args: 4,
     why: "a string pattern compiled for one operation: the run's fuel and heap",
   },
-  'vm/runtime.ts › evaluateExpr': {
+  'vm/runtime.ts › evaluateCallable': {
     args: 4,
     why: "a regex literal evaluated in a run: the run's fuel and heap",
   },

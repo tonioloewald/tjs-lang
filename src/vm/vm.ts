@@ -88,17 +88,20 @@ export const DEFAULT_ARGS_MAX_BYTES = 4 * 1024 * 1024
 
 export type { RunOptions } from './admission'
 
-/** Nodes in plain data (objects, arrays, slots, primitives); shared objects counted once. */
-function countNodes(value: unknown): number {
+/**
+ * Nodes in data as VALIDATION visits them: per occurrence, so a shared object is counted at
+ * every path that reaches it (a WeakSet-deduped count let DAG-shaped arguments validate for
+ * 1.7s on 0.25 fuel — fifteenth re-review M3). Stops at `limit`: past it the answer is only
+ * "more than the run can afford", and counting further would be the unbounded work itself.
+ */
+function countPaths(value: unknown, limit: number): number {
   let n = 0
-  const seen = new WeakSet<object>()
   const stack = [value]
   while (stack.length) {
     const v = stack.pop()
-    n++
-    if (!v || typeof v !== 'object' || seen.has(v)) continue
-    seen.add(v)
-    for (const x of Object.values(v)) stack.push(x)
+    if (++n > limit) return n
+    if (v && typeof v === 'object')
+      for (const x of Object.values(v)) stack.push(x)
   }
   return n
 }
@@ -416,13 +419,19 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     let refused: AgentError | undefined
     // Validation is (schema nodes) × (argument nodes) of work, done before the run's fuel
     // counter exists: it is added to the admission fuel the run starts by paying (fourteenth
-    // re-review M3). Argument nodes are counted on the copy that crossed (plain data, already
-    // charged by size): a 2MB string is one node, not 250,000.
+    // re-review M3). Argument nodes are counted on the copy that crossed, per occurrence (as
+    // validation visits them): a 2MB string is one node, a shared object is counted per path.
     let validationFuel = 0
     if (inputSchema)
       try {
         const nodes = admitGuestSchema(inputSchema, 'vm.run')
-        validationFuel = nodes * countNodes(args) * VALIDATION_FUEL_PER_STEP
+        // count only as far as the run could pay for
+        const affordable = Math.ceil(
+          Math.max(0, startFuel - admissionFuel) /
+            (nodes * VALIDATION_FUEL_PER_STEP)
+        )
+        validationFuel =
+          nodes * countPaths(args, affordable) * VALIDATION_FUEL_PER_STEP
       } catch (e) {
         if (!(e instanceof AgentError)) throw e
         refused = e
