@@ -235,6 +235,26 @@ So Pattern should be good at editing code, not only at reading data:
 - **A CLI** (for example `tjs pattern replace <file> …`), so agents and people can use it
   outside the VM. That is also where its value is easiest to measure: edits that apply first time.
 
+## Performance: expectations, to be measured (Tonio, 2026-10-02)
+
+Native regex will win some cases: V8 compiles a pattern to machine code with fast literal
+scanning, so short, simple, anchored patterns on short inputs (most CSS values) favour it on
+constant factors. Pattern in JavaScript should win wherever regex backtracks, wherever it cannot
+express the job (nesting, quoting), and wherever structured captures save a second pass. Its
+cost is also the cost charged, where native regex is fast on average and unbounded at worst.
+
+A Rust engine (to wasm; `docs/ajs-native-vm.md`) is where results may get interesting. Because a
+pattern is DATA, the same grammar runs on it unchanged: the regular subset (no `balanced`)
+compiles to a DFA — linear with a tiny constant, as Rust's `regex` crate does — and `balanced`
+stays a depth counter. The catch is the boundary: copying a string into wasm memory per call can
+dominate tiny inputs, so the wins are long inputs, batch validation (a whole theme per call), or
+a VM that already lives in wasm. Swapping the engine never touches anyone's patterns, which is
+hard to do with regex: any engine that runs one has to match ECMAScript's semantics exactly.
+
+**Measure, don't guess:** one benchmark corpus — CSS values, CSV rows, log lines, nested calls —
+run across native regex, the linear regex engine, Pattern in JavaScript, and later Pattern in
+wasm, with results dated in `benchmarks.md`.
+
 ## Later: the transpiler itself (Tonio, 2026-10-02)
 
 The same engine could replace the regex and hand-rolled scanning transforms in our own front
