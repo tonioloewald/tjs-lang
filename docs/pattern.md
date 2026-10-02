@@ -136,6 +136,31 @@ by a differential test, the same arrangement as predicates.
   see inside a capability, so a catastrophic pattern there is the host's to own, as with any
   capability.
 
+## Migration: the transpiler converts what it can prove (Tonio, 2026-10-02)
+
+The AJS transpiler detects each regex and either **converts it to the equivalent Pattern** or
+**explains how to write it**, the same discipline as `switch-to-given` (`src/lang/switch-to-given.ts`):
+rewrite only where the meaning provably does not change.
+
+A conversion is exact when possessive matching cannot differ from backtracking. Regex can give
+characters back to its continuation and retry later alternatives; a PEG cannot. They agree when
+nothing would ever need giving back:
+
+- a repetition's character set is **disjoint from the first set of what follows it** (`\d+px`
+  converts; `\w+\d` does not — `\w+` would swallow the digit);
+- an alternation's branches **cannot start the same way**, or each one is followed by nothing
+  the others could also reach.
+
+Everything else gets a diagnostic at the regex's location that names the problem ("`\w+` is
+followed by `\d`, which `\w` also matches; a Pattern would take the digit too") and shows the
+nearest Pattern. Backreferences and lookbehind have no Pattern equivalent, and the diagnostic
+says so.
+
+The oracle already exists: the converter is fuzzed against the linear regex engine (random
+patterns, random inputs) and must agree everywhere it converts. In 0.14 the conversion is a
+**suggestion** printed with the deprecation warning; in 0.15, when regex leaves the core, it is
+what `tjs convert`-style migration applies.
+
 ## Sequencing
 
 | Release | AJS core | Opt-in |
