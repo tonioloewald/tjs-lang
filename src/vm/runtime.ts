@@ -1466,6 +1466,8 @@ export type ExprNode =
       arguments: ExprNode[]
       optional?: boolean
     }
+  // a regex literal: the VM builds the RegExp, after its ReDoS screen
+  | { $expr: 'regex'; pattern: string; flags: string }
 
 // --- Built-in Objects (Proxy-based) ---
 
@@ -1583,6 +1585,13 @@ function convertExampleToSchema(example: any): any {
  * non-enumerable and symbol-keyed, so it never surfaces to the guest or to JSON.
  */
 const HEAP_CONTENTS = Symbol('tjs.heapContents')
+
+/** Marks the guest Date wrapper, so method bounds can dispatch on it (see `kindOf`). */
+const DATE_WRAPPER = Symbol('tjs.dateWrapper')
+function tagDateWrapper<T extends object>(wrapper: T): T {
+  Object.defineProperty(wrapper, DATE_WRAPPER, { value: true })
+  return wrapper
+}
 
 function withHeapContents<T extends object>(contents: unknown, wrapper: T): T {
   Object.defineProperty(wrapper, HEAP_CONTENTS, { value: contents })
@@ -1813,29 +1822,32 @@ export const builtins: Record<string, any> = Object.assign(
 
     // Set factory - creates a set-like object backed by an array
     Set: (items: any[] = []) => {
-      const data = [...new globalThis.Set(items)] // dedupe initial items
+      // `data` keeps insertion order (what the guest sees); `index` makes membership O(1).
+      // Membership was `data.includes` — so `intersection`/`diff` were O(n×m) for a charge
+      // linear in their size: 2.6s for 523 fuel at 60k items (rc.2 sixth re-review M2).
+      const index = new globalThis.Set(items)
+      const data = [...index]
       return withHeapContents(data, {
         // Mutable operations
         add(item: any) {
-          if (!data.includes(item)) {
+          if (!index.has(item)) {
+            index.add(item)
             data.push(item)
           }
           return this
         },
         remove(item: any) {
-          const idx = data.indexOf(item)
-          if (idx !== -1) {
-            data.splice(idx, 1)
-          }
+          if (index.delete(item)) data.splice(data.indexOf(item), 1)
           return this
         },
         clear() {
+          index.clear()
           data.length = 0
           return this
         },
         // Query operations
         has(item: any) {
-          return data.includes(item)
+          return index.has(item)
         },
         get size() {
           return data.length
@@ -1849,12 +1861,12 @@ export const builtins: Record<string, any> = Object.assign(
           return builtins.Set([...data, ...otherItems])
         },
         intersection(other: any) {
-          const otherItems = other?.toArray?.() ?? other ?? []
-          return builtins.Set(data.filter((x: any) => otherItems.includes(x)))
+          const o = new globalThis.Set(other?.toArray?.() ?? other ?? [])
+          return builtins.Set(data.filter((x: any) => o.has(x)))
         },
         diff(other: any) {
-          const otherItems = other?.toArray?.() ?? other ?? []
-          return builtins.Set(data.filter((x: any) => !otherItems.includes(x)))
+          const o = new globalThis.Set(other?.toArray?.() ?? other ?? [])
+          return builtins.Set(data.filter((x: any) => !o.has(x)))
         },
         // Iteration
         forEach(fn: (item: any) => void) {
@@ -1876,125 +1888,127 @@ export const builtins: Record<string, any> = Object.assign(
     // Date factory - creates a date-like object
     // Also supports Date.now() for compatibility
     Date: (() => {
-      const createDate = (d: globalThis.Date): any => ({
-        // Get the underlying value
-        get value() {
-          return d.toISOString()
-        },
-        get timestamp() {
-          return d.getTime()
-        },
-        // Components
-        get year() {
-          return d.getFullYear()
-        },
-        get month() {
-          return d.getMonth() + 1 // 1-indexed
-        },
-        get day() {
-          return d.getDate()
-        },
-        get hours() {
-          return d.getHours()
-        },
-        get minutes() {
-          return d.getMinutes()
-        },
-        get seconds() {
-          return d.getSeconds()
-        },
-        get dayOfWeek() {
-          return d.getDay()
-        },
-        // Arithmetic - returns new Date
-        add({
-          years = 0,
-          months = 0,
-          days = 0,
-          hours = 0,
-          minutes = 0,
-          seconds = 0,
-          ms = 0,
-        }: {
-          years?: number
-          months?: number
-          days?: number
-          hours?: number
-          minutes?: number
-          seconds?: number
-          ms?: number
-        } = {}) {
-          const newDate = new globalThis.Date(d.getTime())
-          if (years) newDate.setFullYear(newDate.getFullYear() + years)
-          if (months) newDate.setMonth(newDate.getMonth() + months)
-          if (days) newDate.setDate(newDate.getDate() + days)
-          if (hours) newDate.setHours(newDate.getHours() + hours)
-          if (minutes) newDate.setMinutes(newDate.getMinutes() + minutes)
-          if (seconds) newDate.setSeconds(newDate.getSeconds() + seconds)
-          if (ms) newDate.setMilliseconds(newDate.getMilliseconds() + ms)
-          return createDate(newDate)
-        },
-        // Difference
-        diff(
-          other: any,
-          unit: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days' = 'ms'
-        ) {
-          const otherTime =
-            typeof other === 'object' && other.timestamp
-              ? other.timestamp
-              : new globalThis.Date(other).getTime()
-          const diffMs = d.getTime() - otherTime
-          switch (unit) {
-            case 'seconds':
-              return diffMs / 1000
-            case 'minutes':
-              return diffMs / (1000 * 60)
-            case 'hours':
-              return diffMs / (1000 * 60 * 60)
-            case 'days':
-              return diffMs / (1000 * 60 * 60 * 24)
-            default:
-              return diffMs
-          }
-        },
-        // Formatting
-        format(fmt = 'ISO') {
-          if (fmt === 'ISO') return d.toISOString()
-          if (fmt === 'date') return d.toISOString().split('T')[0]
-          if (fmt === 'time') return d.toISOString().split('T')[1].split('.')[0]
-          // Simple format substitution
-          return fmt
-            .replace('YYYY', String(d.getFullYear()))
-            .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
-            .replace('DD', String(d.getDate()).padStart(2, '0'))
-            .replace('HH', String(d.getHours()).padStart(2, '0'))
-            .replace('mm', String(d.getMinutes()).padStart(2, '0'))
-            .replace('ss', String(d.getSeconds()).padStart(2, '0'))
-        },
-        // Comparison
-        isBefore(other: any) {
-          const otherTime =
-            typeof other === 'object' && other.timestamp
-              ? other.timestamp
-              : new globalThis.Date(other).getTime()
-          return d.getTime() < otherTime
-        },
-        isAfter(other: any) {
-          const otherTime =
-            typeof other === 'object' && other.timestamp
-              ? other.timestamp
-              : new globalThis.Date(other).getTime()
-          return d.getTime() > otherTime
-        },
-        // String representation
-        toString() {
-          return d.toISOString()
-        },
-        // Serialization - Dates serialize to ISO strings
-        toJSON() {
-          return d.toISOString()
-        },
-      })
+      const createDate = (d: globalThis.Date): any =>
+        tagDateWrapper({
+          // Get the underlying value
+          get value() {
+            return d.toISOString()
+          },
+          get timestamp() {
+            return d.getTime()
+          },
+          // Components
+          get year() {
+            return d.getFullYear()
+          },
+          get month() {
+            return d.getMonth() + 1 // 1-indexed
+          },
+          get day() {
+            return d.getDate()
+          },
+          get hours() {
+            return d.getHours()
+          },
+          get minutes() {
+            return d.getMinutes()
+          },
+          get seconds() {
+            return d.getSeconds()
+          },
+          get dayOfWeek() {
+            return d.getDay()
+          },
+          // Arithmetic - returns new Date
+          add({
+            years = 0,
+            months = 0,
+            days = 0,
+            hours = 0,
+            minutes = 0,
+            seconds = 0,
+            ms = 0,
+          }: {
+            years?: number
+            months?: number
+            days?: number
+            hours?: number
+            minutes?: number
+            seconds?: number
+            ms?: number
+          } = {}) {
+            const newDate = new globalThis.Date(d.getTime())
+            if (years) newDate.setFullYear(newDate.getFullYear() + years)
+            if (months) newDate.setMonth(newDate.getMonth() + months)
+            if (days) newDate.setDate(newDate.getDate() + days)
+            if (hours) newDate.setHours(newDate.getHours() + hours)
+            if (minutes) newDate.setMinutes(newDate.getMinutes() + minutes)
+            if (seconds) newDate.setSeconds(newDate.getSeconds() + seconds)
+            if (ms) newDate.setMilliseconds(newDate.getMilliseconds() + ms)
+            return createDate(newDate)
+          },
+          // Difference
+          diff(
+            other: any,
+            unit: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days' = 'ms'
+          ) {
+            const otherTime =
+              typeof other === 'object' && other.timestamp
+                ? other.timestamp
+                : new globalThis.Date(other).getTime()
+            const diffMs = d.getTime() - otherTime
+            switch (unit) {
+              case 'seconds':
+                return diffMs / 1000
+              case 'minutes':
+                return diffMs / (1000 * 60)
+              case 'hours':
+                return diffMs / (1000 * 60 * 60)
+              case 'days':
+                return diffMs / (1000 * 60 * 60 * 24)
+              default:
+                return diffMs
+            }
+          },
+          // Formatting
+          format(fmt = 'ISO') {
+            if (fmt === 'ISO') return d.toISOString()
+            if (fmt === 'date') return d.toISOString().split('T')[0]
+            if (fmt === 'time')
+              return d.toISOString().split('T')[1].split('.')[0]
+            // Simple format substitution
+            return fmt
+              .replace('YYYY', String(d.getFullYear()))
+              .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
+              .replace('DD', String(d.getDate()).padStart(2, '0'))
+              .replace('HH', String(d.getHours()).padStart(2, '0'))
+              .replace('mm', String(d.getMinutes()).padStart(2, '0'))
+              .replace('ss', String(d.getSeconds()).padStart(2, '0'))
+          },
+          // Comparison
+          isBefore(other: any) {
+            const otherTime =
+              typeof other === 'object' && other.timestamp
+                ? other.timestamp
+                : new globalThis.Date(other).getTime()
+            return d.getTime() < otherTime
+          },
+          isAfter(other: any) {
+            const otherTime =
+              typeof other === 'object' && other.timestamp
+                ? other.timestamp
+                : new globalThis.Date(other).getTime()
+            return d.getTime() > otherTime
+          },
+          // String representation
+          toString() {
+            return d.toISOString()
+          },
+          // Serialization - Dates serialize to ISO strings
+          toJSON() {
+            return d.toISOString()
+          },
+        })
 
       // The Date factory function
       const DateFactory = (init?: string | number) => {
@@ -2081,12 +2095,8 @@ const SHALLOW =
   (c: number): AllocBound =>
   (r, a) =>
     c * (shallowBytes(r) + sumOf(a, shallowBytes)) + 64
-/** At most `c` × the deep size — for results that copy or print nested structure. */
-const DEEP =
-  (c: number): AllocBound =>
-  (r, a, ctx) =>
-    c * (deepBytes(ctx, r) + sumOf(a, (x) => deepBytes(ctx, x))) + 64
-/** Deep size of the ARGUMENTS only (a namespace receiver allocates nothing itself). */
+/** At most `c` × the deep MEMORY of the arguments — for results that hold references to them
+ * (a namespace receiver allocates nothing itself). Not for printers: see `treeBytes`. */
 const DEEP_ARGS =
   (c: number, base = 64): AllocBound =>
   (_r, a, ctx) =>
@@ -2109,9 +2119,6 @@ const NOT_ON_ARRAYS =
       )
     return onObject(r, a, ctx)
   }
-
-/** A value's string form vs its estimated size (see STRING_FORM_FACTOR, declared later). */
-const STRINGIFY_FACTOR = 6
 
 /** A guest Set/Date wrapper, or a Schema builder: a fresh object of a dozen or so members. */
 const WRAPPER_BYTES = 4096
@@ -2143,7 +2150,9 @@ const NOT_ON_FUNCTIONS =
 
 /** A number prints up to ~1100 digits in base 2, and ~400 characters grouped by locale. */
 const PRINT: AllocBound = NOT_ON_FUNCTIONS((r, a, ctx) =>
-  typeof r === 'number' ? 4096 : DEEP(STRINGIFY_FACTOR)(r, a, ctx)
+  typeof r === 'number' || r instanceof Date || r instanceof RegExp
+    ? 4096
+    : treeBytes(ctx, r).bytes + 64
 )
 
 const METHOD_ENTRIES: Record<string, AllocBound> = {
@@ -2158,7 +2167,6 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
       'indexOf',
       'lastIndexOf',
       'localeCompare',
-      'search',
       'isWellFormed',
       'valueOf',
       'hasOwnProperty',
@@ -2257,11 +2265,9 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
       'fill',
       'copyWithin',
       'reverse',
-      'sort',
       'remove',
       'clear',
-      // console: host output, nothing retained
-      'log',
+      // console: host output, nothing retained ('log' is listed with Math above)
       'info',
       'warn',
       'error',
@@ -2281,8 +2287,6 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
       'toTimeString',
       'toLocaleDateString',
       'toLocaleTimeString',
-      'diff',
-      'format',
       'uuid',
       'email',
       'ipv4',
@@ -2299,12 +2303,31 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
   at: CONST(64),
   charAt: CONST(64),
   // a Set's `add` grows it in place (charged by I2); a Date's returns a new wrapper
-  add: CONST(WRAPPER_BYTES),
+  add: (r) => (kindOf(r) === 'date' ? WRAPPER_BYTES : 0),
+  // a Date wrapper's `diff` is a number; a Set's is a new Set of up to its own size
+  diff: (r, a, ctx) =>
+    kindOf(r) === 'set' ? SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES : 64,
+  // six single `.replace`s over the format string: bounded by its length
+  format: (_r, a) => strLen(a[0]) * 2 + 256,
+  // a sort without a comparator compares string forms: elements must be primitives
+  sort: (r) => sortBound(r),
+  toSorted: (r) => shallowBytes(r) + sortBound(r),
+  // `search`/`match` compile a string argument into a RegExp: the ReDoS screen applies
+  search: (r, a) => {
+    if (typeof r === 'string' && typeof a[0] === 'string') regexGate(a[0], r)
+    return 64
+  },
+  match: (r, a) => {
+    if (typeof r === 'string' && typeof a[0] === 'string') regexGate(a[0], r)
+    return matchBound(r, a[0])
+  },
 
   // --- at most a constant times the top-level input ---
-  slice: SHALLOW(1),
-  substring: SHALLOW(1),
-  substr: SHALLOW(1),
+  // the SELECTED range, not the receiver (charging the receiver refused `s.slice(0, 10)` of a
+  // 300k-character string)
+  slice: (r, a) => rangeBytes(r, sliceRange(lengthOf(r), a[0], a[1])),
+  substring: (r, a) => rangeBytes(r, substringRange(lengthOf(r), a[0], a[1])),
+  substr: (r, a) => rangeBytes(r, substrRange(lengthOf(r), a[0], a[1])),
   trim: SHALLOW(1),
   trimStart: SHALLOW(1),
   trimEnd: SHALLOW(1),
@@ -2319,18 +2342,20 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
   // NFKD expands one code point to as many as 18 (U+FDFA)
   normalize: SHALLOW(18),
   // one string object and slot per piece: `split('')` turns 2 bytes into ~26
-  split: SHALLOW(16),
-  match: SHALLOW(4),
+  split: (r, a) => splitBound(r, a[0], a[1]),
   splice: SHALLOW(2),
   toReversed: SHALLOW(1),
-  toSorted: SHALLOW(1),
   toSpliced: SHALLOW(2),
   with: SHALLOW(1),
   of: SHALLOW(2),
   fromCharCode: SHALLOW(1),
   fromCodePoint: SHALLOW(2),
   toArray: SHALLOW(1),
-  union: (r, a, ctx) => SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES,
+  // a Set's union is a new Set; Schema.union is a schema shaped by its arguments
+  union: (r, a, ctx) =>
+    kindOf(r) === 'set'
+      ? SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES
+      : 32 * sumOf(a, (x) => treeBytes(ctx, x).bytes) + WRAPPER_BYTES,
   intersection: (r, a, ctx) => SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES,
   // Array concat copies slots; String concat converts every argument to its string form
   concat: (r, a, ctx) =>
@@ -2343,16 +2368,16 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
   entries: NOT_ON_ARRAYS(ENUMERATE(8)),
 
   // --- results that copy or print nested structure ---
-  flat: DEEP(1),
+  // every element reachable within the depth becomes a slot — counted per PATH (see treeBytes)
+  flat: (r, _a, ctx) => 16 + treeBytes(ctx, r).slots * SLOT_BYTES + 64,
   toString: PRINT,
   toLocaleString: PRINT,
-  toJSON: NOT_ON_FUNCTIONS(DEEP(2)),
+  toJSON: NOT_ON_FUNCTIONS((r, _a, ctx) => 2 * treeBytes(ctx, r).bytes + 64),
   fromEntries: DEEP_ARGS(4),
   // Schema builders: a schema object shaped by its argument
   ...Object.fromEntries(
     [
       'pattern',
-      'union',
       'enum',
       'const',
       'array',
@@ -2362,7 +2387,14 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
       'infer',
       'response',
       'fromExample',
-    ].map((n) => [n, DEEP_ARGS(32, WRAPPER_BYTES)])
+    ].map((n) => [
+      n,
+      // a schema mirrors its example's TREE (every path), so a shared-reference example costs
+      // its printed size, not its memory
+      ((_r: unknown, a: unknown[], ctx: RuntimeContext) =>
+        32 * sumOf(a, (x) => treeBytes(ctx, x).bytes) +
+        WRAPPER_BYTES) as AllocBound,
+    ])
   ),
 
   // --- amplifiers and products: explicit bounds ---
@@ -2372,7 +2404,7 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
   // every element's string form, plus the separator's between each pair
   join: (r, a, ctx) =>
     Array.isArray(r)
-      ? STRINGIFY_FACTOR * deepBytes(ctx, r) +
+      ? treeBytes(ctx, r).bytes +
         Math.max(0, r.length - 1) *
           (a[0] === undefined ? 2 : asString(ctx, a[0])) +
         64
@@ -2418,9 +2450,15 @@ function replaceBound(
 ): number {
   if (typeof r !== 'string') return 64
   const n = r.length
+  // A RegExp may match at EVERY position (an empty match) and, with `g`, replaces them all.
+  if (a[0] instanceof RegExp) all = all || a[0].global
   // both are converted to strings — a missing replacement is the string 'undefined'
   const patternChars =
-    typeof a[0] === 'string' ? a[0].length : asString(ctx, a[0]) / 2
+    a[0] instanceof RegExp
+      ? 0
+      : typeof a[0] === 'string'
+      ? a[0].length
+      : asString(ctx, a[0]) / 2
   const replChars =
     typeof a[1] === 'string' ? a[1].length : asString(ctx, a[1]) / 2
   const dollar = typeof a[1] !== 'string' || a[1].includes('$')
@@ -2430,38 +2468,24 @@ function replaceBound(
   return (n + matches * perMatch) * 2 + 64
 }
 
-/** JSON.stringify: the string form of the value, plus indentation — which repeats per LINE, so
- * with an indent the bound grows with nesting depth. */
+/** JSON.stringify: the value's printed TREE, plus indentation — which repeats per LINE, so with
+ * an indent it grows with nesting depth. */
 function stringifyBound(
   ctx: RuntimeContext,
   x: unknown,
   indent: unknown
 ): number {
-  const base = STRINGIFY_FACTOR * deepBytes(ctx, x) + 64
+  const tree = treeBytes(ctx, x)
   const width =
     typeof indent === 'number'
       ? Math.min(10, int(indent))
       : typeof indent === 'string'
       ? Math.min(10, indent.length)
       : 0
-  if (!width || x === null || typeof x !== 'object') return base
-  let nodes = 0
-  let depth = 0
-  const stack: Array<[unknown, number]> = [[x, 1]]
-  const seen = new WeakSet<object>()
-  while (stack.length) {
-    const [v, d] = stack.pop()!
-    nodes++
-    if (d > depth) depth = d
-    if (v === null || typeof v !== 'object' || seen.has(v)) continue
-    seen.add(v)
-    for (const desc of Object.values(Object.getOwnPropertyDescriptors(v)))
-      if ('value' in desc) stack.push([desc.value, d + 1])
-  }
-  if (!chargeHeapWalk(ctx, nodes, 'expr.measure'))
-    throw new Error('Out of Fuel')
-  // every node is on a line of its own, indented `width` per level
-  return base + nodes * (2 + width * depth) * 2
+  // every node on a line of its own, indented `width` per level
+  return (
+    tree.bytes + 64 + (width ? tree.nodes * (2 + width * tree.depth) * 2 : 0)
+  )
 }
 
 /** The global functions (`parseInt(…)`, `Set(…)`, …) and what each call may allocate. */
@@ -2479,7 +2503,8 @@ const GLOBAL_TABLE: Record<string, AllocBound> = Object.assign(
     decodeURIComponent: (_r, a, ctx) => asString(ctx, a[0]) + 64,
     Set: (_r, a) => perCharOrShallow(a[0], 2) + WRAPPER_BYTES,
     Date: CONST(WRAPPER_BYTES),
-    filter: DEEP_ARGS(2),
+    // a filtered COPY of its data, as a tree (a shared-reference argument is copied per path)
+    filter: (_r, a, ctx) => 2 * treeBytes(ctx, a[0]).bytes + 64,
   } as Record<string, AllocBound>
 )
 
@@ -2491,12 +2516,13 @@ export const methodBudgets = {
   names: (): string[] => Object.keys(METHOD_TABLE),
   globals: (): string[] => Object.keys(GLOBAL_TABLE),
   /** `ctx` supplies the fuel the bound's own measuring walk is charged to. */
+  /** The gate itself: argument kinds, then the bound. Throws where the VM would refuse. */
   bound: (
     name: string,
     receiver: unknown,
     args: unknown[],
     ctx: RuntimeContext
-  ) => METHOD_TABLE[name](receiver, args, ctx),
+  ) => methodGate(receiver, name, args, ctx),
   globalBound: (name: string, args: unknown[], ctx: RuntimeContext) =>
     GLOBAL_TABLE[name](undefined, args, ctx),
 }
@@ -2512,8 +2538,204 @@ function guestCall(
   args: unknown[],
   op: string
 ): any {
-  allocate(ctx, METHOD_TABLE[method](receiver, args, ctx), op)
+  allocate(ctx, methodGate(receiver, method, args, ctx), op)
   return receiver[method](...args)
+}
+
+const lengthOf = (r: unknown): number =>
+  typeof r === 'string' || Array.isArray(r) ? r.length : 0
+
+/** ToIntegerOrInfinity of a primitive index (arguments are primitives — see methodGate). */
+const toInt = (x: unknown, dflt: number): number => {
+  if (x === undefined) return dflt
+  const n = Number(x)
+  return Number.isNaN(n)
+    ? 0
+    : n === Infinity || n === -Infinity
+    ? n
+    : Math.trunc(n)
+}
+const clampIndex = (i: number, len: number) =>
+  i < 0 ? Math.max(0, len + i) : Math.min(i, len)
+/** `slice(start, end)` — relative indices, as the spec defines them. */
+const sliceRange = (len: number, a: unknown, b: unknown) =>
+  Math.max(0, clampIndex(toInt(b, len), len) - clampIndex(toInt(a, 0), len))
+/** `substring(start, end)` — clamped, and swapped if reversed. */
+const substringRange = (len: number, a: unknown, b: unknown) => {
+  const s = Math.min(Math.max(toInt(a, 0), 0), len)
+  const e = Math.min(Math.max(toInt(b, len), 0), len)
+  return Math.abs(e - s)
+}
+/** `substr(start, length)`. */
+const substrRange = (len: number, a: unknown, b: unknown) =>
+  Math.max(
+    0,
+    Math.min(Math.max(toInt(b, len), 0), len - clampIndex(toInt(a, 0), len))
+  )
+/** Bytes for `n` selected units of a string (chars) or an array (slots). */
+const rangeBytes = (r: unknown, n: number) =>
+  (typeof r === 'string' ? n * 2 : n * SLOT_BYTES) + 64
+
+/** An upper bound on a pattern's capture groups (every `(` may open one). */
+const groupsIn = (pattern: unknown): number =>
+  pattern instanceof RegExp
+    ? (pattern.source.match(/\(/g) ?? []).length
+    : typeof pattern === 'string'
+    ? (pattern.match(/\(/g) ?? []).length
+    : 0
+
+/** `match(pattern)`: a global match returns every match (together at most the subject, at most
+ * one per position); otherwise one match and its capture groups, each at most the subject. */
+function matchBound(r: unknown, pattern: unknown): number {
+  if (typeof r !== 'string') return 64
+  const n = r.length
+  const groups = groupsIn(pattern)
+  return (groups + 1) * (n * 2 + 32) + (n + 1) * (SLOT_BYTES + 32) + 64
+}
+
+/** `split(sep, limit)`: the characters, plus one string and slot per PIECE — counted for a string
+ * separator (`split(',')` on 100k characters is as many pieces as it has commas), and at most
+ * one per position (with each capture group repeated) for a RegExp. `limit` is ToUint32, so a
+ * negative limit means "no limit". */
+function splitBound(r: unknown, sep: unknown, limit: unknown): number {
+  if (typeof r !== 'string') return 64
+  const max = limit === undefined ? Infinity : Number(limit) >>> 0
+  let pieces: number
+  if (sep instanceof RegExp) {
+    const groups = groupsIn(sep)
+    pieces = (r.length + 1) * (groups + 1)
+    return (
+      r.length * 2 * (groups + 1) +
+      Math.min(pieces, max) * (SLOT_BYTES + 32) +
+      64
+    )
+  }
+  if (typeof sep !== 'string') pieces = 1
+  else if (sep === '') pieces = r.length
+  else {
+    pieces = 1
+    for (
+      let i = r.indexOf(sep);
+      i !== -1 && pieces < max;
+      i = r.indexOf(sep, i + sep.length)
+    )
+      pieces++
+  }
+  return r.length * 2 + Math.min(pieces, max) * (SLOT_BYTES + 32) + 64
+}
+
+/** A comparator-less sort compares STRING FORMS of its elements: they must be primitives, and
+ * each comparison's strings are transient. */
+function sortBound(r: unknown): number {
+  if (!Array.isArray(r)) return 0
+  for (const x of r) primitiveOperand(x, 'a sorted element', 'expr.sort')
+  return r.length * SCALAR_STRING_BYTES
+}
+
+/** String methods that take a RegExp as a search pattern. */
+const REGEX_ARG_METHODS = new Set([
+  'replace',
+  'replaceAll',
+  'match',
+  'search',
+  'split',
+])
+
+/** What kind of value a method is called on — methods dispatch on it, and so must bounds. */
+function kindOf(r: unknown): string {
+  if (typeof r === 'string') return 'string'
+  if (typeof r === 'number') return 'number'
+  if (Array.isArray(r)) return 'array'
+  if (typeof r === 'function')
+    return r === (builtins as any).Date ? 'ns:Date' : 'function'
+  if (r && typeof r === 'object') {
+    if (HEAP_CONTENTS in r) return 'set'
+    if (DATE_WRAPPER in r) return 'date'
+    if (r instanceof Date) return 'native-date'
+    for (const ns of NAMESPACES)
+      if (r === (builtins as any)[ns]) return 'ns:' + ns
+    return 'object'
+  }
+  return typeof r
+}
+const NAMESPACES = [
+  'Math',
+  'JSON',
+  'Array',
+  'Object',
+  'String',
+  'Number',
+  'Schema',
+  'console',
+]
+
+/**
+ * Methods whose ARGUMENTS may be objects/arrays, by receiver kind. Every other method takes
+ * primitives only: JavaScript would convert an object argument with ToString/ToNumber — an
+ * array's whole string form — and `'abc'.includes(arr)`, `Math.max(arr)`, `parseInt(arr)` built
+ * it for free (rc.2 sixth re-review B2). Refused, not charged (Tonio, 2026-10-02). These are
+ * the methods that use an argument as a VALUE (store it, compare it by identity, copy it).
+ */
+const STRUCTURAL_ARGS: Record<string, ReadonlySet<string> | '*'> = {
+  array: new Set([
+    'concat',
+    'push',
+    'unshift',
+    'splice',
+    'fill',
+    'with',
+    'toSpliced',
+    'includes',
+    'indexOf',
+    'lastIndexOf',
+  ]),
+  set: new Set(['add', 'remove', 'has', 'union', 'intersection', 'diff']),
+  date: new Set(['add', 'diff', 'isBefore', 'isAfter']),
+  'ns:Object': new Set([
+    'keys',
+    'values',
+    'entries',
+    'assign',
+    'fromEntries',
+    'hasOwn',
+  ]),
+  'ns:JSON': new Set(['stringify']),
+  'ns:Array': new Set(['from', 'of', 'isArray']),
+  // Number.isNaN & co. do not convert their argument (unlike the global isNaN)
+  'ns:Number': new Set(['isNaN', 'isFinite', 'isInteger', 'isSafeInteger']),
+  'ns:Schema': '*',
+  'ns:console': '*',
+}
+
+/**
+ * THE gate for a guest method call: the arguments are of a kind the method may take, and the
+ * call's allocation, bounded from its inputs by the table, is charged before it runs (I1).
+ * Returns the bound; throws on refusal.
+ */
+function methodGate(
+  receiver: unknown,
+  method: string,
+  args: unknown[],
+  ctx: RuntimeContext
+): number {
+  const kind = kindOf(receiver)
+  const structural = STRUCTURAL_ARGS[kind]
+  if (!(structural === '*' || structural?.has(method)))
+    for (const a of args) {
+      // The one object a string method may take: a RegExp (built by the VM from a `regex`
+      // node, after its screen), and only where JavaScript searches with it. The INPUT is
+      // screened here — backtracking runs on the string.
+      if (
+        a instanceof RegExp &&
+        kind === 'string' &&
+        REGEX_ARG_METHODS.has(method)
+      ) {
+        regexGate(a.source, receiver as string)
+        continue
+      }
+      primitiveOperand(a, `${method}()'s argument`, `expr.${method}`)
+    }
+  return METHOD_TABLE[method](receiver, args, ctx)
 }
 
 /** The method allowlist: exactly the table's keys. */
@@ -2664,7 +2886,12 @@ function estimateBytes(
     if (seen.has(v)) continue
     seen.add(v)
     bytes += 16
-    if (HEAP_CONTENTS in v) stack.push((v as any)[HEAP_CONTENTS])
+    if (HEAP_CONTENTS in v) {
+      const contents = (v as any)[HEAP_CONTENTS]
+      stack.push(contents)
+      // a Set wrapper's membership index: one more slot per item
+      if (Array.isArray(contents)) bytes += contents.length * SLOT_BYTES
+    }
     if (ArrayBuffer.isView(v)) {
       bytes += (v as ArrayBufferView).byteLength
     } else if (v instanceof ArrayBuffer) {
@@ -2889,6 +3116,80 @@ function chargeHeap(
   return true
 }
 
+/** Equality never converts its operands in AJS (`==` is footgun-free `===`), so it may compare
+ * objects: by identity. */
+const EQUALITY_OPS = new Set(['==', '!=', '===', '!=='])
+
+/**
+ * Refuse an object/array where AJS needs a primitive. JavaScript would convert it with
+ * ToPrimitive/ToString — for an array, its whole string form, recursively — which is an
+ * allocation no budget sees. Refused rather than charged (Tonio, 2026-10-02): no agent program
+ * means `arr < 5`, and an explicit conversion (`arr.join(',')`, `JSON.stringify(obj)`) says
+ * what it costs.
+ */
+function primitiveOperand(x: unknown, what: string, op: string): void {
+  if (x !== null && (typeof x === 'object' || typeof x === 'function'))
+    throw new AgentError(
+      `${what} needs a string, number, boolean or null, not ${
+        Array.isArray(x)
+          ? 'an array'
+          : typeof x === 'function'
+          ? 'a function'
+          : 'an object'
+      } — convert it explicitly (e.g. arr.join(','), JSON.stringify(obj))`,
+      op
+    )
+}
+
+/**
+ * `a + b + c + …` as ONE n-ary sum: the operands left to right (as JavaScript evaluates them),
+ * then a fold — numeric while both sides are, string from the first string on. The string part
+ * is bounded once, from every remaining operand, before anything is built (I1).
+ *
+ * One charge, not one per `+`: a template literal is a left-nested chain, and charging each
+ * partial result kept every prefix in flight, so `${big}a${1}b` was refused where `a${1}b${big}`
+ * fitted (rc.2 sixth re-review M4). And once the result is charged, the operands' own in-flight
+ * bytes are released: the result's bound already covers their content.
+ */
+function evaluateSum(node: any, ctx: RuntimeContext): unknown {
+  const operands: any[] = []
+  let n = node
+  while (n && n.$expr === 'binary' && n.op === '+') {
+    operands.unshift(n.right)
+    n = n.left
+  }
+  operands.unshift(n)
+  const frame = ctx.allocFrame
+  const before = frame ? frame.bytes : 0
+  const values = operands.map((o) => {
+    const v = evaluateExpr(o, ctx)
+    primitiveOperand(v, "'+'", 'expr.concat')
+    return v
+  })
+  let acc: any = values[0]
+  let i = 1
+  while (
+    i < values.length &&
+    typeof acc !== 'string' &&
+    typeof values[i] !== 'string'
+  )
+    acc = acc + values[i++]
+  if (i < values.length || typeof acc === 'string') {
+    let bound = stringFormBound(ctx, acc)
+    for (let j = i; j < values.length; j++)
+      bound += stringFormBound(ctx, values[j])
+    allocate(ctx, bound, 'expr.concat')
+    while (i < values.length) acc = acc + values[i++]
+    // the operands are consumed into the result, whose bound covers them
+    if (frame) {
+      const operandBytes = Math.max(0, frame.bytes - bound - before)
+      frame.bytes -= operandBytes
+      ctx.heapAccount.transient -= operandBytes
+    }
+  }
+  return acc
+}
+
 /**
  * An upper bound, in bytes, on `String(x)` — what concatenation or stringification allocates.
  * A string is its own length; a scalar's string form is short; an object's is bounded by its
@@ -2898,17 +3199,74 @@ function chargeHeap(
 function stringFormBound(ctx: RuntimeContext, x: unknown): number {
   if (typeof x === 'string') return x.length * 2
   if (x === null || typeof x !== 'object') return SCALAR_STRING_BYTES
+  return treeBytes(ctx, x).bytes
+}
+
+/**
+ * The size of a value as a TREE — every PATH to a node counted, as printing or flattening it
+ * visits them — for the printers (`join`, `JSON.stringify`, `flat`, `toString`, Schema-from-
+ * example). `estimateBytes` counts each object once, which is right for MEMORY but not for
+ * output: an eight-level, ten-wide DAG of shared arrays is a few hundred bytes of memory and
+ * 400M characters of `join` (rc.2 sixth re-review B1). A cycle is not followed (an ancestor set,
+ * not a global one), and the walk stops once past the heap cap — anything larger is refused
+ * anyway. Every visit is charged as a heap walk.
+ */
+function treeBytes(
+  ctx: RuntimeContext,
+  x: unknown
+): { bytes: number; slots: number; nodes: number; depth: number } {
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
-  const { bytes, nodes } = estimateBytes(x, cap)
-  if (!chargeHeapWalk(ctx, nodes, 'expr.stringify'))
+  let bytes = 0
+  let slots = 0
+  let nodes = 0
+  let depth = 0
+  const ancestors = new Set<object>()
+  // entries: [value, isExit, depth]
+  const stack: Array<[unknown, boolean, number]> = [[x, false, 1]]
+  while (stack.length && bytes <= cap) {
+    const [v, exit, d] = stack.pop()!
+    if (exit) {
+      ancestors.delete(v as object)
+      continue
+    }
+    nodes++
+    if (d > depth) depth = d
+    if (typeof v === 'string') {
+      bytes += v.length * 2 + 4 // quotes and a separator
+      continue
+    }
+    if (v === null || typeof v !== 'object') {
+      bytes += SCALAR_STRING_BYTES
+      continue
+    }
+    if (ancestors.has(v)) continue // a cycle: printed as '' (join) or refused (JSON)
+    ancestors.add(v)
+    stack.push([v, true, d])
+    bytes += 8
+    const contents = HEAP_CONTENTS in v ? (v as any)[HEAP_CONTENTS] : v
+    if (Array.isArray(contents)) {
+      slots += contents.length
+      for (let i = contents.length - 1; i >= 0; i--) {
+        bytes += 2
+        stack.push([contents[i], false, d + 1])
+      }
+    } else {
+      const descriptors = Object.getOwnPropertyDescriptors(contents)
+      for (const k of Object.keys(descriptors)) {
+        bytes += k.length * 2 + 8
+        slots++
+        const desc = descriptors[k]
+        if ('value' in desc) stack.push([desc.value, false, d + 1])
+      }
+    }
+  }
+  if (!chargeHeapWalk(ctx, nodes, 'expr.measure'))
     throw new Error('Out of Fuel')
-  return STRING_FORM_FACTOR * bytes + SCALAR_STRING_BYTES
+  return { bytes: bytes > cap ? cap + 1 : bytes, slots, nodes, depth }
 }
 
 /** The longest string form of a scalar (a double is at most ~24 characters), in bytes. */
 const SCALAR_STRING_BYTES = 64
-/** A value's string form vs its estimated size: a number is an 8-byte slot, up to 24 chars. */
-const STRING_FORM_FACTOR = 6
 
 /**
  * THE gate in front of every allocation that depends on runtime data (docs/vm-budgets.md, I1).
@@ -3208,28 +3566,27 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         typeof node.property === 'object' && node.property !== null
           ? evaluateExpr(node.property, ctx)
           : node.property
+      // A key is a string or a number. An object key was converted with ToString — an array's
+      // full string form, built for free (rc.2 sixth re-review B2).
+      primitiveOperand(prop, 'a computed key', 'expr.member')
       assertSafeProperty(String(prop))
 
       return obj?.[prop]
     }
 
     case 'binary': {
+      if (node.op === '+') return evaluateSum(node, ctx)
       const left = evaluateExpr(node.left, ctx)
       const right = evaluateExpr(node.right, ctx)
+      // Operators take primitives (Tonio, 2026-10-02: "refuse it"). JavaScript converts an
+      // object operand with ToPrimitive — an array becomes its full string form — so `arr < 5`
+      // or `arr * 2` built that string for free; and nothing in agent code means it.
+      if (!EQUALITY_OPS.has(node.op)) {
+        primitiveOperand(left, `'${node.op}'`, 'expr.binary')
+        primitiveOperand(right, `'${node.op}'`, 'expr.binary')
+      }
 
       switch (node.op) {
-        case '+': {
-          // A string result is a new allocation of both operands' string forms: bounded and
-          // charged BEFORE it is built (I1). It used to be charged after, so the string already
-          // existed when the budget said no.
-          if (typeof left === 'string' || typeof right === 'string')
-            allocate(
-              ctx,
-              stringFormBound(ctx, left) + stringFormBound(ctx, right),
-              'expr.concat'
-            )
-          return left + right
-        }
         case '-':
           return left - right
         case '*':
@@ -3263,6 +3620,8 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
     case 'unary': {
       const arg = evaluateExpr(node.argument, ctx)
+      if (node.op === '-' || node.op === '+')
+        primitiveOperand(arg, `unary '${node.op}'`, 'expr.unary')
       switch (node.op) {
         case '!':
           return !arg
@@ -3289,6 +3648,16 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         // || operator
         return left ? left : evaluateExpr(node.right, ctx)
       }
+    }
+
+    case 'regex': {
+      // Built HERE, after the screen, from data — never handed over by a front end
+      if (typeof node.pattern !== 'string' || typeof node.flags !== 'string')
+        throw new Error('A regex node needs a string pattern and flags')
+      if (!/^[dgimsuyv]*$/.test(node.flags))
+        throw new Error(`Unsupported regex flags: ${node.flags}`)
+      regexGate(node.pattern, '')
+      return new RegExp(node.pattern, node.flags)
     }
 
     case 'conditional': {
@@ -3329,6 +3698,15 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
           const bound = GLOBAL_TABLE[node.callee]
           if (!bound)
             throw new Error(`${node.callee}() is not available in AsyncJS`)
+          // `Set(items)` and `filter(data, schema)` take values; the rest convert their
+          // arguments (parseInt, encodeURI, …) and so take primitives (see methodGate)
+          if (node.callee !== 'Set' && node.callee !== 'filter')
+            for (const a of args)
+              primitiveOperand(
+                a,
+                `${node.callee}()'s argument`,
+                `expr.${node.callee}`
+              )
           allocate(ctx, bound(undefined, args, ctx), `expr.${node.callee}`) // I1
           return fn(...args)
         }
@@ -3382,7 +3760,7 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
       // I1: bound what the call will allocate from its inputs, and charge it, BEFORE calling.
       // (It used to be charged from the RESULT — after `'x'.repeat(5e8)` had built 1GB.)
-      allocate(ctx, METHOD_TABLE[method](obj, args, ctx), `expr.${method}`)
+      allocate(ctx, methodGate(obj, method, args, ctx), `expr.${method}`)
       const result = fn.apply(obj, args)
       if (
         MUTATING_METHODS.has(method) &&
@@ -4255,8 +4633,14 @@ export const callLocal = defineAtom(
       return ctx.error
     }
 
-    // Resolve each argument expression in the caller's scope
-    const resolvedArgs = (args as any[]).map((arg) => resolveValue(arg, ctx))
+    // Resolve each argument expression in the caller's scope — all of them, in order, as
+    // JavaScript evaluates them — then keep only those a parameter binds. An extra argument is
+    // garbage in JavaScript; held here for the whole call it was unbound AND uncharged (binding
+    // the first parameter ends the step's in-flight bytes), so a hand-built AST could hold
+    // ~256 × maxHeapBytes across recursive calls (rc.2 sixth re-review B3).
+    const resolvedArgs = (args as any[])
+      .map((arg) => resolveValue(arg, ctx))
+      .slice(0, helper.paramNames.length)
 
     // Isolated scope: helpers are top-level sibling functions, not nested
     // closures, so they see ONLY their params — never the caller's locals.
@@ -4699,35 +5083,43 @@ export const regexMatch = defineAtom(
   }),
   s.boolean,
   async ({ pattern, value }, ctx: RuntimeContext) => {
-    // ReDoS protection: the regex engine's backtracking is opaque to the fuel
-    // counter, so cap both the pattern and the input, and reject known-dangerous
-    // pattern shapes — fail closed on all three.
-    if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
-      throw new Error(
-        `Regex pattern too long (${pattern.length} > ${MAX_REGEX_PATTERN_LENGTH})`
-      )
-    }
-    if (isSuspiciousRegex(pattern)) {
-      throw new Error(
-        `Suspicious regex pattern rejected (potential ReDoS): ${pattern}`
-      )
-    }
+    // Resolved: a v2 program may pass the pattern in a variable, which arrived here as its
+    // expression NODE — and `new RegExp` stringified that to '[object Object]'.
+    const source = resolveValue(pattern, ctx)
     const resolvedValue = resolveValue(value, ctx)
-    const input =
-      typeof resolvedValue === 'string' ? resolvedValue : String(resolvedValue)
-    if (input.length > MAX_REGEX_INPUT_LENGTH) {
-      throw new Error(
-        `Regex input too long (${input.length} > ${MAX_REGEX_INPUT_LENGTH})`
-      )
-    }
-    const p = new RegExp(pattern)
-    return p.test(input)
+    primitiveOperand(resolvedValue, "regexMatch's value", 'regexMatch')
+    const input = String(resolvedValue)
+    regexGate(String(source), input)
+    return new RegExp(String(source)).test(input)
   },
   {
     docs: 'Returns true if the value matches the regex pattern.',
     cost: 2,
   }
 )
+
+/**
+ * The ReDoS screen, for EVERY place a guest string becomes a regular expression: `regexMatch`,
+ * and `String.prototype.match`/`search` (which compile a string argument with `new RegExp`).
+ * Backtracking is opaque to the fuel counter and a single synchronous call cannot be timed out,
+ * so the pattern and the input are capped and known-catastrophic shapes refused — fail closed.
+ * `match`/`search` bypassed it: `('a'.repeat(27) + '!').match('^(a+)+$')` ran 634ms past a
+ * 50ms timeout (rc.2 sixth re-review B4).
+ */
+function regexGate(pattern: string, input: string): void {
+  if (pattern.length > MAX_REGEX_PATTERN_LENGTH)
+    throw new Error(
+      `Regex pattern too long (${pattern.length} > ${MAX_REGEX_PATTERN_LENGTH})`
+    )
+  if (isSuspiciousRegex(pattern))
+    throw new Error(
+      `Suspicious regex pattern rejected (potential ReDoS): ${pattern}`
+    )
+  if (input.length > MAX_REGEX_INPUT_LENGTH)
+    throw new Error(
+      `Regex input too long (${input.length} > ${MAX_REGEX_INPUT_LENGTH})`
+    )
+}
 
 // 7. Object (Cost 1)
 export const pick = defineAtom(

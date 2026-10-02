@@ -105,8 +105,11 @@ describe('B2: every slot costs a pointer, whatever it holds', () => {
 
 describe('M1: the value a bind replaces is not live', () => {
   it('an immutable-update string loop under the cap', async () => {
-    // 280KB live, plus the slice and the concatenation in flight: ~840KB peak. Measuring the
-    // replaced value as well would count ~1.1MB and refuse it.
+    // SIZED TO THE HONEST PEAK (it was 290000 chars before in-flight memory counted; the rc.2
+    // sixth re-review asked for it back, and this records why not). Until the assignment lands
+    // the old string, the slice, and the sum are all reachable; even with V8's best case — the
+    // slice a view, the sum a rope — flattening the sum copies its length while the old string
+    // is live: 2 × 580KB ≈ 1.16MB under a 1MB cap at 290000. At 140000: ~840KB, which must fit.
     const r = await run(`function f() {
       let s = 'x'.repeat(140000)
       let i = 0

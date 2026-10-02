@@ -159,7 +159,12 @@ describe('no false rejection: bytes that are gone stop counting', () => {
     const r = await run(`function f() {
       let big = 'x'.repeat(120000)
       let k = 0
-      // in flight per iteration: the old value, the repeat, and the concatenation (~720KB)
+      // SIZED TO THE HONEST PEAK (it was 200000 chars before in-flight memory counted; the rc.2
+      // sixth re-review asked for it back, and this records why not). Per iteration, until the
+      // assignment lands, three things are reachable: the old value, the repeat, and the sum —
+      // and V8 may flatten the sum's rope later, copying its whole length while the repeat is
+      // still held by it. At 200000 characters that is 3 × 400KB = 1.2MB under a 1MB cap: a
+      // genuine peak, so refusing it is right. At 120000 it is ~720KB, which must fit.
       while (k < 100) { big = 'y'.repeat(120000) + k; k = k + 1 }
       return { n: big.length }
     }`)

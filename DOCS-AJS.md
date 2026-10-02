@@ -258,6 +258,14 @@ let fallback = a || defaultValue
 let nullish = a ?? defaultValue
 ```
 
+**Operators take primitives.** `+`, `-`, `*`, `<`, … and computed keys (`obj[k]`) need strings,
+numbers, booleans or null; an object or array operand is an error, not a silent conversion to its
+string form (`'x' + arr`, `${arr}`, `arr < 5`). Say what you mean: `arr.join(',')`,
+`JSON.stringify(obj)`. Methods follow the same rule unless they use an argument as a value
+(`arr.includes(obj)`, `arr.concat(other)`, `Object.keys(obj)`). Regex literals work as search
+patterns (`s.replace(/a+/g, '-')`, `s.split(/,\s*/)`); patterns and inputs go through the VM's
+ReDoS screen. Why: [`docs/vm-budgets.md`](docs/vm-budgets.md).
+
 ### Local helper functions
 
 An agent source file may declare **multiple** top-level functions. The **last**

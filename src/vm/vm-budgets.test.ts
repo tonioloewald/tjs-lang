@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
-import { builtins, methodBudgets } from './runtime'
+import { builtins, defineAtom, methodBudgets } from './runtime'
 
 const SLOT = 8
 
@@ -70,12 +70,26 @@ function createdBytes(
         bytes += k.length * 2 + SLOT
         if ('value' in d) stack.push(d.value)
       }
+    // a Set wrapper's items live behind a symbol (HEAP_CONTENTS): follow it, or a Set result
+    // reads as a handful of methods
+    for (const sym of Object.getOwnPropertySymbols(v)) {
+      const d = Object.getOwnPropertyDescriptor(v, sym)
+      if (d && 'value' in d) stack.push(d.value)
+    }
   }
   return bytes
 }
 
 const nested = (d: number): unknown =>
   d === 0 ? [1, 'x'] : [nested(d - 1), nested(d - 1)]
+/** Shared references: `levels` deep, each level `width` references to ONE child — tiny in
+ * memory, width^levels when printed or flattened (rc.2 sixth re-review B1). */
+const dag = (levels: number, width: number): unknown => {
+  let node: unknown = ['leaf']
+  for (let i = 0; i < levels; i++)
+    node = Array.from({ length: width }, () => node)
+  return node
+}
 
 const RECEIVERS: Array<[string, () => unknown]> = [
   ['empty string', () => ''],
@@ -85,6 +99,7 @@ const RECEIVERS: Array<[string, () => unknown]> = [
   ['short array', () => [3, 1, 'two', { a: 1 }]],
   ['long array', () => Array.from({ length: 1000 }, (_, i) => 'item' + i)],
   ['nested array', () => nested(8)],
+  ['shared-reference DAG', () => dag(5, 6)],
   ['object', () => ({ alpha: 1, beta: 'two', gamma: [3] })],
   [
     'wide object',
@@ -94,6 +109,11 @@ const RECEIVERS: Array<[string, () => unknown]> = [
   ['number', () => 3.14159],
   ['big number', () => 1.7976931348623157e308],
   ['set', () => builtins.Set(['a', 'b', 'c'])],
+  // larger than WRAPPER_BYTES, so a constant bound cannot hide a copy of it
+  [
+    'huge set',
+    () => builtins.Set(Array.from({ length: 5000 }, (_, i) => 'w' + i)),
+  ],
   [
     'big set',
     () => builtins.Set(Array.from({ length: 500 }, (_, i) => 'v' + i)),
@@ -137,6 +157,9 @@ const ARGS: unknown[] = [
   ],
   null,
   undefined,
+  dag(4, 6),
+  /b+/g,
+  /(a)(b)?/,
 ]
 
 /** Calls of arity 0, 1 and 2 over the pool. */
@@ -148,6 +171,25 @@ const CALLS: unknown[][] = [
   [{ a: [1, 2, 3] }, null, 4],
   [nested(6), null, 10],
 ]
+
+describe('the method table has no name defined twice', () => {
+  // A later spread silently overrides an earlier entry — that is how Set's `union` bound became
+  // dead code under Schema's (rc.2 sixth re-review M1). TypeScript catches duplicate LITERAL
+  // keys; this catches a name in a group list that is also defined elsewhere.
+  it('every name appears once', async () => {
+    const { readFileSync } = await import('fs')
+    const { join } = await import('path')
+    const src = readFileSync(join(import.meta.dir, 'runtime.ts'), 'utf8')
+    const start = src.indexOf('const METHOD_ENTRIES')
+    const body = src.slice(start, src.indexOf('\nconst METHOD_TABLE', start))
+    const names = [
+      ...[...body.matchAll(/^\s+'(\w+)',$/gm)].map((m) => m[1]),
+      ...[...body.matchAll(/^ {2}(\w+): /gm)].map((m) => m[1]),
+    ]
+    expect(names.length).toBeGreaterThan(150) // apparatus
+    expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([])
+  })
+})
 
 describe('the method table bounds what every guest-callable method allocates', () => {
   const names = methodBudgets.names()
@@ -388,6 +430,21 @@ describe('every atom has an allocation story (a RATCHET: a new atom must add one
     expect(ungated).toEqual([])
   })
 
+  it('every battery atom returns through the membrane (bounded by membraneMaxBytes)', async () => {
+    // Battery atoms allocate host-side (model output, vectors, search results); what reaches the
+    // guest is what crosses the membrane, which is size-checked before it is copied, then
+    // charged at its bind. That holds only for `io` atoms — a battery atom that is not `io`
+    // would hand its allocation in unmeasured.
+    const { batteryAtoms } = await import('./atoms')
+    const ops = Object.keys(batteryAtoms)
+    expect(ops.length).toBeGreaterThan(3) // apparatus
+    expect(
+      Object.entries(batteryAtoms)
+        .filter(([, atom]: [string, any]) => atom.effects !== 'io')
+        .map(([op]) => op)
+    ).toEqual([])
+  })
+
   it('the list is exactly the core atoms', async () => {
     const { coreAtoms } = await import('./runtime')
     const ops = Object.keys(coreAtoms)
@@ -537,5 +594,254 @@ describe('I3: what a loop holds while guest steps run is measured (through trans
     }`)
     expect(r.error).toBeUndefined()
     expect(r.result).toEqual({ n: 5000 })
+  })
+})
+
+describe('round 2 (docs/reviews/0.14.0-rc.2-rereview-6.md), through transpile()', () => {
+  const run = (src: string, opts: Record<string, unknown> = {}, args = {}) =>
+    new AgentVM().run(transpile(src).ast, args, {
+      fuel: 5_000_000,
+      maxHeapBytes: 1_000_000,
+      ...opts,
+    })
+
+  describe('implicit coercion of an object/array is refused, not performed (B2)', () => {
+    const NEEDS = /needs a string, number, boolean or null/
+    const rows: Array<[string, string]> = [
+      ['relational operator', `let a = [1, 2]; let r = a < 5`],
+      ['arithmetic operator', `let a = [1, 2]; let r = a * 2`],
+      ['unary minus', `let a = [1, 2]; let r = -a`],
+      ['concatenation', `let a = [1, 2]; let r = 'x' + a`],
+      ['a template literal', 'let a = [1, 2]; let r = `${a}`'],
+      ['a computed key', `let o = { a: 1 }; let k = ['a']; let r = o[k]`],
+      [
+        'a primitive-taking method',
+        `let a = [1, 2]; let r = 'abc'.includes(a)`,
+      ],
+      ['Math', `let a = [1, 2]; let r = Math.max(a)`],
+      ['a global', `let a = [1, 2]; let r = parseInt(a)`],
+      ["sort's default comparator", `let a = [[2], [1]]; let r = a.sort()`],
+    ]
+    for (const [name, body] of rows)
+      it(name, async () => {
+        const r = await run(`function f() { ${body}; return { ok: true } }`)
+        expect(r.error?.message ?? 'completed').toMatch(NEEDS)
+      })
+
+    it('values are still values where a method uses them as values', async () => {
+      const r = await run(`function f() {
+        let o = { a: 1 }
+        let xs = [o]
+        let s = Set([1, 2])
+        return { i: xs.indexOf(o), has: xs.includes(o), n: Object.keys(o).length, j: JSON.stringify(xs), u: s.union([3]).size }
+      }`)
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ i: 0, has: true, n: 1, j: '[{"a":1}]', u: 3 })
+    })
+  })
+
+  describe('printers are bounded by the TREE they print (B1)', () => {
+    // 8 levels, each 10 references to ONE shared child: a few KB of memory, 10^8 printed nodes
+    const dag = `let node = [1]
+      let d = 0
+      while (d < 8) { let next = []; let i = 0; while (i < 10) { next.push(node); i = i + 1 }; node = next; d = d + 1 }`
+    for (const [name, use] of [
+      ['join', `node.join(',')`],
+      ['JSON.stringify', `JSON.stringify(node)`],
+      ['flat', `node.flat(10)`],
+      ['toString', `node.toString()`],
+    ] as const)
+      it(name, async () => {
+        const r = await run(
+          `function f() { ${dag}; let out = ${use}; return { ok: true } }`
+        )
+        expect(r.error?.message ?? 'completed').toMatch(
+          /Heap limit exceeded|Out of Fuel/
+        )
+      })
+  })
+
+  describe('a guest string compiled to a RegExp is screened (B4)', () => {
+    for (const [name, body] of [
+      ['match(string)', `let r = ('a'.repeat(27) + '!').match('^(a+)+$')`],
+      ['search(string)', `let r = ('a'.repeat(27) + '!').search('^(a+)+$')`],
+      [
+        'a regex literal',
+        `let r = ('a'.repeat(27) + '!').replace(/^(a+)+$/, '')`,
+      ],
+    ] as const)
+      it(name, async () => {
+        const t = performance.now()
+        const r = await run(`function f() { ${body}; return { ok: true } }`)
+        expect(r.error?.message ?? 'completed').toMatch(/ReDoS|Suspicious/)
+        expect(performance.now() - t).toBeLessThan(200)
+      })
+
+    it('the input a RegExp runs over is capped too (a harmless pattern, 200k characters)', async () => {
+      const r = await run(
+        `function f() { let r = 'a'.repeat(200000).replace(/a/g, 'b'); return { ok: true } }`,
+        { maxHeapBytes: 64_000_000 }
+      )
+      expect(r.error?.message ?? 'completed').toMatch(/Regex input too long/)
+    })
+
+    it('a regex literal is DATA in the AST, and works', async () => {
+      const { ast } = transpile(
+        `function f({ s }) { return { t: s.replace(/b+/g, '-') } }`
+      )
+      expect(JSON.stringify(ast)).toContain('"$expr":"regex"')
+      const r = await new AgentVM().run(JSON.parse(JSON.stringify(ast)), {
+        s: 'abbcbd',
+      })
+      expect(r.result).toEqual({ t: 'a-c-d' })
+    })
+  })
+
+  it('extra arguments to a helper are dropped, not held unbound (B3)', async () => {
+    // Hand-built: the helper declares ONE parameter; each recursive call passes two, the second
+    // a fresh 300K-character string. Held for the call (unbound AND uncharged), 40 levels kept
+    // ~12MB alive under a 1MB cap; dropped, they are garbage. Measured at the deepest level,
+    // after a forced collection, because an escape completes just as a correct run does.
+    const lit = (value: unknown) => ({ $expr: 'literal', value })
+    const n = { $expr: 'ident', name: 'n' }
+    let held = -1
+    const baseline = () => {
+      Bun.gc(true)
+      return process.memoryUsage().heapUsed
+    }
+    const sample = defineAtom(
+      'sample',
+      undefined,
+      undefined,
+      async () => {
+        held = baseline() - start
+      },
+      { effects: 'pure' }
+    )
+    const ast = {
+      $ajs: 2,
+      op: 'seq',
+      helpers: {
+        h: {
+          paramNames: ['n'],
+          steps: [
+            {
+              op: 'if',
+              condition: { $expr: 'binary', op: '>', left: n, right: lit(0) },
+              then: [
+                {
+                  op: 'callLocal',
+                  name: 'h',
+                  args: [
+                    { $expr: 'binary', op: '-', left: n, right: lit(1) },
+                    {
+                      $expr: 'methodCall',
+                      object: lit('p'),
+                      method: 'repeat',
+                      arguments: [lit(300_000)],
+                    },
+                  ],
+                },
+              ],
+              else: [{ op: 'sample' }],
+            },
+            { op: 'return', value: lit(0) },
+          ],
+        },
+      },
+      steps: [
+        { op: 'callLocal', name: 'h', args: [lit(40), lit('x')], result: 'r' },
+        { op: 'return', value: { ok: lit(true) } },
+      ],
+    }
+    const start = baseline()
+    const r = await new AgentVM({ sample }).run(
+      ast as any,
+      {},
+      {
+        fuel: 5_000_000,
+        maxHeapBytes: 1_000_000,
+      }
+    )
+    expect(r.error).toBeUndefined()
+    expect(held).toBeGreaterThan(-Infinity) // apparatus: the deepest level was reached
+    expect(held).toBeLessThan(6 * 1024 * 1024)
+  })
+
+  it("a Set's intersection is O(n + m), not O(n × m) (M2)", async () => {
+    const t = performance.now()
+    const r = await run(
+      `function f() {
+        let a = []; let i = 0
+        while (i < 60000) { a.push(i); i = i + 1 }
+        let s = Set(a)
+        let x = s.intersection(a)
+        return { n: x.size }
+      }`,
+      { maxHeapBytes: 64_000_000 }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ n: 60000 })
+    // O(n × m) membership took seconds at this size; O(n + m) takes milliseconds
+    expect(performance.now() - t).toBeLessThan(1000)
+  })
+
+  describe('bounds follow the arguments, not just the receiver (M3: no false rejection)', () => {
+    // 300k characters for the slices (a slice is charged its RANGE); `split` creates pieces
+    // totalling the subject, so its row uses the review's 100k (200KB + 200KB fits in 1MB)
+    const big = { s: 'x'.repeat(300_000) + ','.repeat(3) }
+    const small = { s: 'x'.repeat(100_000) + ','.repeat(3) }
+    for (const [name, body, want] of [
+      [
+        'slice of a long string',
+        `return { r: s.slice(0, 10) }`,
+        { r: 'xxxxxxxxxx' },
+      ],
+      ['substring', `return { r: s.substring(5, 8) }`, { r: 'xxx' }],
+      [
+        'split with few separators',
+        `let p = s.split(','); return { n: p.length }`,
+        { n: 4 },
+      ],
+    ] as const)
+      it(name, async () => {
+        const r = await new AgentVM().run(
+          transpile(`function f({ s }) { ${body} }`).ast,
+          name.startsWith('split') ? small : big,
+          { fuel: 5_000_000, maxHeapBytes: 1_000_000 }
+        )
+        expect(r.error).toBeUndefined()
+        expect(r.result).toEqual(want)
+      })
+  })
+
+  it("a sum's operands stop counting once the sum exists (M4: no false rejection)", async () => {
+    // `'y'.repeat(n)` is in flight, then consumed into the sum, whose bound covers it. Kept in
+    // flight, the NEXT allocation in the same step saw both and was refused.
+    const r = await run(
+      `function f() { let a = ['y'.repeat(200000) + 'a', 'z'.repeat(200000)]; return { n: a.length } }`
+    )
+    expect(r.error).toBeUndefined()
+  })
+
+  it('a template fits or not regardless of WHERE the big value sits (M4)', async () => {
+    const cap = { fuel: 5_000_000, maxHeapBytes: 1_000_000 }
+    const args = { big: 'b'.repeat(150_000) }
+    const first = await new AgentVM().run(
+      transpile(
+        'function f({ big }) { let t = `${big}a${1}b${2}c`; return { n: t.length } }'
+      ).ast,
+      args,
+      cap
+    )
+    const last = await new AgentVM().run(
+      transpile(
+        'function f({ big }) { let t = `a${1}b${2}c${big}`; return { n: t.length } }'
+      ).ast,
+      args,
+      cap
+    )
+    expect(first.error).toBeUndefined()
+    expect(last.error).toBeUndefined()
   })
 })

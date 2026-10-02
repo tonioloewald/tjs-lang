@@ -483,6 +483,20 @@ function remedyFor(type: string): string {
  * Transform variable declaration: let x = value or const x = value
  */
 /**
+ * A regex literal becomes a `regex` node: the VM builds the RegExp itself, after its ReDoS screen.
+ * It was a `literal` holding a host RegExp the TRANSPILER built from guest source — unscreened,
+ * so `s.replace(/(a+)+$/, '')` ran unchecked; and not data, so a serialized AST got `{}`.
+ */
+function regexNode(lit: Literal): any {
+  const rx = (lit as any).regex as
+    | { pattern: string; flags: string }
+    | undefined
+  return rx
+    ? { $expr: 'regex', pattern: rx.pattern, flags: rx.flags }
+    : undefined
+}
+
+/**
  * `var` is FUNCTION-scoped: every `var` in a body is declared once, at entry (as `undefined`,
  * here `null`, as an uninitialised `let` already is), and each `var x = v` is an ASSIGNMENT to
  * it. v2 blocks are scopes, and lowering `var` like `let` declared it in the innermost block, so
@@ -1836,6 +1850,8 @@ function expressionToExprNode(
   switch (expr.type) {
     case 'Literal': {
       const lit = expr as Literal
+      const rx = regexNode(lit)
+      if (rx) return rx
       return { $expr: 'literal', value: lit.value }
     }
 
@@ -2084,7 +2100,7 @@ function expressionToExprNode(
 function expressionToValue(expr: Expression, ctx: TransformContext): any {
   switch (expr.type) {
     case 'Literal':
-      return (expr as Literal).value
+      return regexNode(expr as Literal) ?? (expr as Literal).value
 
     case 'Identifier': {
       // An EXPLICIT reference (AST v2). A bare name string was a reference only if a variable

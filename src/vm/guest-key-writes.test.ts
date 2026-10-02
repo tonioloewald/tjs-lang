@@ -35,6 +35,8 @@ const ALLOWED: Record<string, string> = {
     '`name` iterates RUN_OPTION_KINDS (host), and `out` is null-prototype',
   'runtime.ts › createChildScope › Object.defineProperty':
     "the literal key 'error' on a VM context",
+  'runtime.ts › tagDateWrapper › Object.defineProperty':
+    'the VM-owned DATE_WRAPPER symbol on a wrapper the VM built',
   'runtime.ts › withHeapContents › Object.defineProperty':
     'the VM-owned HEAP_CONTENTS symbol on a wrapper the VM built',
   'runtime.ts › inputsResolvedContext › Object.defineProperty':

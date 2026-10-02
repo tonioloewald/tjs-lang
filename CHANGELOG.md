@@ -82,6 +82,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > still counts once per name (fails closed). The VM grew ~10%: `tjs-lang/vm-ast` is 25 KB
 > gzipped, `tjs-lang/vm` 76 KB.
 >
+> **Since rc.1 — AJS refuses implicit coercion of objects and arrays (breaking).** Operators
+> (`+ - * / % ** < > <= >=`, unary `+`/`-`), computed keys, and methods that take primitives now
+> refuse an object/array operand instead of converting it to its string form, recursively and
+> for free: `arr < 5`, `'x' + arr`, `` `${arr}` ``, `obj[arr]`, `'s'.includes(arr)`,
+> `Math.max(arr)`, `parseInt(arr)`, `[[2],[1]].sort()`. Write the conversion: `arr.join(',')`,
+> `JSON.stringify(obj)`. Equality still compares objects, by identity. Printers (`join`,
+> `JSON.stringify`, `flat`, `toString`) are now bounded by the TREE they print — a shared-reference
+> DAG of a few KB joined to 400M characters for 2.5 fuel. **Regex literals** are now data in the
+> AST (`{ $expr: 'regex' }`), built by the VM after the ReDoS screen; they were host RegExp objects
+> the transpiler built from guest source, never screened, and serialized as `{}`. `match`/`search`
+> with a string pattern are screened too (one was 634ms past a 50ms timeout), and a RegExp runs
+> only over inputs up to the existing 100k-character cap. Also: a Set's `has`/`intersection`/`diff`
+> are O(1)/O(n+m) (they were linear/quadratic for a linear charge); `slice`/`substring`/`split`
+> are charged for what they select; a helper's extra arguments are dropped, not held unbound.
+>
 > **Since rc.1 — one implementation per operation (v2).** Method calls compile to the VM's
 > gated method call and template literals to its gated `+`, instead of `push`/`split`/`join`/
 > `template` atoms with their own budgets and their own semantics: `let n = arr.push(x)` is now

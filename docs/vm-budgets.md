@@ -46,18 +46,46 @@ allocated is garbage and the value is now charged as bound, so the step's frame 
 bind. Otherwise `let a = Array.from({ length: 1e5 })` would count twice and be refused at half
 the cap.
 
-**What this deliberately over-counts (fails closed):** a long string held under several names is
-counted once per name. Equal strings cannot be told apart from shared ones, and counting by value
-would let distinct equal strings count once.
+**What this deliberately over-counts (fails closed):**
+- A long string held under several names is counted once per name. Equal strings cannot be told
+  apart from shared ones, and counting by value would let distinct equal strings count once.
+- A concatenation counts its result in full, although V8 builds a rope that shares its operands:
+  V8 may flatten the rope later, copying its whole length while the operands are still held, and
+  that copy happens outside any gate. So the honest peak of `s = s.slice(1) + 'a'` is about
+  twice the string, not once.
 
 **What it deliberately does not count:** garbage. A value no root reaches and no active step
 holds is the JS collector's to reclaim. Peak *reachable* memory is the promise.
+
+## Refused, not charged: implicit coercion
+
+JavaScript converts an object to a string or number wherever it needs a primitive: `arr < 5`,
+`arr * 2`, `obj[arr]`, `'abc'.includes(arr)`, `Math.max(arr)`, `parseInt(arr)`, a sort's default
+comparator. For an array that is its whole string form, recursively, so every one of those was
+an allocation door the sixth rc.2 review found outside the gate. AJS **refuses** them (Tonio,
+2026-10-02) instead of estimating them, because no agent program means them and refusing keeps
+the doors enumerable:
+
+- **Operators** (`+ - * / % ** < > <= >=`, unary `+`/`-`) take strings, numbers, booleans and
+  null. Equality (`==`, `===`) never converts in AJS, so it may compare objects, by identity.
+- **Computed keys** are strings or numbers.
+- **Methods take primitives**, except the ones that use an argument as a VALUE (store it, compare
+  it by identity, copy it), declared per receiver kind in `STRUCTURAL_ARGS`. The one object a
+  string method accepts is a `RegExp`, as a search pattern.
+
+Say what you mean instead: `arr.join(',')`, `JSON.stringify(obj)`, `String(n)` on a number.
+
+**Regex literals are data.** `/a+/g` compiles to a `regex` node; the VM builds the RegExp after its
+ReDoS screen, and the screen runs again on the input wherever the RegExp is used (`replace`,
+`replaceAll`, `match`, `search`, `split`). Before 0.14 the transpiler built the RegExp itself from
+guest source, so it was never screened and it serialized as `{}`.
 
 ## The doors
 
 | Door | What allocates | Gate |
 |---|---|---|
-| Expression evaluator: `methodCall`, `call`, `+` | builtin methods and statics, global builtins, concatenation | `allocate()` with a bound from the **method table** |
+| Expression evaluator: `methodCall`, `call`, `+` | builtin methods and statics, global builtins, concatenation | `allocate()` with a bound from the **method table**; argument kinds by `methodGate` |
+| Implicit coercion (operators, computed keys, primitive-taking methods) | the string form of an object | **refused** (above) |
 | Atoms | data atoms (v1 ops only; see below), VM services | data atoms delegate to the same gated primitives; every atom is listed in a ratchet table with its allocation story |
 | Capability returns | io atoms | the membrane (`membraneMaxBytes`), then I2 at the bind |
 | Binds and insertions | `setStateVar`, `accountMutation`, memo stores, holder pushes | I2 |
@@ -74,8 +102,14 @@ guest Set and Date wrappers, and the builtin namespaces `Array`, `Object`, `JSON
 - `const`: the result is bounded by a constant (`toFixed`, `toString(2)` on a number).
 - `shallow`: the result is at most *c* × the shallow size of the receiver and arguments (`slice`,
   `concat`, `trim`, `toUpperCase`, `split`, `Object.keys`).
-- `deep`: the result is at most *c* × the deep size, for stringification (`JSON.stringify`,
-  `String(x)`, `flat`, array `toString`).
+- `tree`: printers and flatteners (`join`, `JSON.stringify`, `flat`, array `toString`,
+  Schema-from-example) are bounded by the value's size **as a tree**: every path to a node is
+  counted, because printing visits every path. Memory size counts a shared object once; a
+  ten-wide, eight-deep DAG of shared arrays is a few KB in memory and 400M characters when
+  joined. Cycles are not followed, and the walk stops past the cap.
+- Bounds dispatch on the **receiver kind** (string, array, Set, Date wrapper, namespace) wherever
+  a name means different things (`union`, `diff`, `add`), and use the **arguments** where they
+  select a range (`slice(0, 10)` of a long string is charged ten characters).
 - `bound(fn)`: an explicit bound for amplifiers and products (`repeat`, `padStart`, `padEnd`,
   `join`, `replace`, `replaceAll`, `Array.from`, `Array.of`, `String.fromCharCode`).
 
