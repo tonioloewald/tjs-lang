@@ -783,7 +783,9 @@ tags.diff(['b']) // ['c']
 
 ### Date
 
-`Date(text)` (or `Date()` for now) makes a date. A date is a frozen **data object** (0.14.0):
+`Date(x)` (or `Date()` for now) makes a date. `x` is an ISO string, a number of ms, another
+date, or a **stored** date: an object with a numeric `timestamp`, which is what a date becomes after
+JSON, a store or a capability, so a date round-trips. `Date.parse(text)` is the same. A date is a frozen **data object** (0.14.0):
 `value` (ISO string), `timestamp` (ms), `year`, `month` (1–12), `day`, `hours`, `minutes`,
 `seconds`, `dayOfWeek`, every field in **UTC**, so a program produces the same result on every
 host. It has one form everywhere: `JSON.stringify(d)`, a capability's input and the run's result

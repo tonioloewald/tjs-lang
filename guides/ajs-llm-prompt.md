@@ -54,12 +54,14 @@ AJS looks like JavaScript but has strict differences. You must adhere to these r
 - **No `new` Keyword:** Never use `new`. Use factory functions.
   - WRONG: `new Date()`, `new Set()`, `new Array()`
   - RIGHT: `Date()`, `Set([1,2])`, `['a','b']`
-- **Date Objects:** `Date()` returns an **immutable** object.
+- **Date Objects:** `Date()` returns an **immutable** data object; every field is UTC.
   - Months are 1-indexed (1=Jan, not 0=Jan).
   - Methods like `.add({ days: 5 })` return a NEW Date object.
-  - Access components: `.year`, `.month`, `.day`, `.hours`, `.minutes`, `.seconds`
-  - Format: `.format('date')`, `.format('iso')`, `.format('YYYY-MM-DD')`
-- **Set Objects:** `Set([items])` returns an object with:
+  - Access components: `.year`, `.month`, `.day`, `.hours`, `.minutes`, `.seconds`, `.timestamp`
+  - The ISO string is `.value`. `JSON.stringify(d)` writes the whole object, not the string.
+  - `Date(x)` takes an ISO string, ms, a date, or a stored date (after JSON or a store).
+  - Format: `.format('date')`, `.format('ISO')`, `.format('YYYY-MM-DD')`
+- **Set Objects:** `Set([items])` returns an array of unique items with:
   - Mutable: `.add(x)`, `.remove(x)`, `.clear()`
   - Immutable algebra: `.union(other)`, `.intersection(other)`, `.diff(other)` - return NEW Sets
   - Query: `.has(x)`, `.size`, `.toArray()`

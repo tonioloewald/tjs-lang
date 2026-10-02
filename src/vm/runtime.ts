@@ -1722,14 +1722,16 @@ export const SET_METHODS: Record<
  * factory (rc.2 nineteenth re-review).
  */
 function timestampOf(v: unknown): number {
-  if (typeof v === 'number') return v
-  if (typeof v === 'string') return new globalThis.Date(v).getTime()
-  if (isGuestDate(v)) return v.timestamp
-  if (isPlainObject(v)) {
+  let t = NaN
+  if (typeof v === 'number') t = v
+  else if (typeof v === 'string') t = new globalThis.Date(v).getTime()
+  else if (isGuestDate(v)) t = v.timestamp
+  else if (isPlainObject(v)) {
     const d = Object.getOwnPropertyDescriptor(v, 'timestamp')
-    if (d && typeof d.value === 'number') return d.value
+    if (d && typeof d.value === 'number') t = d.value
   }
-  return NaN
+  // a JavaScript Date's range: ±8.64e15 ms. Outside it (or Infinity) is not a date.
+  return Number.isFinite(t) && Math.abs(t) <= 8.64e15 ? t : NaN
 }
 const timeOf = timestampOf
 
@@ -1777,9 +1779,12 @@ export const DATE_METHODS: Record<
   },
   format(this: GuestDate, fmt = 'ISO') {
     const d = new globalThis.Date(this.timestamp)
-    if (fmt === 'ISO') return d.toISOString()
-    if (fmt === 'date') return d.toISOString().split('T')[0]
-    if (fmt === 'time') return d.toISOString().split('T')[1].split('.')[0]
+    // the keywords are case-insensitive: the LLM prompt taught `format('iso')` while this
+    // matched only 'ISO', and returned the string 'iso'
+    const keyword = fmt.toLowerCase()
+    if (keyword === 'iso') return d.toISOString()
+    if (keyword === 'date') return d.toISOString().split('T')[0]
+    if (keyword === 'time') return d.toISOString().split('T')[1].split('.')[0]
     return fmt
       .replace('YYYY', String(d.getUTCFullYear()))
       .replace('MM', String(d.getUTCMonth() + 1).padStart(2, '0'))
@@ -4710,6 +4715,48 @@ function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
   return out
 }
 
+/**
+ * THE rule for how a call's arguments reach an atom: the ONE place it is decided. The emitter
+ * writes `args: [...]` for every call that is not a single object literal, `foo()` included,
+ * because it cannot see an atom's schema. Rounds 14 and 15 each fixed one cell of this table in a
+ * different place and broke a neighbouring one (rc.2 eighteenth to twentieth re-reviews):
+ *
+ * | atom declares              | `args` empty or absent  | `args` non-empty (positional) |
+ * | -------------------------- | ----------------------- | ----------------------------- |
+ * | `args: array` (positional) | receives `args: []`     | receives the values           |
+ * | named inputs (a named      | runs with no inputs; a  | REFUSED, naming `foo({ … })`  |
+ * |   `args` record included)  |   named `args` is kept  |                               |
+ * | no object schema           | the step as written     | the step as written           |
+ *
+ * Pinned as a table by `call-shape.test.ts`.
+ */
+function callShape(op: string, step: any, inputSchema: any): any {
+  const named = namedInputs(inputSchema)
+  if (!named) return step
+  // A POSITIONAL atom declares `args` as an ARRAY. A named input that happens to be called `args`
+  // (`runCode({ code, args: { n: 2 } })`, a record) is just a named input.
+  if (isPositionalAtom(inputSchema))
+    return 'args' in step ? step : { ...step, args: [] }
+  if (!Array.isArray(step.args)) return step
+  if (step.args.length > 0)
+    throw new AgentError(
+      `'${op}' takes named arguments: ${op}({ ${named.join(', ')} })`,
+      op
+    )
+  // `foo()` emits `args: []`. To a named atom that is no input at all, and it must not reach a
+  // named input that happens to be called `args` (runCode's) as its value.
+  const { args: _none, ...rest } = step
+  return rest
+}
+
+/** An atom whose input schema declares `args` as an array: it takes positional arguments. */
+function isPositionalAtom(inputSchema: any): boolean {
+  const args = (inputSchema?.schema ?? inputSchema)?.properties?.args
+  const type = args?.type
+  // an optional array is `type: ['array', 'null']` (the Error atom's)
+  return type === 'array' || (Array.isArray(type) && type.includes('array'))
+}
+
 /** An atom's named input keys, when its input schema is an object with declared properties. */
 function namedInputs(inputSchema: any): string[] | undefined {
   const props = (inputSchema?.schema ?? inputSchema)?.properties
@@ -4758,19 +4805,8 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         )
       ctx = origin
     }
+    step = callShape(op, step, inputSchema)
     const { op: _op, result: _res, ...inputData } = step
-    // A positional call (`agentRun(id, input)`) emits `args: [...]`. An atom with named inputs
-    // never read it, so the call ran with every input undefined and reported success (rc.2
-    // eighteenth re-review). Refused, naming the call shape that works.
-    // Only NON-empty: `args: []` (persisted ASTs from before the emitter dropped it) loses nothing.
-    if (Array.isArray(inputData.args) && inputData.args.length > 0) {
-      const named = namedInputs(inputSchema)
-      if (named && !named.includes('args'))
-        throw new AgentError(
-          `'${op}' takes named arguments: ${op}({ ${named.join(', ')} })`,
-          op
-        )
-    }
     // This step's allocation frame: what it allocates while it runs counts as transient until
     // it ends (`allocate`). Restored on the way out, so frames nest with the steps.
     const frame = { bytes: 0 }

@@ -597,26 +597,8 @@ describe('round 15: one definition per rule, and the empty case (nineteenth re-r
     expect((r as any).result).toEqual({ ok: true })
   })
 
-  it('each layer alone: the emitter writes no args for foo(), and a persisted args: [] still runs', async () => {
-    const step = (
-      transpile('function f() { const r = random()\n return { r } }').ast as any
-    ).steps[0]
-    expect('args' in step).toBe(false)
-    // hand-built on purpose: a v1 AST as persisted before the emitter dropped the empty `args`
-    const r = await new AgentVM().run(
-      {
-        op: 'seq',
-        steps: [
-          { op: 'random', args: [], result: 'r' },
-          { op: 'return', value: { r: 'r' } },
-        ],
-      } as any,
-      {},
-      { fuel: 100 }
-    )
-    expect(r.error).toBeUndefined()
-    expect(typeof (r.result as any).r).toBe('number')
-  })
+  // The empty-call cells (emitter output and persisted shapes, positional and named atoms) live in
+  // call-shape.test.ts, which pins the whole table in one place (twentieth re-review).
 
   it('Date() accepts every form a date takes: a guest Date, its JSON copy, its value, its timestamp', async () => {
     const r = await attempt(`function f() {
@@ -638,6 +620,35 @@ describe('round 15: one definition per rule, and the empty case (nineteenth re-r
       e: iso,
       later: true,
     })
+  })
+
+  it("format's keywords are case-insensitive (the prompt taught 'iso')", async () => {
+    const r = await attempt(
+      "function f() { const d = Date('2024-01-15T10:00:00Z')\n return { a: d.format('iso'), b: d.format('ISO'), c: d.format('Date') } }"
+    )
+    expect((r as any).result).toEqual({
+      a: '2024-01-15T10:00:00.000Z',
+      b: '2024-01-15T10:00:00.000Z',
+      c: '2024-01-15',
+    })
+  })
+
+  it('Date.parse is the same door as Date(), and a date out of range is not one', async () => {
+    const ok = await attempt(
+      "function f() { return { v: Date.parse('2024-01-15T10:00:00Z').value } }"
+    )
+    expect((ok as any).result).toEqual({ v: '2024-01-15T10:00:00.000Z' })
+    const bad = await attempt(
+      "function f() { return { v: Date.parse('garbage') } }"
+    )
+    expect('refused' in bad ? bad.refused : 'admitted').toMatch(
+      /Invalid date: 'garbage' does not parse/
+    )
+    for (const v of ['1e20', '{ timestamp: 1e300 }'])
+      expect(
+        ((await attempt(`function f() { return { v: Date(${v}) } }`)) as any)
+          .refused ?? 'admitted'
+      ).toMatch(/a Date, a number or a string/)
   })
 
   it('a date that is not one is refused by name, before the factory', async () => {

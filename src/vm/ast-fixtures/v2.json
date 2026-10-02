@@ -814,5 +814,47 @@
       "e": "outer",
       "got": "boom"
     }
+  },
+  {
+    "name": "zero-argument-atom-call",
+    "version": 2,
+    "source": "function f() { const r = random()\n return { ok: r >= 0 } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "random",
+          "args": [],
+          "result": "r",
+          "resultConst": true
+        },
+        {
+          "op": "return",
+          "value": {
+            "ok": {
+              "$expr": "binary",
+              "op": ">=",
+              "left": {
+                "$expr": "ident",
+                "name": "r"
+              },
+              "right": {
+                "$expr": "literal",
+                "value": 0
+              }
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "result": {
+      "ok": true
+    }
   }
 ]

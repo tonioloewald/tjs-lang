@@ -2306,10 +2306,6 @@ function extractCallArguments(
     return result
   }
 
-  // No arguments: no positional values, so no `args` (the VM refuses positional values for an
-  // atom with named inputs, and `foo()` is not that).
-  if (expr.arguments.length === 0) return {}
-
   // Otherwise, use positional args
   return {
     args: expr.arguments.map((arg) =>
