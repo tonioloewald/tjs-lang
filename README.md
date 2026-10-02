@@ -195,16 +195,18 @@ a standalone entry point, not an increment (import only what you need):
 
 | Entry point                   | Bundle           | Size   | Gzipped   |
 | ----------------------------- | ---------------- | ------ | --------- |
-| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 97 KB | **32 KB** |
-| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 268 KB | 83 KB |
-| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 150 KB | 49 KB |
+| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 112 KB | **35 KB** |
+| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 283 KB | 86 KB |
+| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 165 KB | 52 KB |
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
-| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 332 KB | 108 KB    |
-| `tjs-lang` (full, TS support) | index.js         | 443 KB | 145 KB    |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 362 KB | 116 KB    |
+| `tjs-lang` (full, TS support) | index.js         | 483 KB | 156 KB    |
 
-The transpiler grew ~6% in 0.14.0 — `Type` examples are now read for what they mean
-(floats, unions, recursive references) and checked by a real fixed-point solver. The VM grew
-~30% (to 83 KB gzipped with the transpiler, 32 KB without) for its budgets: every method guest
+The transpiler grew ~11% in 0.14.0 — `Type` examples are now read for what they mean
+(floats, unions, recursive references) and checked by a real fixed-point solver, and it carries
+the linear regex engine (regex literals are checked at transpile time; `compilePredicate` runs on
+it). The VM grew ~26% since rc.1 (to 86 KB gzipped with the transpiler, 35 KB without; the regex
+engine is about 7 KB of that) for its budgets: every method guest
 code can call declares the exact type of each argument and what a call may allocate, and is
 charged for it before it runs; and guest regexes run on the VM's own linear-time engine instead
 of the host's backtracking one, so no pattern can hang a run

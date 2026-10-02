@@ -105,7 +105,10 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `src/lang/module-loader.ts` — transpile-time `.tjs`/`.ts`/`.js` module loader; used by cross-file `wasm function` composition (v0.8.0).
 - `src/linalg/index.tjs` — `tjs-lang/linalg` stdlib source (v0.8.0).
 - `src/lang/linter.ts` — static analysis (unused vars, unreachable code, no-explicit-new, `dict-default-excess-key`).
-- `src/redos.ts` — shared, dependency-free ReDoS star-height detector (`reDoSRisk`); single source for the predicate verifier AND the VM's `regexMatch` (safe in the lean `tjs-lang/vm` bundle).
+- `src/redos.ts` — dependency-free ReDoS star-height detector (`reDoSRisk`). Since 0.14.0 it guards only OUR regexes (`src/self-redos.test.ts`): guest and predicate regexes run on the VM's linear engine instead, because recognising dangerous shapes is never complete (`/a*a*c/` passed it).
+- `src/vm/regex.ts` — the VM's own regex engine: a Pike VM, linear in input × pattern, every unit of work metered (closure visits, capture copies, class probes, compilation) and every pattern-sized quantity capped. Runs guest regexes (AJS) and `compilePredicate` regexes. `src/vm/regex-folds.ts` is its GENERATED case-fold table (`bun run build:regex-folds`, freshness-checked).
+- `src/vm/string-methods.ts` — `replace`/`replaceAll`/`match`/`search`/`split`, implemented by the VM over that engine and charged exactly.
+- `src/lang/predicate-regex.ts` — a RegExp-protocol adapter (`test`/`exec`/`Symbol.match`…) over the linear engine; `compilePredicate` lowers each regex literal onto it.
 - `src/forbidden-keys.ts` — canonical prototype-pollution key list (`FORBIDDEN_KEYS`); single source for the VM member/scope guards, the linter, and the dict-default emitter.
 - `src/strip-comments.ts` — the literal/comment scanner; 12 non-test consumers. `scanLiterals` (memoized) plus three derived views: `maskLiterals`, `maskLiteralsKeepComments`, `stripComments`. Also `matchingBrace` (the one balanced-brace matcher) plus `splitTopLevel`/`splitTopLevelTrimmed` (the one depth-aware splitter, raw and trimmed). Choosing the wrong view is a live failure mode.
 - `src/unwrap-boxed.ts` — single source for boxed-primitive unwrapping (`unwrapBoxed` + the emittable `UNWRAP_BOXED_SOURCE`), pinned by a differential test.

@@ -39,8 +39,16 @@ const ALLOWED: Record<string, string> = {
     'method names from the VM source (the table literals), onto Object.create(null)',
   'regex.ts › compileRegex › Object.defineProperty':
     "the VM-owned PROGRAM symbol and a literal 'toString', on a regex object the VM built",
-  'regex.ts › add › mark[p]':
+  'regex.ts › add › mark[state]':
+    'an Int32Array indexed by closure state (VM-internal)',
+  'regex.ts › add › stackPc[sp]':
+    "the closure stack's own array, indexed by its depth (VM-internal)",
+  'regex.ts › add › stackCaps[sp++]':
+    "the closure stack's own array, indexed by its depth (VM-internal)",
+  'regex.ts › compileRegex › stateBase[pc + 1]':
     'an Int32Array indexed by program counter (VM-internal)',
+  'regex.ts › foldsOf › foldTables[k]':
+    '`k` is 0 or 1 (the `u` flag), into a module-internal array',
   'regex.ts › add › n[ins.n]':
     "a thread's capture slots, indexed by the compiled program",
   'regex.ts › add › n[g * 2]':

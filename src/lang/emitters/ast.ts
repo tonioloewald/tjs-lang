@@ -29,6 +29,7 @@ import type {
 } from 'acorn'
 import { AST_VERSION, AST_VERSION_KEY } from '../../vm/ast-version'
 import { GUEST_METHODS } from '../../vm/guest-methods'
+import { compileRegex, RegexError } from '../../vm/regex'
 import type { BaseNode } from '../../builder'
 import type { ExprNode } from '../../runtime'
 import type {
@@ -487,13 +488,29 @@ function remedyFor(type: string): string {
  * It was a `literal` holding a host RegExp the TRANSPILER built from guest source — unscreened,
  * so `s.replace(/(a+)+$/, '')` ran unchecked; and not data, so a serialized AST got `{}`.
  */
-function regexNode(lit: Literal): any {
+/**
+ * A regex literal, as a node the VM compiles with its own engine. Compiled HERE too, unmetered
+ * (the engine caps its own compile work), so a pattern the VM would refuse — a backreference, a
+ * lookahead, a count over the cap — is a TranspileError at its source location rather than a
+ * failure deep inside a run.
+ */
+function regexNode(lit: Literal, ctx: TransformContext): any {
   const rx = (lit as any).regex as
     | { pattern: string; flags: string }
     | undefined
-  return rx
-    ? { $expr: 'regex', pattern: rx.pattern, flags: rx.flags }
-    : undefined
+  if (!rx) return undefined
+  try {
+    compileRegex(rx.pattern, rx.flags)
+  } catch (e: any) {
+    if (!(e instanceof RegexError)) throw e
+    throw new TranspileError(
+      e.message,
+      getLocation(lit),
+      ctx.source,
+      ctx.filename
+    )
+  }
+  return { $expr: 'regex', pattern: rx.pattern, flags: rx.flags }
 }
 
 /**
@@ -1850,7 +1867,7 @@ function expressionToExprNode(
   switch (expr.type) {
     case 'Literal': {
       const lit = expr as Literal
-      const rx = regexNode(lit)
+      const rx = regexNode(lit, ctx)
       if (rx) return rx
       return { $expr: 'literal', value: lit.value }
     }
@@ -2100,7 +2117,7 @@ function expressionToExprNode(
 function expressionToValue(expr: Expression, ctx: TransformContext): any {
   switch (expr.type) {
     case 'Literal':
-      return regexNode(expr as Literal) ?? (expr as Literal).value
+      return regexNode(expr as Literal, ctx) ?? (expr as Literal).value
 
     case 'Identifier': {
       // An EXPLICIT reference (AST v2). A bare name string was a reference only if a variable

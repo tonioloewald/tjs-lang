@@ -4,7 +4,8 @@
  * Validates a theme-sized style object (à la a real design-system theme: a
  * `:root` variable block plus dozens of component rules with hover/focus states
  * and a media query) with the COMPLETE predicate set, and times it. Confirms the
- * PoC ballpark (~0.1ms/theme) now that colors + dimensions + shorthands +
+ * PoC ballpark (~0.1ms/theme; ~7ms since 2026-10-02, when predicate regexes moved onto the VM's
+ * linear engine — the price of a fuel-bounded match) now that colors + dimensions + shorthands +
  * recursive structure are all real.
  *
  * Gated by SKIP_BENCHMARKS (so `test:fast` skips it). Timing assertions are a

@@ -998,3 +998,51 @@ describe('round 3 (docs/reviews/0.14.0-rc.2-rereview-7.md): one view of every op
     })
   })
 })
+
+describe('round 4: the regex engine and the methods over it are metered by construction', () => {
+  // docs/reviews/0.14.0-rc.2-rereview-8.md. Each row is a measured attack: a few fuel bought
+  // seconds of work. The exchange rate the VM promises is its default timeout, 10ms per fuel;
+  // every row must stay within it (with slack for a busy machine), whether it completes or not.
+  const rows: Array<[string, string]> = [
+    [
+      'M4: a huge replacement template',
+      `let s = 'a'.repeat(5000).replaceAll('a', '$&'.repeat(500000))`,
+    ],
+    [
+      'M4: a long template of empty references',
+      `let s = 'a'.repeat(5000).replace(/(x?)/g, '$1'.repeat(200000))`,
+    ],
+    [
+      'M3: split with a large program, once per position',
+      `let s = 'a'.repeat(100000).split(/z${'q'.repeat(19000)}/)`,
+    ],
+    [
+      'B1: zero-width closures',
+      `let s = 'a'.repeat(3000).search(/(?:a?){0,2000}b/)`,
+    ],
+    ['B2: an empty body repeated', `let s = 'a'.search(/(?:){10000}/)`],
+    [
+      'B3: a wide class',
+      `let s = 'b'.repeat(50000).search(/[${'a'.repeat(400000)}]/)`,
+    ],
+  ]
+  for (const [name, body] of rows)
+    it(name, async () => {
+      for (const fuel of [20, 200]) {
+        const t = performance.now()
+        const r = await new AgentVM().run(
+          transpile(`function f() { ${body}; return { ok: true } }`).ast,
+          {},
+          { fuel, timeoutMs: 600_000 }
+        )
+        const ms = performance.now() - t
+        expect({
+          name,
+          fuel,
+          withinRate: ms <= fuel * 10 + 100,
+          ms: Math.round(ms),
+          outcome: r.error?.message.slice(0, 40) ?? 'completed',
+        }).toMatchObject({ withinRate: true })
+      }
+    })
+})

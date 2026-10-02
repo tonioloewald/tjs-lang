@@ -8,7 +8,13 @@
  * explode, while refusing (clearly) what it does not support.
  */
 import { describe, it, expect } from 'bun:test'
-import { compileRegex, execRegex, RegexError } from './regex'
+import {
+  compileRegex,
+  execRegex,
+  RegexError,
+  REGEX_FUEL_PER_STEP,
+  threadBytes,
+} from './regex'
 
 const noCharge = () => {}
 
@@ -211,5 +217,184 @@ describe('random patterns agree with JavaScript (grammar fuzz)', () => {
       }
     }
     expect(compared).toBeGreaterThan(8000) // apparatus
+  })
+})
+
+describe("case-insensitive matching uses JavaScript's Canonicalize", () => {
+  // the characters whose folds are not plain upper/lower pairs
+  const chars = 'sSſkKKσςΣµμΜßẞåÅÅθϑϴΘiIİıΩω'
+  for (const flags of ['i', 'iu'])
+    it(`/x/${flags} for every pair in ${chars}`, () => {
+      for (const p of chars)
+        for (const c of chars) {
+          for (const src of [p, `[${p}]`, `[^${p}]`])
+            expect({ src, c, m: ours(src, flags, c) }).toEqual({
+              src,
+              c,
+              m: native(src, flags, c),
+            })
+        }
+      for (const src of ['\\w', '\\W', '[a-z]', '[^a-z]', '\\b'])
+        for (const c of chars)
+          expect({ src, c, m: ours(src, flags, c) }).toEqual({
+            src,
+            c,
+            m: native(src, flags, c),
+          })
+    })
+})
+
+describe('every unit of engine work is charged (rc.2 eighth re-review B1–B3)', () => {
+  // Wall time per unit of fuel charged must stay within the VM's own exchange rate (the default
+  // timeout is 10ms per fuel), however hostile the shape. These are the review's shapes: zero-width
+  // closures, wide capture arrays, a huge class, case folding, many registers.
+  const hostile: Array<[string, string, string]> = [
+    ['(?:a?){0,2000}b', '', 'a'.repeat(2000)],
+    ['(a?){0,200}(b?){0,200}c', '', 'ab'.repeat(2000)],
+    ['(' + '()'.repeat(200) + ')*x', '', 'y'.repeat(5000)],
+    ['[' + 'a'.repeat(400_000) + ']', '', 'b'.repeat(20_000)],
+    ['[a-zσ' + 'ſ'.repeat(2000) + ']+$', 'iu', 'ΣςS'.repeat(5000) + '!'],
+    ['(?:|a|b|c|d|e|f|g|h)*z', '', 'abcdefgh'.repeat(2000)],
+  ]
+  for (const [src, flags, input] of hostile)
+    it(`/${src.slice(0, 40)}/${flags}`, () => {
+      let work = 0
+      const t = performance.now()
+      const re = compileRegex(src, flags, (n) => (work += n))
+      execRegex(re, input, 0, (n) => (work += n))
+      const ms = performance.now() - t
+      const fuel = work * REGEX_FUEL_PER_STEP
+      expect({ ms, fuel, ok: ms <= 10 * fuel + 50 }).toMatchObject({ ok: true })
+      expect(threadBytes(re)).toBeGreaterThan(0)
+    })
+
+  it('a capture copy is charged in proportion to its width', () => {
+    const work = (src: string) => {
+      let n = 0
+      execRegex(compileRegex(src), 'a'.repeat(200), 0, (k) => (n += k))
+      return n
+    }
+    expect(work('(?:' + '(a)?'.repeat(100) + ')b')).toBeGreaterThan(
+      5 * work('(?:' + '(?:a)?'.repeat(100) + ')b')
+    )
+  })
+})
+
+describe('a class probe is charged in proportion to its search (B3)', () => {
+  it('a class of many separate ranges costs more per test than a single character', () => {
+    const wide =
+      '[' +
+      Array.from({ length: 4000 }, (_, i) =>
+        String.fromCharCode(0x100 + i * 2)
+      ).join('') +
+      ']'
+    const work = (src: string) => {
+      let n = 0
+      execRegex(compileRegex(src), 'z'.repeat(2000), 0, (k) => (n += k))
+      return n
+    }
+    // ~12 probes of a binary search over 4000 ranges, against ~2 for one range
+    expect(work(wide) - work('[a]')).toBeGreaterThanOrEqual(2000 * 8)
+  })
+})
+
+describe('sizes that grow with the pattern are capped (B2)', () => {
+  for (const [what, src, why] of [
+    ['a count beyond the cap', '(?:){1000000000000}', /count too large/],
+    [
+      'an empty body repeated a hundred million times',
+      '(?:(?:){10000}){10000}',
+      /too large/,
+    ],
+    ['deep nesting', '('.repeat(300) + ')'.repeat(300), /nested too deeply/],
+    ['too many groups', '(a)'.repeat(300), /too many groups/],
+  ] as const)
+    it(`${what} is refused promptly, even unmetered`, () => {
+      const t = performance.now()
+      expect(() => compileRegex(src)).toThrow(why)
+      expect(performance.now() - t).toBeLessThan(500)
+    })
+
+  it('compilation is charged', () => {
+    let work = 0
+    compileRegex('a{5000}', '', (n) => (work += n))
+    expect(work).toBeGreaterThanOrEqual(5000)
+    let empty = 0
+    compileRegex('(?:){5000}', '', (n) => (empty += n))
+    expect(empty).toBeGreaterThanOrEqual(5000)
+  })
+
+  it('a meter that throws stops compilation and matching', () => {
+    const stop = () => {
+      throw new Error('stop')
+    }
+    expect(() => compileRegex('a{5000}', '', stop)).toThrow('stop')
+    expect(() => execRegex(compileRegex('a+b'), 'aaa', 0, stop)).toThrow('stop')
+  })
+})
+
+describe('nested and lazy quantifiers over empty-matchable bodies agree with JavaScript (fuzz)', () => {
+  // The empty-iteration check and capture resets are where a Pike VM most easily departs from a
+  // backtracker; this grammar is built from atoms that can match nothing.
+  function pattern(r: () => number, depth: number): string {
+    const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)]
+    const q = () =>
+      pick(['*', '+', '?', '{0,2}', '{1,3}', '{2}', '']) +
+      (r() < 0.4 ? '?' : '')
+    if (depth > 2) return pick(['a', 'b', 'a?', '(?:)', '()', '(a?)', 'b*?'])
+    const n = 1 + Math.floor(r() * 2)
+    let s = ''
+    for (let i = 0; i < n; i++) {
+      const k = r()
+      const inner = pattern(r, depth + 1)
+      s +=
+        k < 0.4
+          ? '(' + inner + ')' + q()
+          : k < 0.6
+          ? '(?:' + inner + '|' + pattern(r, depth + 1) + ')' + q()
+          : k < 0.8
+          ? '(?:' + inner + ')' + q()
+          : inner
+    }
+    return s
+  }
+
+  for (const flags of ['', 'i'])
+    it(`400 patterns × 30 inputs, flags '${flags}'`, () => {
+      const r = rng(77 + flags.length)
+      let compared = 0
+      for (let p = 0; p < 400; p++) {
+        const src = pattern(r, 0)
+        try {
+          new RegExp(src, flags)
+        } catch {
+          continue
+        }
+        for (let k = 0; k < 30; k++) {
+          let s = ''
+          const len = Math.floor(r() * 7)
+          for (let j = 0; j < len; j++)
+            s += r() < 0.5 ? 'a' : r() < 0.7 ? 'b' : 'A'
+          expect({ src, s, m: ours(src, flags, s) }).toEqual({
+            src,
+            s,
+            m: native(src, flags, s),
+          })
+          compared++
+        }
+      }
+      expect(compared).toBeGreaterThan(10_000) // apparatus
+    })
+})
+
+describe('the transpiler refuses an unsupported regex literal at its source', () => {
+  it('a backreference is a TranspileError with a location, not a failure inside a run', async () => {
+    const { transpile } = await import('../lang/index')
+    expect(() =>
+      transpile('function f(s: "") { return s.search(/(a)\\1/) }')
+    ).toThrow(/Backreferences are not supported.*:1:\d+/)
+    expect(() =>
+      transpile('function f(s: "") { return s.search(/a+/) }')
+    ).not.toThrow()
   })
 })

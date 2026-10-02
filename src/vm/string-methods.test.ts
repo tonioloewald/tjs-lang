@@ -3,7 +3,7 @@
  * and charge, before building it, at least what they build.
  */
 import { describe, it, expect } from 'bun:test'
-import { compileRegex } from './regex'
+import { compileRegex, threadBytes } from './regex'
 import * as vm from './string-methods'
 
 const meter = () => {
@@ -168,4 +168,38 @@ describe('split', () => {
           expect({ s, limit, ours }).toEqual({ s, limit, ours: native })
         }
     })
+})
+
+describe('charged before built (rc.2 eighth re-review B1, M4)', () => {
+  it("an operation charges the regex's worst-case thread memory once", () => {
+    const re = compileRegex('(a|b|c)' + 'x?'.repeat(500), 'g')
+    const m = meter()
+    vm.search('abc', re, m)
+    expect(m.bytes).toBeGreaterThanOrEqual(threadBytes(re))
+  })
+
+  it('each substitution is charged before it is built, so a refusal comes early', () => {
+    // a meter that refuses past 1MB: a 10MB output must be refused after about a tenth of
+    // its substitutions, not after building all of them
+    let subsBuilt = 0
+    let bytes = 0
+    const alloc = (b: number) => {
+      bytes += b
+      if (bytes > 1_000_000) throw new Error('refused')
+    }
+    const s = 'a'.repeat(1000)
+    expect(() =>
+      vm.replaceAll(
+        s,
+        'a',
+        '$&'.repeat(5000), // 5000 chars per substitution, 1000 substitutions
+        {
+          steps: () => subsBuilt++,
+          alloc,
+        }
+      )
+    ).toThrow('refused')
+    // steps are charged once per substitution plus the template parse; refused well before 1000
+    expect(subsBuilt).toBeLessThan(300)
+  })
 })

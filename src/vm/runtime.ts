@@ -14,6 +14,7 @@ import {
   isGuestRegex,
   RegexError,
   REGEX_FUEL_PER_STEP,
+  type Charge,
   type GuestRegex,
 } from './regex'
 import * as stringMethods from './string-methods'
@@ -50,7 +51,7 @@ import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
  * connected to the module, nor to the differential corpus that keeps the others honest.
  *
  * There was no bundle reason for the copy: this file already imports the sibling leaves
- * `../redos` and `../forbidden-keys`.
+ * `../forbidden-keys`.
  */
 import { unwrapBoxed as unwrapBoxedVM } from '../unwrap-boxed'
 
@@ -2906,6 +2907,15 @@ function guestCall(
   return receiver[method](...args)
 }
 
+/** The regex engine's meter for this run: its work, as fuel, refused when the fuel runs out. */
+function regexFuel(ctx: RuntimeContext, op: string): Charge {
+  return (n: number) => {
+    if (!ctx.fuel) return
+    if ((ctx.fuel.current -= n * REGEX_FUEL_PER_STEP) <= 0)
+      throw new AgentError('Out of Fuel', op)
+  }
+}
+
 /** The VM-implemented string methods (`string-methods.ts`), metered against this run. */
 function vmStringMethod(
   ctx: RuntimeContext,
@@ -2916,11 +2926,7 @@ function vmStringMethod(
   const op = `expr.${method}`
   const meters = {
     alloc: (bytes: number) => allocate(ctx, bytes, op),
-    steps: (n: number) => {
-      if (!ctx.fuel) return
-      if ((ctx.fuel.current -= n * REGEX_FUEL_PER_STEP) <= 0)
-        throw new AgentError('Out of Fuel', op)
-    },
+    steps: regexFuel(ctx, op),
   }
   try {
     switch (method) {
@@ -3906,8 +3912,13 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       if (typeof node.pattern !== 'string' || typeof node.flags !== 'string')
         throw new Error('A regex node needs a string pattern and flags')
       try {
-        return compileRegex(node.pattern, node.flags)
+        return compileRegex(
+          node.pattern,
+          node.flags,
+          regexFuel(ctx, 'expr.regex')
+        )
       } catch (e: any) {
+        if (e instanceof AgentError) throw e
         throw new AgentError(e.message, 'expr.regex')
       }
     }

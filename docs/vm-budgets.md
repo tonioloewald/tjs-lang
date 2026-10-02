@@ -101,6 +101,29 @@ landed). `replace`, `replaceAll`, `match`, `search` and `split` are implemented 
 host's engine when it validates, so a guest-supplied one is refused (the library's own are
 allowed).
 
+**Linear is not bounded unless the work is charged** (eighth rc.2 review). The first version
+charged one step per thread per input position and did the rest for free: following zero-width
+instructions, copying a thread's capture array at every `save`, testing a character against a
+400k-entry class, expanding `(?:){1e12}` during compilation, allocating per call. Each ran for
+seconds on a few fuel. The engine is now metered by construction:
+
+- every instruction a thread visits, every capture copy (in proportion to its width), every
+  class probe (classes are merged range tables, binary-searched) and every compiled instruction
+  and quantifier iteration goes through the caller's `charge`;
+- every quantity that grows with the PATTERN is capped — counts (`{10000}`), nesting depth,
+  program size, compile work, capture slots, closure states — so even an unmetered compile (the
+  transpiler validates regex literals) terminates promptly;
+- worst-case thread memory (`threadBytes`) is charged once per operation, through `allocate`;
+- `replace` charges each substitution at its exact length, from the template's shape, before
+  building it.
+
+Correctness rides on the same structure: thread deduplication is keyed on the pc **and** on which
+enclosing optional quantifiers began at the current position, because JavaScript's empty-iteration
+check makes those part of a thread's future (pc alone diverged on nested quantifiers over
+empty-matchable bodies). Case folding uses equivalence classes derived from the host engine
+(`regex-folds.ts`, generated and freshness-tested). Predicates compiled by `compilePredicate` use
+the same engine, through a RegExp-protocol adapter (`src/lang/predicate-regex.ts`).
+
 ## The doors
 
 | Door | What allocates | Gate |

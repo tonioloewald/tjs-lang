@@ -18,6 +18,7 @@ import {
   compileRegex,
   execRegex,
   isGuestRegex,
+  threadBytes,
   type GuestRegex,
   type RegexMatch,
 } from './regex'
@@ -31,8 +32,13 @@ export interface Meters {
  * JavaScript does (`'a.c'.search('.')` is 0); to replace/replaceAll/split it is literal. */
 type Pattern = string | GuestRegex
 
-const toRegex = (p: Pattern): GuestRegex =>
-  isGuestRegex(p) ? p : compileRegex(String(p), '')
+/** The regex an operation will run, its compile work charged and its worst-case thread memory
+ * charged ONCE for the operation (rc.2 eighth re-review B1). */
+function prepare(p: Pattern, m: Meters): GuestRegex {
+  const re = isGuestRegex(p) ? p : compileRegex(String(p), '', m.steps)
+  m.alloc(threadBytes(re))
+  return re
+}
 
 /** AdvanceStringIndex: past an empty match by one code unit, or one code point with `u`. */
 function advance(s: string, i: number, unicode: boolean): number {
@@ -51,7 +57,7 @@ function allMatches(re: GuestRegex, s: string, m: Meters): RegexMatch[] {
   while (from <= s.length) {
     const hit = execRegex(re, s, from, m.steps)
     if (!hit) break
-    m.alloc(64) // the match record
+    m.alloc(64 + hit.captures.length * 24) // the match record, a slot per group
     out.push(hit)
     // past an empty match by one character, so the scan always advances
     from = hit.end === hit.index ? advance(s, hit.end, re.unicode) : hit.end
@@ -61,11 +67,12 @@ function allMatches(re: GuestRegex, s: string, m: Meters): RegexMatch[] {
 
 // ---------------------------------------------------------------- substitution
 
+/** A match, as RANGES of the input: nothing is sliced until it is charged and appended. */
 interface Substitution {
-  matched: string
-  position: number
-  captures: Array<string | undefined>
-  named: Map<string, string | undefined> | null
+  start: number
+  end: number
+  captures: Array<[number, number] | undefined>
+  names: Map<string, number> | null
 }
 
 /** Parse a replacement template once into pieces: literal text, or a reference. */
@@ -78,8 +85,12 @@ type Piece =
 function parseReplacement(
   repl: string,
   groupCount: number,
-  hasNames: boolean
+  hasNames: boolean,
+  m: Meters
 ): Piece[] {
+  // linear in the template (a `$<` scans to its `>` once, then skips past it)
+  m.steps(repl.length + 1)
+  m.alloc(repl.length * 2 + 64)
   const pieces: Piece[] = []
   let lit = ''
   for (let i = 0; i < repl.length; i++) {
@@ -119,46 +130,81 @@ function parseReplacement(
   return pieces
 }
 
-function pieceText(p: Piece, sub: Substitution, s: string): string {
+/** The input range a piece copies, or its literal text. */
+function pieceSource(
+  p: Piece,
+  sub: Substitution,
+  s: string
+): string | [number, number] | undefined {
   if ('lit' in p) return p.lit
   if ('ref' in p)
     return p.ref === 'match'
-      ? sub.matched
+      ? [sub.start, sub.end]
       : p.ref === 'before'
-      ? s.slice(0, sub.position)
-      : s.slice(sub.position + sub.matched.length)
-  if ('group' in p) return sub.captures[p.group - 1] ?? ''
-  return sub.named?.get(p.name) ?? ''
+      ? [0, sub.start]
+      : [sub.end, s.length]
+  if ('group' in p) return sub.captures[p.group]
+  const g = sub.names?.get(p.name)
+  return g === undefined ? undefined : sub.captures[g]
 }
 
-/** The exact length of a piece, WITHOUT building it (so it is charged before it exists). */
-function pieceLength(p: Piece, sub: Substitution, s: string): number {
-  if ('ref' in p)
-    return p.ref === 'match'
-      ? sub.matched.length
-      : p.ref === 'before'
-      ? sub.position
-      : s.length - sub.position - sub.matched.length
-  return pieceText(p, sub, s).length // literals and captures already exist
+const substitutionOf = (hit: RegexMatch): Substitution => ({
+  start: hit.index,
+  end: hit.end,
+  captures: hit.captures,
+  names: hit.names.size ? hit.names : null,
+})
+
+/** A template's shape, summed once: its literal length and how often each reference occurs. */
+interface TemplateShape {
+  literal: number
+  match: number
+  before: number
+  after: number
+  groups: Map<number, number>
+  names: Map<string, number>
 }
 
-function substitutionOf(hit: RegexMatch, s: string): Substitution {
-  const text = (c: [number, number] | undefined) =>
-    c ? s.slice(c[0], c[1]) : undefined
-  let named: Map<string, string | undefined> | null = null
-  if (hit.names.size) {
-    named = new Map()
-    for (const [name, g] of hit.names) named.set(name, text(hit.captures[g]))
+function shapeOf(pieces: Piece[]): TemplateShape {
+  const t: TemplateShape = {
+    literal: 0,
+    match: 0,
+    before: 0,
+    after: 0,
+    groups: new Map(),
+    names: new Map(),
   }
-  return {
-    matched: s.slice(hit.index, hit.end),
-    position: hit.index,
-    captures: hit.captures.slice(1).map(text),
-    named,
-  }
+  for (const p of pieces)
+    if ('lit' in p) t.literal += p.lit.length
+    else if ('ref' in p) t[p.ref]++
+    else if ('group' in p)
+      t.groups.set(p.group, (t.groups.get(p.group) ?? 0) + 1)
+    else t.names.set(p.name, (t.names.get(p.name) ?? 0) + 1)
+  return t
 }
 
-/** Build `s` with each substitution applied — the output's exact size charged first. */
+const spanLength = (c: [number, number] | undefined) => (c ? c[1] - c[0] : 0)
+
+/** The exact length one substitution produces, in O(distinct references), without building it. */
+function substitutionLength(t: TemplateShape, sub: Substitution, n: number) {
+  let length =
+    t.literal +
+    t.match * (sub.end - sub.start) +
+    t.before * sub.start +
+    t.after * (n - sub.end)
+  for (const [g, k] of t.groups) length += k * spanLength(sub.captures[g])
+  for (const [name, k] of t.names) {
+    const g = sub.names?.get(name)
+    if (g !== undefined) length += k * spanLength(sub.captures[g])
+  }
+  return length
+}
+
+/**
+ * Build `s` with each substitution applied. Each substitution is charged BEFORE it is built (M4):
+ * its exact output length, computed from the template's shape, and a step per template piece, so
+ * neither a huge output nor a long template of empty references runs ahead of the budget.
+ */
 function substitute(
   s: string,
   subs: Substitution[],
@@ -168,20 +214,24 @@ function substitute(
   m: Meters
 ): string {
   if (!subs.length) return s
-  const pieces = parseReplacement(repl, groupCount, hasNames)
-  let length = s.length
-  for (const sub of subs) {
-    length -= sub.matched.length
-    for (const p of pieces) length += pieceLength(p, sub, s)
-  }
-  m.alloc(length * 2 + 64)
+  const pieces = parseReplacement(repl, groupCount, hasNames, m)
+  const shape = shapeOf(pieces)
+  m.steps(pieces.length)
+  m.alloc(64)
   let out = ''
   let last = 0
   for (const sub of subs) {
-    out += s.slice(last, sub.position)
-    for (const p of pieces) out += pieceText(p, sub, s)
-    last = sub.position + sub.matched.length
+    m.steps(pieces.length + 1)
+    m.alloc((sub.start - last + substitutionLength(shape, sub, s.length)) * 2)
+    out += s.slice(last, sub.start)
+    for (const p of pieces) {
+      const from = pieceSource(p, sub, s)
+      if (from !== undefined)
+        out += typeof from === 'string' ? from : s.slice(from[0], from[1])
+    }
+    last = sub.end
   }
+  m.alloc((s.length - last) * 2)
   return out + s.slice(last)
 }
 
@@ -196,22 +246,24 @@ export function replace(
   if (!isGuestRegex(pattern)) {
     const at = s.indexOf(pattern)
     if (at === -1) return s
+    const end = at + pattern.length
     return substitute(
       s,
-      [{ matched: pattern, position: at, captures: [], named: null }],
+      [{ start: at, end, captures: [[at, end]], names: null }],
       repl,
       0,
       false,
       m
     )
   }
+  prepare(pattern, m)
   const hits = pattern.global
     ? allMatches(pattern, s, m)
     : [execRegex(pattern, s, 0, m.steps)].filter((h): h is RegexMatch => !!h)
   const groups = hits[0] ? hits[0].captures.length - 1 : 0
   return substitute(
     s,
-    hits.map((h) => substitutionOf(h, s)),
+    hits.map(substitutionOf),
     repl,
     groups,
     !!hits[0]?.names.size,
@@ -238,36 +290,43 @@ export function replaceAll(
     at = s.indexOf(pattern, at + step)
   ) {
     m.alloc(64)
-    subs.push({ matched: pattern, position: at, captures: [], named: null })
+    const end = at + pattern.length
+    subs.push({ start: at, end, captures: [[at, end]], names: null })
     if (at >= s.length) break
   }
   return substitute(s, subs, repl, 0, false, m)
 }
 
 export function search(s: string, pattern: Pattern, m: Meters): number {
-  const re = toRegex(pattern)
+  const re = prepare(pattern, m)
   const hit = execRegex(re, s, 0, m.steps)
   return hit ? hit.index : -1
 }
 
 /** JavaScript's match result: an array with `index`, `input` and `groups`, or every match. */
 export function match(s: string, pattern: Pattern, m: Meters): unknown {
-  const re = toRegex(pattern)
+  const re = prepare(pattern, m)
   if (!re.global) {
     const hit = execRegex(re, s, 0, m.steps)
     if (!hit) return null
-    const sub = substitutionOf(hit, s)
+    // the record: a slot per group (and per name), plus each capture's text
     m.alloc(
-      (sub.matched.length +
-        sub.captures.reduce((n, c) => n + (c?.length ?? 0), 0)) *
-        2 +
+      hit.captures.reduce((n, c) => n + (c ? (c[1] - c[0]) * 2 : 0) + 16, 0) +
+        hit.names.size * 48 +
         128
     )
-    const out: any = [sub.matched, ...sub.captures]
+    const text = (c: [number, number] | undefined) =>
+      c ? s.slice(c[0], c[1]) : undefined
+    const out: any = hit.captures.map(text)
     out.index = hit.index
     out.input = s
-    out.groups = sub.named
-      ? Object.assign(Object.create(null), Object.fromEntries(sub.named))
+    out.groups = hit.names.size
+      ? Object.assign(
+          Object.create(null),
+          Object.fromEntries(
+            [...hit.names].map(([name, g]) => [name, text(hit.captures[g])])
+          )
+        )
       : undefined
     return out
   }
@@ -315,6 +374,7 @@ export function split(
     if (out.length < lim) push(s.slice(p))
     return out
   }
+  prepare(sep, m)
   if (s.length === 0) {
     if (!execRegex(sep, s, 0, m.steps, true)) push(s)
     return out

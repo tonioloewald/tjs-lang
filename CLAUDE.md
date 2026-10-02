@@ -134,6 +134,10 @@ bun run bench               # Regenerates benchmarks.md (CLI cold start, safe-vs
                             #   src/linalg/vector-search.bench.test.ts. This overwrites a
                             #   committed, npm-shipped artifact, so commit the diff.
 bun run docs                # Generate documentation
+bun run build:regex-folds   # Regenerate src/vm/regex-folds.ts (the VM regex engine's case-fold
+                            #   classes) from the HOST engine. Not part of `make`: it depends on
+                            #   the host's Unicode data, not on our sources; regex-folds.test.ts
+                            #   fails when the two disagree.
 bun run docs:differences    # Regenerate docs/tjs-vs-typescript.md from
                             #   src/lang/differences.ts. Part of `make`. The page is a
                             #   BUILD ARTIFACT — never hand-edit it.
@@ -250,7 +254,11 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/inference.ts` - Type inference from example values
 - `src/lang/json-schema.ts` - JSON Schema generation from TypeDescriptors and example values
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new, dict-default-excess-key)
-- `src/redos.ts` - Shared, dependency-free ReDoS star-height detector (`reDoSRisk`); single source for the predicate verifier AND the VM's `regexMatch` (safe in the lean `tjs-lang/vm` bundle)
+- `src/redos.ts` - Dependency-free ReDoS star-height detector (`reDoSRisk`). Since 0.14.0 it guards only OUR OWN regexes (`self-redos.test.ts`) — guest and predicate regexes run on the linear engine, because shape recognition is never complete (`/a*a*c/` passed it)
+- `src/vm/regex.ts` - The VM's own regex engine (Pike VM): linear in input × pattern and METERED BY CONSTRUCTION — every closure visit, capture copy (∝ width), class probe (binary search over merged ranges) and compiled instruction goes through the caller's `charge`; counts, depth, program, compile work, slots and closure states are capped. Closure dedup is keyed on (pc, which enclosing optional quantifiers began at this position) — pc alone diverged from JavaScript. `threadBytes(re)` is the worst-case thread memory, charged once per operation. Runs AJS regexes and `compilePredicate` regexes
+- `src/vm/regex-folds.ts` - GENERATED (`bun run build:regex-folds`) case-insensitive equivalence classes for `i`/`iu`, DERIVED from the host engine (hand-written Canonicalize rules missed ǅ, ᲀ, ΐ, ı). `regex-folds.test.ts` recomputes it, so a host Unicode change fails a test
+- `src/vm/string-methods.ts` - `replace`/`replaceAll`/`match`/`search`/`split` over that engine, each substitution charged at its exact length before it is built
+- `src/lang/predicate-regex.ts` - RegExp-protocol adapter over the linear engine (`test`, `exec`, `lastIndex`, `Symbol.match`/`replace`/`search`/`split`/`matchAll`), so `compilePredicate`'s lowered regex literals work with native string methods
 - `src/forbidden-keys.ts` - Canonical prototype-pollution key list (`FORBIDDEN_KEYS`); single source for the VM member/scope guards, the linter, and the dict-default emitter
 - `src/strip-comments.ts` - **The** literal/comment scanner, and the single most-imported leaf in the repo (12 non-test consumers). `scanLiterals` (memoized) is the primitive; three views are derived from it — `maskLiterals` (literals AND comments blanked, offsets preserved), `maskLiteralsKeepComments` (literals blanked, comments INTACT — the view for finding `/* unsafe */`), `stripComments` (comments removed, literals intact). Also `matchingBrace(masked, open)`, the one balanced-brace matcher, plus `splitTopLevel(src, sep)` and `splitTopLevelTrimmed(src, sep)` — the one depth-aware splitter and the trimmed view nearly every caller wants. Reach for the trimmed one; the raw form exists for the single caller that re-emits the whitespace it split on. Picking the wrong view is a live failure mode: `maskLiterals` erases the very marker an `/* unsafe */` scan is looking for. See the literal-blindness note below
 - `src/unwrap-boxed.ts` - Single source for boxed-primitive unwrapping: `unwrapBoxed()` plus `UNWRAP_BOXED_SOURCE`, the same logic as an emittable string. Two artefacts because emitted `.js` must stand alone; kept honest by a differential test rather than by care
@@ -686,7 +694,8 @@ expectation is almost always the wrong move.
 
 - `src/lang/subset-invariant.test.ts` — JS ⊆ TJS (modes off) and AJS ⊆ TJS (`PRINCIPLES.md`). A richer layer may do _more_ with the same source, never reject subset-legal source.
 - `src/vm/atom-effects.test.ts` — every atom touching `ctx.capabilities` / nondeterminism / side effects is tagged `effects: 'io'`. Predicate-safety verification reads this tag, so a mis-tagged atom silently certifies an impure predicate.
-- `src/lang/redos-lint.test.ts` — the predicate verifier fails _closed_ on catastrophic-backtracking regexes (a regex match is opaque to the fuel counter). Over-flagging only costs the "verified" badge; certifying a dangerous pattern is a broken promise.
+- `src/lang/redos-lint.test.ts` — a CERTIFIED predicate cannot hang, whatever its regex. Kept by construction since 0.14.0: `compilePredicate` runs regex literals on the linear engine, charged to the predicate's fuel (every backtracking shape, including the polynomial `/a*a*c/` the old star-height screen missed, must answer or exhaust fuel promptly); the verifier refuses what that engine refuses; and `emitVerifiedPredicate` — self-contained output that cannot carry the engine — certifies NO regex literal.
+- `src/vm/regex-folds.test.ts` — the generated case-fold table equals a fresh derivation from the host engine. Red means the host's Unicode data moved: run `bun run build:regex-folds`, never edit the table.
 - `src/lang/browser-bundle.test.ts` — the browser bundle stays self-contained (no external imports), which is what lets it load from any CDN.
 - `src/docs-index.test.ts` — `llms.txt` indexes every top-level/`docs/` markdown file and every `package.json` entry point, and all its links resolve. Enforces the "update both" rule below. To exempt something, add it to the allowlist in that file **with a reason** — an unexplained exemption is a silent hole.
 - `src/cli/cli-tsfree.test.ts` — the shipped `tjs` BINARY runs without the TypeScript compiler, including `--help`/`--version`. The library guard below covers the library entry; the CLI had the same defect and no equivalent guard.

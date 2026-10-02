@@ -264,8 +264,13 @@ string form (`'x' + arr`, `${arr}`, `arr < 5`). Say what you mean: `arr.join(','
 `JSON.stringify(obj)`. Methods follow the same rule unless they use an argument as a value
 (`arr.includes(obj)`, `arr.concat(other)`, `Object.keys(obj)`). Regex literals work as search
 patterns (`s.replace(/a+/g, '-')`, `s.split(/,\s*/)`); guest regexes run on the VM's own
-linear-time engine (no backreferences or lookaround), so no pattern
-can hang a run. Arguments must have the type the method reads (a count is a number). Why:
+linear-time engine, so no pattern can hang a run: its work is charged as fuel like any other.
+That engine supports classes, `.`, anchors, `\b`, groups (capturing, non-capturing, named),
+alternation and every quantifier, greedy and lazy, with flags `g i m s u y`. It does NOT support
+backreferences (`\1`, `\k<n>`), lookahead or lookbehind, `\p{…}`, or the `d`/`v` flags; a regex
+literal using one is a transpile error at its source location. Counts above `{10000}` are refused.
+Methods take exactly the arguments JavaScript documents, with exactly the types they read, and
+no extra ones: `'x'.repeat('3')` is an error (a count is a number), as is `s.slice(0, 1, 2)`. Arguments must have the type the method reads (a count is a number). Why:
 [`docs/vm-budgets.md`](docs/vm-budgets.md).
 
 ### Local helper functions

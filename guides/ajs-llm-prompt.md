@@ -78,6 +78,11 @@ AJS looks like JavaScript but has strict differences. You must adhere to these r
   - RIGHT: `template({ tmpl: '{{name}}', vars: { name } })`
 - **Built-ins (Math, JSON, String, Array):** Use standard JS syntax.
   - `Math.max(1, 2)`, `JSON.parse(str)`, `str.split(',')`, `arr.map(x => x * 2)`
+  - Arguments have exactly the documented types, and no extras: `'ab'.repeat(3)` not `'ab'.repeat('3')`.
+  - Operators take primitives: `'n=' + arr.join(',')`, never `'n=' + arr`.
+- **Regex literals** work as patterns (`s.replace(/\s+/g, ' ')`, `/^\d+$/.test(s)` is NOT available — use `s.search(/^\d+$/) !== -1`).
+  - Supported: classes, `.`, `^ $ \b`, groups, `|`, `* + ? {n,m}` (lazy too), flags `gimsuy`.
+  - NOT supported: backreferences (`\1`), lookahead/lookbehind (`(?=`, `(?<=`), `\p{...}`.
 
 ### 5. ERROR HANDLING
 - Errors propagate automatically (Monadic flow). If one step fails, subsequent steps are skipped.
@@ -174,6 +179,7 @@ You generate AJS code. Rules:
 6. Date is immutable, months 1-12. Set has .add/.remove (mutable) and .union/.diff (immutable)
 7. Use `?.` for optional chaining: `obj?.prop?.value`
 8. Use `filter(data, schema)` to strip extra properties from objects
+9. Regexes: no backreferences or lookaround; arguments are exactly typed (`repeat(3)`, not `repeat('3')`)
 
 ```
 

@@ -45,6 +45,32 @@ describe('a brace-less control body keeps its body', () => {
       [],
       [0, 1],
     ],
+    // headers that span lines, or carry a label / `await` (rc.2 eighth re-review M2). A FALSE
+    // condition each time: emptied, the body would run anyway.
+    [
+      'a header spanning lines',
+      `function m(a, b) {\n  let r = [0]\n  if (a &&\n    b)\n    [r] = [[1]]\n  return r\n}`,
+      [false, true],
+      [0],
+    ],
+    [
+      'else if spanning lines',
+      `function n(a, b) {\n  let r = 0\n  if (a) r = 1\n  else if (b ||\n    a)\n    [r] = [2]\n  return r\n}`,
+      [false, false],
+      0,
+    ],
+    [
+      'a labelled for',
+      `function lab() {\n  let s = 0\n  outer: for (let i = 0; i < 3; i++)\n    [s] = [s + i]\n  return s\n}`,
+      [],
+      3,
+    ],
+    [
+      'a header with a string holding a paren',
+      `function str(x) {\n  let r = 0\n  if (x === ')(')\n    [r] = [1]\n  return r\n}`,
+      ['no'],
+      0,
+    ],
     // a FALSE condition: emptied, the body would run anyway and r would be 2
     [
       'a header with parens inside',
@@ -57,6 +83,17 @@ describe('a brace-less control body keeps its body', () => {
     it(name, () => {
       expect(run(src, src.match(/function (\w+)/)![1], ...args)).toEqual(want)
     })
+
+  it('for await (…) is a header', async () => {
+    const src = `async function fa(xs) {\n  let out = []\n  for await (const x of xs)\n    [out[out.length]] = [x]\n  return out\n}`
+    expect(await run(src, 'fa', [1, 2])).toEqual([1, 2])
+  })
+
+  it('a member named like a keyword is not a header', () => {
+    // `o.if(…)` is a call; the line after it is the footgun and keeps its guard
+    const src = `function mem() {\n  let x = 0\n  const o = { if: (v) => [v] }\n  o.if(1)\n  [x] = [5]\n  return x\n}`
+    expect(run(src, 'mem')).toBe(5)
+  })
 
   it('a COMPLETE one-line if is not a header: the next line is still separated', () => {
     // JavaScript would read `foo(b)[x] = 1`; TJS keeps them apart, as it always has

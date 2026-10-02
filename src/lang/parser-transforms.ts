@@ -1110,24 +1110,60 @@ export function transformIsOperators(source: string): string {
   return source
 }
 
+const isIdentChar = (c: string | undefined) =>
+  c !== undefined && /[\w$\u0080-\uffff]/.test(c)
+
 /**
- * Is this (comment- and literal-masked) line EXACTLY a control statement's header — `if (…)`,
- * `while (…)`, `for (…)`, `with (…)`, `else`, `do`, optionally after a `}` — with no body on the
- * line? The header's own parenthesis must close at the end of the line: `if (a) foo(b)` also ends
- * in `)`, but it is a complete statement, and the line after it is exactly the hazard the ASI
- * guard is for.
+ * A predicate over the comment- and literal-MASKED source: does the text ending at offset `end`
+ * (inclusive) close a control statement's HEADER — `if (…)`, `while (…)`, `for (…)`,
+ * `for await (…)`, `with (…)`, or the keywords `else` / `do` — so that the next line is its BODY?
+ *
+ * Decided from the parenthesis STRUCTURE, not from one line: the `)` is matched to its `(` (in a
+ * table built once, so a header spanning lines resolves to its keyword), and the word before that
+ * `(` is the keyword. That is what makes `if (a &&\n b)`, `outer: for (…)` and `for await (…)`
+ * headers too (rc.2 eighth re-review M2) — the single-line version saw none of them, and a `;`
+ * inserted after a header BECOMES its body: `if (a &&\n b)\n [r] = [1]` ran the assignment
+ * unconditionally. `if (a) foo(b)` also ends in `)`, but that `)` belongs to a call, so it is not
+ * a header and the line after it keeps its guard.
  */
-function isBareControlHeader(line: string): boolean {
-  const t = line.trim().replace(/^\}\s*/, '')
-  if (/^(else|do)$/.test(t)) return true
-  const m = /^(?:else\s+)?(if|while|for|with)\s*\(/.exec(t)
-  if (!m) return false
-  let depth = 0
-  for (let i = m[0].length - 1; i < t.length; i++) {
-    if (t[i] === '(') depth++
-    else if (t[i] === ')' && --depth === 0) return i === t.length - 1
+function controlHeaderEndingAt(
+  masked: string,
+  end: number,
+  openOf: Map<number, number>
+): boolean {
+  let e = end
+  while (e >= 0 && /\s/.test(masked[e])) e--
+  if (e < 0) return false
+  const wordBefore = (at: number): [string, number] => {
+    let j = at
+    while (j >= 0 && /\s/.test(masked[j])) j--
+    const stop = j
+    while (j >= 0 && isIdentChar(masked[j])) j--
+    // a member (`x.if`, `obj.do`) is not a keyword
+    if (masked[j] === '.' || masked[j] === '#') return ['', j]
+    return [masked.slice(j + 1, stop + 1), j]
   }
-  return false
+  if (masked[e] === ')') {
+    const open = openOf.get(e)
+    if (open === undefined) return false
+    const [word, before] = wordBefore(open - 1)
+    if (word === 'if' || word === 'while' || word === 'for' || word === 'with')
+      return true
+    return word === 'await' && wordBefore(before)[0] === 'for'
+  }
+  const [word] = wordBefore(e)
+  return word === 'else' || word === 'do'
+}
+
+/** Every `)` in the masked source, mapped to its `(`. One pass, so lookups are O(1). */
+function parenTable(masked: string): Map<number, number> {
+  const openOf = new Map<number, number>()
+  const stack: number[] = []
+  for (let i = 0; i < masked.length; i++) {
+    if (masked[i] === '(') stack.push(i)
+    else if (masked[i] === ')' && stack.length) openOf.set(i, stack.pop()!)
+  }
+  return openOf
 }
 
 /**
@@ -1186,7 +1222,12 @@ export function insertAsiProtection(
    * Masked once for the whole source, not per line, because a template can span lines and
    * a single line cannot tell whether it opened inside one.
    */
-  const maskedLines = maskLiterals(source).split('\n')
+  const masked = maskLiterals(source)
+  const maskedLines = masked.split('\n')
+  const lineEnds: number[] = []
+  for (let i = 0; i < masked.length; i++)
+    if (masked[i] === '\n') lineEnds.push(i)
+  let openOf: Map<number, number> | undefined
 
   /**
    * Lines whose first non-whitespace character is INSIDE a literal — content or closing
@@ -1281,7 +1322,11 @@ export function insertAsiProtection(
       if (
         !expectsContinuation.test(prevNoComment) &&
         !continueKeywords.test(prevNoComment) &&
-        !isBareControlHeader(prevNoComment)
+        !controlHeaderEndingAt(
+          masked,
+          lineEnds[i - 1] - 1,
+          (openOf ??= parenTable(masked))
+        )
       ) {
         // Insert semicolon at start of this line (preserving whitespace).
         //

@@ -79,8 +79,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `matchAll` and the array `keys`/`values`/`entries` (they returned host iterators), the
 > `__lookupGetter__` family (it returned a host function), and `toString` on a builtin function —
 > `Date.toString()` returned the host's SOURCE CODE. A long string held under several names
-> still counts once per name (fails closed). The VM grew ~10%: `tjs-lang/vm-ast` is 25 KB
-> gzipped, `tjs-lang/vm` 76 KB.
+> still counts once per name (fails closed). With everything since rc.1 below, the VM grew ~26%:
+> `tjs-lang/vm-ast` is 35 KB gzipped, `tjs-lang/vm` 86 KB (68 KB at rc.1); the regex engine is
+> about 7 KB of it.
+>
+> **Since rc.1 — the regex engine is metered by construction, and predicates use it too.** A
+> linear algorithm is not a bounded one unless its work is CHARGED: the first version charged one
+> step per thread per position, and the work it did not see (following zero-width instructions,
+> copying capture arrays, testing a 400k-character class, expanding `(?:){1e12}` at compile time)
+> ran for seconds on a few fuel. Every unit of engine work is now charged — each instruction
+> visited, each capture copy in proportion to its width, each class probe, compilation itself —
+> and every pattern-sized quantity is capped (counts over `{10000}`, nesting, program size,
+> capture slots). Classes are merged range tables, binary-searched. Case-insensitive matching
+> uses equivalence classes DERIVED from the host engine (generated, freshness-tested), so `i` and
+> `iu` agree with JavaScript on every code point (ǅ ~ Ǆ, ſ ~ s under `u`, dotless ı). A
+> long-standing divergence on nested quantifiers over empty-matchable bodies is fixed: dedup on
+> the program counter alone let a path whose empty check would fail block one whose check would
+> pass. `replace` charges each substitution at its exact length BEFORE building it. Unsupported
+> regex literals are a transpile error at their source location. **Predicates (`compilePredicate`,
+> `$predicate`, `tjs-lang/css`) run regex literals on the same engine**, charged to the predicate's
+> fuel — `/a*a*c/`, which the old star-height screen certified, took 13s on 6k characters inside a
+> `$predicate` that travels as data. A `Type` predicate with a regex is no longer emitted as a
+> verified guard (standalone output cannot carry the engine; it still runs). Cost: `tjs-lang/css`
+> validates a theme in ~7ms (was ~0.7ms on the host's engine) — still well inside a frame. Also:
+> the ASI guard recognises a control header from its parenthesis structure, so a header spanning
+> lines, `label: for (…)` and `for await (…)` keep their brace-less bodies.
 >
 > **Since rc.1 — native TJS accepts a brace-less control body that starts with `[` or `(`.** The ASI
 > guard put a `;` in front of such a line — which, after `if (…)` / `while (…)` / `for (…)` /
@@ -93,8 +116,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > (breaking).** Guest regexes (literals, `regexMatch`, `match`/`search`/`replace`/`replaceAll`/
 > `split`) no longer run on the host's backtracking engine: a linear-time Pike VM, fuel per step,
 > makes ReDoS ordinary work instead of screening for it (the screen missed polynomial shapes —
-> `/a*a*c/` over 6k characters ran 12.9s for 2.7 fuel). Unsupported, and refused at compile time:
-> backreferences, lookahead/lookbehind, `\p{…}`, the `d`/`v` flags. A schema `pattern` supplied by
+> `/a*a*c/` over 6k characters ran 12.9s for 2.7 fuel). Unsupported, and refused when the regex
+> is compiled (a literal, at transpile time): backreferences, lookahead/lookbehind, `\p{…}`, the `d`/`v` flags. A schema `pattern` supplied by
 > guest code is refused (it would validate on the host's engine) — use `regexMatch`. Methods now
 > take arguments of exactly the type they read: a count is a number (`'x'.repeat('1e8')` is
 > refused; it built 191MB under a 1MB cap), positions are typed (`arr.indexOf(v, obj)` converted

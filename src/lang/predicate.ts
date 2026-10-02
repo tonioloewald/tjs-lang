@@ -22,9 +22,10 @@
  */
 import * as acorn from 'acorn'
 import * as walk from 'acorn-walk'
-// ReDoS star-height detection lives in the shared, dependency-free `src/redos.ts`
-// so the predicate verifier and the VM's regexMatch reject the same shapes.
-import { reDoSRisk } from '../redos'
+// Regex literals are compiled by the VM's own linear engine — at verification, so the verifier
+// refuses exactly what the engine refuses, and at compilation, where they RUN on it.
+import { compileRegex, RegexError, type GuestRegex } from '../vm/regex'
+import { hostRegex, PREDICATE_FUEL_PER_REGEX_STEP } from './predicate-regex'
 import { budgetOption } from '../vm/admission'
 import { RT_NS } from './rt-namespace'
 import { brandPredicate } from '../types/predicate-brand'
@@ -355,19 +356,21 @@ export function verifyPredicate(
       ForInStatement: loop,
       ForOfStatement: loop,
       Literal(n: any) {
-        // Regex literals are the one primitive fuel can't bound: a single
-        // `.match`/`.test`/`.replace` is opaque to the function-entry fuel hook,
-        // so a catastrophic-backtracking pattern could hang on hostile input.
-        // Certifying it "safe" would be a false guarantee, so flag it. (Dynamic
-        // `RegExp(...)` is already rejected — `RegExp` isn't a pure global and
-        // `new` is banned — so only literals need analysis.)
+        // A regex literal runs on the VM's LINEAR engine when compiled (`compilePredicate`
+        // lowers it to `__rx(k)`), charged to the predicate's fuel — so ReDoS is ordinary,
+        // metered work rather than a shape to recognise. What the engine refuses
+        // (backreferences, lookaround, `\p{…}`) cannot be certified. (Dynamic `RegExp(...)` is
+        // already rejected — `RegExp` isn't a pure global and `new` is banned.)
         if (n.regex && typeof n.regex.pattern === 'string') {
-          const risk = reDoSRisk(n.regex.pattern)
-          if (risk)
+          try {
+            compileRegex(n.regex.pattern, n.regex.flags)
+          } catch (e) {
+            if (!(e instanceof RegexError)) throw e
             flag(
-              `regex /${n.regex.pattern}/ risks catastrophic backtracking (ReDoS): ${risk}. A single match is not fuel-bounded, so it can't be certified predicate-safe — simplify the pattern or validate without it.`,
+              `regex /${n.regex.pattern}/${n.regex.flags} is not supported by the linear regex engine: ${e.message}`,
               n
             )
+          }
         }
       },
       CallExpression(n: any) {
@@ -705,6 +708,35 @@ function injectFuel(source: string): string {
 }
 
 /**
+ * Lower every regex literal to `__rx(k)`, compiling each with the VM's linear engine (M5).
+ * Splices by source offset, as `injectFuel` does; the literal's text is not otherwise read.
+ */
+function lowerRegexLiterals(source: string): {
+  source: string
+  regexes: GuestRegex[]
+} {
+  const ast = acorn.parse(source, { ecmaVersion: 'latest' }) as any
+  const found: Array<[number, number, GuestRegex]> = []
+  walk.simple(ast, {
+    Literal(n: any) {
+      if (n.regex)
+        found.push([
+          n.start,
+          n.end,
+          compileRegex(n.regex.pattern, n.regex.flags),
+        ])
+    },
+  })
+  found.sort((a, b) => b[0] - a[0])
+  const regexes = found.map(([, , re]) => re).reverse()
+  let out = source
+  found.forEach(([start, end], i) => {
+    out = out.slice(0, start) + `__rx(${found.length - 1 - i})` + out.slice(end)
+  })
+  return { source: out, regexes }
+}
+
+/**
  * Verify, then compile the cluster to native synchronous JS functions —
  * **fuel-bounded and global-shadowed**. Throws (with located diagnostics) at
  * definition time if not predicate-safe.
@@ -737,7 +769,8 @@ export function compilePredicate(
         `compilePredicate: '${name}' is not a predicate in the verified cluster`
       )
 
-  const instrumented = injectFuel(source)
+  const lowered = lowerRegexLiterals(source)
+  const instrumented = injectFuel(lowered.source)
 
   // Shadow the effectful globals to undefined (defense-in-depth under the
   // verifier), and inject the fuel hook. `new Function` params shadow globals.
@@ -747,6 +780,7 @@ export function compilePredicate(
   )
   const factory = new Function(
     '__fuel',
+    '__rx',
     ...shadowed,
     `"use strict";\n${instrumented}\n;return { ${exportNames.join(', ')} };`
   )
@@ -755,7 +789,19 @@ export function compilePredicate(
   const fuelHook = () => {
     if (--fuel < 0) throw new PredicateFuelExhausted(budget)
   }
-  const raw = factory(fuelHook, ...shadowed.map(() => undefined))
+  // regex work and the bytes regex methods build, charged to the same budget
+  const regexMeters = {
+    steps: (n: number) => {
+      if ((fuel -= n * PREDICATE_FUEL_PER_REGEX_STEP) < 0)
+        throw new PredicateFuelExhausted(budget)
+    },
+    alloc: (bytes: number) => {
+      if ((fuel -= (bytes / 8) * PREDICATE_FUEL_PER_REGEX_STEP) < 0)
+        throw new PredicateFuelExhausted(budget)
+    },
+  }
+  const rx = (k: number) => hostRegex(lowered.regexes[k], regexMeters)
+  const raw = factory(fuelHook, rx, ...shadowed.map(() => undefined))
 
   // Each top-level call gets a fresh budget; inner composed calls share it.
   // A stack overflow (deep recursion past the JS frame limit before fuel runs
@@ -866,6 +912,30 @@ export function emitVerifiedPredicate(
       ],
     }
   }
+
+  // A regex in an EMITTED guard would run on the host's backtracking engine: the guard is
+  // self-contained and cannot carry the VM's linear one. No fuel bounds a native match, so a
+  // cluster with a regex literal is not certified here (it still runs — as unverified code). Use
+  // `compilePredicate`, which lowers regexes onto the linear engine (rc.2 eighth re-review M5).
+  const regexAt: any[] = []
+  walk.simple(
+    acorn.parse(source, { ecmaVersion: 'latest', locations: true }) as any,
+    {
+      Literal(n: any) {
+        if (n.regex) regexAt.push(n)
+      },
+    }
+  )
+  if (regexAt.length)
+    return {
+      safe: false,
+      diagnostics: regexAt.map((n) => ({
+        predicate: entryName,
+        message: `regex /${n.regex.pattern}/ in an emitted guard would run on the host's backtracking engine, which fuel cannot bound — compile it with compilePredicate (linear engine) or validate without it`,
+        line: n.loc?.start?.line ?? 0,
+        column: n.loc?.start?.column ?? 0,
+      })),
+    }
 
   const instrumented = injectFuel(source)
 
