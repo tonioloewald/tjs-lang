@@ -60,9 +60,18 @@ p.reset(pos)             // back up to an earlier position (bounded backtracking
 | 0.14.x | `Scanner` | `tjs-lang/regex` (`regexAtoms`) |
 | 0.15 | **regex removed**: literals, `regexMatch`, regex arguments to `match`/`search`/`replace`/`replaceAll`/`split`. The engine leaves `vm-ast` (~7 KB gzipped). | `tjs-lang/regex` |
 
-**Removal gate:** `bun run test:grok` shows that the pinned small model writes working Scanner
-code at a rate comparable to its regex rate. AJS's premise is that a small model can write it,
-and regex is deeply learned. `guides/ajs-llm-prompt.md` carries most of that weight.
+**Removal gate:** `bun run test:grok` shows that the pinned small model writes Scanner code that
+is **correct on held-out inputs**, at a rate comparable to its regex rate. AJS's premise is that a
+small model can write it. `guides/ajs-llm-prompt.md` carries most of that weight.
+
+Measure correctness, not compilation. A regex fails silently: a pattern that is almost right still
+parses and still matches, so "the model wrote a regex that compiles" would score subtly wrong
+answers as passes. Each grok task therefore carries test inputs the model never sees, edge cases
+included, and both styles are scored on what they return. The expectation (Tonio, 2026-10-02) is
+that the scanner wins this, not merely ties. Models, like people, are worse at regex than they
+believe. This release is evidence: a star-height screen certified `/a*a*c/`, hand-written
+case-fold rules were wrong four ways, and the engine itself diverged from JavaScript until a
+fuzzer looked. Each of those failures was silent.
 
 ## Out of scope: predicates
 
