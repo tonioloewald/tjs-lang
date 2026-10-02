@@ -35,6 +35,22 @@ const ALLOWED: Record<string, string> = {
     '`name` iterates RUN_OPTION_KINDS (host), and `out` is null-prototype',
   'runtime.ts › createChildScope › Object.defineProperty':
     "the literal key 'error' on a VM context",
+  'runtime.ts › sigTable › out[name]':
+    'method names from the VM source (the table literals), onto Object.create(null)',
+  'regex.ts › compileRegex › Object.defineProperty':
+    "the VM-owned PROGRAM symbol and a literal 'toString', on a regex object the VM built",
+  'regex.ts › add › mark[p]':
+    'an Int32Array indexed by program counter (VM-internal)',
+  'regex.ts › add › n[ins.n]':
+    "a thread's capture slots, indexed by the compiled program",
+  'regex.ts › add › n[g * 2]':
+    "a thread's capture slots, indexed by group number",
+  'regex.ts › add › n[g * 2 + 1]':
+    "a thread's capture slots, indexed by group number",
+  'regex.ts › add › n[capSlots + ins.r]':
+    "a thread's empty-check registers (VM-internal)",
+  'string-methods.ts › match › Object.assign':
+    'named groups onto Object.create(null): a group named __proto__ is an ordinary key there',
   'runtime.ts › tagDateWrapper › Object.defineProperty':
     'the VM-owned DATE_WRAPPER symbol on a wrapper the VM built',
   'runtime.ts › withHeapContents › Object.defineProperty':

@@ -199,62 +199,70 @@ describe('Use Case: Malicious Actor', () => {
     expect(customFetch).toHaveBeenCalled()
   })
 
-  it('should reject ReDoS patterns in regexMatch', async () => {
+  it("runs ReDoS patterns in LINEAR time, on the VM's own regex engine", async () => {
+    // These used to be REFUSED by a screen (and shapes the screen missed ran for seconds to
+    // hours on the host's backtracking engine — docs/reviews/0.14.0-rc.2-rereview-7.md B8).
+    // Guest regexes now run on a Pike VM: linear in input × pattern, whatever the pattern, so
+    // they are not refused — they answer, correctly, and fast.
     const VM = new AgentVM()
-
-    // Classic ReDoS patterns
-    const redosPatterns = [
-      '(a+)+b', // Nested quantifiers
-      '(.*)+', // Dot-star with quantifier
-      '(.+)+', // Dot-plus with quantifier
-      '([a-z]+)+', // Character class with nested quantifiers
-      '(a+){2,}', // quantified quantified group (unbounded outer)
-      '((a+))+$', // star-height-2 through a NESTED group — the flat heuristic
-      // missed this; the shared reDoSRisk star-height detector catches it
-      '(([a-z]+))*', // deeper-nested star-height-2
-      '(a|a)+', // alternation overlap (reDoSRisk supplement)
+    const input = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!'
+    const cases: Array<[string, boolean]> = [
+      ['(a+)+b', false], // nested quantifiers
+      ['(.*)+', true],
+      ['(.+)+', true],
+      ['([a-z]+)+', true],
+      ['(a+){2,}', true],
+      ['((a+))+$', false], // star-height 2 through a nested group
+      ['(([a-z]+))*', true],
+      ['(a|a)+', true], // alternation overlap
+      ['a*a*a*c', false], // polynomial — the screen never caught this class
     ]
-
-    for (const pattern of redosPatterns) {
-      const agent = Agent.take(s.object({ input: s.string }))
-        .regexMatch({ pattern, value: 'args.input' })
-        .as('matched')
-        .return(s.object({ matched: s.boolean }))
-
-      const result = await VM.run(agent.toJSON(), {
-        input: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!',
+    for (const [pattern, expected] of cases) {
+      const t = performance.now()
+      const result = await VM.run(
+        Agent.take(s.object({ input: s.string }))
+          .regexMatch({ pattern, value: 'args.input' })
+          .as('matched')
+          .return(s.object({ matched: s.boolean }))
+          .toJSON(),
+        { input: input.repeat(100) } // 2900 characters: hours, for a backtracking engine
+      )
+      expect({ pattern, error: result.error?.message }).toEqual({
+        pattern,
+        error: undefined,
       })
-
-      expect(result.error).toBeDefined()
-      expect(result.error?.message).toMatch(/Suspicious regex pattern rejected/)
+      expect({ pattern, matched: result.result.matched }).toEqual({
+        pattern,
+        matched: expected,
+      })
+      expect(performance.now() - t).toBeLessThan(500)
     }
   })
 
-  it('should cap regex pattern and input length (ReDoS length guard)', async () => {
+  it('bounds a regex by its compiled size, and charges its input as fuel', async () => {
     const VM = new AgentVM()
-
-    // Over-long pattern rejected before compilation
-    const longPattern = 'a'.repeat(1001)
-    const r1 = await VM.run(
-      Agent.take(s.object({ input: s.string }))
-        .regexMatch({ pattern: longPattern, value: 'args.input' })
-        .as('m')
-        .return(s.object({ m: s.boolean }))
-        .toJSON(),
-      { input: 'x' }
+    const run = (pattern: string, input: string, fuel = 1000) =>
+      VM.run(
+        Agent.take(s.object({ input: s.string }))
+          .regexMatch({ pattern, value: 'args.input' })
+          .as('m')
+          .return(s.object({ m: s.boolean }))
+          .toJSON(),
+        { input },
+        { fuel }
+      )
+    // a pattern whose program would be too large is refused before it runs
+    expect((await run('(a{1000}){30}', 'x')).error?.message).toMatch(
+      /too large/
     )
-    expect(r1.error?.message).toMatch(/pattern too long/)
-
-    // Over-long input rejected before .test runs
-    const r2 = await VM.run(
-      Agent.take(s.object({ input: s.string }))
-        .regexMatch({ pattern: '^a+$', value: 'args.input' })
-        .as('m')
-        .return(s.object({ m: s.boolean }))
-        .toJSON(),
-      { input: 'a'.repeat(100_001) }
+    // a long input is not capped — it is CHARGED: plenty of fuel completes it…
+    expect((await run('^a+$', 'a'.repeat(100_001), 100_000)).result).toEqual({
+      m: true,
+    })
+    // …and a small budget stops it
+    expect((await run('^a+$', 'a'.repeat(100_001), 1)).error?.message).toMatch(
+      /Out of Fuel/
     )
-    expect(r2.error?.message).toMatch(/input too long/)
   })
 
   it('should allow safe regex patterns', async () => {

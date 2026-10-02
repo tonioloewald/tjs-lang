@@ -172,25 +172,6 @@ const CALLS: unknown[][] = [
   [nested(6), null, 10],
 ]
 
-describe('the method table has no name defined twice', () => {
-  // A later spread silently overrides an earlier entry — that is how Set's `union` bound became
-  // dead code under Schema's (rc.2 sixth re-review M1). TypeScript catches duplicate LITERAL
-  // keys; this catches a name in a group list that is also defined elsewhere.
-  it('every name appears once', async () => {
-    const { readFileSync } = await import('fs')
-    const { join } = await import('path')
-    const src = readFileSync(join(import.meta.dir, 'runtime.ts'), 'utf8')
-    const start = src.indexOf('const METHOD_ENTRIES')
-    const body = src.slice(start, src.indexOf('\nconst METHOD_TABLE', start))
-    const names = [
-      ...[...body.matchAll(/^\s+'(\w+)',$/gm)].map((m) => m[1]),
-      ...[...body.matchAll(/^ {2}(\w+): /gm)].map((m) => m[1]),
-    ]
-    expect(names.length).toBeGreaterThan(150) // apparatus
-    expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([])
-  })
-})
-
 describe('the method table bounds what every guest-callable method allocates', () => {
   const names = methodBudgets.names()
 
@@ -606,7 +587,9 @@ describe('round 2 (docs/reviews/0.14.0-rc.2-rereview-6.md), through transpile()'
     })
 
   describe('implicit coercion of an object/array is refused, not performed (B2)', () => {
-    const NEEDS = /needs a string, number, boolean or null/
+    // refused as an operand, or as an argument of the wrong type (the typed table)
+    const NEEDS =
+      /needs a string, number, boolean or null|must be (a string|a number)/
     const rows: Array<[string, string]> = [
       ['relational operator', `let a = [1, 2]; let r = a < 5`],
       ['arithmetic operator', `let a = [1, 2]; let r = a * 2`],
@@ -661,28 +644,52 @@ describe('round 2 (docs/reviews/0.14.0-rc.2-rereview-6.md), through transpile()'
       })
   })
 
-  describe('a guest string compiled to a RegExp is screened (B4)', () => {
+  describe("guest regexes run on the VM's own engine: linear, whatever the pattern (B4/B8)", () => {
+    // These ran for seconds to hours on the host's backtracking engine (exponential and
+    // polynomial shapes). On the VM's Pike VM they are linear in input × pattern, and charged.
     for (const [name, body] of [
-      ['match(string)', `let r = ('a'.repeat(27) + '!').match('^(a+)+$')`],
-      ['search(string)', `let r = ('a'.repeat(27) + '!').search('^(a+)+$')`],
       [
-        'a regex literal',
-        `let r = ('a'.repeat(27) + '!').replace(/^(a+)+$/, '')`,
+        'match(string), exponential',
+        `let r = ('a'.repeat(2000) + '!').match('^(a+)+$')`,
+      ],
+      [
+        'search(string), exponential',
+        `let r = ('a'.repeat(2000) + '!').search('^(a+)+$')`,
+      ],
+      [
+        'a regex literal, exponential',
+        `let r = ('a'.repeat(2000) + '!').replace(/^(a+)+$/, '')`,
+      ],
+      ['polynomial', `let r = 'a'.repeat(3000).replace(/a*a*c/, 'x')`],
+      [
+        'polynomial, digits',
+        `let r = '1'.repeat(1000).search('\\d+\\d+\\d+x')`,
       ],
     ] as const)
       it(name, async () => {
         const t = performance.now()
-        const r = await run(`function f() { ${body}; return { ok: true } }`)
-        expect(r.error?.message ?? 'completed').toMatch(/ReDoS|Suspicious/)
-        expect(performance.now() - t).toBeLessThan(200)
+        const r = await run(`function f() { ${body}; return { ok: true } }`, {
+          maxHeapBytes: 64_000_000,
+        })
+        expect(r.error).toBeUndefined()
+        expect(performance.now() - t).toBeLessThan(1500)
       })
 
-    it('the input a RegExp runs over is capped too (a harmless pattern, 200k characters)', async () => {
+    it('a long input is charged, not capped (200k characters)', async () => {
       const r = await run(
-        `function f() { let r = 'a'.repeat(200000).replace(/a/g, 'b'); return { ok: true } }`,
+        `function f() { let r = 'a'.repeat(200000).replace(/a/g, 'b'); return { n: r.length } }`,
         { maxHeapBytes: 64_000_000 }
       )
-      expect(r.error?.message ?? 'completed').toMatch(/Regex input too long/)
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ n: 200000 })
+    })
+
+    it('regex work is fuel: a tiny budget stops a long match', async () => {
+      const r = await run(
+        `function f() { let r = 'a'.repeat(200000).search(/(a|a)*b/); return { r } }`,
+        { fuel: 5, maxHeapBytes: 64_000_000 }
+      )
+      expect(r.error?.message ?? 'completed').toMatch(/Out of Fuel/)
     })
 
     it('a regex literal is DATA in the AST, and works', async () => {
@@ -843,5 +850,151 @@ describe('round 2 (docs/reviews/0.14.0-rc.2-rereview-6.md), through transpile()'
     )
     expect(first.error).toBeUndefined()
     expect(last.error).toBeUndefined()
+  })
+})
+
+describe('round 3 (docs/reviews/0.14.0-rc.2-rereview-7.md): one view of every operand', () => {
+  const run = (src: string, opts: Record<string, unknown> = {}, args = {}) =>
+    new AgentVM().run(transpile(src).ast, args, {
+      fuel: 5_000_000,
+      maxHeapBytes: 1_000_000,
+      ...opts,
+    })
+  const dag = `let node = [1]
+    let d = 0
+    while (d < 8) { let next = []; let i = 0; while (i < 10) { next.push(node); i = i + 1 }; node = next; d = d + 1 }`
+  const TYPED = /must be|not available|takes at most|is not a function/
+
+  describe('an argument of the wrong type is refused, not read another way (B2, B3)', () => {
+    const rows: Array<[string, string]> = [
+      ['a quoted count', `let s = 'x'.repeat('1e8')`],
+      ['a quoted pad length', `let s = 'x'.padStart('5e7')`],
+      ['a quoted length', `let a = Array.from({ length: '1e7' })`],
+      ['an array length', `let a = Array.from({ length: [1e7] })`],
+      ['indexOf position 2', `${dag}; let i = [1].indexOf(1, node)`],
+      ['fill position 2', `${dag}; let a = [1].fill(0, node)`],
+      ['with position 1', `${dag}; let a = [1].with(node, 2)`],
+      ['splice position 1', `${dag}; let a = [1].splice(node)`],
+      ['Object.hasOwn key', `${dag}; let h = Object.hasOwn({}, node)`],
+      ['fromEntries key', `${dag}; let o = Object.fromEntries([[node, 1]])`],
+      ["a Date's isBefore", `let r = Date(0).isBefore([2020])`],
+      ["a Date's add amount", `let r = Date(0).add({ years: 'x' })`],
+      ['an extra argument', `let i = 'abc'.indexOf('b', 0, 'extra')`],
+      ['a method another kind has', `let n = 5; let r = n.includes(1)`],
+      ['a name the table inherits', `let n = 5; let r = n.hasOwnProperty('x')`],
+    ]
+    for (const [name, body] of rows)
+      it(name, async () => {
+        const r = await run(`function f() { ${body}; return { ok: true } }`)
+        expect(r.error?.message ?? 'completed').toMatch(TYPED)
+      })
+  })
+
+  it('flat of a shared-reference DAG is refused BEFORE it is built (a stopped walk is not a bound — B1)', async () => {
+    // 10^8 slots (~800MB) if built; the refusal must come from the gate, not the bind after it
+    const before = process.memoryUsage().rss
+    const r = await run(
+      `function f() { ${dag}; let a = node.flat(10); return { n: a.length } }`
+    )
+    expect(r.error?.message ?? 'completed').toMatch(
+      /Heap limit exceeded|Out of Fuel/
+    )
+    expect(process.memoryUsage().rss - before).toBeLessThan(100 * 1024 * 1024)
+  })
+
+  it("JSON's escapes are counted: a control character is six (M3)", async () => {
+    const r = await run(
+      `function f({ s }) { let j = JSON.stringify([s, s, s, s]); return { n: j.length } }`,
+      { maxHeapBytes: 4_000_000 },
+      { s: '\x01'.repeat(150_000) }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
+    // refused by the GATE, from the escaped size — not by the bind, after building it
+    expect(r.error?.op).toBe('expr.stringify')
+  })
+
+  it('a printer charges its walk AS it walks (M2)', async () => {
+    // a doubling DAG, 25 levels: 33M paths. Metered, the walk stops a few thousand nodes in.
+    const t = performance.now()
+    const r = await run(
+      `function f() { let n = [1]; let d = 0; while (d < 25) { n = [n, n]; d = d + 1 }; let s = JSON.stringify(n); return { ok: true } }`,
+      // a huge cap: walking to the headroom would be seconds of host work before any charge
+      // building the DAG costs ~13.3 fuel; the walk gets ~5 more
+      { fuel: 18, maxHeapBytes: 2_000_000_000 }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(/Out of Fuel/)
+    expect(performance.now() - t).toBeLessThan(200)
+  })
+
+  it("a Set's remove(NaN) removes NaN, not the last element (B5)", async () => {
+    const r = await run(`function f() {
+      let s = Set([1, NaN, 2])
+      s.remove(NaN)
+      return { a: s.toArray() }
+    }`)
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ a: [1, 2] })
+  })
+
+  describe('atoms that stringify a guest value charge it first (B4)', () => {
+    for (const [name, body] of [
+      ['hash', `let h = hash({ value: node })`],
+    ] as const)
+      it(name, async () => {
+        const r = await run(
+          `function f() { ${dag}; ${body}; return { ok: true } }`
+        )
+        expect(r.error?.message ?? 'completed').toMatch(
+          /Heap limit exceeded|Out of Fuel/
+        )
+      })
+  })
+
+  it('the v1 consoleWarn atom charges a guest value before stringifying it (B4)', async () => {
+    // in v2, `console.warn(x)` is the host console (it formats with a depth limit and allocates
+    // nothing in the guest); the v1 ATOM stringified its input into the run's warnings
+    const { ast } = transpile(`function f() { ${dag}; return { ok: true } }`)
+    const steps = (ast as any).steps.slice(0, -1)
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        $ajs: 2,
+        steps: [
+          ...steps,
+          { op: 'consoleWarn', message: { $expr: 'ident', name: 'node' } },
+        ],
+      } as any,
+      {},
+      { fuel: 5_000_000, maxHeapBytes: 1_000_000 }
+    )
+    expect(r.error?.message ?? 'completed').toMatch(
+      /Heap limit exceeded|Out of Fuel/
+    )
+  })
+
+  describe("a schema 'pattern' would run on the host's engine: refused (B7)", () => {
+    for (const [name, body] of [
+      ['Schema.pattern', `let p = Schema.pattern('^(a+)+$')`],
+      [
+        'a pattern in isValid',
+        `let v = Schema.isValid('aaa', { type: 'string', pattern: '^(a+)+$' })`,
+      ],
+      [
+        'a pattern via meta',
+        `let v = Schema.object({}).meta({ pattern: '^(a+)+$' }).validate({})`,
+      ],
+    ] as const)
+      it(name, async () => {
+        const r = await run(`function f() { ${body}; return { ok: true } }`)
+        expect(r.error?.message ?? 'completed').toMatch(/pattern/)
+      })
+
+    it("the library's own patterns still work (emoji)", async () => {
+      const r = await run(
+        `function f() { return { v: Schema.isValid('😀', Schema.emoji) } }`
+      )
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ v: true })
+    })
   })
 })

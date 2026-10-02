@@ -263,8 +263,10 @@ numbers, booleans or null; an object or array operand is an error, not a silent 
 string form (`'x' + arr`, `${arr}`, `arr < 5`). Say what you mean: `arr.join(',')`,
 `JSON.stringify(obj)`. Methods follow the same rule unless they use an argument as a value
 (`arr.includes(obj)`, `arr.concat(other)`, `Object.keys(obj)`). Regex literals work as search
-patterns (`s.replace(/a+/g, '-')`, `s.split(/,\s*/)`); patterns and inputs go through the VM's
-ReDoS screen. Why: [`docs/vm-budgets.md`](docs/vm-budgets.md).
+patterns (`s.replace(/a+/g, '-')`, `s.split(/,\s*/)`); guest regexes run on the VM's own
+linear-time engine (no backreferences or lookaround), so no pattern
+can hang a run. Arguments must have the type the method reads (a count is a number). Why:
+[`docs/vm-budgets.md`](docs/vm-budgets.md).
 
 ### Local helper functions
 

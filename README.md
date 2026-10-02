@@ -195,17 +195,19 @@ a standalone entry point, not an increment (import only what you need):
 
 | Entry point                   | Bundle           | Size   | Gzipped   |
 | ----------------------------- | ---------------- | ------ | --------- |
-| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 75 KB | **25 KB** |
-| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 246 KB | 76 KB     |
-| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 128 KB | 42 KB     |
+| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 97 KB | **32 KB** |
+| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 268 KB | 83 KB |
+| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 150 KB | 49 KB |
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
 | `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 332 KB | 108 KB    |
 | `tjs-lang` (full, TS support) | index.js         | 443 KB | 145 KB    |
 
 The transpiler grew ~6% in 0.14.0 — `Type` examples are now read for what they mean
 (floats, unions, recursive references) and checked by a real fixed-point solver. The VM grew
-~10% (to 76 KB gzipped with the transpiler, 25 KB without) for its budgets: every method guest
-code can call now declares what it may allocate, and is charged for it before it runs
+~30% (to 83 KB gzipped with the transpiler, 32 KB without) for its budgets: every method guest
+code can call declares the exact type of each argument and what a call may allocate, and is
+charged for it before it runs; and guest regexes run on the VM's own linear-time engine instead
+of the host's backtracking one, so no pattern can hang a run
 ([`docs/vm-budgets.md`](docs/vm-budgets.md)). The VM and
 eval bundles got **23%** and **40%** smaller in 0.13.10, and not by optimising anything: giving AJS its own parser (`parseAgentSource`, see the CHANGELOG) meant the VM
 stopped bundling ~26 TJS-only source transforms it had no business running. Less code on the

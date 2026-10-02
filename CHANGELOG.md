@@ -82,6 +82,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > still counts once per name (fails closed). The VM grew ~10%: `tjs-lang/vm-ast` is 25 KB
 > gzipped, `tjs-lang/vm` 76 KB.
 >
+> **Since rc.1 — native TJS accepts a brace-less control body that starts with `[` or `(`.** The ASI
+> guard put a `;` in front of such a line — which, after `if (…)` / `while (…)` / `for (…)` /
+> `else`, BECAME the statement's body: `if (c)\n  [a, b] = …\nelse …` orphaned the `else`, so valid
+> JavaScript was refused (a TJS ⊇ JS violation, found when the VM's regex parser entered the
+> dogfood corpus). A bare header now keeps its body; a complete one-line `if (a) foo(b)` still
+> separates the next line, as before.
+>
+> **Since rc.1 — guest regexes run on the VM's own engine; methods take exactly-typed arguments
+> (breaking).** Guest regexes (literals, `regexMatch`, `match`/`search`/`replace`/`replaceAll`/
+> `split`) no longer run on the host's backtracking engine: a linear-time Pike VM, fuel per step,
+> makes ReDoS ordinary work instead of screening for it (the screen missed polynomial shapes —
+> `/a*a*c/` over 6k characters ran 12.9s for 2.7 fuel). Unsupported, and refused at compile time:
+> backreferences, lookahead/lookbehind, `\p{…}`, the `d`/`v` flags. A schema `pattern` supplied by
+> guest code is refused (it would validate on the host's engine) — use `regexMatch`. Methods now
+> take arguments of exactly the type they read: a count is a number (`'x'.repeat('1e8')` is
+> refused; it built 191MB under a 1MB cap), positions are typed (`arr.indexOf(v, obj)` converted
+> `obj`), and extra arguments are refused. The regex input cap (100k characters) is gone — input
+> is charged, not capped. Also: a Set's `remove(NaN)` removed the last element; `JSON.stringify`
+> is bounded by its escaped size; printers charge their walk as they walk.
+>
 > **Since rc.1 — AJS refuses implicit coercion of objects and arrays (breaking).** Operators
 > (`+ - * / % ** < > <= >=`, unary `+`/`-`), computed keys, and methods that take primitives now
 > refuse an object/array operand instead of converting it to its string form, recursively and

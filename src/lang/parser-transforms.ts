@@ -1111,6 +1111,26 @@ export function transformIsOperators(source: string): string {
 }
 
 /**
+ * Is this (comment- and literal-masked) line EXACTLY a control statement's header — `if (…)`,
+ * `while (…)`, `for (…)`, `with (…)`, `else`, `do`, optionally after a `}` — with no body on the
+ * line? The header's own parenthesis must close at the end of the line: `if (a) foo(b)` also ends
+ * in `)`, but it is a complete statement, and the line after it is exactly the hazard the ASI
+ * guard is for.
+ */
+function isBareControlHeader(line: string): boolean {
+  const t = line.trim().replace(/^\}\s*/, '')
+  if (/^(else|do)$/.test(t)) return true
+  const m = /^(?:else\s+)?(if|while|for|with)\s*\(/.exec(t)
+  if (!m) return false
+  let depth = 0
+  for (let i = m[0].length - 1; i < t.length; i++) {
+    if (t[i] === '(') depth++
+    else if (t[i] === ')' && --depth === 0) return i === t.length - 1
+  }
+  return false
+}
+
+/**
  * Insert semicolons to prevent ASI footguns (TjsStandard mode)
  *
  * JavaScript's ASI (Automatic Semicolon Insertion) has notorious footguns:
@@ -1255,10 +1275,13 @@ export function insertAsiProtection(
       // mistaken for one — which is exactly what used to happen.
       const prevNoComment = maskedLines[i - 1] ?? prevLine
 
-      // Don't insert if prev line clearly expects continuation
+      // Don't insert if prev line clearly expects continuation — or is a bare control HEADER,
+      // whose next line is its BODY: a `;` there BECAME the body (an empty statement), and
+      // `if (c)\n  [a, b] = …\nelse …` orphaned the `else`.
       if (
         !expectsContinuation.test(prevNoComment) &&
-        !continueKeywords.test(prevNoComment)
+        !continueKeywords.test(prevNoComment) &&
+        !isBareControlHeader(prevNoComment)
       ) {
         // Insert semicolon at start of this line (preserving whitespace).
         //

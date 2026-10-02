@@ -10,11 +10,18 @@ import {
 } from './admission'
 import { s, validate, isBuilder, filter as schemaFilter } from 'tosijs-schema'
 import {
+  compileRegex,
+  isGuestRegex,
+  RegexError,
+  REGEX_FUEL_PER_STEP,
+  type GuestRegex,
+} from './regex'
+import * as stringMethods from './string-methods'
+import {
   checkAstVersion,
   astVersionOf,
   AST_VERSION_LEGACY,
 } from './ast-version'
-import { reDoSRisk, alternationOverlapRisk } from '../redos'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
 
 /**
@@ -1091,22 +1098,6 @@ function isBlockedUrl(urlString: string): boolean {
   }
 }
 
-/**
- * ReDoS Protection: reject patterns likely to cause catastrophic backtracking.
- * The regex engine's backtracking is opaque to the fuel counter, so this is
- * backed by hard length caps on both the pattern and the input it runs against.
- */
-const MAX_REGEX_PATTERN_LENGTH = 1000
-const MAX_REGEX_INPUT_LENGTH = 100_000
-
-function isSuspiciousRegex(pattern: string): boolean {
-  // Rigorous star-height≥2 detection, shared with the predicate verifier
-  // (`src/redos.ts`) — catches the whole exponential class INCLUDING nested
-  // groups like `((a+))+` that a flat regex heuristic misses. Supplemented by
-  // the alternation-overlap case reDoSRisk deliberately doesn't model.
-  return reDoSRisk(pattern) !== null || alternationOverlapRisk(pattern)
-}
-
 // --- Helpers ---
 
 /**
@@ -1837,7 +1828,14 @@ export const builtins: Record<string, any> = Object.assign(
           return this
         },
         remove(item: any) {
-          if (index.delete(item)) data.splice(data.indexOf(item), 1)
+          // SameValueZero, as the index uses: `indexOf(NaN)` is -1, and `splice(-1, 1)` removed
+          // the LAST element — `data` and `index` drifted apart and the heap walk, which sees
+          // `data`, stopped seeing what `index` held (rc.2 seventh re-review B5)
+          if (index.delete(item))
+            data.splice(
+              data.findIndex((x) => x === item || (x !== x && item !== item)),
+              1
+            )
           return this
         },
         clear() {
@@ -2045,24 +2043,51 @@ export const builtins: Record<string, any> = Object.assign(
  */
 
 /**
- * THE METHOD TABLE (docs/vm-budgets.md): every method guest code may call, and an upper bound on
- * what a call allocates, computed from the receiver and arguments BEFORE the call (I1). A method
- * with no entry is not guest-callable — the allowlist used to be "every method on these
- * prototypes", which admitted amplifiers (`repeat`, `padStart`, `Array.from({ length })`) with
- * no bound at all, legacy HTML methods, callback methods guest code cannot use, and
- * `Array.prototype.keys`, which handed the guest a host iterator.
+ * THE METHOD TABLE (docs/vm-budgets.md): every method guest code may call, BY RECEIVER KIND, with
+ * the exact type of every argument position and an upper bound on what a call allocates.
  *
- * Bounds are checked against real results by `vm-budgets.test.ts`, which calls every entry on
- * receivers and arguments at several scales, including the amplifying dimensions.
+ * The bound is computed from the SAME operands the native method then reads — that is the whole
+ * point of the types. The rc.2 reviews found bounds computed from a different view of the input
+ * than the native used, seven ways: a count read by the bound as 0 and by the native as `'1e8'`;
+ * a method exempt from argument checks while JavaScript coerced its SECOND argument; one `$'` per
+ * match where the template had fifty (docs/reviews/0.14.0-rc.2-rereview-7.md). With exact types
+ * there is no second view: a count is a number, so `'x'.repeat('1e8')` is refused, not modelled.
  *
- * A bound returns bytes; 0 means "allocates nothing proportional to data". In-place growth
- * (`push`, `fill`, a Set's `add`) is not an allocation here — it is charged where it lands
- * (`accountMutation`, I2).
+ * - A method a kind does not list is not callable on that kind (`includes` on a number).
+ * - Arguments past the signature are refused (a native may read a position the bound ignored).
+ * - `bound: 'vm'` methods are implemented by the VM (`string-methods.ts`), which charges exactly
+ *   what it builds, as it builds it.
+ *
+ * Bounds are checked against real results by `vm-budgets.test.ts`. In-place growth (`push`, a
+ * Set's `add`) is not an allocation here — it is charged where it lands (`accountMutation`, I2).
  */
 type AllocBound = (receiver: any, args: any[], ctx: RuntimeContext) => number
 
-/** Bytes for a value's top level: a string's characters, a container's slots. O(1) except for
- * a plain object, which costs O(keys) — no more than the method about to run on it. */
+/** The type of an argument position. `?` makes it optional (undefined allowed). */
+type ArgType =
+  | 'any' // a value, used as a value (stored, compared by identity) — never converted
+  | 'str'
+  | 'num' // a number (NaN and ±Infinity included: natives read them without allocating)
+  | 'prim' // a string, number, boolean or null
+  | 'nullish' // null or undefined
+  | 'pattern' // a string or a VM regex
+  | 'objOrArr' // a plain object or an array
+  | 'array'
+  | 'setLike' // a guest Set or an array
+  | 'setSource' // what Set(…) copies: an array, a string, or a guest Set
+  | 'dateLike' // a guest Date, a number or a string
+  | 'amounts' // a plain object whose own values are numbers (Date add)
+  | 'entries' // an array of [string | number, value] pairs
+  | 'arrayLike' // what Array.from reads: an array, a string, a guest Set, or { length: number }
+  | 'schema' // a schema value; a guest-supplied `pattern` in it is refused
+
+interface Sig {
+  args: string[]
+  rest?: ArgType
+  bound: AllocBound | 'vm'
+}
+
+/** Bytes for a value's top level: a string's characters, a container's slots. */
 function shallowBytes(x: unknown): number {
   if (typeof x === 'string') return x.length * 2
   if (x === null || typeof x !== 'object') return SLOT_BYTES
@@ -2073,15 +2098,6 @@ function shallowBytes(x: unknown): number {
   return n
 }
 
-/** A value's deep size, the walk charged like any heap walk. */
-function deepBytes(ctx: RuntimeContext, x: unknown): number {
-  if (x === null || typeof x !== 'object') return shallowBytes(x)
-  const { bytes, nodes } = estimateBytes(x, ctx.maxHeapBytes ?? MAX_HEAP_BYTES)
-  if (!chargeHeapWalk(ctx, nodes, 'expr.measure'))
-    throw new Error('Out of Fuel')
-  return bytes
-}
-
 const sumOf = (xs: any[], f: (x: any) => number) =>
   xs.reduce((n: number, x: any) => n + f(x), 0)
 
@@ -2090,101 +2106,324 @@ const CONST =
   (bytes: number): AllocBound =>
   () =>
     bytes
-/** At most `c` × the top-level size of receiver and arguments. */
-const SHALLOW =
-  (c: number): AllocBound =>
-  (r, a) =>
-    c * (shallowBytes(r) + sumOf(a, shallowBytes)) + 64
-/** At most `c` × the deep MEMORY of the arguments — for results that hold references to them
- * (a namespace receiver allocates nothing itself). Not for printers: see `treeBytes`. */
-const DEEP_ARGS =
+/** A printed or copied TREE of the arguments, `c` times over (see `treeBytes`). */
+const TREE_ARGS =
   (c: number, base = 64): AllocBound =>
   (_r, a, ctx) =>
-    c * sumOf(a, (x) => deepBytes(ctx, x)) + base
-
-const int = (x: unknown) =>
-  typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.floor(x)) : 0
-const strLen = (x: unknown) => (typeof x === 'string' ? x.length : 0)
-
-/** A namespace receiver (`JSON`, `Array`, …) — its methods allocate from their arguments. */
-const isNamespace = (r: unknown, name: string) => r === (builtins as any)[name]
-
-/** Iterators are host objects whose contents no budget can see: never handed to the guest. */
-const NOT_ON_ARRAYS =
-  (onObject: AllocBound): AllocBound =>
-  (r, a, ctx) => {
-    if (Array.isArray(r))
-      throw new Error(
-        'Array iterators are not available in AsyncJS; use Object.keys/values/entries'
-      )
-    return onObject(r, a, ctx)
-  }
+    c * sumOf(a, (x) => treeBytes(ctx, x).bytes) + base
 
 /** A guest Set/Date wrapper, or a Schema builder: a fresh object of a dozen or so members. */
 const WRAPPER_BYTES = 4096
 
-/** The string form of an argument, in bytes (see `stringFormBound`). */
-const asString = (ctx: RuntimeContext, x: unknown): number =>
-  stringFormBound(ctx, x)
+const strLen = (x: unknown) => (typeof x === 'string' ? x.length : 0)
+/** ToIntegerOrInfinity of a number (the arguments are numbers — see the types). */
+const toInt = (x: unknown, dflt: number): number => {
+  if (x === undefined) return dflt
+  const n = x as number
+  return Number.isNaN(n)
+    ? 0
+    : n === Infinity || n === -Infinity
+    ? n
+    : Math.trunc(n)
+}
+const clampIndex = (i: number, len: number) =>
+  i < 0 ? Math.max(0, len + i) : Math.min(i, len)
+/** `slice(start, end)` — relative indices, as the specification defines them. */
+const sliceRange = (len: number, a: unknown, b: unknown) =>
+  Math.max(0, clampIndex(toInt(b, len), len) - clampIndex(toInt(a, 0), len))
+/** `substring(start, end)` — clamped, and swapped if reversed. */
+const substringRange = (len: number, a: unknown, b: unknown) => {
+  const s = Math.min(Math.max(toInt(a, 0), 0), len)
+  const e = Math.min(Math.max(toInt(b, len), 0), len)
+  return Math.abs(e - s)
+}
+/** `substr(start, length)`. */
+const substrRange = (len: number, a: unknown, b: unknown) =>
+  Math.max(
+    0,
+    Math.min(Math.max(toInt(b, len), 0), len - clampIndex(toInt(a, 0), len))
+  )
+/** A count read as the native reads it: ToIntegerOrInfinity, so `Infinity` stays Infinity (and
+ * is refused by the gate) and a negative count is the native's RangeError. */
+const count = (x: unknown) => Math.max(0, toInt(x, 0))
 
-/** Object.keys/values/entries/assign treat a STRING as its characters: an index string, a slot
- * and (for entries) a pair array per character. */
-const perCharOrShallow = (x: unknown, c: number) =>
-  typeof x === 'string' ? x.length * 64 : c * shallowBytes(x)
+/** A comparator-less sort compares STRING FORMS: elements must be primitives. */
+function sortBound(r: unknown[]): number {
+  for (const x of r) primitiveOperand(x, 'a sorted element', 'expr.sort')
+  return r.length * SCALAR_STRING_BYTES
+}
 
-/** The arguments of a namespace call (`Object.keys(x)`), or the receiver itself. */
-const ENUMERATE =
-  (c: number): AllocBound =>
-  (r, a) =>
-    sumOf(isNamespace(r, 'Object') ? a : [r], (x) => perCharOrShallow(x, c)) +
-    64
+/** A string method's result is at most `c` × its receiver (case mapping can lengthen). */
+const STRING = (c: number): Sig => ({
+  args: [],
+  bound: (r) => c * r.length * 2 + 64,
+})
+const CONST_SIG = (bytes: number, ...args: string[]): Sig => ({
+  args,
+  bound: CONST(bytes),
+})
+const NONE_SIG = (...args: string[]): Sig => ({ args, bound: NONE })
+const NUMS: Sig = { args: [], rest: 'num', bound: NONE }
 
-/** A function's string form is its SOURCE — host code. Never handed to the guest. */
-const NOT_ON_FUNCTIONS =
-  (onValue: AllocBound): AllocBound =>
-  (r, a, ctx) => {
-    if (typeof r === 'function')
-      throw new Error('A builtin function has no string form in AsyncJS')
-    return onValue(r, a, ctx)
-  }
+/** The array a printer/flatten counts, PER PATH, refusing once the walk passed the headroom. */
+const TREE_PRINT: AllocBound = (r, _a, ctx) => treeBytes(ctx, r).bytes + 64
 
-/** A number prints up to ~1100 digits in base 2, and ~400 characters grouped by locale. */
-const PRINT: AllocBound = NOT_ON_FUNCTIONS((r, a, ctx) =>
-  typeof r === 'number' || r instanceof Date || r instanceof RegExp
-    ? 4096
-    : treeBytes(ctx, r).bytes + 64
-)
+/**
+ * Merge signature groups, refusing a name defined twice. An object spread silently lets the
+ * later entry win — that is how Set's `union` bound became dead code under Schema's (rc.2 sixth
+ * re-review M1) — so a duplicate stops the module from loading instead.
+ */
+function sigTable(...parts: Array<Record<string, Sig>>): Record<string, Sig> {
+  const out: Record<string, Sig> = Object.create(null)
+  for (const part of parts)
+    for (const [name, sig] of Object.entries(part)) {
+      if (Object.prototype.hasOwnProperty.call(out, name))
+        throw new Error(`Method table: '${name}' is defined twice`)
+      out[name] = sig
+    }
+  return out
+}
 
-const METHOD_ENTRIES: Record<string, AllocBound> = {
-  // --- no proportional allocation: queries, numbers, in-place mutators (charged by I2) ---
-  ...Object.fromEntries(
+const SIGS: Record<string, Record<string, Sig>> = {
+  string: {
+    at: CONST_SIG(64, 'num?'),
+    charAt: CONST_SIG(64, 'num?'),
+    charCodeAt: NONE_SIG('num?'),
+    codePointAt: NONE_SIG('num?'),
+    concat: {
+      args: [],
+      rest: 'prim',
+      bound: (r, a, ctx) =>
+        r.length * 2 + sumOf(a, (x) => stringFormBound(ctx, x)) + 64,
+    },
+    endsWith: NONE_SIG('str', 'num?'),
+    startsWith: NONE_SIG('str', 'num?'),
+    includes: NONE_SIG('str', 'num?'),
+    indexOf: NONE_SIG('str', 'num?'),
+    lastIndexOf: NONE_SIG('str', 'num?'),
+    localeCompare: NONE_SIG('str'),
+    // NFKD expands one code point to as many as 18 (U+FDFA)
+    normalize: { args: ['str?'], bound: (r) => 18 * r.length * 2 + 64 },
+    padStart: {
+      args: ['num', 'str?'],
+      bound: (r, a) => Math.max(r.length, count(a[0])) * 2 + 64,
+    },
+    padEnd: {
+      args: ['num', 'str?'],
+      bound: (r, a) => Math.max(r.length, count(a[0])) * 2 + 64,
+    },
+    repeat: { args: ['num'], bound: (r, a) => r.length * count(a[0]) * 2 + 64 },
+    // the SELECTED range (charging the receiver refused `s.slice(0, 10)` of a long string)
+    slice: {
+      args: ['num?', 'num?'],
+      bound: (r, a) => sliceRange(r.length, a[0], a[1]) * 2 + 64,
+    },
+    substring: {
+      args: ['num?', 'num?'],
+      bound: (r, a) => substringRange(r.length, a[0], a[1]) * 2 + 64,
+    },
+    substr: {
+      args: ['num?', 'num?'],
+      bound: (r, a) => substrRange(r.length, a[0], a[1]) * 2 + 64,
+    },
+    // the VM's own implementations, over its own regex engine, charged exactly
+    split: { args: ['pattern?', 'num?'], bound: 'vm' },
+    replace: { args: ['pattern', 'str'], bound: 'vm' },
+    replaceAll: { args: ['pattern', 'str'], bound: 'vm' },
+    match: { args: ['pattern'], bound: 'vm' },
+    search: { args: ['pattern'], bound: 'vm' },
+    // case mapping can lengthen a string (ß → SS, ΐ → three characters)
+    toLowerCase: STRING(3),
+    toUpperCase: STRING(3),
+    toLocaleLowerCase: STRING(3),
+    toLocaleUpperCase: STRING(3),
+    trim: STRING(1),
+    trimStart: STRING(1),
+    trimEnd: STRING(1),
+    trimLeft: STRING(1),
+    trimRight: STRING(1),
+    toWellFormed: STRING(1),
+    isWellFormed: NONE_SIG(),
+    toString: NONE_SIG(),
+    valueOf: NONE_SIG(),
+  },
+  number: {
+    // a number prints in at most ~1100 digits (base 2), ~400 characters grouped by locale
+    toFixed: CONST_SIG(4096, 'num?'),
+    toExponential: CONST_SIG(4096, 'num?'),
+    toPrecision: CONST_SIG(4096, 'num?'),
+    toString: CONST_SIG(4096, 'num?'),
+    toLocaleString: CONST_SIG(4096),
+    valueOf: NONE_SIG(),
+  },
+  boolean: { toString: CONST_SIG(64), valueOf: NONE_SIG() },
+  array: {
+    at: NONE_SIG('num?'),
+    concat: {
+      args: [],
+      rest: 'any',
+      bound: (r, a) =>
+        16 +
+        r.length * SLOT_BYTES +
+        sumOf(a, (x) =>
+          Array.isArray(x) ? x.length * SLOT_BYTES : SLOT_BYTES
+        ) +
+        64,
+    },
+    copyWithin: NONE_SIG('num', 'num?', 'num?'),
+    fill: NONE_SIG('any', 'num?', 'num?'),
+    includes: NONE_SIG('any', 'num?'),
+    indexOf: NONE_SIG('any', 'num?'),
+    lastIndexOf: NONE_SIG('any', 'num?'),
+    // every element's string form, plus the separator between each pair
+    join: {
+      args: ['str?'],
+      bound: (r, a, ctx) =>
+        treeBytes(ctx, r).bytes +
+        Math.max(0, r.length - 1) * (a[0] === undefined ? 2 : a[0].length * 2) +
+        64,
+    },
+    pop: NONE_SIG(),
+    shift: NONE_SIG(),
+    reverse: NONE_SIG(),
+    push: { args: [], rest: 'any', bound: NONE },
+    unshift: { args: [], rest: 'any', bound: NONE },
+    slice: {
+      args: ['num?', 'num?'],
+      bound: (r, a) => 16 + sliceRange(r.length, a[0], a[1]) * SLOT_BYTES + 64,
+    },
+    sort: { args: [], bound: (r: unknown[]) => sortBound(r) },
+    toSorted: { args: [], bound: (r) => shallowBytes(r) + sortBound(r) },
+    toReversed: { args: [], bound: (r) => shallowBytes(r) + 64 },
+    splice: {
+      args: ['num?', 'num?'],
+      rest: 'any',
+      bound: (r) => shallowBytes(r) + 64,
+    },
+    toSpliced: {
+      args: ['num?', 'num?'],
+      rest: 'any',
+      bound: (r, a) => shallowBytes(r) + a.length * SLOT_BYTES + 64,
+    },
+    with: { args: ['num', 'any'], bound: (r) => shallowBytes(r) + 64 },
+    // every element reachable within the depth becomes a slot, counted per PATH (treeBytes);
+    // a walk stopped past the headroom refuses (a stopped walk's slot count is not a bound)
+    flat: {
+      args: ['num?'],
+      bound: (r, _a, ctx) => {
+        const t = treeBytes(ctx, r)
+        return t.truncated ? Infinity : 16 + t.slots * SLOT_BYTES + 64
+      },
+    },
+    toString: { args: [], bound: TREE_PRINT },
+    toLocaleString: { args: [], bound: TREE_PRINT },
+    valueOf: NONE_SIG(),
+  },
+  object: {
+    hasOwnProperty: NONE_SIG('prim'),
+    propertyIsEnumerable: NONE_SIG('prim'),
+    toString: CONST_SIG(64),
+    toLocaleString: CONST_SIG(64),
+    valueOf: NONE_SIG(),
+  },
+  set: {
+    add: NONE_SIG('any'),
+    remove: NONE_SIG('any'),
+    has: NONE_SIG('any'),
+    clear: NONE_SIG(),
+    toArray: { args: [], bound: (r) => shallowBytes(r) + 64 },
+    toJSON: { args: [], bound: (r) => shallowBytes(r) + 64 },
+    union: {
+      args: ['setLike'],
+      bound: (r, a) =>
+        2 * (shallowBytes(r) + shallowBytes(a[0])) + WRAPPER_BYTES,
+    },
+    intersection: {
+      args: ['setLike'],
+      bound: (r, a) =>
+        2 * (shallowBytes(r) + shallowBytes(a[0])) + WRAPPER_BYTES,
+    },
+    diff: {
+      args: ['setLike'],
+      bound: (r, a) =>
+        2 * (shallowBytes(r) + shallowBytes(a[0])) + WRAPPER_BYTES,
+    },
+  },
+  date: {
+    add: CONST_SIG(WRAPPER_BYTES, 'amounts'),
+    diff: NONE_SIG('dateLike', 'str?'),
+    isBefore: NONE_SIG('dateLike'),
+    isAfter: NONE_SIG('dateLike'),
+    // six single `.replace`s over the format string: bounded by its length
+    format: { args: ['str?'], bound: (_r, a) => strLen(a[0]) * 2 + 256 },
+    toString: CONST_SIG(256),
+    toJSON: CONST_SIG(256),
+  },
+  'native-date': sigTable(
+    Object.fromEntries(
+      [
+        'getDate',
+        'getDay',
+        'getFullYear',
+        'getHours',
+        'getMilliseconds',
+        'getMinutes',
+        'getMonth',
+        'getSeconds',
+        'getTime',
+        'getTimezoneOffset',
+        'getUTCDate',
+        'getUTCDay',
+        'getUTCFullYear',
+        'getUTCHours',
+        'getUTCMilliseconds',
+        'getUTCMinutes',
+        'getUTCMonth',
+        'getUTCSeconds',
+        'getYear',
+        'valueOf',
+      ].map((n) => [n, NONE_SIG()])
+    ),
+    Object.fromEntries(
+      [
+        'setDate',
+        'setFullYear',
+        'setHours',
+        'setMilliseconds',
+        'setMinutes',
+        'setMonth',
+        'setSeconds',
+        'setTime',
+        'setUTCDate',
+        'setUTCFullYear',
+        'setUTCHours',
+        'setUTCMilliseconds',
+        'setUTCMinutes',
+        'setUTCMonth',
+        'setUTCSeconds',
+        'setYear',
+      ].map((n) => [n, NONE_SIG('num', 'num?', 'num?', 'num?')])
+    ),
+    Object.fromEntries(
+      [
+        'toISOString',
+        'toDateString',
+        'toUTCString',
+        'toGMTString',
+        'toTimeString',
+        'toJSON',
+        'toString',
+        'toLocaleString',
+        'toLocaleDateString',
+        'toLocaleTimeString',
+      ].map((n) => [n, CONST_SIG(256)])
+    )
+  ),
+  regex: {
+    toString: { args: [], bound: (r: GuestRegex) => r.source.length * 2 + 64 },
+  },
+  'ns:Math': Object.fromEntries(
     [
-      'charCodeAt',
-      'codePointAt',
-      'endsWith',
-      'startsWith',
-      'includes',
-      'indexOf',
-      'lastIndexOf',
-      'localeCompare',
-      'isWellFormed',
-      'valueOf',
-      'hasOwnProperty',
-      'propertyIsEnumerable',
-      'has',
-      'isValid',
-      'isArray',
-      'isFinite',
-      'isInteger',
-      'isNaN',
-      'isSafeInteger',
-      'hasOwn',
-      'parseFloat',
-      'parseInt',
-      'isAfter',
-      'isBefore',
-      'now',
-      // Math
       'abs',
       'acos',
       'acosh',
@@ -2220,265 +2459,162 @@ const METHOD_ENTRIES: Record<string, AllocBound> = {
       'tan',
       'tanh',
       'trunc',
-      // Date getters/setters (a Date can arrive through a capability's structured clone)
-      'getDate',
-      'getDay',
-      'getFullYear',
-      'getHours',
-      'getMilliseconds',
-      'getMinutes',
-      'getMonth',
-      'getSeconds',
-      'getTime',
-      'getTimezoneOffset',
-      'getUTCDate',
-      'getUTCDay',
-      'getUTCFullYear',
-      'getUTCHours',
-      'getUTCMilliseconds',
-      'getUTCMinutes',
-      'getUTCMonth',
-      'getUTCSeconds',
-      'getYear',
-      'setDate',
-      'setFullYear',
-      'setHours',
-      'setMilliseconds',
-      'setMinutes',
-      'setMonth',
-      'setSeconds',
-      'setTime',
-      'setUTCDate',
-      'setUTCFullYear',
-      'setUTCHours',
-      'setUTCMilliseconds',
-      'setUTCMinutes',
-      'setUTCMonth',
-      'setUTCSeconds',
-      'setYear',
-      // in-place: growth is charged where it lands (accountMutation); what they RETURN is an
-      // element or a count that already existed
-      'push',
-      'pop',
-      'shift',
-      'unshift',
-      'fill',
-      'copyWithin',
-      'reverse',
-      'remove',
-      'clear',
-      // console: host output, nothing retained ('log' is listed with Math above)
-      'info',
-      'warn',
-      'error',
-    ].map((n) => [n, NONE])
+    ].map((n) => [n, NUMS])
   ),
-
-  // --- bounded by a constant ---
-  ...Object.fromEntries(
-    [
-      'toFixed',
-      'toExponential',
-      'toPrecision',
-      'toISOString',
-      'toDateString',
-      'toUTCString',
-      'toGMTString',
-      'toTimeString',
-      'toLocaleDateString',
-      'toLocaleTimeString',
-      'uuid',
-      'email',
-      'ipv4',
-      'url',
-      'datetime',
-      'date',
-      'emoji',
-      'null',
-      'undefined',
-      'any',
-    ].map((n) => [n, CONST(WRAPPER_BYTES)])
-  ),
-  // one element (a string's is a new one-character string)
-  at: CONST(64),
-  charAt: CONST(64),
-  // a Set's `add` grows it in place (charged by I2); a Date's returns a new wrapper
-  add: (r) => (kindOf(r) === 'date' ? WRAPPER_BYTES : 0),
-  // a Date wrapper's `diff` is a number; a Set's is a new Set of up to its own size
-  diff: (r, a, ctx) =>
-    kindOf(r) === 'set' ? SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES : 64,
-  // six single `.replace`s over the format string: bounded by its length
-  format: (_r, a) => strLen(a[0]) * 2 + 256,
-  // a sort without a comparator compares string forms: elements must be primitives
-  sort: (r) => sortBound(r),
-  toSorted: (r) => shallowBytes(r) + sortBound(r),
-  // `search`/`match` compile a string argument into a RegExp: the ReDoS screen applies
-  search: (r, a) => {
-    if (typeof r === 'string' && typeof a[0] === 'string') regexGate(a[0], r)
-    return 64
+  'ns:JSON': {
+    // a parsed value is at most ~16 bytes per source character (`[0,0,…]`: a slot per 2 chars)
+    parse: { args: ['str'], bound: (_r, a) => 16 * a[0].length + 64 },
+    // no replacer (guest code has no functions); an indent of a number or a string
+    stringify: {
+      args: ['any', 'nullish?', 'prim?'],
+      bound: (_r, a, ctx) => stringifyBound(ctx, a[0], a[2]),
+    },
   },
-  match: (r, a) => {
-    if (typeof r === 'string' && typeof a[0] === 'string') regexGate(a[0], r)
-    return matchBound(r, a[0])
+  'ns:Array': {
+    from: { args: ['arrayLike'], bound: (_r, a) => arrayFromBound(a[0]) },
+    of: {
+      args: [],
+      rest: 'any',
+      bound: (_r, a) => 16 + a.length * SLOT_BYTES + 64,
+    },
+    isArray: NONE_SIG('any'),
   },
-
-  // --- at most a constant times the top-level input ---
-  // the SELECTED range, not the receiver (charging the receiver refused `s.slice(0, 10)` of a
-  // 300k-character string)
-  slice: (r, a) => rangeBytes(r, sliceRange(lengthOf(r), a[0], a[1])),
-  substring: (r, a) => rangeBytes(r, substringRange(lengthOf(r), a[0], a[1])),
-  substr: (r, a) => rangeBytes(r, substrRange(lengthOf(r), a[0], a[1])),
-  trim: SHALLOW(1),
-  trimStart: SHALLOW(1),
-  trimEnd: SHALLOW(1),
-  trimLeft: SHALLOW(1),
-  trimRight: SHALLOW(1),
-  toWellFormed: SHALLOW(1),
-  // case mapping can lengthen a string (ß → SS, ΐ → three characters)
-  toLowerCase: SHALLOW(3),
-  toUpperCase: SHALLOW(3),
-  toLocaleLowerCase: SHALLOW(3),
-  toLocaleUpperCase: SHALLOW(3),
-  // NFKD expands one code point to as many as 18 (U+FDFA)
-  normalize: SHALLOW(18),
-  // one string object and slot per piece: `split('')` turns 2 bytes into ~26
-  split: (r, a) => splitBound(r, a[0], a[1]),
-  splice: SHALLOW(2),
-  toReversed: SHALLOW(1),
-  toSpliced: SHALLOW(2),
-  with: SHALLOW(1),
-  of: SHALLOW(2),
-  fromCharCode: SHALLOW(1),
-  fromCodePoint: SHALLOW(2),
-  toArray: SHALLOW(1),
-  // a Set's union is a new Set; Schema.union is a schema shaped by its arguments
-  union: (r, a, ctx) =>
-    kindOf(r) === 'set'
-      ? SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES
-      : 32 * sumOf(a, (x) => treeBytes(ctx, x).bytes) + WRAPPER_BYTES,
-  intersection: (r, a, ctx) => SHALLOW(2)(r, a, ctx) + WRAPPER_BYTES,
-  // Array concat copies slots; String concat converts every argument to its string form
-  concat: (r, a, ctx) =>
-    typeof r === 'string'
-      ? r.length * 2 + sumOf(a, (x) => asString(ctx, x)) + 64
-      : SHALLOW(1)(r, a, ctx),
-  // Object.keys/values/entries — on an object; arrays would get host iterators
-  keys: NOT_ON_ARRAYS(ENUMERATE(4)),
-  values: NOT_ON_ARRAYS(ENUMERATE(2)),
-  entries: NOT_ON_ARRAYS(ENUMERATE(8)),
-
-  // --- results that copy or print nested structure ---
-  // every element reachable within the depth becomes a slot — counted per PATH (see treeBytes)
-  flat: (r, _a, ctx) => 16 + treeBytes(ctx, r).slots * SLOT_BYTES + 64,
-  toString: PRINT,
-  toLocaleString: PRINT,
-  toJSON: NOT_ON_FUNCTIONS((r, _a, ctx) => 2 * treeBytes(ctx, r).bytes + 64),
-  fromEntries: DEEP_ARGS(4),
-  // Schema builders: a schema object shaped by its argument
-  ...Object.fromEntries(
-    [
-      'pattern',
-      'enum',
-      'const',
-      'array',
-      'tuple',
-      'object',
-      'record',
-      'infer',
-      'response',
-      'fromExample',
-    ].map((n) => [
+  'ns:Object': {
+    // a string is not an object here (it would enumerate its characters)
+    keys: { args: ['objOrArr'], bound: (_r, a) => 4 * shallowBytes(a[0]) + 64 },
+    values: {
+      args: ['objOrArr'],
+      bound: (_r, a) => 2 * shallowBytes(a[0]) + 64,
+    },
+    entries: {
+      args: ['objOrArr'],
+      bound: (_r, a) => 8 * shallowBytes(a[0]) + 64,
+    },
+    assign: {
+      args: ['objOrArr'],
+      rest: 'objOrArr',
+      bound: (_r, a) => 2 * sumOf(a, shallowBytes) + 64,
+    },
+    fromEntries: {
+      args: ['entries'],
+      bound: (_r, a) =>
+        2 * sumOf(a[0], (e: any[]) => shallowBytes(e[0]) + SLOT_BYTES) + 64,
+    },
+    hasOwn: NONE_SIG('objOrArr', 'prim'),
+  },
+  'ns:String': {
+    fromCharCode: {
+      args: [],
+      rest: 'num',
+      bound: (_r, a) => a.length * 2 + 64,
+    },
+    fromCodePoint: {
+      args: [],
+      rest: 'num',
+      bound: (_r, a) => a.length * 4 + 64,
+    },
+  },
+  'ns:Number': {
+    // Number.isNaN & co. do not convert their argument (the global isNaN does)
+    isNaN: NONE_SIG('any'),
+    isFinite: NONE_SIG('any'),
+    isInteger: NONE_SIG('any'),
+    isSafeInteger: NONE_SIG('any'),
+    parseFloat: NONE_SIG('str'),
+    parseInt: NONE_SIG('str', 'num?'),
+  },
+  'ns:Schema': {
+    // a schema mirrors its argument's TREE (every path); `pattern` is not here — a guest regex
+    // would run on the host's engine when the schema validates
+    object: {
+      args: ['schema', 'objOrArr?'],
+      bound: TREE_ARGS(32, WRAPPER_BYTES),
+    },
+    array: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    record: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    union: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    tuple: { args: ['schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    enum: { args: ['array'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    const: { args: ['prim'], bound: CONST(WRAPPER_BYTES) },
+    infer: { args: ['any'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    fromExample: { args: ['any'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    response: { args: ['str', 'schema'], bound: TREE_ARGS(32, WRAPPER_BYTES) },
+    // validation visits every PATH of the value: charged as its tree
+    isValid: { args: ['any', 'schema'], bound: TREE_ARGS(1) },
+  },
+  // a schema builder (`Schema.number`, `Schema.string.min(1)`)
+  builder: {
+    title: { args: ['str'], bound: CONST(WRAPPER_BYTES) },
+    describe: { args: ['str'], bound: CONST(WRAPPER_BYTES) },
+    default: { args: ['any'], bound: TREE_ARGS(2, WRAPPER_BYTES) },
+    meta: { args: ['schema'], bound: TREE_ARGS(2, WRAPPER_BYTES) },
+    min: { args: ['num'], bound: CONST(WRAPPER_BYTES) },
+    max: { args: ['num'], bound: CONST(WRAPPER_BYTES) },
+    step: { args: ['num'], bound: CONST(WRAPPER_BYTES) },
+    validate: { args: ['any'], bound: TREE_ARGS(1) },
+  },
+  'ns:console': Object.fromEntries(
+    ['log', 'info', 'warn', 'error'].map((n) => [
       n,
-      // a schema mirrors its example's TREE (every path), so a shared-reference example costs
-      // its printed size, not its memory
-      ((_r: unknown, a: unknown[], ctx: RuntimeContext) =>
-        32 * sumOf(a, (x) => treeBytes(ctx, x).bytes) +
-        WRAPPER_BYTES) as AllocBound,
+      { args: [], rest: 'any', bound: NONE },
     ])
   ),
-
-  // --- amplifiers and products: explicit bounds ---
-  repeat: (r, a) => strLen(r) * int(a[0]) * 2 + 64,
-  padStart: (r, a) => Math.max(strLen(r), int(a[0])) * 2 + 64,
-  padEnd: (r, a) => Math.max(strLen(r), int(a[0])) * 2 + 64,
-  // every element's string form, plus the separator's between each pair
-  join: (r, a, ctx) =>
-    Array.isArray(r)
-      ? treeBytes(ctx, r).bytes +
-        Math.max(0, r.length - 1) *
-          (a[0] === undefined ? 2 : asString(ctx, a[0])) +
-        64
-      : 64,
-  // A replacement is inserted once per match; `$'`, `$\``, `$&` insert parts of the subject,
-  // so with a `$` in the replacement every insertion may be as long as the whole string.
-  replace: (r, a, ctx) => replaceBound(ctx, r, a, false),
-  replaceAll: (r, a, ctx) => replaceBound(ctx, r, a, true),
-  // `Array.from({ length: n })` allocates n slots from a two-key object
-  from: (r, a, ctx) => {
-    if (!isNamespace(r, 'Array')) return SHALLOW(1)(r, a, ctx)
-    const src = a[0]
-    if (typeof src === 'string') return src.length * (SLOT_BYTES + 32) + 64
-    if (Array.isArray(src)) return shallowBytes(src) + 64
-    if (src && typeof src === 'object') {
-      if (HEAP_CONTENTS in src) return 2 * shallowBytes(src)
-      return 16 + int((src as any).length) * SLOT_BYTES + 64
-    }
-    return 64
+  'ns:Date': {
+    now: NONE_SIG(),
+    parse: CONST_SIG(WRAPPER_BYTES, 'str'),
   },
-  // JSON.parse vs Date.parse
-  parse: (r, a) =>
-    isNamespace(r, 'JSON') ? 16 * strLen(a[0]) + 64 : WRAPPER_BYTES,
-  stringify: (_r, a, ctx) => stringifyBound(ctx, a[0], a[2]),
-  // copies every source's own properties (a string source: one per character)
-  assign: (_r, a, ctx) =>
-    sumOf(a, (x) =>
-      typeof x === 'string' ? x.length * 64 : 2 * deepBytes(ctx, x)
-    ) + 64,
 }
 
-/** Null-prototype, so a method NAME can never resolve to an inherited member. */
-const METHOD_TABLE: Record<string, AllocBound> = Object.assign(
-  Object.create(null),
-  METHOD_ENTRIES
-)
-
-function replaceBound(
-  ctx: RuntimeContext,
-  r: unknown,
-  a: any[],
-  all: boolean
-): number {
-  if (typeof r !== 'string') return 64
-  const n = r.length
-  // A RegExp may match at EVERY position (an empty match) and, with `g`, replaces them all.
-  if (a[0] instanceof RegExp) all = all || a[0].global
-  // both are converted to strings — a missing replacement is the string 'undefined'
-  const patternChars =
-    a[0] instanceof RegExp
-      ? 0
-      : typeof a[0] === 'string'
-      ? a[0].length
-      : asString(ctx, a[0]) / 2
-  const replChars =
-    typeof a[1] === 'string' ? a[1].length : asString(ctx, a[1]) / 2
-  const dollar = typeof a[1] !== 'string' || a[1].includes('$')
-  // each inserted copy: the replacement, plus (with `$` patterns) up to the whole subject
-  const perMatch = replChars + (dollar ? 2 * n : 0)
-  const matches = all ? Math.floor(n / Math.max(1, patternChars)) + 1 : 1
-  return (n + matches * perMatch) * 2 + 64
+/** The global functions (`parseInt(…)`, `Set(…)`, …), typed the same way. */
+const GLOBAL_SIGS: Record<string, Sig> = {
+  parseInt: NONE_SIG('str', 'num?'),
+  parseFloat: NONE_SIG('str'),
+  isNaN: NONE_SIG('num'),
+  isFinite: NONE_SIG('num'),
+  // a UTF-16 unit is up to 3 UTF-8 bytes, each written as `%XX`
+  encodeURI: { args: ['str'], bound: (_r, a) => 9 * a[0].length * 2 + 64 },
+  encodeURIComponent: {
+    args: ['str'],
+    bound: (_r, a) => 9 * a[0].length * 2 + 64,
+  },
+  decodeURI: { args: ['str'], bound: (_r, a) => a[0].length * 2 + 64 },
+  decodeURIComponent: { args: ['str'], bound: (_r, a) => a[0].length * 2 + 64 },
+  Set: {
+    args: ['setSource?'],
+    bound: (_r, a) =>
+      (typeof a[0] === 'string'
+        ? a[0].length * 64
+        : 2 * (a[0] === undefined ? 0 : shallowBytes(a[0]))) + WRAPPER_BYTES,
+  },
+  Date: CONST_SIG(WRAPPER_BYTES, 'dateLike?'),
+  // a filtered COPY of its data, as a tree
+  filter: {
+    args: ['any', 'schema'],
+    bound: (_r, a, ctx) => 2 * treeBytes(ctx, a[0]).bytes + 64,
+  },
 }
 
-/** JSON.stringify: the value's printed TREE, plus indentation — which repeats per LINE, so with
- * an indent it grows with nesting depth. */
+/** `Array.from(source)`: a slot per element — `{ length: n }` is n slots from two keys. */
+function arrayFromBound(src: unknown): number {
+  if (typeof src === 'string') return src.length * (SLOT_BYTES + 32) + 64
+  if (Array.isArray(src)) return shallowBytes(src) + 64
+  if (src && typeof src === 'object' && HEAP_CONTENTS in src)
+    return 2 * shallowBytes(src)
+  return 16 + count((src as any).length) * SLOT_BYTES + 64
+}
+
+/** JSON.stringify: the value's printed TREE — JSON-escaped, so a control character is six — plus
+ * indentation, which repeats per LINE and so grows with nesting depth. */
 function stringifyBound(
   ctx: RuntimeContext,
   x: unknown,
   indent: unknown
 ): number {
-  const tree = treeBytes(ctx, x)
+  const tree = treeBytes(ctx, x, true)
+  if (tree.truncated) return Infinity
   const width =
     typeof indent === 'number'
-      ? Math.min(10, int(indent))
+      ? Math.min(10, count(indent))
       : typeof indent === 'string'
       ? Math.min(10, indent.length)
       : 0
@@ -2488,172 +2624,24 @@ function stringifyBound(
   )
 }
 
-/** The global functions (`parseInt(…)`, `Set(…)`, …) and what each call may allocate. */
-const GLOBAL_TABLE: Record<string, AllocBound> = Object.assign(
-  Object.create(null),
-  {
-    parseInt: NONE,
-    parseFloat: NONE,
-    isNaN: NONE,
-    isFinite: NONE,
-    // a UTF-16 unit is up to 3 UTF-8 bytes, each written as `%XX`
-    encodeURI: (_r, a, ctx) => 9 * asString(ctx, a[0]) + 64,
-    encodeURIComponent: (_r, a, ctx) => 9 * asString(ctx, a[0]) + 64,
-    decodeURI: (_r, a, ctx) => asString(ctx, a[0]) + 64,
-    decodeURIComponent: (_r, a, ctx) => asString(ctx, a[0]) + 64,
-    Set: (_r, a) => perCharOrShallow(a[0], 2) + WRAPPER_BYTES,
-    Date: CONST(WRAPPER_BYTES),
-    // a filtered COPY of its data, as a tree (a shared-reference argument is copied per path)
-    filter: (_r, a, ctx) => 2 * treeBytes(ctx, a[0]).bytes + 64,
-  } as Record<string, AllocBound>
-)
-
-/**
- * The table, read-only, for the behavioural probe (`vm-budgets.test.ts`): every guest-callable
- * method name, and its bound for a given call. Not a public API.
- */
-export const methodBudgets = {
-  names: (): string[] => Object.keys(METHOD_TABLE),
-  globals: (): string[] => Object.keys(GLOBAL_TABLE),
-  /** `ctx` supplies the fuel the bound's own measuring walk is charged to. */
-  /** The gate itself: argument kinds, then the bound. Throws where the VM would refuse. */
-  bound: (
-    name: string,
-    receiver: unknown,
-    args: unknown[],
-    ctx: RuntimeContext
-  ) => methodGate(receiver, name, args, ctx),
-  globalBound: (name: string, args: unknown[], ctx: RuntimeContext) =>
-    GLOBAL_TABLE[name](undefined, args, ctx),
-}
-
-/**
- * Call a guest-callable method through the table's gate (I1): the one way a data ATOM performs
- * the operation its method twin performs, so the two cannot drift (docs/vm-budgets.md).
- */
-function guestCall(
-  ctx: RuntimeContext,
-  receiver: any,
-  method: string,
-  args: unknown[],
-  op: string
-): any {
-  allocate(ctx, methodGate(receiver, method, args, ctx), op)
-  return receiver[method](...args)
-}
-
-const lengthOf = (r: unknown): number =>
-  typeof r === 'string' || Array.isArray(r) ? r.length : 0
-
-/** ToIntegerOrInfinity of a primitive index (arguments are primitives — see methodGate). */
-const toInt = (x: unknown, dflt: number): number => {
-  if (x === undefined) return dflt
-  const n = Number(x)
-  return Number.isNaN(n)
-    ? 0
-    : n === Infinity || n === -Infinity
-    ? n
-    : Math.trunc(n)
-}
-const clampIndex = (i: number, len: number) =>
-  i < 0 ? Math.max(0, len + i) : Math.min(i, len)
-/** `slice(start, end)` — relative indices, as the spec defines them. */
-const sliceRange = (len: number, a: unknown, b: unknown) =>
-  Math.max(0, clampIndex(toInt(b, len), len) - clampIndex(toInt(a, 0), len))
-/** `substring(start, end)` — clamped, and swapped if reversed. */
-const substringRange = (len: number, a: unknown, b: unknown) => {
-  const s = Math.min(Math.max(toInt(a, 0), 0), len)
-  const e = Math.min(Math.max(toInt(b, len), 0), len)
-  return Math.abs(e - s)
-}
-/** `substr(start, length)`. */
-const substrRange = (len: number, a: unknown, b: unknown) =>
-  Math.max(
-    0,
-    Math.min(Math.max(toInt(b, len), 0), len - clampIndex(toInt(a, 0), len))
-  )
-/** Bytes for `n` selected units of a string (chars) or an array (slots). */
-const rangeBytes = (r: unknown, n: number) =>
-  (typeof r === 'string' ? n * 2 : n * SLOT_BYTES) + 64
-
-/** An upper bound on a pattern's capture groups (every `(` may open one). */
-const groupsIn = (pattern: unknown): number =>
-  pattern instanceof RegExp
-    ? (pattern.source.match(/\(/g) ?? []).length
-    : typeof pattern === 'string'
-    ? (pattern.match(/\(/g) ?? []).length
-    : 0
-
-/** `match(pattern)`: a global match returns every match (together at most the subject, at most
- * one per position); otherwise one match and its capture groups, each at most the subject. */
-function matchBound(r: unknown, pattern: unknown): number {
-  if (typeof r !== 'string') return 64
-  const n = r.length
-  const groups = groupsIn(pattern)
-  return (groups + 1) * (n * 2 + 32) + (n + 1) * (SLOT_BYTES + 32) + 64
-}
-
-/** `split(sep, limit)`: the characters, plus one string and slot per PIECE — counted for a string
- * separator (`split(',')` on 100k characters is as many pieces as it has commas), and at most
- * one per position (with each capture group repeated) for a RegExp. `limit` is ToUint32, so a
- * negative limit means "no limit". */
-function splitBound(r: unknown, sep: unknown, limit: unknown): number {
-  if (typeof r !== 'string') return 64
-  const max = limit === undefined ? Infinity : Number(limit) >>> 0
-  let pieces: number
-  if (sep instanceof RegExp) {
-    const groups = groupsIn(sep)
-    pieces = (r.length + 1) * (groups + 1)
-    return (
-      r.length * 2 * (groups + 1) +
-      Math.min(pieces, max) * (SLOT_BYTES + 32) +
-      64
-    )
-  }
-  if (typeof sep !== 'string') pieces = 1
-  else if (sep === '') pieces = r.length
-  else {
-    pieces = 1
-    for (
-      let i = r.indexOf(sep);
-      i !== -1 && pieces < max;
-      i = r.indexOf(sep, i + sep.length)
-    )
-      pieces++
-  }
-  return r.length * 2 + Math.min(pieces, max) * (SLOT_BYTES + 32) + 64
-}
-
-/** A comparator-less sort compares STRING FORMS of its elements: they must be primitives, and
- * each comparison's strings are transient. */
-function sortBound(r: unknown): number {
-  if (!Array.isArray(r)) return 0
-  for (const x of r) primitiveOperand(x, 'a sorted element', 'expr.sort')
-  return r.length * SCALAR_STRING_BYTES
-}
-
-/** String methods that take a RegExp as a search pattern. */
-const REGEX_ARG_METHODS = new Set([
-  'replace',
-  'replaceAll',
-  'match',
-  'search',
-  'split',
-])
-
 /** What kind of value a method is called on — methods dispatch on it, and so must bounds. */
 function kindOf(r: unknown): string {
   if (typeof r === 'string') return 'string'
   if (typeof r === 'number') return 'number'
+  if (typeof r === 'boolean') return 'boolean'
   if (Array.isArray(r)) return 'array'
   if (typeof r === 'function')
     return r === (builtins as any).Date ? 'ns:Date' : 'function'
   if (r && typeof r === 'object') {
-    if (HEAP_CONTENTS in r) return 'set'
-    if (DATE_WRAPPER in r) return 'date'
-    if (r instanceof Date) return 'native-date'
+    // namespaces FIRST: they are proxies that throw on a property they lack, and the probes
+    // below read properties (`isBuilder` reads a symbol)
     for (const ns of NAMESPACES)
       if (r === (builtins as any)[ns]) return 'ns:' + ns
+    if (HEAP_CONTENTS in r) return 'set'
+    if (DATE_WRAPPER in r) return 'date'
+    if (isGuestRegex(r)) return 'regex'
+    if (isBuilder(r)) return 'builder'
+    if (r instanceof Date) return 'native-date'
     return 'object'
   }
   return typeof r
@@ -2669,79 +2657,294 @@ const NAMESPACES = [
   'console',
 ]
 
-/**
- * Methods whose ARGUMENTS may be objects/arrays, by receiver kind. Every other method takes
- * primitives only: JavaScript would convert an object argument with ToString/ToNumber — an
- * array's whole string form — and `'abc'.includes(arr)`, `Math.max(arr)`, `parseInt(arr)` built
- * it for free (rc.2 sixth re-review B2). Refused, not charged (Tonio, 2026-10-02). These are
- * the methods that use an argument as a VALUE (store it, compare it by identity, copy it).
- */
-const STRUCTURAL_ARGS: Record<string, ReadonlySet<string> | '*'> = {
-  array: new Set([
-    'concat',
-    'push',
-    'unshift',
-    'splice',
-    'fill',
-    'with',
-    'toSpliced',
-    'includes',
-    'indexOf',
-    'lastIndexOf',
-  ]),
-  set: new Set(['add', 'remove', 'has', 'union', 'intersection', 'diff']),
-  date: new Set(['add', 'diff', 'isBefore', 'isAfter']),
-  'ns:Object': new Set([
-    'keys',
-    'values',
-    'entries',
-    'assign',
-    'fromEntries',
-    'hasOwn',
-  ]),
-  'ns:JSON': new Set(['stringify']),
-  'ns:Array': new Set(['from', 'of', 'isArray']),
-  // Number.isNaN & co. do not convert their argument (unlike the global isNaN)
-  'ns:Number': new Set(['isNaN', 'isFinite', 'isInteger', 'isSafeInteger']),
-  'ns:Schema': '*',
-  'ns:console': '*',
+/** A plain object or array that holds DATA: no accessors to run, no prototype of its own. */
+const isPlainObject = (x: unknown): x is Record<string, unknown> =>
+  !!x &&
+  typeof x === 'object' &&
+  !Array.isArray(x) &&
+  (Object.getPrototypeOf(x) === Object.prototype ||
+    Object.getPrototypeOf(x) === null) &&
+  !(HEAP_CONTENTS in x) &&
+  !(DATE_WRAPPER in x) &&
+  !isGuestRegex(x)
+
+const isPrimitive = (x: unknown) =>
+  x === null || (typeof x !== 'object' && typeof x !== 'function')
+
+/** Does `v` have the type an argument position declares? */
+function argOk(type: string, v: unknown): boolean {
+  if (type.endsWith('?')) return v === undefined || argOk(type.slice(0, -1), v)
+  switch (type) {
+    case 'any':
+      return true
+    case 'str':
+      return typeof v === 'string'
+    case 'num':
+      return typeof v === 'number'
+    case 'prim':
+      return isPrimitive(v) && v !== undefined
+    case 'nullish':
+      return v === null || v === undefined
+    case 'pattern':
+      return typeof v === 'string' || isGuestRegex(v)
+    case 'objOrArr':
+      return Array.isArray(v) || isPlainObject(v)
+    case 'array':
+      return Array.isArray(v)
+    case 'setLike':
+      return (
+        Array.isArray(v) || (!!v && typeof v === 'object' && HEAP_CONTENTS in v)
+      )
+    case 'setSource':
+      return typeof v === 'string' || argOk('setLike', v)
+    case 'dateLike':
+      return (
+        typeof v === 'number' ||
+        typeof v === 'string' ||
+        (!!v && typeof v === 'object' && DATE_WRAPPER in v)
+      )
+    case 'amounts':
+      return (
+        isPlainObject(v) &&
+        Object.values(Object.getOwnPropertyDescriptors(v)).every(
+          (d) => typeof d.value === 'number'
+        )
+      )
+    case 'entries':
+      return (
+        Array.isArray(v) &&
+        v.every(
+          (e) =>
+            Array.isArray(e) &&
+            (typeof e[0] === 'string' || typeof e[0] === 'number')
+        )
+      )
+    case 'arrayLike':
+      return (
+        typeof v === 'string' ||
+        argOk('setLike', v) ||
+        (isPlainObject(v) &&
+          typeof Object.getOwnPropertyDescriptor(v, 'length')?.value ===
+            'number')
+      )
+    case 'schema':
+      return true // checked separately, for patterns (see assertNoGuestPatterns)
+  }
+  return false
+}
+
+const KIND_NAMES: Record<string, string> = {
+  string: 'a string',
+  number: 'a number',
+  boolean: 'a boolean',
+  array: 'an array',
+  object: 'an object',
+  set: 'a Set',
+  date: 'a Date',
+  'native-date': 'a Date',
+  regex: 'a regex',
+  function: 'a function',
 }
 
 /**
- * THE gate for a guest method call: the arguments are of a kind the method may take, and the
- * call's allocation, bounded from its inputs by the table, is charged before it runs (I1).
- * Returns the bound; throws on refusal.
+ * THE gate for a guest method call: the method exists for this kind of receiver, every argument
+ * has its declared type, and the call's allocation — bounded from those same operands — is
+ * returned for the caller to charge before it runs (I1), or `'vm'` for a VM-implemented method.
  */
 function methodGate(
   receiver: unknown,
   method: string,
   args: unknown[],
   ctx: RuntimeContext
-): number {
+): number | 'vm' {
   const kind = kindOf(receiver)
-  const structural = STRUCTURAL_ARGS[kind]
-  if (!(structural === '*' || structural?.has(method)))
-    for (const a of args) {
-      // The one object a string method may take: a RegExp (built by the VM from a `regex`
-      // node, after its screen), and only where JavaScript searches with it. The INPUT is
-      // screened here — backtracking runs on the string.
-      if (
-        a instanceof RegExp &&
-        kind === 'string' &&
-        REGEX_ARG_METHODS.has(method)
-      ) {
-        regexGate(a.source, receiver as string)
-        continue
-      }
-      primitiveOperand(a, `${method}()'s argument`, `expr.${method}`)
-    }
-  return METHOD_TABLE[method](receiver, args, ctx)
+  // OWN entries only: `SIGS.number.hasOwnProperty` is Object.prototype's function, not a Sig
+  const table = Object.prototype.hasOwnProperty.call(SIGS, kind)
+    ? SIGS[kind]
+    : undefined
+  const sig =
+    table && Object.prototype.hasOwnProperty.call(table, method)
+      ? table[method]
+      : undefined
+  if (!sig)
+    throw new AgentError(
+      `'${method}' is not available on ${
+        KIND_NAMES[kind] ?? kind.replace('ns:', '')
+      }`,
+      `expr.${method}`
+    )
+  checkArgs(sig, args, `${method}()`, `expr.${method}`)
+  // a builder validates on the host's engine: `meta({ pattern })` would smuggle a guest regex in
+  if (kind === 'builder' && method === 'validate')
+    assertNoGuestPatterns(receiver)
+  return sig.bound === 'vm' ? 'vm' : sig.bound(receiver, args, ctx)
 }
 
-/** The method allowlist: exactly the table's keys. */
-const SAFE_METHOD_NAMES: ReadonlySet<string> = new Set(
-  Object.keys(METHOD_TABLE)
+function checkArgs(sig: Sig, args: unknown[], what: string, op: string): void {
+  if (args.length > sig.args.length && !sig.rest)
+    throw new AgentError(
+      `${what} takes at most ${sig.args.length} argument(s)`,
+      op
+    )
+  args.forEach((v, i) => {
+    const type = i < sig.args.length ? sig.args[i] : sig.rest!
+    if (!argOk(type, v))
+      throw new AgentError(
+        `${what}'s argument ${i + 1} must be ${
+          ARG_NAMES[type.replace('?', '')] ?? type
+        }` +
+          (isPrimitive(v)
+            ? ''
+            : " — convert it explicitly (e.g. arr.join(','), JSON.stringify(obj))"),
+        op
+      )
+    if (type.replace('?', '') === 'schema') assertNoGuestPatterns(v)
+  })
+}
+
+const ARG_NAMES: Record<string, string> = {
+  str: 'a string',
+  num: 'a number',
+  prim: 'a string, number, boolean or null',
+  nullish: 'null',
+  pattern: 'a string or a regex',
+  objOrArr: 'an object or an array',
+  array: 'an array',
+  setLike: 'a Set or an array',
+  setSource: 'an array, a string or a Set',
+  dateLike: 'a Date, a number or a string',
+  amounts: 'an object of numbers',
+  entries: 'an array of [key, value] pairs',
+  arrayLike: 'an array, a string, a Set or { length: number }',
+}
+
+/**
+ * A schema's `pattern` runs on the HOST's regex engine when it validates — so a guest-supplied
+ * pattern is refused (use `regexMatch`, which runs on the VM's). The library's own patterns
+ * (emoji) are linear and allowed. `Schema.isValid(s, Schema.pattern('^(a+)+$'))` ran 386ms past
+ * a 50ms timeout (rc.2 seventh re-review B7).
+ */
+const LIBRARY_PATTERNS = new Set<string>(
+  [(s as any).emoji?.schema?.pattern].filter((p) => typeof p === 'string')
 )
+function assertNoGuestPatterns(schema: unknown): void {
+  const seen = new Set<object>()
+  const stack = [isBuilder(schema) ? (schema as any).schema : schema]
+  while (stack.length) {
+    const v = stack.pop()
+    if (!v || typeof v !== 'object' || seen.has(v)) continue
+    seen.add(v)
+    for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(v))) {
+      if (!('value' in d)) continue
+      if (
+        k === 'pattern' &&
+        typeof d.value === 'string' &&
+        !LIBRARY_PATTERNS.has(d.value)
+      )
+        throw new AgentError(
+          "A schema 'pattern' is not available in AsyncJS — use regexMatch (it runs on the VM's regex engine)",
+          'Schema'
+        )
+      stack.push(d.value)
+    }
+  }
+}
+
+/**
+ * An atom input as a string: itself if it is one, else its JSON — charged, as a JSON-escaped
+ * TREE, before it is built. `hash`, `storeProcedure` and the console atoms called
+ * `JSON.stringify` on guest values first and charged after (or never): a shared-reference DAG
+ * became ~500MB for a few fuel (rc.2 seventh re-review B4).
+ */
+function stringifyInput(ctx: RuntimeContext, v: unknown, op: string): string {
+  return typeof v === 'string' ? v : jsonOf(ctx, v, op)
+}
+
+/** `JSON.stringify(v)`, charged before it is built. */
+function jsonOf(ctx: RuntimeContext, v: unknown, op: string): string {
+  allocate(ctx, stringifyBound(ctx, v, undefined), op)
+  return JSON.stringify(v) ?? String(v)
+}
+
+/** The read-only view of the table for the behavioural probe (`vm-budgets.test.ts`). */
+export const methodBudgets = {
+  /** Every method name callable on SOME kind (what the transpiler routes to methodCall). */
+  names: (): string[] => [
+    ...new Set(Object.values(SIGS).flatMap((t) => Object.keys(t))),
+  ],
+  globals: (): string[] => Object.keys(GLOBAL_SIGS),
+  kinds: (): string[] => Object.keys(SIGS),
+  kindOf: (r: unknown) => kindOf(r),
+  /** The gate itself: types, then the bound. Throws where the VM would refuse. */
+  bound: (
+    name: string,
+    receiver: unknown,
+    args: unknown[],
+    ctx: RuntimeContext
+  ) => methodGate(receiver, name, args, ctx),
+  globalBound: (name: string, args: unknown[], ctx: RuntimeContext): number => {
+    const sig = GLOBAL_SIGS[name]
+    checkArgs(sig, args, `${name}()`, `expr.${name}`)
+    return (sig.bound as AllocBound)(undefined, args, ctx)
+  },
+}
+
+/**
+ * Call a guest-callable method through the gate: the one way a data ATOM performs the operation
+ * its method twin performs, so the two cannot drift (docs/vm-budgets.md).
+ */
+function guestCall(
+  ctx: RuntimeContext,
+  receiver: any,
+  method: string,
+  args: unknown[],
+  op: string
+): any {
+  const bound = methodGate(receiver, method, args, ctx)
+  if (bound === 'vm') return vmStringMethod(ctx, receiver, method, args)
+  allocate(ctx, bound, op)
+  return receiver[method](...args)
+}
+
+/** The VM-implemented string methods (`string-methods.ts`), metered against this run. */
+function vmStringMethod(
+  ctx: RuntimeContext,
+  s: string,
+  method: string,
+  args: any[]
+): unknown {
+  const op = `expr.${method}`
+  const meters = {
+    alloc: (bytes: number) => allocate(ctx, bytes, op),
+    steps: (n: number) => {
+      if (!ctx.fuel) return
+      if ((ctx.fuel.current -= n * REGEX_FUEL_PER_STEP) <= 0)
+        throw new AgentError('Out of Fuel', op)
+    },
+  }
+  try {
+    switch (method) {
+      case 'replace':
+        return stringMethods.replace(s, args[0], args[1], meters)
+      case 'replaceAll':
+        return stringMethods.replaceAll(s, args[0], args[1], meters)
+      case 'match':
+        return stringMethods.match(s, args[0], meters)
+      case 'search':
+        return stringMethods.search(s, args[0], meters)
+      case 'split':
+        return stringMethods.split(s, args[0], args[1], meters)
+    }
+  } catch (e: any) {
+    if (e instanceof RegexError || e instanceof TypeError)
+      throw new AgentError(e.message, op)
+    throw e
+  }
+  throw new AgentError(`'${method}' is not a VM string method`, op)
+}
+
+/** The method allowlist: every name callable on some kind. */
+const SAFE_METHOD_NAMES: ReadonlySet<string> = new Set(methodBudgets.names())
 
 // Built-ins that are NOT available with helpful messages
 const unsupportedBuiltins: Record<string, string> = Object.assign(
@@ -3213,26 +3416,47 @@ function stringFormBound(ctx: RuntimeContext, x: unknown): number {
  */
 function treeBytes(
   ctx: RuntimeContext,
-  x: unknown
-): { bytes: number; slots: number; nodes: number; depth: number } {
+  x: unknown,
+  json = false
+): {
+  bytes: number
+  slots: number
+  nodes: number
+  depth: number
+  truncated: boolean
+} {
+  // Stop at the HEADROOM left, not the whole cap: past it the caller refuses anyway, and a walk
+  // to the full cap was up to `maxHeapBytes` of synchronous host work before any fuel was
+  // charged (rc.2 seventh re-review M2). Fuel is charged AS the walk goes, every 1024 nodes.
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  const account = ctx.heapAccount
+  const limit = account
+    ? Math.max(0, cap - account.bytes - account.transient)
+    : cap
   let bytes = 0
   let slots = 0
   let nodes = 0
+  let charged = 0
   let depth = 0
   const ancestors = new Set<object>()
   // entries: [value, isExit, depth]
   const stack: Array<[unknown, boolean, number]> = [[x, false, 1]]
-  while (stack.length && bytes <= cap) {
+  while (stack.length && bytes <= limit) {
     const [v, exit, d] = stack.pop()!
     if (exit) {
       ancestors.delete(v as object)
       continue
     }
-    nodes++
+    if (++nodes - charged >= 1024) {
+      if (!chargeHeapWalk(ctx, nodes - charged, 'expr.measure'))
+        throw new AgentError('Out of Fuel', 'expr.measure')
+      charged = nodes
+    }
     if (d > depth) depth = d
     if (typeof v === 'string') {
-      bytes += v.length * 2 + 4 // quotes and a separator
+      // JSON escapes a control character, a quote, a backslash or a lone surrogate — up to six
+      // characters for one (rc.2 seventh re-review M3)
+      bytes += (json ? jsonLength(v) : v.length) * 2 + 4
       continue
     }
     if (v === null || typeof v !== 'object') {
@@ -3253,16 +3477,38 @@ function treeBytes(
     } else {
       const descriptors = Object.getOwnPropertyDescriptors(contents)
       for (const k of Object.keys(descriptors)) {
-        bytes += k.length * 2 + 8
+        bytes += (json ? jsonLength(k) : k.length) * 2 + 8
         slots++
         const desc = descriptors[k]
         if ('value' in desc) stack.push([desc.value, false, d + 1])
       }
     }
   }
-  if (!chargeHeapWalk(ctx, nodes, 'expr.measure'))
-    throw new Error('Out of Fuel')
-  return { bytes: bytes > cap ? cap + 1 : bytes, slots, nodes, depth }
+  if (nodes > charged && !chargeHeapWalk(ctx, nodes - charged, 'expr.measure'))
+    throw new AgentError('Out of Fuel', 'expr.measure')
+  const truncated = bytes > limit
+  // A stopped walk's counts are not bounds: report it as over the cap, and say it stopped.
+  return { bytes: truncated ? cap + 1 : bytes, slots, nodes, depth, truncated }
+}
+
+/** A string's length once JSON-escaped. */
+function jsonLength(s: string): number {
+  let n = s.length
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 0x20) n += 5 // \u00XX (or \n, shorter)
+    else if (c === 0x22 || c === 0x5c) n += 1
+    else if (c >= 0xd800 && c <= 0xdfff) {
+      const pair =
+        c <= 0xdbff &&
+        i + 1 < s.length &&
+        s.charCodeAt(i + 1) >= 0xdc00 &&
+        s.charCodeAt(i + 1) <= 0xdfff
+      if (pair) i++
+      else n += 5 // a lone surrogate: \uXXXX
+    }
+  }
+  return n
 }
 
 /** The longest string form of a scalar (a double is at most ~24 characters), in bytes. */
@@ -3281,6 +3527,10 @@ const SCALAR_STRING_BYTES = 64
  */
 export function allocate(ctx: RuntimeContext, bytes: number, op: string): void {
   if (!(bytes > 0)) return
+  // Larger than the whole ceiling (or unbounded — a measuring walk that had to stop): refused as
+  // what it is, before any fuel is charged. It reported 'Out of Fuel' with fuelUsed Infinity.
+  const ceiling = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  if (bytes > ceiling) throw heapLimitError(bytes, ceiling, op)
   if (ctx.fuel) {
     ctx.fuel.current -= bytes * FUEL_PER_ALLOCATED_BYTE
     if (ctx.fuel.current <= 0) throw new AgentError('Out of Fuel', op)
@@ -3651,13 +3901,15 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
     }
 
     case 'regex': {
-      // Built HERE, after the screen, from data — never handed over by a front end
+      // A regex literal: compiled by the VM's OWN engine (regex.ts), from data — the host's
+      // backtracking engine never sees a guest pattern
       if (typeof node.pattern !== 'string' || typeof node.flags !== 'string')
         throw new Error('A regex node needs a string pattern and flags')
-      if (!/^[dgimsuyv]*$/.test(node.flags))
-        throw new Error(`Unsupported regex flags: ${node.flags}`)
-      regexGate(node.pattern, '')
-      return new RegExp(node.pattern, node.flags)
+      try {
+        return compileRegex(node.pattern, node.flags)
+      } catch (e: any) {
+        throw new AgentError(e.message, 'expr.regex')
+      }
     }
 
     case 'conditional': {
@@ -3695,19 +3947,21 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         const fn = builtins[node.callee]
         if (typeof fn === 'function') {
           const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
-          const bound = GLOBAL_TABLE[node.callee]
-          if (!bound)
+          const sig = Object.prototype.hasOwnProperty.call(
+            GLOBAL_SIGS,
+            node.callee
+          )
+            ? GLOBAL_SIGS[node.callee]
+            : undefined
+          if (!sig)
             throw new Error(`${node.callee}() is not available in AsyncJS`)
-          // `Set(items)` and `filter(data, schema)` take values; the rest convert their
-          // arguments (parseInt, encodeURI, …) and so take primitives (see methodGate)
-          if (node.callee !== 'Set' && node.callee !== 'filter')
-            for (const a of args)
-              primitiveOperand(
-                a,
-                `${node.callee}()'s argument`,
-                `expr.${node.callee}`
-              )
-          allocate(ctx, bound(undefined, args, ctx), `expr.${node.callee}`) // I1
+          // typed like methods: every argument the type the native reads (see methodGate)
+          checkArgs(sig, args, `${node.callee}()`, `expr.${node.callee}`)
+          allocate(
+            ctx,
+            (sig.bound as AllocBound)(undefined, args, ctx),
+            `expr.${node.callee}`
+          ) // I1
           return fn(...args)
         }
       }
@@ -3760,7 +4014,9 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
       // I1: bound what the call will allocate from its inputs, and charge it, BEFORE calling.
       // (It used to be charged from the RESULT — after `'x'.repeat(5e8)` had built 1GB.)
-      allocate(ctx, methodGate(obj, method, args, ctx), `expr.${method}`)
+      const bound = methodGate(obj, method, args, ctx)
+      if (bound === 'vm') return vmStringMethod(ctx, obj, method, args)
+      allocate(ctx, bound, `expr.${method}`)
       const result = fn.apply(obj, args)
       if (
         MUTATING_METHODS.has(method) &&
@@ -5054,7 +5310,9 @@ export const template = defineAtom(
   s.object({ tmpl: s.string, vars: s.record(s.any) }),
   s.string,
   async ({ tmpl, vars }: { tmpl: string; vars: Record<string, any> }, ctx) => {
-    const resolvedTmpl = String(resolveValue(tmpl, ctx))
+    const resolvedTmpl = resolveValue(tmpl, ctx)
+    if (typeof resolvedTmpl !== 'string')
+      throw new AgentError("template's tmpl must be a string", 'template')
     // Interpolation is an amplifier — a placeholder may repeat, and each copy of a huge value is
     // a new allocation — so the bound counts every OCCURRENCE, before the string is built (I1).
     // (v2 compiles template literals to `+`; this op is for v1 ASTs.)
@@ -5087,39 +5345,20 @@ export const regexMatch = defineAtom(
     // expression NODE — and `new RegExp` stringified that to '[object Object]'.
     const source = resolveValue(pattern, ctx)
     const resolvedValue = resolveValue(value, ctx)
+    if (typeof source !== 'string' && !isGuestRegex(source))
+      throw new AgentError(
+        "regexMatch's pattern must be a string or a regex",
+        'regexMatch'
+      )
     primitiveOperand(resolvedValue, "regexMatch's value", 'regexMatch')
-    const input = String(resolvedValue)
-    regexGate(String(source), input)
-    return new RegExp(String(source)).test(input)
+    // on the VM's own engine: linear in input × pattern, every step charged
+    return vmStringMethod(ctx, String(resolvedValue), 'search', [source]) !== -1
   },
   {
     docs: 'Returns true if the value matches the regex pattern.',
     cost: 2,
   }
 )
-
-/**
- * The ReDoS screen, for EVERY place a guest string becomes a regular expression: `regexMatch`,
- * and `String.prototype.match`/`search` (which compile a string argument with `new RegExp`).
- * Backtracking is opaque to the fuel counter and a single synchronous call cannot be timed out,
- * so the pattern and the input are capped and known-catastrophic shapes refused — fail closed.
- * `match`/`search` bypassed it: `('a'.repeat(27) + '!').match('^(a+)+$')` ran 634ms past a
- * 50ms timeout (rc.2 sixth re-review B4).
- */
-function regexGate(pattern: string, input: string): void {
-  if (pattern.length > MAX_REGEX_PATTERN_LENGTH)
-    throw new Error(
-      `Regex pattern too long (${pattern.length} > ${MAX_REGEX_PATTERN_LENGTH})`
-    )
-  if (isSuspiciousRegex(pattern))
-    throw new Error(
-      `Suspicious regex pattern rejected (potential ReDoS): ${pattern}`
-    )
-  if (input.length > MAX_REGEX_INPUT_LENGTH)
-    throw new Error(
-      `Regex input too long (${input.length} > ${MAX_REGEX_INPUT_LENGTH})`
-    )
-}
 
 // 7. Object (Cost 1)
 export const pick = defineAtom(
@@ -5172,9 +5411,19 @@ export const merge = defineAtom(
     const rb = resolveValue(b, ctx)
     // Both operands are copied, so both are charged. Measured flat-charged: 400 merges
     // over a 400k-key object completed in 17.7 SECONDS having spent 400.3 fuel.
+    // typed as Object.assign's sources: a string would spread into one key per character
+    for (const [x, n] of [
+      [ra, 1],
+      [rb, 2],
+    ] as const)
+      if (x !== undefined && x !== null && !argOk('objOrArr', x))
+        throw new AgentError(
+          `merge's operand ${n} must be an object or an array`,
+          'merge'
+        )
     allocate(
       ctx,
-      perCharOrShallow(ra, 2) + perCharOrShallow(rb, 2) + 64,
+      2 * (shallowBytes(ra ?? {}) + shallowBytes(rb ?? {})) + 64,
       'merge'
     )
     return { ...ra, ...rb }
@@ -5305,6 +5554,23 @@ export const fetch = defineAtom(
     const headers = resolveValue(step.headers, ctx) || {}
     const body = resolveValue(step.body, ctx)
     const responseType = resolveValue(step.responseType, ctx)
+    // Typed before anything parses them: `new URL(DAG)` built the DAG's string form for free
+    // (rc.2 seventh re-review B4), and a header value is converted by the host's fetch.
+    if (typeof url !== 'string')
+      throw new Error("httpFetch's url must be a string")
+    for (const [name, v] of [
+      ['method', method],
+      ['responseType', responseType],
+    ] as const)
+      if (v !== undefined && typeof v !== 'string')
+        throw new Error(`httpFetch's ${name} must be a string`)
+    if (
+      !isPlainObject(headers) ||
+      !Object.values(Object.getOwnPropertyDescriptors(headers)).every(
+        (d) => typeof d.value === 'string'
+      )
+    )
+      throw new Error("httpFetch's headers must be an object of strings")
 
     // Get current depth from context (set by receiving endpoint)
     const currentDepth: number = ctx.context?.requestDepth ?? 0
@@ -5373,10 +5639,10 @@ export const fetch = defineAtom(
       const res = await globalThis.fetch(url, {
         method,
         headers: {
-          ...headers,
+          ...(headers as Record<string, string>),
           ...depthHeaderFor(url, currentDepth + 1),
         },
-        body: body ? JSON.stringify(body) : undefined,
+        body: body ? jsonOf(ctx, body, 'httpFetch') : undefined,
         signal: ctx.signal, // Pass abort signal for cancellation
       })
 
@@ -6179,12 +6445,9 @@ export const hash = defineAtom(
   }),
   s.string,
   async ({ value, algorithm }, ctx) => {
-    const str =
-      typeof value === 'string'
-        ? value
-        : JSON.stringify(resolveValue(value, ctx))
-    // The digest reads every byte (and JSON.stringify above already walked the operand),
-    // so charge for it. Flat-charged, `hash` cost 1.2 fuel for 1KB and for 1MB alike.
+    const str = stringifyInput(ctx, resolveValue(value, ctx), 'hash')
+    // The digest reads every byte, so charge for it. Flat-charged, `hash` cost 1.2 fuel for
+    // 1KB and for 1MB alike.
     if (!chargeForSize(ctx, str, 'hash')) return undefined
     const algo = resolveValue(algorithm, ctx) || 'SHA-256'
 
@@ -6252,7 +6515,7 @@ export const consoleWarn = defineAtom(
   undefined,
   async ({ message }, ctx) => {
     const msg = resolveValue(message, ctx)
-    const msgStr = typeof msg === 'string' ? msg : JSON.stringify(msg)
+    const msgStr = stringifyInput(ctx, msg, 'console')
     // Add to warnings summary
     if (!ctx.warnings) ctx.warnings = []
     ctx.warnings.push(msgStr)
@@ -6278,7 +6541,7 @@ export const consoleError = defineAtom(
   undefined,
   async ({ message }, ctx) => {
     const msg = resolveValue(message, ctx)
-    const msgStr = typeof msg === 'string' ? msg : JSON.stringify(msg)
+    const msgStr = stringifyInput(ctx, msg, 'console')
     ctx.error = new AgentError(msgStr, 'console.error')
   },
   { docs: 'Emit error and stop', cost: 0.1 }
@@ -6312,7 +6575,7 @@ export const storeProcedure = defineAtom(
     }
 
     // Check size
-    const astJson = JSON.stringify(resolvedAst)
+    const astJson = stringifyInput(ctx, resolvedAst, 'storeProcedure')
     if (astJson.length > resolvedMaxSize) {
       throw new Error(
         `AST too large: ${astJson.length} bytes exceeds limit of ${resolvedMaxSize} bytes. ` +

@@ -75,16 +75,38 @@ the doors enumerable:
 
 Say what you mean instead: `arr.join(',')`, `JSON.stringify(obj)`, `String(n)` on a number.
 
-**Regex literals are data.** `/a+/g` compiles to a `regex` node; the VM builds the RegExp after its
-ReDoS screen, and the screen runs again on the input wherever the RegExp is used (`replace`,
-`replaceAll`, `match`, `search`, `split`). Before 0.14 the transpiler built the RegExp itself from
-guest source, so it was never screened and it serialized as `{}`.
+## Exact operand types
+
+Refusing coercion closed one door class; the seventh rc.2 review found the general one: **a bound
+computed from a different VIEW of an operand than the native method then reads.** `int('1e8')` is
+0 to a bound and 100,000,000 to `repeat`; a method exempt from argument checks still converts its
+second argument; a model of `replace`'s output counted one `$'` per match where the template had
+fifty. So the method table is TYPED: for each receiver kind, each method declares the exact type of
+every argument position (`num`, `str`, `pattern`, `any` = used as a value, …), and its bound reads
+those same, validated operands. A count must be a number — `'x'.repeat('1e8')` is refused, not
+modelled. Arguments past the signature are refused. A method another kind has is not callable on
+this one.
+
+## The VM's own regex engine
+
+Guest regexes never run on the host's backtracking engine. `src/vm/regex.ts` is a Pike VM: threads
+advance in lockstep and are deduplicated per position, so a match is O(input × pattern) whatever
+the pattern, and every step is charged as fuel. Exponential (`(a+)+$`) and polynomial (`a*a*c`)
+shapes are ordinary work. It supports classes, `.`, anchors, `\b`, groups (capturing, non-capturing,
+named), alternation and every quantifier, greedy and lazy, with flags `gimsuy`; it refuses
+backreferences, lookaround, `\p{…}` and the `d`/`v` flags. It is held to native `RegExp` by a
+differential test (a corpus plus a grammar fuzz — 152,400 comparisons, zero mismatches when it
+landed). `replace`, `replaceAll`, `match`, `search` and `split` are implemented by the VM over it
+(`string-methods.ts`) and charge exactly what they build. A schema's `pattern` would run on the
+host's engine when it validates, so a guest-supplied one is refused (the library's own are
+allowed).
 
 ## The doors
 
 | Door | What allocates | Gate |
 |---|---|---|
-| Expression evaluator: `methodCall`, `call`, `+` | builtin methods and statics, global builtins, concatenation | `allocate()` with a bound from the **method table**; argument kinds by `methodGate` |
+| Expression evaluator: `methodCall`, `call`, `+` | builtin methods and statics, global builtins, concatenation | the **typed** method table (`methodGate`): argument types, then `allocate()` with a bound from those operands |
+| Regular expressions | guest patterns and their work | the VM's own linear engine (`regex.ts`), fuel per step; `replace`/`split`/… charged exactly |
 | Implicit coercion (operators, computed keys, primitive-taking methods) | the string form of an object | **refused** (above) |
 | Atoms | data atoms (v1 ops only; see below), VM services | data atoms delegate to the same gated primitives; every atom is listed in a ratchet table with its allocation story |
 | Capability returns | io atoms | the membrane (`membraneMaxBytes`), then I2 at the bind |
