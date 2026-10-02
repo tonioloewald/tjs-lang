@@ -111,9 +111,13 @@ describe.skipIf(!!process.env.SKIP_BENCHMARKS)(
       // themeMs is milliseconds per theme → themes/sec = 1000 / themeMs.
       console.log(`    → ~${Math.round(1000 / themeMs)} themes/sec\n`)
 
-      // Loose ceiling: a whole theme must validate far under one 16ms frame.
-      // (Generous 8ms tolerates CI/load; observed is a fraction of a ms.)
-      expect(themeMs).toBeLessThan(8)
+      // Ceiling: a whole theme validates within one 16ms frame. Measured 2026-10-02 at ~7.3ms
+      // (Bun 1.4.2, M-series laptop): about 36x slower than when this ran on the host's
+      // backtracking regex engine (~0.2ms). Predicate regexes now run on the VM's linear
+      // engine (0.14.0), which cannot be made to hang. The old 8ms ceiling left under 10%
+      // margin and failed under load. Card #2767 (literal-prefix skip + cached DFA) is the
+      // work that should bring this back down; lower the ceiling when it lands.
+      expect(themeMs).toBeLessThan(16)
     }, 60_000)
   }
 )

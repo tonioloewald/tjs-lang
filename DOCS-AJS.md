@@ -785,7 +785,9 @@ tags.diff(['b']) // ['c']
 
 `Date(text)` (or `Date()` for now) makes a date. A date is a frozen **data object** (0.14.0):
 `value` (ISO string), `timestamp` (ms), `year`, `month` (1–12), `day`, `hours`, `minutes`,
-`seconds`, `dayOfWeek`. JSON writes it as its ISO string.
+`seconds`, `dayOfWeek`, every field in **UTC**, so a program produces the same result on every
+host. It has one form everywhere: `JSON.stringify(d)`, a capability's input and the run's result
+all see this object. For the ISO string, write `d.value`.
 
 ```javascript
 const d = Date('2024-01-15T10:00:00Z')
@@ -794,7 +796,8 @@ d.month // 1
 const next = d.add({ days: 1 }) // a new date; also years, months, hours, minutes, seconds, ms
 next.diff(d, 'days') // 1 (also 'seconds', 'minutes', 'hours'; default ms)
 d.isBefore(next) // true
-d.format('YYYY-MM-DD') // '2024-01-15' (also 'ISO', 'date', 'time')
+d.format('YYYY-MM-DD') // '2024-01-15', in UTC (also 'ISO', 'date', 'time')
+d.value // '2024-01-15T10:00:00.000Z'
 Date.now() // timestamp
 ```
 

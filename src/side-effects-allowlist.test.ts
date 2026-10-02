@@ -39,6 +39,9 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const listed = new Set<string>(pkg.sideEffects)
 
 const EXEMPT: Record<string, string> = {
+  'src/vm/date-tz.probe.ts':
+    'a TEST PROBE run as its own process, under a chosen TZ, by guest-values.test.ts; never ' +
+    'imported, never shipped in a bundle',
   'src/vm/helper-args-heap.probe.ts':
     'a TEST PROBE run as its own process by vm-budgets.test.ts (process-wide heap must be ' +
     'quiet); never imported, never shipped in a bundle',

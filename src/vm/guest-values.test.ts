@@ -8,6 +8,7 @@
  * is found; a row that starts passing without the fix it pins is a broken apparatus.
  */
 import { describe, it, expect } from 'bun:test'
+import { join } from 'node:path'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { defineAtom } from './runtime'
@@ -492,16 +493,98 @@ describe('round 13: a Set, Date and regex are data (seventeenth re-review)', () 
     )
   })
 
-  it('a Date is a data object, and JSON writes it as its ISO string', async () => {
+  it('a Date has ONE form: guest JSON, a capability input and the run result agree', async () => {
     const r = await attempt(`function f() {
       const d = Date('2024-01-15T10:00:00Z')
-      return { y: d.year, m: d.month, j: JSON.stringify({ d }), n: d.add({ days: 1 }).value }
+      return { d, y: d.year, m: d.month, j: JSON.stringify(d), n: d.add({ days: 1 }).value }
     }`)
-    expect((r as any).result).toEqual({
-      y: 2024,
-      m: 1,
-      j: '{"d":"2024-01-15T10:00:00.000Z"}',
-      n: '2024-01-16T10:00:00.000Z',
-    })
+    const res = (r as any).result
+    expect(res.y).toBe(2024)
+    expect(res.m).toBe(1)
+    expect(res.n).toBe('2024-01-16T10:00:00.000Z')
+    // no special serializer anywhere: the guest's JSON is the host's JSON of the same value
+    expect(res.j).toBe(JSON.stringify(res.d))
+    expect(res.d.value).toBe('2024-01-15T10:00:00.000Z')
+  })
+
+  it('a program produces the same bytes in every host time zone (eighteenth re-review B1)', () => {
+    // its own process per TZ: the zone is read when the process starts
+    const run = (TZ: string) => {
+      const p = Bun.spawnSync(
+        [process.execPath, join(import.meta.dir, 'date-tz.probe.ts')],
+        { env: { ...process.env, TZ } }
+      )
+      expect(p.exitCode).toBe(0)
+      return JSON.parse(p.stdout.toString().trim().split('\n').pop()!)
+    }
+    const utc = run('UTC')
+    // apparatus: the zones really differ for this instant (midnight UTC is the previous day in LA)
+    expect(
+      new Date('2020-01-01T00:00:00Z').toLocaleDateString('en-US', {
+        timeZone: 'America/Los_Angeles',
+      })
+    ).toBe('12/31/2019')
+    expect(utc.error).toBeUndefined()
+    expect(utc.result.d.year).toBe(2020)
+    expect(utc.result.f).toBe('2020-01-01')
+    expect(utc.result.dst.value).toBe('2020-03-08T12:00:00.000Z')
+    // a capability input is the same form as the guest's own JSON
+    expect(JSON.stringify(utc.got[0])).toBe(utc.result.j)
+    for (const tz of [
+      'America/Los_Angeles',
+      'Asia/Kolkata',
+      'Pacific/Kiritimati',
+    ])
+      expect(run(tz)).toEqual(utc)
+  })
+})
+
+describe('round 14: one reading of every member and call shape (eighteenth re-review)', () => {
+  it('v2: an inline sub-agent AST is an expression evaluated in the caller (transpiled)', async () => {
+    const r = await attempt(`function f() {
+      const k = 7
+      const r = agentRun({ agentId: { op: 'seq', steps: [{ op: 'return', value: { x: k } }] }, input: {} })
+      return { r }
+    }`)
+    expect((r as any).result).toEqual({ r: { x: 7 } })
+  })
+
+  it('a positional atom call is refused with the named shape, never run with undefined inputs', async () => {
+    const r = await attempt(
+      "function f() { const r = agentRun('tok', { a: 1 })\n return { r } }"
+    )
+    expect('refused' in r ? r.refused : 'admitted').toMatch(
+      /'agentRun' takes named arguments: agentRun\(\{ agentId, input \}\)/
+    )
+  })
+
+  it("a Set's size reads the same by member, v1 dot-path and pick", async () => {
+    const member = await attempt(
+      'function f() { const s = Set([1, 2, 3])\n return { n: s.size } }'
+    )
+    expect((member as any).result).toEqual({ n: 3 })
+    const v1 = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 's',
+            value: {
+              $expr: 'call',
+              callee: 'Set',
+              arguments: [{ $expr: 'literal', value: [1, 2, 3] }],
+            },
+          },
+          { op: 'varGet', key: 's.size', result: 'n' },
+          { op: 'pick', obj: 's', keys: ['size'], result: 'p' },
+          { op: 'return', value: { n: 'n', p: 'p' } },
+        ],
+      } as any,
+      {},
+      { fuel: 1000 }
+    )
+    expect(v1.error).toBeUndefined()
+    expect(v1.result).toEqual({ n: 3, p: { size: 3 } })
   })
 })

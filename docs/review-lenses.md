@@ -164,6 +164,17 @@ read site of a general claim and the next review found its siblings (idents, nam
 `toJSON`, dot-paths, method shadowing); round 11 moved the check to `evaluateExpr`, the one place
 every expression's value comes from. This is lens 1 (sibling sites) applied to invariants.
 
+## 8. Same value, every egress — when a value's representation changes
+
+When a change gives a value a new shape or a special serialization, list every place that value
+LEAVES: the guest's own builtins, every host serializer (`jsonOf`, `stringifyInput`), capability
+inputs, `structuredClone` at a worker boundary, and the run result. Then check that they agree. In
+0.14.0-rc.2 round 13, a guest Date became data, with a special ISO form in guest
+`JSON.stringify` only. Every other egress wrote the object, in the host's local time, so the same
+program returned different bytes on a UTC server and a laptop. The structural answer was not to
+fix each serializer. It was to remove the special form, so there is nothing to keep in sync. Also
+run a test under a non-UTC `TZ` whenever dates are involved.
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

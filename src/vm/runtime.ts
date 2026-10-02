@@ -1341,7 +1341,7 @@ export function resolveName(val: string, ctx: RuntimeContext): any {
     // If root variable exists, try to traverse
     if (current !== undefined) {
       for (let i = 1; i < parts.length; i++) {
-        current = current?.[parts[i]]
+        current = guestMember(current, parts[i])
       }
       // a dot-path is a value read too: it must not hand out a host function
       return guestValue(current)
@@ -1604,10 +1604,16 @@ function convertExampleToSchema(example: any): any {
  */
 const SET_INDEX = new WeakMap<unknown[], globalThis.Set<unknown>>()
 
-/** JSON for guest data: a guest Date is its ISO string. */
-function dateAsIso(_k: string, v: unknown): unknown {
-  return isGuestDate(v) ? v.value : v
+/**
+ * A member of a guest value as guest code reads it — the ONE reader for the `member` node, the v1
+ * dot-path and `pick`, so a derived member (a Set's `size`, its length: a Set is an array of its
+ * items) means the same on every route (rc.2 eighteenth re-review).
+ */
+function guestMember(obj: any, prop: string | number): unknown {
+  if (prop === 'size' && isGuestSet(obj)) return obj.length
+  return obj?.[prop]
 }
+
 const DATE_VALUES = new WeakSet<object>()
 
 export const isGuestSet = (v: unknown): v is unknown[] =>
@@ -1638,13 +1644,15 @@ function makeGuestDate(d: globalThis.Date): GuestDate {
   const v: GuestDate = Object.freeze({
     value: d.toISOString(),
     timestamp: d.getTime(),
-    year: d.getFullYear(),
-    month: d.getMonth() + 1, // 1-indexed
-    day: d.getDate(),
-    hours: d.getHours(),
-    minutes: d.getMinutes(),
-    seconds: d.getSeconds(),
-    dayOfWeek: d.getDay(),
+    // UTC, always: a field read in the host's local time made the same program produce different
+    // bytes on a UTC server and a laptop (rc.2 eighteenth re-review B1)
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1, // 1-indexed
+    day: d.getUTCDate(),
+    hours: d.getUTCHours(),
+    minutes: d.getUTCMinutes(),
+    seconds: d.getUTCSeconds(),
+    dayOfWeek: d.getUTCDay(),
   })
   DATE_VALUES.add(v)
   return v
@@ -1728,13 +1736,13 @@ export const DATE_METHODS: Record<
     }: Record<string, number> = {}
   ) {
     const d = new globalThis.Date(this.timestamp)
-    if (years) d.setFullYear(d.getFullYear() + years)
-    if (months) d.setMonth(d.getMonth() + months)
-    if (days) d.setDate(d.getDate() + days)
-    if (hours) d.setHours(d.getHours() + hours)
-    if (minutes) d.setMinutes(d.getMinutes() + minutes)
-    if (seconds) d.setSeconds(d.getSeconds() + seconds)
-    if (ms) d.setMilliseconds(d.getMilliseconds() + ms)
+    if (years) d.setUTCFullYear(d.getUTCFullYear() + years)
+    if (months) d.setUTCMonth(d.getUTCMonth() + months)
+    if (days) d.setUTCDate(d.getUTCDate() + days)
+    if (hours) d.setUTCHours(d.getUTCHours() + hours)
+    if (minutes) d.setUTCMinutes(d.getUTCMinutes() + minutes)
+    if (seconds) d.setUTCSeconds(d.getUTCSeconds() + seconds)
+    if (ms) d.setUTCMilliseconds(d.getUTCMilliseconds() + ms)
     return makeGuestDate(d)
   },
   diff(this: GuestDate, other: unknown, unit = 'ms') {
@@ -1758,12 +1766,12 @@ export const DATE_METHODS: Record<
     if (fmt === 'date') return d.toISOString().split('T')[0]
     if (fmt === 'time') return d.toISOString().split('T')[1].split('.')[0]
     return fmt
-      .replace('YYYY', String(d.getFullYear()))
-      .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
-      .replace('DD', String(d.getDate()).padStart(2, '0'))
-      .replace('HH', String(d.getHours()).padStart(2, '0'))
-      .replace('mm', String(d.getMinutes()).padStart(2, '0'))
-      .replace('ss', String(d.getSeconds()).padStart(2, '0'))
+      .replace('YYYY', String(d.getUTCFullYear()))
+      .replace('MM', String(d.getUTCMonth() + 1).padStart(2, '0'))
+      .replace('DD', String(d.getUTCDate()).padStart(2, '0'))
+      .replace('HH', String(d.getUTCHours()).padStart(2, '0'))
+      .replace('mm', String(d.getUTCMinutes()).padStart(2, '0'))
+      .replace('ss', String(d.getUTCSeconds()).padStart(2, '0'))
   },
   isBefore(this: GuestDate, other: unknown) {
     return this.timestamp < timeOf(other)
@@ -1913,16 +1921,11 @@ export const builtins: Record<string, any> = Object.assign(
     // JSON - parse and stringify
     JSON: createBuiltinProxy('JSON', {
       parse: (text: string) => JSON.parse(text),
-      // a guest Date writes as its ISO string (guest code has no functions, so `replacer` can
-      // only be a key list; the date conversion runs first in that case)
+      // No special cases: a guest value (a Date included) has ONE form, the same here as in every
+      // host serializer and in the run result (rc.2 eighteenth re-review B1). `replacer` is
+      // nullish by the method table's signature.
       stringify: (value: any, replacer?: any, space?: number) =>
-        Array.isArray(replacer)
-          ? JSON.stringify(
-              JSON.parse(JSON.stringify(value, dateAsIso)),
-              replacer,
-              space
-            )
-          : JSON.stringify(value, dateAsIso, space),
+        JSON.stringify(value, replacer, space),
     }),
 
     // console - maps to trace/logging
@@ -4370,9 +4373,7 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
       primitiveOperand(prop, 'a computed key', 'expr.member')
       assertSafeProperty(String(prop))
 
-      // a guest Set's `size` is its length (a Set is an array of its items)
-      const value =
-        prop === 'size' && isGuestSet(obj) ? obj.length : obj?.[prop]
+      const value = guestMember(obj, prop)
       // A member read never hands guest code a host FUNCTION: a method is something to call, not
       // a value to hold. Held, it could be called on another receiver or spliced onto a harmless
       // object — a stolen builder `validate` ran a smuggled pattern on the host's regex engine
@@ -4689,6 +4690,12 @@ function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
   return out
 }
 
+/** An atom's named input keys, when its input schema is an object with declared properties. */
+function namedInputs(inputSchema: any): string[] | undefined {
+  const props = (inputSchema?.schema ?? inputSchema)?.properties
+  return props && typeof props === 'object' ? Object.keys(props) : undefined
+}
+
 export function defineAtom<I extends Record<string, any>, O = any>(
   op: string,
   inputSchema: any, // s.Schema<I>
@@ -4732,6 +4739,17 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       ctx = origin
     }
     const { op: _op, result: _res, ...inputData } = step
+    // A positional call (`agentRun(id, input)`) emits `args: [...]`. An atom with named inputs
+    // never read it, so the call ran with every input undefined and reported success (rc.2
+    // eighteenth re-review). Refused, naming the call shape that works.
+    if (Array.isArray(inputData.args)) {
+      const named = namedInputs(inputSchema)
+      if (named && !named.includes('args'))
+        throw new AgentError(
+          `'${op}' takes named arguments: ${op}({ ${named.join(', ')} })`,
+          op
+        )
+    }
     // This step's allocation frame: what it allocates while it runs counts as transient until
     // it ends (`allocate`). Restored on the way out, so frames nest with the steps.
     const frame = { bytes: 0 }
@@ -5972,6 +5990,10 @@ export const pick = defineAtom(
       for (const k of resolvedKeys) {
         // own DATA, as before round 12 (`pick(arr, ['length'])` works); a function is never
         // picked, and the bind walk refuses one anyway (seventeenth re-review m4)
+        if (k === 'size' && isGuestSet(resolvedObj)) {
+          setGuestKey(res, k, guestMember(resolvedObj, k))
+          continue
+        }
         const d = Object.getOwnPropertyDescriptor(resolvedObj ?? {}, k)
         if (d && 'value' in d && typeof d.value !== 'function')
           setGuestKey(res, k, d.value)
@@ -6458,10 +6480,13 @@ export const agentRun = defineAtom(
   s.object({ agentId: s.any, input: s.any }), // agentId can be string token or AST object
   s.any,
   async ({ agentId, input }, ctx) => {
-    // An inline AST is CODE for the child, never a value of the caller: resolving it evaluated
-    // the child's expressions (and, in v1, its bare strings) in the CALLER's scope before the
-    // child ran (found while reproducing the seventeenth re-review's M2).
+    // v1: an inline AST is CODE for the child, never a value of the caller. v1 resolution guesses
+    // that a bare string naming a caller variable is a reference, so resolving the AST rewrote the
+    // child's own strings ('args.v') with the caller's values (found reproducing the seventeenth
+    // re-review's M2). v2 has no guessing: the agentId is an EXPRESSION whose value is the AST, and
+    // evaluating it in the caller is what the program says (`{ x: k }` captures the caller's k).
     const resolvedId =
+      (ctx.astVersion ?? AST_VERSION_LEGACY) < 2 &&
       agentId &&
       typeof agentId === 'object' &&
       'op' in agentId &&
