@@ -167,3 +167,48 @@ describe('llmVision', () => {
     expect(r.error?.message ?? 'no error').toMatch(/llmBattery/)
   })
 })
+
+describe('a guest response-format schema is admitted (rc.2 thirteenth re-review)', () => {
+  const format = (schema: any) => ({
+    type: 'json_schema',
+    json_schema: { name: 'r', strict: true, schema },
+  })
+
+  for (const op of ['llmPredictBattery', 'llmVision'] as const)
+    it(`${op}: a pattern never reaches the model server`, async () => {
+      const { calls, capabilities } = mockBattery()
+      const step =
+        op === 'llmPredictBattery'
+          ? { op, system: 's', user: 'u' }
+          : { op, system: 's', prompt: 'p', images: [] }
+      const r = await runAtom(
+        {
+          ...step,
+          responseFormat: format({ type: 'string', pattern: ['^(a+)+$'] }),
+        },
+        capabilities
+      )
+      expect(r.error?.message ?? 'admitted').toMatch(/not available in AsyncJS/)
+      expect(calls.length).toBe(0)
+    })
+
+  it('an admitted schema still reaches the capability', async () => {
+    const { calls, capabilities } = mockBattery()
+    const r = await runAtom(
+      {
+        op: 'llmPredictBattery',
+        system: 's',
+        user: 'u',
+        responseFormat: format({
+          type: 'object',
+          properties: { a: { type: 'string' } },
+          required: ['a'],
+          additionalProperties: false,
+        }),
+      },
+      capabilities
+    )
+    expect(r.error).toBeUndefined()
+    expect(calls[0].responseFormat.json_schema.schema.required).toEqual(['a'])
+  })
+})

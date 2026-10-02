@@ -267,6 +267,12 @@ function collectPattern(node: any, into: Set<string>): void {
 /**
  * Verify every top-level function declaration in `source` is predicate-safe.
  * Returns all diagnostics; `safe` is true iff there are none (closure property).
+ *
+ * **For source the caller trusts.** Verification is a promise to an author about their own
+ * code, not a sandbox: a predicate compiles to native JavaScript, and a syntactic verifier cannot
+ * make HOSTILE JavaScript safe (rc.2's twelfth re-review found routes such as
+ * `['(a+)+$',''].reduce(RegExp)` that verify and still reach the host's regex engine). Never pass
+ * source that arrived as data; the `$predicate` paths enforce this with `trustPredicate`.
  */
 export function verifyPredicate(
   source: string,
@@ -679,6 +685,12 @@ const isStringLiteral = (n: any): n is { value: string } =>
  * appears in a `!=` / negative context is dropped). This is the autocomplete
  * win over a TS `string` fallback (which suggests nothing) and over a finite TS
  * union (which can't offer the open-ended `var(--`/`calc(` stubs).
+ *
+ * **For source the caller trusts.** Verification is a promise to an author about their own
+ * code, not a sandbox: a predicate compiles to native JavaScript, and a syntactic verifier cannot
+ * make HOSTILE JavaScript safe (rc.2's twelfth re-review found routes such as
+ * `['(a+)+$',''].reduce(RegExp)` that verify and still reach the host's regex engine). Never pass
+ * source that arrived as data; the `$predicate` paths enforce this with `trustPredicate`.
  */
 export function suggest(
   source: string,
@@ -864,9 +876,15 @@ function lowerRegexLiterals(
  * **fuel-bounded and global-shadowed**. Throws (with located diagnostics) at
  * definition time if not predicate-safe.
  *
- * Each compiled predicate runs with a fresh fuel budget; a runaway input throws
- * `PredicateFuelExhausted` rather than hanging. The effectful globals are
- * shadowed to `undefined` as defense-in-depth beneath the static verifier.
+ * Each compiled predicate runs with a fresh fuel budget; a runaway INPUT throws
+ * `PredicateFuelExhausted` rather than hanging (regex literals run on the metered engine). The
+ * effectful globals are shadowed to `undefined` as defense-in-depth beneath the static verifier.
+ *
+ * **For source the caller trusts.** Verification is a promise to an author about their own
+ * code, not a sandbox: a predicate compiles to native JavaScript, and a syntactic verifier cannot
+ * make HOSTILE JavaScript safe (rc.2's twelfth re-review found routes such as
+ * `['(a+)+$',''].reduce(RegExp)` that verify and still reach the host's regex engine). Never pass
+ * source that arrived as data; the `$predicate` paths enforce this with `trustPredicate`.
  *
  * NOTE: preserves JS semantics (no structural-`==` rewrite yet — a future
  * opt-in). Emission is offset-spliced source, not a full AJS-AST→JS codegen.
@@ -1022,13 +1040,19 @@ export interface EmitPredicateResult {
  * Fuel model mirrors `compilePredicate` (function-entry `__fuel()` bounds all
  * iteration since loops are rejected), but because a guard answers a boolean
  * question, a runaway input **returns `false`** ("not a valid instance of this
- * type") instead of throwing — DoS-safe validation that never crashes the caller.
+ * type") instead of throwing — validation that never crashes the caller on hostile INPUT.
  * A deep-recursion stack overflow is the same runaway signal, normalized the
  * same way.
  *
  * The runtime effectful-global shadow that `compilePredicate` applies is omitted
- * here on purpose: a `safe` cluster provably references no effectful global (the
- * static verifier guarantees it), so the shadow would only bloat emitted output.
+ * here on purpose: a `safe` cluster references no effectful global by name (the static verifier
+ * checks it), so the shadow would only bloat emitted output.
+ *
+ * **For source the caller trusts.** Verification is a promise to an author about their own
+ * code, not a sandbox: a predicate compiles to native JavaScript, and a syntactic verifier cannot
+ * make HOSTILE JavaScript safe (rc.2's twelfth re-review found routes such as
+ * `['(a+)+$',''].reduce(RegExp)` that verify and still reach the host's regex engine). Never pass
+ * source that arrived as data; the `$predicate` paths enforce this with `trustPredicate`.
  *
  * @param source      the predicate cluster (one or more `function` declarations)
  * @param entryName   which declared function is the guard entry point
@@ -1126,12 +1150,21 @@ export function emitVerifiedPredicate(
  * bundles with separate copies of this module, and a source one registers must be trusted by
  * the other. It holds strings only (data unions; `docs/runtime-fusion.md`).
  */
-const TRUSTED_SLOT = '__tjs_trustedPredicates_1'
-/** Distinct sources one evaluator keeps compiled. */
+const TRUSTED_SLOT = Symbol.for('tjs.trustedPredicates.v1')
+/** Distinct sources one evaluator keeps compiled (first in, first out). */
 const EVALUATOR_CACHE_ENTRIES = 256
+/** Distinct failing sources one evaluator warns about before it stops warning. */
+const EVALUATOR_WARNINGS = 256
+/** The shared registry: a Symbol.for slot (so a DOM id or a stray global cannot clobber it),
+ * non-writable once made, and type-checked when read — anything else there fails closed. */
 function trustedSources(): Set<string> {
   const g = globalThis as any
-  return (g[TRUSTED_SLOT] ??= new Set<string>())
+  let set = g[TRUSTED_SLOT]
+  if (set === undefined) {
+    set = new Set<string>()
+    Object.defineProperty(g, TRUSTED_SLOT, { value: set })
+  }
+  return set instanceof Set ? set : new Set<string>()
 }
 
 /** Trust a predicate source for the `$predicate` paths. Returns it, so a schema builder can
@@ -1145,10 +1178,12 @@ export function isTrustedPredicate(source: string): boolean {
   return trustedSources().has(source)
 }
 
-function untrustedPredicate(): Error {
-  return new Error(
-    'untrusted $predicate source: a predicate compiles to native JavaScript, so only source the host trusts may run. Register it with trustPredicate(source), or pass trustAllPredicates: true if every source this evaluator sees is yours.'
-  )
+/** THE trust gate for the `$predicate` paths (one function, not copies). */
+export function assertTrustedPredicate(source: string, trustAll = false): void {
+  if (!trustAll && !isTrustedPredicate(source))
+    throw new Error(
+      'untrusted $predicate source: a predicate compiles to native JavaScript, so only source the host trusts may run. Register it with trustPredicate(source), or pass trustAllPredicates: true if every source this evaluator sees is yours.'
+    )
 }
 
 export interface PredicateEvaluatorOptions extends CompilePredicateOptions {
@@ -1182,34 +1217,44 @@ export function createPredicateEvaluator(
 ): (source: string, value: unknown) => boolean {
   const { onUnsafe, trustAllPredicates, ...compileOpts } = opts
   // Bounded: a long-lived evaluator sees sources from data, and each compiled entry holds its
-  // programs (rc.2 twelfth re-review M3). Least-recently-compiled entries are dropped first.
+  // programs (rc.2 twelfth re-review M3). First in, first out.
   const cache = new Map<string, ((value: unknown) => boolean) | null>()
   const warned = new Set<string>()
 
+  const fail = (source: string, e: unknown): false => {
+    // each failing source is reported once; past the bound, quietly (still failing closed)
+    if (!warned.has(source) && warned.size < EVALUATOR_WARNINGS) {
+      warned.add(source)
+      const err = e instanceof Error ? e : new Error(String(e))
+      if (onUnsafe) onUnsafe(source, err)
+      else
+        console.warn(
+          `[tjs-lang] $predicate not verifiable — failing closed: ${err.message}`
+        )
+    }
+    return false
+  }
   return (source: string, value: unknown): boolean => {
+    // Trust is checked on EVERY call, before the cache: an untrusted source never occupies a slot,
+    // and a source trusted later (a schema builder called after a first validation) runs at once
+    // — a cached "untrusted" verdict made the result depend on call order (thirteenth review M1).
+    try {
+      assertTrustedPredicate(source, trustAllPredicates)
+    } catch (e) {
+      return fail(source, e)
+    }
     let fn = cache.get(source)
     if (fn === undefined) {
       try {
-        if (!trustAllPredicates && !isTrustedPredicate(source))
-          throw untrustedPredicate()
         fn = compilePredicateEntry(source, compileOpts) as (
           value: unknown
         ) => boolean
       } catch (e) {
-        fn = null // fail closed
-        if (!warned.has(source)) {
-          warned.add(source)
-          const err = e instanceof Error ? e : new Error(String(e))
-          if (onUnsafe) onUnsafe(source, err)
-          else
-            console.warn(
-              `[tjs-lang] $predicate not verifiable — failing closed: ${err.message}`
-            )
-        }
+        fn = null // fail closed: an unverifiable TRUSTED source stays refused
+        fail(source, e)
       }
       if (cache.size >= EVALUATOR_CACHE_ENTRIES)
         cache.delete(cache.keys().next().value as string)
-      if (warned.size >= EVALUATOR_CACHE_ENTRIES) warned.clear()
       cache.set(source, fn)
     }
     if (fn === null) return false

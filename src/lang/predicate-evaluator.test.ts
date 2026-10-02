@@ -86,18 +86,26 @@ describe('only trusted sources run (rc.2 twelfth re-review: Tonio, 2026-10-02)',
     expect(createPredicateEvaluator()(src, -1)).toBe(true)
   })
 
-  it('the registry is shared across bundles (a global slot)', () => {
+  it('the registry is shared across bundles (a Symbol.for slot, not clobberable by a name)', () => {
     const src = 'function isZero(x) { return x === 0 }'
-    ;(globalThis as any).__tjs_trustedPredicates_1.add(src)
+    ;(globalThis as any)[Symbol.for('tjs.trustedPredicates.v1')].add(src)
+    expect(isTrustedPredicate(src)).toBe(true)
+    ;(globalThis as any).__tjs_trustedPredicates_1 = 'clobbered' // the old string slot: inert
     expect(isTrustedPredicate(src)).toBe(true)
   })
 
-  it('the cache is bounded', () => {
+  it('a source trusted AFTER a first refusal runs at once (thirteenth re-review M1)', () => {
+    const src = 'function isOdd(x) { return x % 2 === 1 }'
+    const evaluate = createPredicateEvaluator({ onUnsafe: () => {} })
+    expect(evaluate(src, 3)).toBe(false) // untrusted: refused
+    trustPredicate(src)
+    expect(evaluate(src, 3)).toBe(true) // same evaluator, no stale verdict
+  })
+
+  it('a long stream of distinct sources keeps working (the cache is bounded, FIFO)', () => {
     const evaluate = createPredicateEvaluator({ trustAllPredicates: true })
     for (let i = 0; i < 1000; i++)
       evaluate(`function p${i}(x) { return x === ${i} }`, i)
-    // nothing to observe directly but memory; the bound is the cache's size cap — this row
-    // pins that a long stream of distinct sources keeps working (no unbounded growth path)
     expect(evaluate('function q(x) { return x === 1 }', 1)).toBe(true)
   })
 })

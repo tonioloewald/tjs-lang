@@ -119,15 +119,19 @@ seconds on a few fuel. The engine is now metered by construction:
   each allocation through `alloc` as they make it (no per-character estimate: a flat one missed
   class escapes by ~10×, eleventh review M1), and every byte allocated also counts as compile
   work, so a pre-run `RegexCompiler`'s single work budget bounds memory too;
-- **guest schemas are admitted before any library sees them**: `admitGuestSchema` refuses
-  `pattern`, `patternProperties` and `$predicate` at any depth, at every door a guest schema
-  reaches validation (Schema.* arguments, `filter`, the AST's `inputSchema`, a `return` step's
-  schema). tosijs-schema compiles `pattern` on the host's engine (twelfth review B1);
+- **guest schemas are a closed dialect**: `admitGuestSchema` is an ALLOWLIST — a plain JSON tree
+  using only admitted keywords, each with exactly its value type (derived from what tosijs-schema
+  enforces), capped in size because it can run before fuel exists. It runs at every door a guest
+  schema reaches validation (Schema.* and `filter` arguments after example conversion, the AST's
+  `inputSchema`, a `return` step's schema, an LLM `responseFormat`). A denylist of value shapes
+  failed in front of a library that coerces: an array `pattern` reached `new RegExp` (thirteenth
+  review B1);
 - **only trusted predicate source runs**: a predicate compiles to native JavaScript, which no
   syntactic screen makes safe against hostile code, so the `$predicate` paths run only sources
   the host registered (`trustPredicate`) — twelfth review, Tonio 2026-10-02;
 - **predicates cannot hand a string to the host's regex engine**: a pattern argument to
-  `match`/`search`/`matchAll` must be a regex literal or a `const` bound to one (eleventh
+  `match`/`search`/`matchAll` must be a regex literal, a string literal (compiled by the metered
+  engine, as JavaScript would compile it), or a `const` bound to a regex literal (eleventh
   review B1);
 - **retained memory is charged where it is created**: a compiled regex holds its program
   (`regexBytes`), charged through `allocate` when the regex is built and counted by the heap walk

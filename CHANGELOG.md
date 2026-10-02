@@ -93,12 +93,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > builders register theirs), or passed `trustAllPredicates: true`. Anything else fails closed,
 > saying why. **Migration:** wrap your own `$predicate` sources in `trustPredicate(…)`; never
 > trust a source that arrived as data. Running untrusted predicates on the AJS VM, whose surface
-> is a closed table, is planned and will lift this. Also: a guest AST's own schemas (its
-> `inputSchema`, a `return` step's schema) are admitted like any guest schema — `pattern`
-> (except the library's own), `patternProperties` and `$predicate` are refused at any depth; they
-> reached tosijs-schema's host regex engine before fuel or the timeout existed. In predicates, a
-> string-literal pattern (`s.search('@')`) now runs on the metered engine rather than being
-> refused; the evaluator's cache is bounded.
+> is a closed table, is planned and will lift this. A source trusted after a first refusal runs at
+> once (the evaluator checks trust on every call); its cache is bounded. In predicates, a
+> string-literal pattern (`s.search('@')`) runs on the metered engine rather than being refused.
+>
+> **Since rc.1 — guest schemas are a closed dialect (breaking).** Every schema that comes from
+> guest code or the guest AST — `Schema.*` and `filter` arguments (after an example is converted),
+> an AST's `inputSchema`, a `return` step's schema, an LLM `responseFormat` — must be a plain JSON
+> tree using only the keywords the VM admits, each with exactly its value type: `type`,
+> `properties`, `items`, `additionalProperties`, `anyOf`, `oneOf`, `required`, `enum`, `const`,
+> the numeric bounds, `format` (only the formats tosijs-schema enforces, all linear), `title`,
+> `description`, `default`, `examples`. Anything else is refused, naming its path — including
+> `pattern` (except the library's own, e.g. `Schema.emoji`), `patternProperties` and
+> `$predicate`. A denylist failed: tosijs-schema compiles `pattern` with `new RegExp(value)`, so an
+> ARRAY or a regex object walked past a string-only check and ran on the host's backtracking
+> engine, at the inputSchema door before fuel or the timeout existed. **Migration:** a builder or
+> persisted AST whose `.take()`/`.return()` schema uses `.pattern()`, `patternProperties` or
+> `$predicate` (the `tjs-lang/css` schemas included) is now refused by the VM; validate those on
+> the host after `vm.run`, or match inside the program with `regexMatch`.
 >
 > **Since rc.1 — every resource a regex uses is charged.** Everything a regex costs is now a
 > function of its program size and its input. A compiled regex is charged its program's size
@@ -108,10 +120,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > with each distinct literal compiled once; an over-budget source is refused with "The regexes
 > in this source are too large to compile". That holds in AJS helper functions too, and for
 > `$predicate` sources. In predicates, `__fuel` and `__rx` are reserved identifiers, and **the
-> pattern passed to `match`/`search`/`matchAll` must be a regex literal** (or a `const` bound to
+> pattern passed to `match`/`search`/`matchAll` must be a regex or string literal** (or a `const` bound to
 > one): JavaScript compiles a string passed there as a regex on its own engine, which no fuel can
-> see inside, so `s.match('(a+)+$')` is refused rather than certified (`replace`/`split` take a
-> string literally and are unaffected).
+> see inside. A string LITERAL is compiled by the metered engine instead; any other non-regex
+> argument is refused (`replace`/`split` take a string literally and are unaffected).
 >
 > **Since rc.1 — the regex engine is metered by construction, and predicates use it too.** A
 > linear algorithm is not a bounded one unless its work is CHARGED: the first version charged one

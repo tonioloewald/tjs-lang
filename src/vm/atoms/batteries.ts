@@ -1,5 +1,18 @@
 import { s } from 'tosijs-schema'
-import { defineAtom, resolveValue } from '../runtime'
+import { defineAtom, resolveValue, admitGuestSchema } from '../runtime'
+
+/**
+ * A response format's JSON Schema is GUEST data handed to a model server, whose grammar compiler
+ * (llama.cpp, outlines) turns a `pattern` into an automaton outside every budget, and a host may
+ * validate the reply against the same schema. So it is admitted like any guest schema (rc.2
+ * thirteenth re-review). The OpenAI wrapper (`{ type: 'json_schema', json_schema: { schema } }`,
+ * what `Schema.response` builds) is not itself a schema; what it carries is.
+ */
+function admitResponseFormat(format: any, op: string): any {
+  const schema = format?.json_schema?.schema
+  if (schema !== undefined) admitGuestSchema(schema, op)
+  return format
+}
 
 // --- Interfaces ---
 
@@ -189,7 +202,10 @@ export const llmPredictBattery = defineAtom(
       resolveValue(system, ctx) ?? 'You are a helpful agent.'
     const resolvedUser = resolveValue(user, ctx)
     const resolvedTools = resolveValue(tools, ctx)
-    const resolvedFormat = resolveValue(responseFormat, ctx)
+    const resolvedFormat = admitResponseFormat(
+      resolveValue(responseFormat, ctx),
+      'llmPredictBattery'
+    )
 
     return llmCap.predict(
       resolvedSystem,
@@ -248,7 +264,10 @@ export const llmVision = defineAtom(
       'You analyze images accurately and concisely.'
     const resolvedPrompt = resolveValue(prompt, ctx)
     const resolvedImages = resolveValue(images, ctx) ?? []
-    const resolvedFormat = resolveValue(responseFormat, ctx)
+    const resolvedFormat = admitResponseFormat(
+      resolveValue(responseFormat, ctx),
+      'llmVision'
+    )
 
     return llmCap.predict(
       resolvedSystem,

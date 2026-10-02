@@ -20,7 +20,7 @@
  * full JSON-Schema structural validation is `tosijs-schema`'s job. The novel
  * part is `$predicate`.
  */
-import { compilePredicateEntry, isTrustedPredicate } from './predicate'
+import { compilePredicateEntry, assertTrustedPredicate } from './predicate'
 import type { CompilePredicateOptions } from './predicate'
 
 /** A JSON-Schema node, optionally carrying a `$predicate` (predicate source). */
@@ -96,10 +96,7 @@ export function compilePredicateSchema(
     ) {
       const src = node.$predicate
       // only source the host trusts compiles to native code (rc.2 twelfth re-review)
-      if (!trustAllPredicates && !isTrustedPredicate(src))
-        throw new Error(
-          'untrusted $predicate source: register it with trustPredicate(source), or pass trustAllPredicates: true'
-        )
+      assertTrustedPredicate(src, trustAllPredicates)
       // one verification and one regex budget for the source (rc.2 tenth re-review)
       compiled.set(
         src,
