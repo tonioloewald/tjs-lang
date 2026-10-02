@@ -111,20 +111,20 @@ class HostRegex {
     }
     return replaceHits(s, hits, repl, this.m)
   }
-  *[Symbol.matchAll](input: unknown) {
+  [Symbol.matchAll](input: unknown) {
+    // As JavaScript does, AT THE CALL: refuse a non-global regex, and take the start from this
+    // regex's lastIndex now (a clone iterates; this regex's lastIndex is left unchanged). A
+    // generator method would read both on the first next() instead (rc.2 eleventh re-review m2).
     if (!this.re.global)
       throw new TypeError('matchAll must be called with a global RegExp')
     const s = String(input)
-    // as JavaScript does: from this regex's lastIndex, which is left unchanged (a clone iterates)
     const start = Math.max(0, Math.trunc(this.lastIndex) || 0)
-    for (const hit of allMatches(
-      prepare(this.re, this.m),
-      s,
-      this.m,
-      true,
-      start
-    ))
-      yield matchArray(hit, s, this.m)
+    const p = prepare(this.re, this.m)
+    const m = this.m
+    return (function* () {
+      for (const hit of allMatches(p, s, m, true, start))
+        yield matchArray(hit, s, m)
+    })()
   }
 }
 

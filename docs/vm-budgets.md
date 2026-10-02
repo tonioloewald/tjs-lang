@@ -115,6 +115,13 @@ seconds on a few fuel. The engine is now metered by construction:
   1M steps (~20ms). Where no run has a fuel budget yet — the transpiler validating literals, the
   predicate verifier — a SOURCE gets one compile budget proportional to its length
   (`RegexCompiler`), and each distinct literal is compiled once (ninth review M2);
+- **allocation is work, and is charged where it is made**: the regex parser and compiler charge
+  each allocation through `alloc` as they make it (no per-character estimate: a flat one missed
+  class escapes by ~10×, eleventh review M1), and every byte allocated also counts as compile
+  work, so a pre-run `RegexCompiler`'s single work budget bounds memory too;
+- **predicates cannot hand a string to the host's regex engine**: a pattern argument to
+  `match`/`search`/`matchAll` must be a regex literal or a `const` bound to one (eleventh
+  review B1);
 - **retained memory is charged where it is created**: a compiled regex holds its program
   (`regexBytes`), charged through `allocate` when the regex is built and counted by the heap walk
   wherever it is held. The matching state table belongs to one operation, never to the regex

@@ -87,10 +87,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > function of its program size and its input. A compiled regex is charged its program's size
 > against `maxHeapBytes` as the program is built, and counted while it is held (it used to keep
 > its matching table for as long as it lived: 1000 held regexes kept ~690MB under an 8MB
-> ceiling). Regex literals in one source share a compile budget of max(50k, 200 × source bytes),
+> ceiling). Regex literals in one source share a compile budget of max(250k, 200 × source bytes) steps, every byte compiling allocates counted as work,
 > with each distinct literal compiled once; an over-budget source is refused with "The regexes
 > in this source are too large to compile". That holds in AJS helper functions too, and for
-> `$predicate` sources. In predicates, `__fuel` and `__rx` are reserved identifiers.
+> `$predicate` sources. In predicates, `__fuel` and `__rx` are reserved identifiers, and **the
+> pattern passed to `match`/`search`/`matchAll` must be a regex literal** (or a `const` bound to
+> one): JavaScript compiles a string passed there as a regex on its own engine, which no fuel can
+> see inside, so `s.match('(a+)+$')` is refused rather than certified (`replace`/`split` take a
+> string literally and are unaffected).
 >
 > **Since rc.1 — the regex engine is metered by construction, and predicates use it too.** A
 > linear algorithm is not a bounded one unless its work is CHARGED: the first version charged one

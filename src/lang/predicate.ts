@@ -188,6 +188,11 @@ const PURE_INSTANCE_METHODS = new Set([
   'hasOwnProperty',
 ])
 
+/** String methods that compile a non-regex argument AS a regex (`'aaa'.match('(a+)+$')`). Their
+ * pattern must be a regex literal in a predicate. (`replace`, `replaceAll` and `split` take a
+ * string literally, so they compile nothing.) */
+const PATTERN_METHODS = new Set(['match', 'matchAll', 'search'])
+
 /** Names the compiled form injects; a predicate may not use them (see `verifyWith`). */
 const RESERVED_INJECTED = new Set(['__fuel', '__rx'])
 
@@ -340,6 +345,44 @@ function verifyWith(
 
   const diagnostics: PredicateDiagnostic[] = []
 
+  // A pattern argument is provably a regex when it is a regex literal, or a name declared exactly
+  // once in the source, as `const NAME = /…/` (a const cannot be reassigned, and a name declared
+  // only once cannot be shadowed by a parameter or another binding).
+  const declarations = new Map<string, number>()
+  const regexConsts = new Set<string>()
+  walk.full(ast, (n: any) => {
+    const names = new Set<string>()
+    if (n.type === 'VariableDeclarator') {
+      collectPattern(n.id, names)
+      if (
+        n.id.type === 'Identifier' &&
+        n.init?.type === 'Literal' &&
+        n.init.regex
+      )
+        regexConsts.add(n.id.name)
+    } else if (
+      n.type === 'FunctionDeclaration' ||
+      n.type === 'FunctionExpression' ||
+      n.type === 'ArrowFunctionExpression'
+    ) {
+      if (n.id) names.add(n.id.name)
+      for (const p of n.params) collectPattern(p, names)
+    } else if (n.type === 'CatchClause' && n.param)
+      collectPattern(n.param, names)
+    for (const name of names)
+      declarations.set(name, (declarations.get(name) ?? 0) + 1)
+  })
+  walk.full(ast, (n: any) => {
+    if (n.type === 'VariableDeclaration' && n.kind !== 'const')
+      for (const d of n.declarations)
+        if (d.id.type === 'Identifier') regexConsts.delete(d.id.name)
+  })
+  const isRegexValue = (arg: any) =>
+    (arg.type === 'Literal' && !!arg.regex) ||
+    (arg.type === 'Identifier' &&
+      regexConsts.has(arg.name) &&
+      declarations.get(arg.name) === 1)
+
   // The compiled form injects `__fuel` (the meter) and `__rx` (the regex constructor) by name. A
   // predicate that declares or reassigns either would replace the meter with its own function
   // (rc.2 ninth re-review m2), so both names are reserved.
@@ -439,6 +482,18 @@ function verifyWith(
             flag(
               `method '.${method}()' is not a known pure method`,
               callee.property
+            )
+          } else if (
+            PATTERN_METHODS.has(method) &&
+            n.arguments.length &&
+            !isRegexValue(n.arguments[0])
+          ) {
+            // JavaScript compiles a STRING passed here as a regex, on the host's engine, which
+            // no fuel can see inside (rc.2 eleventh re-review B1). A regex literal is lowered
+            // onto the metered engine; anything else could be a string, so it is refused.
+            flag(
+              `'.${method}()' needs a regex literal: any other argument could be a string, which JavaScript would compile on its own unmetered regex engine`,
+              n.arguments[0]
             )
           }
           return

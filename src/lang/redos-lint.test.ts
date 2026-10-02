@@ -209,3 +209,67 @@ describe('round 5 (rc.2 ninth re-review)', () => {
     expect(performance.now() - t).toBeLessThan(500)
   })
 })
+
+describe('a pattern argument must be a regex (rc.2 eleventh re-review B1)', () => {
+  // JavaScript compiles a STRING passed to match/search/matchAll as a regex, on its own
+  // unmetered engine: `s.match('(a+)+$')` was certified and ran for seconds past its fuel.
+  for (const [label, body] of [
+    ['a string literal', `return s.match('(a+)+$') != null`],
+    ['a parameter', `return s.search(p) !== -1`],
+    [
+      'a let holding a regex',
+      `let r = /a/\n r = '(a+)+$'\n return s.search(r) !== -1`,
+    ],
+    [
+      'a const shadowed by a parameter',
+      `const r = /a/\n return [1].some((r) => s.search(r) !== -1)`,
+    ],
+    ['matchAll with a string', `return [...s.matchAll('a')].length > 0`],
+  ] as const)
+    it(`refused: ${label}`, () => {
+      const r = verifyPredicate(`function f(s, p) { ${body} }`)
+      expect(r.safe).toBe(false)
+      expect(
+        r.diagnostics.some((d) => /needs a regex literal/.test(d.message))
+      ).toBe(true)
+    })
+
+  for (const [label, body] of [
+    ['a regex literal', `return s.search(/(a+)+$/) !== -1`],
+    [
+      'a const holding a regex literal',
+      `const r = /(a+)+$/\n return s.search(r) !== -1`,
+    ],
+    ['no argument', `return s.match() != null`],
+    [
+      'replace/split with a string (literal, compiles nothing)',
+      `return s.replace('a', 'b').split(',').length > 0`,
+    ],
+  ] as const)
+    it(`accepted: ${label}`, () => {
+      expect(verifyPredicate(`function f(s) { ${body} }`)).toMatchObject({
+        safe: true,
+      })
+    })
+
+  it('the review repro: a string-pattern predicate is refused, so it cannot hang', () => {
+    expect(() =>
+      compilePredicate(
+        `function p(s) { return s.match('(a+)+$') != null }`,
+        ['p'],
+        {
+          fuel: 1000,
+        }
+      )
+    ).toThrow(/needs a regex literal/)
+  })
+})
+
+describe('round 7 (rc.2 eleventh re-review)', () => {
+  it('m2: matchAll reads lastIndex when called, not when first iterated', () => {
+    const src = `function p(s) { const r = /a/g; r.lastIndex = 2; const it = s.matchAll(r); r.lastIndex = 0; return [...it].map((m) => m.index) }`
+    const { p } = compilePredicate(src, ['p'])
+    const native = new Function(`${src}; return p`)()
+    expect(JSON.stringify(p('aaaa'))).toBe(JSON.stringify(native('aaaa')))
+  })
+})

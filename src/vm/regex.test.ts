@@ -11,6 +11,7 @@ import { describe, it, expect } from 'bun:test'
 import {
   compileRegex,
   execRegex,
+  RegexCompiler,
   RegexError,
   REGEX_FUEL_PER_STEP,
   threadBytes,
@@ -396,5 +397,77 @@ describe('the transpiler refuses an unsupported regex literal at its source', ()
     expect(() =>
       transpile('function f(s: "") { return s.search(/a+/) }')
     ).not.toThrow()
+  })
+})
+
+describe('allocation is charged as it is made (rc.2 eleventh re-review M1, m1)', () => {
+  it('I1: a refusing meter stops compilation part-way, before the program is built', () => {
+    let calls = 0
+    let bytes = 0
+    expect(() =>
+      compileRegex(
+        'a{10000}',
+        '',
+        () => {},
+        (n) => {
+          calls++
+          if ((bytes += n) > 100_000) throw new Error('refused')
+        }
+      )
+    ).toThrow('refused')
+    // ~10,000 instructions would be built; the refusal came after a small fraction
+    expect(calls).toBeLessThan(3000)
+  })
+
+  it('class escapes are charged as they are pushed, so a refusal comes before the table grows', () => {
+    // a million escapes would build ~11M unmerged range entries; a meter that refuses at 100KB
+    // must stop the parse after about a thousand of them, not after building them all
+    const t = performance.now()
+    let bytes = 0
+    expect(() =>
+      compileRegex(
+        '[' + '\\S'.repeat(1_000_000) + ']',
+        '',
+        () => {},
+        (b) => {
+          if ((bytes += b) > 100_000) throw new Error('refused')
+        }
+      )
+    ).toThrow('refused')
+    expect(performance.now() - t).toBeLessThan(50)
+  })
+
+  it('class escapes are charged for what they allocate, and share their tables', () => {
+    let bytes = 0
+    const n = 50_000
+    compileRegex(
+      '[' + '\\S'.repeat(n) + ']',
+      '',
+      () => {},
+      (b) => (bytes += b)
+    )
+    expect(bytes).toBeGreaterThanOrEqual(n * 8) // a slot per escape, at least
+  })
+
+  it("allocation is charged as work, so a pre-run compiler's one budget bounds memory too", () => {
+    const wide =
+      '[' +
+      Array.from({ length: 120_000 }, (_, i) =>
+        String.fromCharCode(0x4e00 + 2 * i)
+      ).join('') +
+      ']'
+    // its work is under the floor's step budget; what it ALLOCATES is charged as work too
+    let work = 0
+    let bytes = 0
+    compileRegex(
+      wide,
+      '',
+      (n) => (work += n),
+      (b) => (bytes += b)
+    )
+    expect(work).toBeGreaterThanOrEqual(bytes / 64)
+    expect(() => new RegexCompiler(10).compile(wide)).toThrow(
+      /too large to compile/
+    )
   })
 })

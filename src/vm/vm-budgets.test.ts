@@ -1123,3 +1123,17 @@ describe('round 5: every resource a regex uses is charged (rc.2 ninth re-review)
     ).not.toThrow()
   })
 })
+
+describe('round 7: a guest string pattern of class escapes (rc.2 eleventh re-review M1)', () => {
+  it('stays inside the default heap ceiling (it grew RSS by ~600MB)', async () => {
+    const before = process.memoryUsage().rss
+    const r = await new AgentVM().run(
+      transpile(`function f(p: '') { return { m: 'x'.match(p) } }`).ast,
+      { p: '[' + '\\S'.repeat(450_000) + ']' },
+      { fuel: 1_000_000, argsMaxBytes: 4 * 1024 * 1024, timeoutMs: 600_000 }
+    )
+    const grew = process.memoryUsage().rss - before
+    void r // charged and admitted, or refused: either way, bounded
+    expect(grew).toBeLessThan(200 * 1024 * 1024)
+  })
+})

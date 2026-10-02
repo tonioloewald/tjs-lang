@@ -219,7 +219,18 @@ interface ParseState {
   groups: number
   names: Map<string, number>
   flags: Flags
+  /** every allocation the parser makes is charged here BEFORE it is made (rc.2 eleventh
+   * re-review M1: a flat per-character estimate missed class escapes by ~10×) */
+  alloc: Charge
 }
+
+/** Compile work charged per byte allocated (an allocation is work in proportion to its size). */
+const BYTES_PER_WORK = 64
+
+/** Bytes for one range pair, and for one array slot or small node. */
+const RANGE_BYTES = 40
+const SLOT = 8
+const NODE_BYTES = 64
 
 interface Flags {
   global: boolean
@@ -230,15 +241,19 @@ interface Flags {
   sticky: boolean
 }
 
-const charNode = (st: ParseState, ranges: Range[], negate = false): Node => ({
-  t: 'char',
-  cls: {
-    ranges: normalize(ranges),
-    negate,
-    fold: st.flags.ignoreCase,
-    unicode: st.flags.unicode,
-  },
-})
+const charNode = (st: ParseState, ranges: Range[], negate = false): Node => {
+  // the node, its class, and the normalized copy of the ranges
+  st.alloc(2 * NODE_BYTES + ranges.length * (RANGE_BYTES + SLOT))
+  return {
+    t: 'char',
+    cls: {
+      ranges: normalize(ranges),
+      negate,
+      fold: st.flags.ignoreCase,
+      unicode: st.flags.unicode,
+    },
+  }
+}
 
 /** Bounded lookahead for the small regexes the parser applies (never a slice to the end). */
 const ahead = (st: ParseState, from: number, n: number) =>
@@ -246,7 +261,8 @@ const ahead = (st: ParseState, from: number, n: number) =>
 
 function parse(
   src: string,
-  flags: Flags
+  flags: Flags,
+  alloc: Charge
 ): { node: Node; groups: number; names: Map<string, number> } {
   const st: ParseState = {
     src,
@@ -255,6 +271,7 @@ function parse(
     groups: 0,
     names: new Map(),
     flags,
+    alloc,
   }
   const node = parseAlt(st)
   if (st.i < src.length)
@@ -267,9 +284,11 @@ function parseAlt(st: ParseState): Node {
     throw new RegexError(
       `Regex nested too deeply (over ${MAX_REGEX_DEPTH} levels)`
     )
+  st.alloc(NODE_BYTES + SLOT)
   const options = [parseSeq(st)]
   while (st.src[st.i] === '|') {
     st.i++
+    st.alloc(SLOT)
     options.push(parseSeq(st))
   }
   st.depth--
@@ -277,10 +296,12 @@ function parseAlt(st: ParseState): Node {
 }
 
 function parseSeq(st: ParseState): Node {
+  st.alloc(NODE_BYTES)
   const items: Node[] = []
   while (st.i < st.src.length && st.src[st.i] !== '|' && st.src[st.i] !== ')') {
     let atom = parseAtom(st)
     atom = parseQuantifier(st, atom)
+    st.alloc(SLOT)
     items.push(atom)
   }
   return items.length === 1 ? items[0] : { t: 'seq', items }
@@ -314,6 +335,7 @@ function parseQuantifier(st: ParseState, atom: Node): Node {
     lazy = true
     st.i++
   }
+  st.alloc(NODE_BYTES)
   return { t: 'rep', body: atom, min, max, lazy }
 }
 
@@ -380,25 +402,33 @@ function parseGroup(st: ParseState): Node {
   if (st.src[st.i] !== ')')
     throw new RegexError(`Unterminated group in /${st.src}/`)
   st.i++
+  st.alloc(NODE_BYTES)
   return { t: 'group', index, body }
 }
 
 /** A class escape's ranges (`\d` …), or null if `c` is not one. */
+/** The negated escapes, built once: an escape inside a class shares these tables, so `[\\S\\S…]`
+ * allocates array slots, not fresh tables per escape (rc.2 eleventh re-review M1). */
+const NOT_DIGIT = complement(DIGIT)
+const NOT_WORD = complement(WORD)
+const NOT_WORD_IU = complement(WORD_IU)
+const NOT_SPACE = complement(SPACE)
+
 function classEscape(c: string, flags: Flags): Range[] | null {
   const word = flags.ignoreCase && flags.unicode ? WORD_IU : WORD
   switch (c) {
     case 'd':
       return DIGIT
     case 'D':
-      return complement(DIGIT)
+      return NOT_DIGIT
     case 'w':
       return word
     case 'W':
-      return complement(word)
+      return word === WORD_IU ? NOT_WORD_IU : NOT_WORD
     case 's':
       return SPACE
     case 'S':
-      return complement(SPACE)
+      return NOT_SPACE
   }
   return null
 }
@@ -515,6 +545,7 @@ function parseClass(st: ParseState): Node {
   while (st.i < st.src.length && st.src[st.i] !== ']') {
     const a = one()
     if ('ranges' in a) {
+      st.alloc(a.ranges.length * SLOT)
       ranges.push(...a.ranges)
       continue
     }
@@ -527,6 +558,7 @@ function parseClass(st: ParseState): Node {
       const b = one()
       if ('ranges' in b) {
         // `[\d-z]`: the '-' is literal
+        st.alloc(2 * (RANGE_BYTES + SLOT) + b.ranges.length * SLOT)
         ranges.push([a.cp, a.cp], [45, 45], ...b.ranges)
         continue
       }
@@ -534,8 +566,12 @@ function parseClass(st: ParseState): Node {
         throw new RegexError(
           `Range out of order in character class in /${st.src}/`
         )
+      st.alloc(RANGE_BYTES + SLOT)
       ranges.push([a.cp, b.cp])
-    } else ranges.push([a.cp, a.cp])
+    } else {
+      st.alloc(RANGE_BYTES + SLOT)
+      ranges.push([a.cp, a.cp])
+    }
   }
   if (st.src[st.i] !== ']')
     throw new RegexError(`Unterminated character class in /${st.src}/`)
@@ -662,7 +698,11 @@ function compileNode(node: Node, prog: Instr[], cs: CompileState): void {
     case 'rep': {
       // JavaScript clears a group's captures at the start of each iteration of a quantifier
       let inner = cs.groupsOf.get(node)
-      if (!inner) cs.groupsOf.set(node, (inner = groupsOf(node.body)))
+      if (!inner) {
+        inner = groupsOf(node.body)
+        cs.alloc(NODE_BYTES + inner.length * SLOT)
+        cs.groupsOf.set(node, inner)
+      }
       let r = cs.regOf.get(node)
       if (r === undefined && node.max > node.min)
         cs.regOf.set(node, (r = cs.regs++))
@@ -789,8 +829,14 @@ export function compileRegex(
   source: string,
   flagText = '',
   charge: Charge = noCharge,
-  alloc: Charge = noCharge
+  allocCharge: Charge = noCharge
 ): GuestRegex {
+  // Allocating is work: every byte charged to `alloc` is also charged to `charge`, so a work
+  // budget alone (a pre-run `RegexCompiler`) bounds memory too — no separate dimension to forget.
+  const alloc: Charge = (bytes) => {
+    charge(Math.ceil(bytes / BYTES_PER_WORK))
+    allocCharge(bytes)
+  }
   if (typeof source !== 'string')
     throw new RegexError('A regex pattern must be a string')
   if (
@@ -809,10 +855,8 @@ export function compileRegex(
     sticky: flagText.includes('y'),
   }
   charge(source.length) // the parser reads each character a bounded number of times
-  // The parse tree and the unmerged class ranges are transient, and a constant per source
-  // character: a 400k-character class builds 400k range pairs before they are merged.
-  alloc(64 + source.length * PARSE_BYTES_PER_CHAR)
-  const { node, groups, names } = parse(source, flags)
+  // the parser charges each allocation as it makes it (no per-character estimate)
+  const { node, groups, names } = parse(source, flags, alloc)
   const cs: CompileState = {
     regs: 0,
     regOf: new Map(),
@@ -877,15 +921,12 @@ export function compileRegex(
   return Object.freeze(re) as GuestRegex
 }
 
-/** Transient parse memory per source character (tree nodes, unmerged class ranges). */
-const PARSE_BYTES_PER_CHAR = 64
-
 /** Compile work a SOURCE may spend on its regex literals, per byte of source (with a floor).
  * A per-regex cap alone let 100 literals in 3KB cost seconds at transpile and verify time, past
  * the source-size admission cap (rc.2 ninth re-review M2). Compilation is ~50 units per µs, so
  * this is a few milliseconds per KB at most. */
 export const REGEX_COMPILE_WORK_PER_SOURCE_BYTE = 200
-export const REGEX_COMPILE_WORK_FLOOR = 50_000
+export const REGEX_COMPILE_WORK_FLOOR = 250_000
 
 /**
  * Compiles the regex literals of ONE source against a budget proportional to its length, and
@@ -906,15 +947,14 @@ export class RegexCompiler {
     const key = flags + '/' + pattern
     const hit = this.cache.get(key)
     if (hit) return hit
+    const tooLarge = (what: string) =>
+      new RegexError(
+        `The regexes in this source are too large to compile (${what})`
+      )
+    // one budget bounds both dimensions: compileRegex charges work for every byte it allocates
     const re = compileRegex(pattern, flags, (n) => {
       if ((this.used += n) > this.limit)
-        throw new RegexError(
-          `The regexes in this source are too large to compile (over ${
-            this.limit
-          } steps for its ${Math.round(
-            this.limit / REGEX_COMPILE_WORK_PER_SOURCE_BYTE
-          )} bytes)`
-        )
+        throw tooLarge(`over ${this.limit} steps`)
     })
     this.cache.set(key, re)
     return re
