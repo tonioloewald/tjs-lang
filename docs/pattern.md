@@ -112,6 +112,41 @@ for (const m of price.matchAll(text)) { /* m.captures.amount */ }
 | `anyOf(p1, p2, …)` | ordered choice (strings are shorthand for `exactly`) |
 | `not(p)` | negative lookahead: succeeds without consuming if `p` fails |
 | `capture(name, p)` | names what `p` matched |
+| `quoted(q, { escape? })` | a quoted span, no nesting; `escape` is a character (`'\\'`) or `'double'` (`""` inside `"…"`, as CSV does); captures the unescaped inside |
+| `balanced(open, close, { escape?, quotes? })` | a NESTED span: `(a (b) c)` closes at its own `)`; `quotes` names quote characters whose contents are skipped, so `f(")")` closes correctly |
+| `sepBy(p, sep)` | zero or more `p` separated by `sep`; captures an ARRAY |
+
+- **Delimited spans are what regex cannot do** (Tonio, 2026-10-02; the capability matters, not
+  the name). Balanced delimiters are not a regular language, so no regex matches `(a (b) c)` to
+  its own closing parenthesis, and the usual workarounds are wrong on nesting, on escapes, or on
+  delimiters inside quotes. `quoted` and `balanced` are each one linear pass: a depth counter, an
+  escape rule, and (for `balanced`) quote characters whose contents are skipped. Cost is one
+  charge per character scanned, like every primitive. They cover the common reason people reach
+  for recursive grammars, without `Pattern.ref`.
+
+  CSV, correctly (quoted fields, doubled-quote escapes, commas and newlines inside quotes):
+
+  ```js
+  const field = Pattern.anyOf(
+    Pattern.quoted('"', { escape: 'double' }),
+    Pattern.maybe(Pattern.notChars(',\n')) // an empty field (`a,,b`) is a field too
+  )
+  const row = Pattern.capture('fields', Pattern.sepBy(field, ','))
+  const csv = Pattern.capture('rows', Pattern.sepBy(row, '\n'))
+
+  csv.parse('name,quote\n"Ada","said ""hi"", then left"').captures.rows
+  // [{ fields: ['name', 'quote'] }, { fields: ['Ada', 'said "hi", then left'] }]
+  ```
+
+  Captures nest: a `capture` inside each element of a `sepBy` yields one dictionary per element,
+  so the result has the shape of the grammar.
+
+  And a call's arguments, nested and quote-aware:
+
+  ```js
+  Pattern.word().capture('args', Pattern.balanced('(', ')', { quotes: '"\'' }))
+    .parse('f(a, g(b), ")")')   // captures.args === 'a, g(b), ")"'
+  ```
 
 - **Typed captures:** a capture is a string, unless its primitive defines a value (`number()`
   captures a number).
