@@ -258,6 +258,12 @@ let fallback = a || defaultValue
 let nullish = a ?? defaultValue
 ```
 
+**Functions and namespaces are not values.** Call them; don't hold them. `Math.max(a, b)` and
+`s.trim()` work, but `const m = Math`, `const f = parseInt`, `items.map(parseInt)`,
+`Object.values(Math)` and `{ toJSON: encodeURIComponent }` are refused. A value in AsyncJS is data
+(numbers, strings, booleans, null, arrays, objects) or one of the VM's own `Set`, `Date` and regex
+values, and a `Set` or `Date` leaving the program becomes plain data (its items, its date string).
+
 **Operators take primitives.** `+`, `-`, `*`, `<`, … and computed keys (`obj[k]`) need strings,
 numbers, booleans or null; an object or array operand is an error, not a silent conversion to its
 string form (`'x' + arr`, `${arr}`, `arr < 5`). Say what you mean: `arr.join(',')`,
@@ -432,6 +438,13 @@ Atoms are the built-in operations. Each atom has a defined cost, input schema, a
 | ------------ | ------------------------------------------ |
 | `llmPredict` | Simple LLM inference (`prompt` → `string`) |
 | `agentRun`   | Run a sub-agent                            |
+
+`llmPredict({ prompt, options })` takes these `options` keys only: `model`, `temperature`,
+`maxTokens` (or `max_tokens`), `topP` (or `top_p`), `stop`, `seed`, `responseFormat` and `tools`.
+Anything else is refused. A `responseFormat` is `{ type: 'json_schema', json_schema: { name,
+schema } }` (`Schema.response` builds it), `{ type: 'json_object' }` or `{ type: 'text' }`. A tool is
+`{ type: 'function', function: { name, description?, parameters?, strict? } }`. Every schema in
+them is a guest schema (the closed dialect under **Schema**).
 
 ### AI (Battery)
 

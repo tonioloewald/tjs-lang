@@ -120,9 +120,12 @@ seconds on a few fuel. The engine is now metered by construction:
   class escapes by ~10×, eleventh review M1), and every byte allocated also counts as compile
   work, so a pre-run `RegexCompiler`'s single work budget bounds memory too;
 - **the guest value domain is closed**: a guest value is data or a VM wrapper, never a host
-  function or builtin namespace — enforced where values are PRODUCED (`evaluateExpr` →
-  `guestValue`; dot-path reads), with method calls dispatched to the receiver kind's intrinsic and
-  wrapper methods sealed (fifteenth review B1). `guest-values.test.ts` tries every route;
+  function or builtin namespace — checked where values ENTER guest state, inside the walk that
+  already charges every bind, insertion and reconcile (`estimateBytes`), with a pre-check before
+  an in-place insertion and `guestValue` on expression results and argument reads as an early
+  refusal. Method calls dispatch to the receiver kind's intrinsic; wrapper methods are sealed; the
+  run result converts wrappers to data (fifteenth and sixteenth reviews). `guest-values.test.ts`
+  tries every route;
 - **guest `Schema` is data, and a method is never a value**: guest code holds only plain JSON
   schemas (`Schema.*` constants and VM-implemented constructors), never a library builder whose
   methods are host closures, and a member read never returns a host function (fourteenth review

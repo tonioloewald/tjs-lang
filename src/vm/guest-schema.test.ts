@@ -227,6 +227,44 @@ describe('validation is charged as schema × data, before it runs (fourteenth re
   })
 })
 
+describe('validation cost is calibrated (fifteenth/sixteenth re-reviews)', () => {
+  it('Schema.isValid on ~3MB of plain data completes under default limits (M1)', async () => {
+    const rows = Array.from({ length: 20_000 }, (_, i) => ({
+      id: i,
+      name: 'row' + i,
+      ok: true,
+    }))
+    const r = await run(
+      `function f(rows: any) { return { v: Schema.isValid(rows, { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, name: { type: 'string' }, ok: { type: 'boolean' } } } }) } }`,
+      { rows },
+      { fuel: 1_000_000, timeoutMs: 60_000 }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: true })
+  })
+
+  it('validation costs about what a loop costs per fuel (within 10×)', async () => {
+    const anyOf = Array.from({ length: 300 }, (_, i) => ({ const: i }))
+    const data = Array.from({ length: 2000 }, () => 299)
+    const time = async (src: string, args: any) => {
+      const t = performance.now()
+      const r = await run(src, args, { fuel: 1e9, timeoutMs: 600_000 })
+      return { ms: performance.now() - t, fuel: r.fuelUsed }
+    }
+    const v = await time(
+      'function f(d: any, s: any) { return { v: Schema.isValid(d, s) } }',
+      { d: data, s: { type: 'array', items: { anyOf } } }
+    )
+    const loop = await time(
+      'function f() { let i = 0\n while (i < 200000) { i = i + 1 }\n return { i } }',
+      {}
+    )
+    const ratio = v.ms / v.fuel / (loop.ms / loop.fuel)
+    // validation may cost LESS host time per fuel than a loop (fail closed), never far more
+    expect(ratio).toBeLessThan(10)
+  })
+})
+
 describe('every LLM door admits its schemas (fourteenth re-review M1, M2)', () => {
   const llmRun = async (options: string) => {
     const calls: any[] = []

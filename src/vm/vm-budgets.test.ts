@@ -713,12 +713,13 @@ describe('round 2 (docs/reviews/0.14.0-rc.2-rereview-6.md), through transpile()'
     // after a forced collection, in its OWN process (`helper-args-heap.probe.ts`): process-wide
     // heapUsed is disturbed by other test files sharing the process.
     const proc = Bun.spawnSync([
-      'bun',
+      process.execPath,
       join(import.meta.dir, 'helper-args-heap.probe.ts'),
     ])
+    expect(proc.exitCode).toBe(0)
     const out = JSON.parse(proc.stdout.toString().trim().split('\n').pop()!)
     expect(out.error).toBeNull()
-    expect(out.held).toBeGreaterThan(-Infinity) // apparatus: the deepest level was reached
+    expect(out.reached).toBe(true) // apparatus: the deepest level was reached
     expect(out.held).toBeLessThan(6 * 1024 * 1024)
   })
 

@@ -99,8 +99,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >
 > **Since rc.1 — the AsyncJS value domain is closed (breaking).** A guest value is data — JSON
 > values and the VM's own Set, Date and regex wrappers — and never a host function or a builtin
-> namespace. It is enforced where values are produced (every expression, every dot-path read), not
-> at the one read site where a leak was first seen: `const g = parseInt`, `Object.values(Math)`,
+> namespace. It is checked where values ENTER guest state: the walk that charges every bind,
+> insertion and reconcile now refuses a function or namespace anywhere in the value, so no
+> producer (an expression, an argument read, an atom result such as `pick`) can bypass it.
+> Arguments are a null-prototype object read by own key (`args.constructor` was the host's
+> `Object`, and `varsImport` could hand a capability `Object.prototype`). A Set or Date in the
+> run's RESULT is now plain data — its items, its date string — so a structuredClone at a worker
+> or process boundary keeps it (sealed wrapper methods had reduced a Set to `{ size }`); a host
+> that read wrapper methods off the result reads the data instead. Validation costs about 0.002
+> fuel per schema-node × data-node step (some 0.11 fuel per 6-field row): raise `fuel`, or
+> validate at your own edge, for large payloads. Earlier holes closed in this round of review: `const g = parseInt`, `Object.values(Math)`,
 > `{ toJSON: encodeURIComponent }`, `[Set].join('')` (which printed VM source) and a dot-path
 > `'s.add'` all handed out host functions, and a stolen `Set.add` called through a guest object's
 > own `hasOwnProperty` property grew a Set past `maxHeapBytes`. Method calls now dispatch to the

@@ -43,6 +43,10 @@ const ALLOWED: Record<string, string> = {
     'an Int32Array indexed by closure state (VM-internal)',
   'runtime.ts › sealMethods › Object.defineProperty':
     "`k` iterates a VM-built wrapper's OWN method names, defined by the VM",
+  'vm.ts › run › Object.assign':
+    'the admitted (membrane-copied) arguments onto Object.create(null): with no prototype there is no __proto__ setter, so the key is an ordinary own property',
+  'runtime.ts › rollback › target[key]':
+    "setStateVar's rollback restores the binding it just wrote; `key` passed assertSafeProperty at the top of setStateVar",
   'regex.ts › add › stackPc[sp]':
     "the closure stack's own array, indexed by its depth (VM-internal)",
   'regex.ts › add › stackCaps[sp++]':

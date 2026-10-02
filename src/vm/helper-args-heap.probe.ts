@@ -11,6 +11,7 @@ import { AST_VERSION_KEY } from './ast-version'
 const lit = (value: unknown) => ({ $expr: 'literal', value })
 const n = { $expr: 'ident', name: 'n' }
 let held = -1
+let reached = false
 const baseline = () => {
   Bun.gc(true)
   return process.memoryUsage().heapUsed
@@ -20,6 +21,7 @@ const sample = defineAtom(
   undefined,
   undefined,
   async () => {
+    reached = true
     held = baseline() - start
   },
   { effects: 'pure' }
@@ -70,4 +72,4 @@ const r = await new AgentVM({ sample }).run(
   }
 )
 
-console.log(JSON.stringify({ error: r.error?.message ?? null, held }))
+console.log(JSON.stringify({ error: r.error?.message ?? null, held, reached }))

@@ -25,12 +25,16 @@ async function attempt(src: string, vm = new AgentVM(), opts: any = {}) {
   return r.error ? { refused: r.error.message as string } : { result: r.result }
 }
 
-/** No function anywhere in a value (what the host would receive). */
+/** No function anywhere in a value — enumerable or not (a wrapper's sealed methods are not
+ * enumerable, and an `Object.values` walk could not see them: sixteenth re-review). */
 function hasFunction(v: unknown, seen = new Set<unknown>()): boolean {
   if (typeof v === 'function') return true
   if (!v || typeof v !== 'object' || seen.has(v)) return false
   seen.add(v)
-  return Object.values(v).some((x) => hasFunction(x, seen))
+  return Reflect.ownKeys(v).some((k) => {
+    const d = Object.getOwnPropertyDescriptor(v, k)!
+    return 'value' in d ? hasFunction(d.value, seen) : true // an accessor is host code
+  })
 }
 
 const REFUSED = /not a value|is a method|not available|not callable/
@@ -171,5 +175,194 @@ describe('no route makes a host function or namespace a guest value', () => {
       expect(hasFunction(r.result)).toBe(false)
       expect(() => JSON.stringify(r)).not.toThrow()
     }
+  })
+})
+
+describe('round 12: the domain is checked where values ENTER guest state (sixteenth re-review)', () => {
+  it('apparatus: hasFunction sees a non-enumerable function', () => {
+    const o = {}
+    Object.defineProperty(o, 'f', { value: () => 1, enumerable: false })
+    expect(hasFunction(o)).toBe(true)
+  })
+
+  const sinkVM = () => {
+    const received: unknown[] = []
+    const sink = defineAtom(
+      'sink',
+      s.object({ v: s.any }),
+      s.any,
+      async ({ v }) => {
+        received.push(v)
+        return null
+      },
+      { effects: 'io' }
+    )
+    return { vm: new AgentVM({ sink } as any), received }
+  }
+
+  for (const key of [
+    'constructor',
+    'toString',
+    'valueOf',
+    '__defineGetter__',
+    '__proto__',
+    'hasOwnProperty',
+  ])
+    it(`an inherited argument '${key}' never reaches a capability or the result`, async () => {
+      const { vm, received } = sinkVM()
+      for (const ast of [
+        // v2: an argument node
+        {
+          $ajs: 2,
+          op: 'seq',
+          steps: [
+            { op: 'sink', v: { $kind: 'arg', path: key } },
+            { op: 'return', value: { v: { $kind: 'arg', path: key } } },
+          ],
+        },
+        // v1: a bare 'args.' reference, and varsImport
+        { op: 'seq', steps: [{ op: 'sink', v: `args.${key}` }] },
+        {
+          op: 'seq',
+          steps: [
+            { op: 'varsImport', keys: { g: key } },
+            { op: 'sink', v: 'g' },
+          ],
+        },
+      ]) {
+        const r = await vm.run(ast as any, {}, { fuel: 1000 })
+        expect(hasFunction(r.result)).toBe(false)
+      }
+      expect(
+        received.some((v) => hasFunction(v) || v === Object.prototype)
+      ).toBe(false)
+    })
+
+  it('a parameter named like an inherited member defaults as written', async () => {
+    const r = await attempt(
+      'function f(toString = 1) { return { v: toString } }'
+    )
+    expect((r as any).result).toEqual({ v: 1 })
+  })
+
+  it("an atom RESULT is checked where it is bound: pick of a wrapper's methods", async () => {
+    const { vm, received } = sinkVM()
+    const r = await vm.run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'set',
+            value: {
+              $expr: 'call',
+              callee: 'Set',
+              arguments: [{ $expr: 'literal', value: [1] }],
+            },
+          },
+          {
+            op: 'pick',
+            obj: { $expr: 'ident', name: 'set' },
+            keys: ['add', 'has'],
+            result: 'p',
+          },
+          { op: 'sink', v: { $expr: 'ident', name: 'p' } },
+          { op: 'return', value: { p: { $expr: 'ident', name: 'p' } } },
+        ],
+      } as any,
+      {},
+      { fuel: 1000 }
+    )
+    expect(hasFunction(r.result)).toBe(false)
+    expect(received.some((v) => hasFunction(v))).toBe(false)
+  })
+
+  it('a pure atom returning a function is refused where the result is bound', async () => {
+    // Observed through a v1 bare-string reference ('f'), which reads state WITHOUT an
+    // expression: only the bind walk stands between the atom result and the capability.
+    const received: unknown[] = []
+    const leak = defineAtom('leak', undefined, undefined, async () => () => 1, {
+      effects: 'pure',
+    })
+    const sink = defineAtom(
+      'sink',
+      s.object({ v: s.any }),
+      s.any,
+      async ({ v }) => {
+        received.push(v)
+        return null
+      },
+      { effects: 'io' }
+    )
+    const r = await new AgentVM({ leak, sink } as any).run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'leak', result: 'f' },
+          { op: 'sink', v: 'f' },
+        ],
+      } as any,
+      {},
+      { fuel: 1000 }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(/not a value/)
+    expect(received.length).toBe(0)
+  })
+
+  it('a refused bind is rolled back: a catch cannot reach the value', async () => {
+    const received: unknown[] = []
+    const leak = defineAtom('leak', undefined, undefined, async () => () => 1, {
+      effects: 'pure',
+    })
+    const sink = defineAtom(
+      'sink',
+      s.object({ v: s.any }),
+      s.any,
+      async ({ v }) => {
+        received.push(v)
+        return null
+      },
+      { effects: 'io' }
+    )
+    await new AgentVM({ leak, sink } as any).run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'try', try: [{ op: 'leak', result: 'f' }], catch: [] },
+          { op: 'sink', v: 'f' },
+        ],
+      } as any,
+      {},
+      { fuel: 1000 }
+    )
+    expect(received.some((v) => hasFunction(v))).toBe(false)
+  })
+
+  it('a wrapper leaving the VM is data, so a structuredClone keeps it (M1)', async () => {
+    const r = await attempt(
+      `function f() { return { s: Set([1, 2, 3]), d: Date('2024-01-15') } }`
+    )
+    const result = (r as any).result
+    expect(hasFunction(result)).toBe(false)
+    const cloned = structuredClone(result)
+    expect(cloned.s).toEqual([1, 2, 3])
+    expect(cloned).toEqual(result)
+  })
+
+  it('cyclic arguments cannot hang inputSchema validation, even with infinite fuel (B3)', async () => {
+    const a: any = { a: 0 }
+    a.self = a
+    const t = performance.now()
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [],
+        inputSchema: { type: 'object', properties: { x: { type: 'object' } } },
+      } as any,
+      { x: a },
+      { fuel: Infinity }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(/too large to validate/)
+    expect(performance.now() - t).toBeLessThan(2000)
   })
 })

@@ -1306,6 +1306,17 @@ function ownValue(obj: any, key: string): unknown {
 }
 
 /**
+ * A run argument, read as guest data: an OWN property (an argument object's inherited
+ * `constructor`, `toString` or `__proto__` handed the host's `Object`, its methods, and
+ * `Object.prototype` itself to guest state and to capabilities — rc.2 sixteenth re-review B1),
+ * forbidden keys refused, and the value checked like every other guest value.
+ */
+function argValue(ctx: RuntimeContext, key: string): unknown {
+  assertSafeProperty(key)
+  return guestValue(ownValue(ctx.args, key))
+}
+
+/**
  * Read a binding BY NAME: `'x'`, `'obj.a.b'`, `'args.k'` — v1's rule for a bare string, and the
  * rule for any atom input that IS a name (`varGet`'s `key`, `varsExport`'s `keys`) in every AST
  * version. Under v2 `resolveValue` reads a bare string as a literal, so those atoms asked for
@@ -1315,7 +1326,7 @@ export function resolveName(val: string, ctx: RuntimeContext): any {
   // Special case: args.foo looks up ctx.args['foo'] directly
   // BUT only if 'args' is not a state variable (which takes precedence)
   if (val.startsWith('args.') && !('args' in ctx.state)) {
-    return ctx.args[val.replace('args.', '')]
+    return argValue(ctx, val.replace('args.', ''))
   }
   // Dot notation support
   if (val.includes('.')) {
@@ -1389,7 +1400,7 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
   // Inside an atom whose inputs the VM already resolved: everything is a value now.
   if (ctx.inputsResolved) return val
   if (val && typeof val === 'object' && val.$kind === 'arg') {
-    return ctx.args[val.path]
+    return argValue(ctx, String(val.path))
   }
   // Expression nodes - evaluate directly
   if (val && typeof val === 'object' && val.$expr) {
@@ -2696,12 +2707,84 @@ function kindOf(r: unknown): string {
   return typeof r
 }
 /** The builtin namespace objects (proxies over host APIs): never guest values. Built lazily,
- * after `builtins` exists. */
+ * after `builtins` exists; a Set, because `evaluateExpr` asks on every object result. */
+let namespaceSet: Set<unknown> | undefined
 const NAMESPACE_OBJECTS: { has(v: object): boolean } = {
   has(v: object) {
-    for (const ns of NAMESPACES) if (v === (builtins as any)[ns]) return true
-    return false
+    namespaceSet ??= new Set(NAMESPACES.map((ns) => (builtins as any)[ns]))
+    return namespaceSet.has(v)
   },
+}
+
+/**
+ * The value-domain rule alone (no charging), for a value about to be INSERTED into guest data in
+ * place (`push`, `Object.assign`): the charge walk runs after the mutation, and a refusal there
+ * would leave the value inside a structure a guest `catch` can still reach.
+ */
+function assertGuestData(values: unknown[]): void {
+  const seen = new WeakSet<object>()
+  const stack: unknown[] = [...values]
+  while (stack.length) {
+    const v = stack.pop()
+    if (typeof v === 'function') throw notGuestData()
+    if (!v || typeof v !== 'object' || seen.has(v)) continue
+    seen.add(v)
+    if (NAMESPACE_OBJECTS.has(v)) throw notGuestData()
+    if (HEAP_CONTENTS in v || DATE_WRAPPER in v || isGuestRegex(v)) continue // VM wrapper
+    for (const d of Object.values(Object.getOwnPropertyDescriptors(v)))
+      if ('value' in d) stack.push(d.value)
+  }
+}
+
+/**
+ * A guest value as it LEAVES the VM (the run result): the VM's wrappers become the data their
+ * `toJSON` already describes (a Set → its items, a Date → its JSON form, a regex → its source).
+ * A wrapper's methods are sealed, so a structuredClone at a host's worker or process boundary
+ * silently reduced a Set to `{ size }` (rc.2 sixteenth re-review M1). Copies only what changes.
+ */
+export function egressData(
+  v: unknown,
+  seen = new Map<object, unknown>()
+): unknown {
+  if (!v || typeof v !== 'object') return v
+  if (seen.has(v)) return seen.get(v)
+  if (isGuestRegex(v)) return String(v)
+  if (HEAP_CONTENTS in v || DATE_WRAPPER in v) {
+    const json =
+      typeof (v as any).toJSON === 'function' ? (v as any).toJSON() : undefined
+    return egressData(json, seen)
+  }
+  if (Array.isArray(v)) {
+    const out: unknown[] = []
+    seen.set(v, out)
+    let changed = false
+    for (const x of v) {
+      const y = egressData(x, seen)
+      if (y !== x) changed = true
+      out.push(y)
+    }
+    if (!changed) seen.set(v, v)
+    return changed ? out : v
+  }
+  const proto = Object.getPrototypeOf(v)
+  if (proto !== Object.prototype && proto !== null) return v
+  const out: Record<string, unknown> = Object.create(proto)
+  seen.set(v, out)
+  let changed = false
+  for (const [k, x] of Object.entries(v)) {
+    const y = egressData(x, seen)
+    if (y !== x) changed = true
+    setGuestKey(out, k, y)
+  }
+  if (!changed) seen.set(v, v)
+  return changed ? out : v
+}
+
+function notGuestData(): AgentError {
+  return new AgentError(
+    'A function or builtin namespace is not a value in AsyncJS: call it (e.g. Math.max(a, b), s.trim())',
+    'bind'
+  )
 }
 const NAMESPACES = [
   'Math',
@@ -3600,10 +3683,19 @@ function estimateBytes(
       bytes += (v as string).length * 2
       continue
     }
+    // The guest value domain, checked HERE — in the walk every bound value, every insertion and
+    // every reconcile already makes to charge memory — so a value that would put a host function
+    // or a builtin namespace into guest state is refused whatever produced it (an argument read,
+    // an atom result such as `pick` of a wrapper; rc.2 sixteenth re-review B1, B2). One walk
+    // charges and checks; there is no producer list to keep complete.
+    if (t === 'function') throw notGuestData()
     if (t !== 'object') continue // its slot was charged by the container
     if (seen.has(v)) continue
     seen.add(v)
+    if (NAMESPACE_OBJECTS.has(v)) throw notGuestData()
     bytes += 16
+    // a VM wrapper's own methods are sealed parts of the wrapper, not values it holds
+    const wrapper = HEAP_CONTENTS in v || DATE_WRAPPER in v || isGuestRegex(v)
     if (HEAP_CONTENTS in v) {
       const contents = (v as any)[HEAP_CONTENTS]
       stack.push(contents)
@@ -3647,7 +3739,8 @@ function estimateBytes(
       for (const k of Object.keys(descriptors)) {
         bytes += k.length * 2 + SLOT_BYTES
         const d = descriptors[k]
-        if ('value' in d) stack.push(d.value)
+        if ('value' in d && !(wrapper && typeof d.value === 'function'))
+          stack.push(d.value)
         if (bytes > cap) break
       }
     }
@@ -4240,9 +4333,21 @@ function setStateVar(
     ctx.heapAccount.transient -= ctx.allocFrame.bytes
     ctx.allocFrame.bytes = 0
   }
-  if (!opts?.alias && !trackHeapWrite(ctx, key, value, op, ledger)) {
+  const rollback = () => {
     if (had) target[key] = previous
     else delete target[key]
+  }
+  let charged: boolean
+  try {
+    charged =
+      opts?.alias === true || trackHeapWrite(ctx, key, value, op, ledger)
+  } catch (e) {
+    // a REFUSED value (not guest data) must not stay bound: a guest `catch` could reach it
+    rollback()
+    throw e
+  }
+  if (!charged) {
+    rollback()
     return false
   }
   return true
@@ -4336,7 +4441,7 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
         return ctx.state[node.name]
       }
       if (scopeHas(ctx.args, node.name)) {
-        return ctx.args[node.name]
+        return argValue(ctx, node.name)
       }
       // Check builtins (Math, JSON, Array, etc.)
       if (own(builtins, node.name)) {
@@ -4591,6 +4696,11 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
       if (typeof fn !== 'function')
         throw new Error(`'${method}' is not a function`)
       allocate(ctx, bound, `expr.${method}`)
+      if (
+        (MUTATING_METHODS.has(method) && typeof obj === 'object') ||
+        (method === 'assign' && obj === (builtins as any).Object)
+      )
+        assertGuestData(args)
       const result = fn.apply(obj, args)
       if (
         MUTATING_METHODS.has(method) &&
@@ -5829,6 +5939,7 @@ export const push = defineAtom(
     const resolvedList = resolveValue(list, ctx)
     const resolvedItem = resolveValue(item, ctx)
     if (Array.isArray(resolvedList)) {
+      assertGuestData([resolvedItem])
       resolvedList.push(resolvedItem)
       if (!accountMutation(ctx, list, [resolvedItem], 'push')) return undefined
     }
@@ -5950,8 +6061,12 @@ export const pick = defineAtom(
     if (resolvedObj && Array.isArray(resolvedKeys)) {
       // OWN properties only: `pick(o, ['constructor'])` read the inherited `Object` function and
       // handed the guest a live host function.
-      for (const k of resolvedKeys)
-        setGuestKey(res, k, ownValue(resolvedObj, k))
+      for (const k of resolvedKeys) {
+        // enumerable own DATA only: a VM wrapper's sealed methods are not values to pick
+        // (rc.2 sixteenth re-review B2; the bind check refuses them as well)
+        const d = Object.getOwnPropertyDescriptor(resolvedObj ?? {}, k)
+        if (d && d.enumerable && 'value' in d) setGuestKey(res, k, d.value)
+      }
     }
     return res
   },
