@@ -119,13 +119,22 @@ seconds on a few fuel. The engine is now metered by construction:
   each allocation through `alloc` as they make it (no per-character estimate: a flat one missed
   class escapes by ~10×, eleventh review M1), and every byte allocated also counts as compile
   work, so a pre-run `RegexCompiler`'s single work budget bounds memory too;
-- **the guest value domain is closed**: a guest value is data or a VM wrapper, never a host
-  function or builtin namespace — checked where values ENTER guest state, inside the walk that
-  already charges every bind, insertion and reconcile (`estimateBytes`), with a pre-check before
-  an in-place insertion and `guestValue` on expression results and argument reads as an early
-  refusal. Method calls dispatch to the receiver kind's intrinsic; wrapper methods are sealed; the
-  run result converts wrappers to data (fifteenth and sixteenth reviews). `guest-values.test.ts`
-  tries every route;
+- **the guest value domain is closed, and it is DATA**: a guest value is JSON-shaped data — a
+  Set is an array of its items (its membership index is VM-held, keyed by the array), a Date or
+  regex a frozen plain object of its fields — never a host function or builtin namespace, and
+  nothing in it carries a method. It is checked where values ENTER guest state, inside the walk
+  that already charges every bind, insertion and reconcile (`estimateBytes`); an in-place
+  insertion is checked and charged BEFORE it happens (`chargeInsertion`), so a refused value is
+  never left inside a structure. Method calls dispatch to the receiver kind's intrinsic table
+  (round 13 replaced the sealed wrappers and the egress conversion with this: with no method on a
+  value there is nothing to seal, steal or convert). `guest-values.test.ts` tries every known
+  route, and `guest-fuzz.test.ts` generates programs against the invariants — `vm.run` never
+  throws, no function reaches a result or a capability, a clean result survives
+  `structuredClone` unchanged, and wall time tracks fuel;
+- **validation before the run is bounded on its product**: an AST's `inputSchema` is validated
+  at admission, before the run's timer exists, so it is capped at 1M argument paths AND 1e8
+  (schema nodes × paths) steps (about 0.6s) whatever the fuel; past either the run is refused
+  ("too large to validate") — validate in the host, or pass smaller arguments;
 - **guest `Schema` is data, and a method is never a value**: guest code holds only plain JSON
   schemas (`Schema.*` constants and VM-implemented constructors), never a library builder whose
   methods are host closures, and a member read never returns a host function (fourteenth review
@@ -176,7 +185,7 @@ the same engine, through a RegExp-protocol adapter (`src/lang/predicate-regex.ts
 ### The method table
 
 Every method guest code may call, on every receiver kind (string, array, object, number, the
-guest Set and Date wrappers, and the builtin namespaces `Array`, `Object`, `JSON`, `String`,
+guest Set and Date, and the builtin namespaces `Array`, `Object`, `JSON`, `String`,
 `Math`, `Number`), declares an **allocation class**:
 
 - `none`: allocates nothing proportional to data (`includes`, `indexOf`, `Math.max`, in-place
@@ -189,7 +198,7 @@ guest Set and Date wrappers, and the builtin namespaces `Array`, `Object`, `JSON
   counted, because printing visits every path. Memory size counts a shared object once; a
   ten-wide, eight-deep DAG of shared arrays is a few KB in memory and 400M characters when
   joined. Cycles are not followed, and the walk stops past the cap.
-- Bounds dispatch on the **receiver kind** (string, array, Set, Date wrapper, namespace) wherever
+- Bounds dispatch on the **receiver kind** (string, array, Set, Date, namespace) wherever
   a name means different things (`union`, `diff`, `add`), and use the **arguments** where they
   select a range (`slice(0, 10)` of a long string is charged ten characters).
 - `bound(fn)`: an explicit bound for amplifiers and products (`repeat`, `padStart`, `padEnd`,

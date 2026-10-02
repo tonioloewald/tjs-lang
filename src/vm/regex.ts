@@ -754,10 +754,6 @@ function compileNode(node: Node, prog: Instr[], cs: CompileState): void {
 
 const PROGRAM = Symbol('tjs.regexProgram')
 
-const regexToString = Object.freeze(function toString(this: GuestRegex) {
-  return `/${this.source}/${this.flags}`
-})
-
 /** A guest regex: data the guest may hold and pass to string methods; the program is hidden. */
 export interface GuestRegex {
   readonly source: string
@@ -916,8 +912,8 @@ export function compileRegex(
       bytes: cs.bytes,
     } satisfies Compiled,
   })
-  // prints as JavaScript prints a RegExp: one shared, frozen function, not a closure per regex
-  Object.defineProperty(re, 'toString', { value: regexToString })
+  // DATA: no function lives on a guest regex; `re.toString()` is the VM's intrinsic
+  // (REGEX_METHODS in runtime.ts), so the value crosses JSON/structuredClone as what it is
   return Object.freeze(re) as GuestRegex
 }
 

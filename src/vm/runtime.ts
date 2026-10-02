@@ -1343,7 +1343,7 @@ export function resolveName(val: string, ctx: RuntimeContext): any {
       for (let i = 1; i < parts.length; i++) {
         current = current?.[parts[i]]
       }
-      // a dot-path is a value read too: `'s.add'` on a Set wrapper is a host function
+      // a dot-path is a value read too: it must not hand out a host function
       return guestValue(current)
     }
   }
@@ -1588,65 +1588,222 @@ function convertExampleToSchema(example: any): any {
  * These are Proxy objects that provide JS-like APIs mapped to safe implementations.
  */
 /**
- * Where a VM wrapper keeps state the heap walk cannot see. The guest `Set` holds its items in
- * a CLOSURE, so `estimateBytes` — which walks own keys — counted a Set of 20MB as a handful of
- * methods (rc.2 second re-review, sibling of B2). A wrapper with hidden state exposes it here,
- * non-enumerable and symbol-keyed, so it never surfaces to the guest or to JSON.
+ * Guest Sets and Dates are DATA (rc.2 seventeenth re-review; Tonio, 2026-10-02). They used to be
+ * live wrapper objects whose methods were host closures, and two review rounds orbited them:
+ * sealed methods, exemptions in the heap walk, conversion at egress, contents silently dropped by a
+ * `structuredClone`. Now:
+ *
+ * - a guest Set is an ARRAY of its items, recognised by the VM through `SET_INDEX` (a key held by
+ *   the VM, never written on the data, so it cannot be forged and never collides with user data),
+ *   which also holds its membership index;
+ * - a guest Date is a FROZEN plain object of its fields, recognised through `DATE_VALUES`.
+ *
+ * Their methods are implemented here, by receiver kind (`SET_METHODS`, `DATE_METHODS`), like
+ * Schema's. Guest state is JSON-like data by construction: JSON, `structuredClone` and the run
+ * result see exactly what the guest sees.
  */
-const HEAP_CONTENTS = Symbol('tjs.heapContents')
+const SET_INDEX = new WeakMap<unknown[], globalThis.Set<unknown>>()
 
-/** Marks the guest Date wrapper, so method bounds can dispatch on it (see `kindOf`). */
-const DATE_WRAPPER = Symbol('tjs.dateWrapper')
-function tagDateWrapper<T extends object>(wrapper: T): T {
-  Object.defineProperty(wrapper, DATE_WRAPPER, { value: true })
-  return sealMethods(wrapper)
+/** JSON for guest data: a guest Date is its ISO string. */
+function dateAsIso(_k: string, v: unknown): unknown {
+  return isGuestDate(v) ? v.value : v
+}
+const DATE_VALUES = new WeakSet<object>()
+
+export const isGuestSet = (v: unknown): v is unknown[] =>
+  Array.isArray(v) && SET_INDEX.has(v)
+export const isGuestDate = (v: unknown): v is GuestDate =>
+  !!v && typeof v === 'object' && DATE_VALUES.has(v)
+
+function makeGuestSet(items: Iterable<unknown>): unknown[] {
+  const index = new globalThis.Set(items)
+  const data = [...index]
+  SET_INDEX.set(data, index)
+  return data
 }
 
-function withHeapContents<T extends object>(contents: unknown, wrapper: T): T {
-  Object.defineProperty(wrapper, HEAP_CONTENTS, { value: contents })
-  return sealMethods(wrapper)
+interface GuestDate {
+  readonly value: string
+  readonly timestamp: number
+  readonly year: number
+  readonly month: number
+  readonly day: number
+  readonly hours: number
+  readonly minutes: number
+  readonly seconds: number
+  readonly dayOfWeek: number
 }
 
-/**
- * A VM wrapper's methods are callable, not values: non-enumerable (so `Object.values`, `assign`,
- * spread and `JSON.stringify` cannot harvest them), non-writable and non-configurable (so guest
- * code cannot replace one). Rc.2 fifteenth re-review B1: `Object.values(s)` handed out `s.add`.
- */
-function sealMethods<T extends object>(wrapper: T): T {
-  for (const [k, d] of Object.entries(
-    Object.getOwnPropertyDescriptors(wrapper)
-  ))
-    if (typeof d.value === 'function')
-      Object.defineProperty(wrapper, k, {
-        value: d.value,
-        enumerable: false,
-        writable: false,
-        configurable: false,
-      })
-  return wrapper
+function makeGuestDate(d: globalThis.Date): GuestDate {
+  const v: GuestDate = Object.freeze({
+    value: d.toISOString(),
+    timestamp: d.getTime(),
+    year: d.getFullYear(),
+    month: d.getMonth() + 1, // 1-indexed
+    day: d.getDate(),
+    hours: d.getHours(),
+    minutes: d.getMinutes(),
+    seconds: d.getSeconds(),
+    dayOfWeek: d.getDay(),
+  })
+  DATE_VALUES.add(v)
+  return v
 }
+
+/** Another set's items: a guest Set or any array (`union`, `intersection`, `diff`). */
+const itemsOf = (other: unknown): unknown[] =>
+  Array.isArray(other) ? other : []
+
+/** A Set's methods, called with `this` = the set (its items array). Mutations keep the index in
+ * step; nothing else may mutate a set's array (it is not an array receiver: see `kindOf`). */
+export const SET_METHODS: Record<
+  string,
+  (this: unknown[], ...a: any[]) => unknown
+> = Object.assign(Object.create(null), {
+  add(this: unknown[], item: unknown) {
+    const index = SET_INDEX.get(this)!
+    if (!index.has(item)) {
+      index.add(item)
+      this.push(item)
+    }
+    return this
+  },
+  remove(this: unknown[], item: unknown) {
+    // SameValueZero, as the index uses (`indexOf(NaN)` is -1, and splice(-1) removed the LAST
+    // element — rc.2 seventh re-review B5)
+    if (SET_INDEX.get(this)!.delete(item))
+      this.splice(
+        this.findIndex((x) => x === item || (x !== x && item !== item)),
+        1
+      )
+    return this
+  },
+  clear(this: unknown[]) {
+    SET_INDEX.get(this)!.clear()
+    this.length = 0
+    return this
+  },
+  has(this: unknown[], item: unknown) {
+    return SET_INDEX.get(this)!.has(item)
+  },
+  toArray(this: unknown[]) {
+    return [...this]
+  },
+  toJSON(this: unknown[]) {
+    return [...this]
+  },
+  union(this: unknown[], other: unknown) {
+    return makeGuestSet([...this, ...itemsOf(other)])
+  },
+  intersection(this: unknown[], other: unknown) {
+    const o = new globalThis.Set(itemsOf(other))
+    return makeGuestSet(this.filter((x) => o.has(x)))
+  },
+  diff(this: unknown[], other: unknown) {
+    const o = new globalThis.Set(itemsOf(other))
+    return makeGuestSet(this.filter((x) => !o.has(x)))
+  },
+})
+
+const timeOf = (other: unknown): number =>
+  isGuestDate(other)
+    ? other.timestamp
+    : new globalThis.Date(other as any).getTime()
+
+/** A Date's methods, called with `this` = the date (a frozen object of fields). */
+export const DATE_METHODS: Record<
+  string,
+  (this: GuestDate, ...a: any[]) => unknown
+> = Object.assign(Object.create(null), {
+  add(
+    this: GuestDate,
+    {
+      years = 0,
+      months = 0,
+      days = 0,
+      hours = 0,
+      minutes = 0,
+      seconds = 0,
+      ms = 0,
+    }: Record<string, number> = {}
+  ) {
+    const d = new globalThis.Date(this.timestamp)
+    if (years) d.setFullYear(d.getFullYear() + years)
+    if (months) d.setMonth(d.getMonth() + months)
+    if (days) d.setDate(d.getDate() + days)
+    if (hours) d.setHours(d.getHours() + hours)
+    if (minutes) d.setMinutes(d.getMinutes() + minutes)
+    if (seconds) d.setSeconds(d.getSeconds() + seconds)
+    if (ms) d.setMilliseconds(d.getMilliseconds() + ms)
+    return makeGuestDate(d)
+  },
+  diff(this: GuestDate, other: unknown, unit = 'ms') {
+    const diffMs = this.timestamp - timeOf(other)
+    switch (unit) {
+      case 'seconds':
+        return diffMs / 1000
+      case 'minutes':
+        return diffMs / (1000 * 60)
+      case 'hours':
+        return diffMs / (1000 * 60 * 60)
+      case 'days':
+        return diffMs / (1000 * 60 * 60 * 24)
+      default:
+        return diffMs
+    }
+  },
+  format(this: GuestDate, fmt = 'ISO') {
+    const d = new globalThis.Date(this.timestamp)
+    if (fmt === 'ISO') return d.toISOString()
+    if (fmt === 'date') return d.toISOString().split('T')[0]
+    if (fmt === 'time') return d.toISOString().split('T')[1].split('.')[0]
+    return fmt
+      .replace('YYYY', String(d.getFullYear()))
+      .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
+      .replace('DD', String(d.getDate()).padStart(2, '0'))
+      .replace('HH', String(d.getHours()).padStart(2, '0'))
+      .replace('mm', String(d.getMinutes()).padStart(2, '0'))
+      .replace('ss', String(d.getSeconds()).padStart(2, '0'))
+  },
+  isBefore(this: GuestDate, other: unknown) {
+    return this.timestamp < timeOf(other)
+  },
+  isAfter(this: GuestDate, other: unknown) {
+    return this.timestamp > timeOf(other)
+  },
+  toString(this: GuestDate) {
+    return this.value
+  },
+  toJSON(this: GuestDate) {
+    return this.value
+  },
+})
+
+/** A guest regex's methods: it carries no function of its own. */
+const REGEX_METHODS: Record<string, (this: GuestRegex) => unknown> =
+  Object.assign(Object.create(null), {
+    toString(this: GuestRegex) {
+      return `/${this.source}/${this.flags}`
+    },
+  })
 
 /**
  * The function a method call runs: the INTRINSIC for the receiver's kind, never a property the
- * guest owns. `{ hasOwnProperty: stolenAdd }.hasOwnProperty(x)` dispatched to the guest's
- * property under `hasOwnProperty`'s bound, and grew a Set past `maxHeapBytes` (rc.2 fifteenth
- * re-review B1). Namespaces and the VM's wrappers carry their own (VM-built, sealed) methods.
+ * guest owns (`{ hasOwnProperty: f }.hasOwnProperty(x)` dispatched to the guest's property —
+ * rc.2 fifteenth re-review B1). Sets, Dates and regexes are data; their methods are the VM's.
  */
-function intrinsicMethod(obj: any, method: string): unknown {
+export function intrinsicMethod(obj: any, method: string): unknown {
   // `Date` is the one namespace that is itself a function (`Date.now()`)
   if (typeof obj === 'function')
     return obj === (builtins as any).Date ? obj[method] : undefined
   if (typeof obj === 'string') return (String.prototype as any)[method]
   if (typeof obj === 'number') return (Number.prototype as any)[method]
   if (typeof obj === 'boolean') return (Boolean.prototype as any)[method]
+  if (isGuestSet(obj)) return SET_METHODS[method]
   if (Array.isArray(obj)) return (Array.prototype as any)[method]
-  if (
-    NAMESPACE_OBJECTS.has(obj) ||
-    HEAP_CONTENTS in obj ||
-    DATE_WRAPPER in obj ||
-    isGuestRegex(obj)
-  )
-    return obj[method]
+  if (isGuestDate(obj)) return DATE_METHODS[method]
+  if (isGuestRegex(obj)) return REGEX_METHODS[method]
+  if (NAMESPACE_OBJECTS.has(obj)) return obj[method]
   if (obj instanceof Date) return (Date.prototype as any)[method]
   return (Object.prototype as any)[method]
 }
@@ -1756,8 +1913,16 @@ export const builtins: Record<string, any> = Object.assign(
     // JSON - parse and stringify
     JSON: createBuiltinProxy('JSON', {
       parse: (text: string) => JSON.parse(text),
+      // a guest Date writes as its ISO string (guest code has no functions, so `replacer` can
+      // only be a key list; the date conversion runs first in that case)
       stringify: (value: any, replacer?: any, space?: number) =>
-        JSON.stringify(value, replacer, space),
+        Array.isArray(replacer)
+          ? JSON.stringify(
+              JSON.parse(JSON.stringify(value, dateAsIso)),
+              replacer,
+              space
+            )
+          : JSON.stringify(value, dateAsIso, space),
     }),
 
     // console - maps to trace/logging
@@ -1882,216 +2047,24 @@ export const builtins: Record<string, any> = Object.assign(
     Schema: GUEST_SCHEMA,
 
     // Set factory - creates a set-like object backed by an array
-    Set: (items: any[] = []) => {
-      // `data` keeps insertion order (what the guest sees); `index` makes membership O(1).
-      // Membership was `data.includes` — so `intersection`/`diff` were O(n×m) for a charge
-      // linear in their size: 2.6s for 523 fuel at 60k items (rc.2 sixth re-review M2).
-      const index = new globalThis.Set(items)
-      const data = [...index]
-      return withHeapContents(data, {
-        // Mutable operations
-        add(item: any) {
-          if (!index.has(item)) {
-            index.add(item)
-            data.push(item)
-          }
-          return this
-        },
-        remove(item: any) {
-          // SameValueZero, as the index uses: `indexOf(NaN)` is -1, and `splice(-1, 1)` removed
-          // the LAST element — `data` and `index` drifted apart and the heap walk, which sees
-          // `data`, stopped seeing what `index` held (rc.2 seventh re-review B5)
-          if (index.delete(item))
-            data.splice(
-              data.findIndex((x) => x === item || (x !== x && item !== item)),
-              1
-            )
-          return this
-        },
-        clear() {
-          index.clear()
-          data.length = 0
-          return this
-        },
-        // Query operations
-        has(item: any) {
-          return index.has(item)
-        },
-        get size() {
-          return data.length
-        },
-        toArray() {
-          return [...data]
-        },
-        // Set operations - return new sets
-        union(other: any) {
-          const otherItems = other?.toArray?.() ?? other ?? []
-          return builtins.Set([...data, ...otherItems])
-        },
-        intersection(other: any) {
-          const o = new globalThis.Set(other?.toArray?.() ?? other ?? [])
-          return builtins.Set(data.filter((x: any) => o.has(x)))
-        },
-        diff(other: any) {
-          const o = new globalThis.Set(other?.toArray?.() ?? other ?? [])
-          return builtins.Set(data.filter((x: any) => !o.has(x)))
-        },
-        // Iteration
-        forEach(fn: (item: any) => void) {
-          data.forEach(fn)
-        },
-        map(fn: (item: any) => any) {
-          return builtins.Set(data.map(fn))
-        },
-        filter(fn: (item: any) => boolean) {
-          return builtins.Set(data.filter(fn))
-        },
-        // Serialization - Sets serialize to arrays
-        toJSON() {
-          return [...data]
-        },
-      })
-    },
+    // a guest Set is DATA: an array of its items the VM recognises (see `makeGuestSet`)
+    Set: (items: any[] = []) =>
+      makeGuestSet(typeof items === 'string' ? [...(items as string)] : items),
 
-    // Date factory - creates a date-like object
-    // Also supports Date.now() for compatibility
+    // a guest Date is DATA: a frozen object of fields the VM recognises (see `makeGuestDate`).
+    // Also supports Date.now() / Date.parse() for compatibility.
     Date: (() => {
-      const createDate = (d: globalThis.Date): any =>
-        tagDateWrapper({
-          // Get the underlying value
-          get value() {
-            return d.toISOString()
-          },
-          get timestamp() {
-            return d.getTime()
-          },
-          // Components
-          get year() {
-            return d.getFullYear()
-          },
-          get month() {
-            return d.getMonth() + 1 // 1-indexed
-          },
-          get day() {
-            return d.getDate()
-          },
-          get hours() {
-            return d.getHours()
-          },
-          get minutes() {
-            return d.getMinutes()
-          },
-          get seconds() {
-            return d.getSeconds()
-          },
-          get dayOfWeek() {
-            return d.getDay()
-          },
-          // Arithmetic - returns new Date
-          add({
-            years = 0,
-            months = 0,
-            days = 0,
-            hours = 0,
-            minutes = 0,
-            seconds = 0,
-            ms = 0,
-          }: {
-            years?: number
-            months?: number
-            days?: number
-            hours?: number
-            minutes?: number
-            seconds?: number
-            ms?: number
-          } = {}) {
-            const newDate = new globalThis.Date(d.getTime())
-            if (years) newDate.setFullYear(newDate.getFullYear() + years)
-            if (months) newDate.setMonth(newDate.getMonth() + months)
-            if (days) newDate.setDate(newDate.getDate() + days)
-            if (hours) newDate.setHours(newDate.getHours() + hours)
-            if (minutes) newDate.setMinutes(newDate.getMinutes() + minutes)
-            if (seconds) newDate.setSeconds(newDate.getSeconds() + seconds)
-            if (ms) newDate.setMilliseconds(newDate.getMilliseconds() + ms)
-            return createDate(newDate)
-          },
-          // Difference
-          diff(
-            other: any,
-            unit: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days' = 'ms'
-          ) {
-            const otherTime =
-              typeof other === 'object' && other.timestamp
-                ? other.timestamp
-                : new globalThis.Date(other).getTime()
-            const diffMs = d.getTime() - otherTime
-            switch (unit) {
-              case 'seconds':
-                return diffMs / 1000
-              case 'minutes':
-                return diffMs / (1000 * 60)
-              case 'hours':
-                return diffMs / (1000 * 60 * 60)
-              case 'days':
-                return diffMs / (1000 * 60 * 60 * 24)
-              default:
-                return diffMs
-            }
-          },
-          // Formatting
-          format(fmt = 'ISO') {
-            if (fmt === 'ISO') return d.toISOString()
-            if (fmt === 'date') return d.toISOString().split('T')[0]
-            if (fmt === 'time')
-              return d.toISOString().split('T')[1].split('.')[0]
-            // Simple format substitution
-            return fmt
-              .replace('YYYY', String(d.getFullYear()))
-              .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
-              .replace('DD', String(d.getDate()).padStart(2, '0'))
-              .replace('HH', String(d.getHours()).padStart(2, '0'))
-              .replace('mm', String(d.getMinutes()).padStart(2, '0'))
-              .replace('ss', String(d.getSeconds()).padStart(2, '0'))
-          },
-          // Comparison
-          isBefore(other: any) {
-            const otherTime =
-              typeof other === 'object' && other.timestamp
-                ? other.timestamp
-                : new globalThis.Date(other).getTime()
-            return d.getTime() < otherTime
-          },
-          isAfter(other: any) {
-            const otherTime =
-              typeof other === 'object' && other.timestamp
-                ? other.timestamp
-                : new globalThis.Date(other).getTime()
-            return d.getTime() > otherTime
-          },
-          // String representation
-          toString() {
-            return d.toISOString()
-          },
-          // Serialization - Dates serialize to ISO strings
-          toJSON() {
-            return d.toISOString()
-          },
-        })
-
-      // The Date factory function
       const DateFactory = (init?: string | number) => {
         const date =
           init !== undefined ? new globalThis.Date(init) : new globalThis.Date()
         if (isNaN(date.getTime())) {
           throw new Error(`Invalid date: ${init}`)
         }
-        return createDate(date)
+        return makeGuestDate(date)
       }
-
-      // Static methods (for Date.now() compatibility)
       DateFactory.now = () => globalThis.Date.now()
-      DateFactory.parse = (str: string) => createDate(new globalThis.Date(str))
-
+      DateFactory.parse = (str: string) =>
+        makeGuestDate(new globalThis.Date(str))
       return DateFactory
     })(),
   }
@@ -2162,7 +2135,6 @@ function shallowBytes(x: unknown): number {
   if (typeof x === 'string') return x.length * 2
   if (x === null || typeof x !== 'object') return SLOT_BYTES
   if (Array.isArray(x)) return 16 + x.length * SLOT_BYTES
-  if (HEAP_CONTENTS in x) return 16 + shallowBytes((x as any)[HEAP_CONTENTS])
   let n = 16
   for (const k of Object.keys(x)) n += k.length * 2 + SLOT_BYTES
   return n
@@ -2178,7 +2150,7 @@ const CONST =
     bytes
 /** A printed or copied TREE of the arguments, `c` times over (see `treeBytes`). */
 
-/** A guest Set/Date wrapper, or a Schema builder: a fresh object of a dozen or so members. */
+/** A fresh guest Set or Date, or a Schema value: an object of a dozen or so members. */
 const WRAPPER_BYTES = 4096
 
 const strLen = (x: unknown) => (typeof x === 'string' ? x.length : 0)
@@ -2659,8 +2631,6 @@ const GLOBAL_SIGS: Record<string, Sig> = {
 function arrayFromBound(src: unknown): number {
   if (typeof src === 'string') return src.length * (SLOT_BYTES + 32) + 64
   if (Array.isArray(src)) return shallowBytes(src) + 64
-  if (src && typeof src === 'object' && HEAP_CONTENTS in src)
-    return 2 * shallowBytes(src)
   return 16 + count((src as any).length) * SLOT_BYTES + 64
 }
 
@@ -2690,7 +2660,9 @@ function kindOf(r: unknown): string {
   if (typeof r === 'string') return 'string'
   if (typeof r === 'number') return 'number'
   if (typeof r === 'boolean') return 'boolean'
-  if (Array.isArray(r)) return 'array'
+  // a guest Set is an array the VM recognises: a 'set', never an array receiver (array mutators
+  // would desynchronise its membership index)
+  if (Array.isArray(r)) return isGuestSet(r) ? 'set' : 'array'
   if (typeof r === 'function')
     return r === (builtins as any).Date ? 'ns:Date' : 'function'
   if (r && typeof r === 'object') {
@@ -2698,8 +2670,7 @@ function kindOf(r: unknown): string {
     // below read properties (`isBuilder` reads a symbol)
     for (const ns of NAMESPACES)
       if (r === (builtins as any)[ns]) return 'ns:' + ns
-    if (HEAP_CONTENTS in r) return 'set'
-    if (DATE_WRAPPER in r) return 'date'
+    if (isGuestDate(r)) return 'date'
     if (isGuestRegex(r)) return 'regex'
     if (r instanceof Date) return 'native-date'
     return 'object'
@@ -2714,70 +2685,6 @@ const NAMESPACE_OBJECTS: { has(v: object): boolean } = {
     namespaceSet ??= new Set(NAMESPACES.map((ns) => (builtins as any)[ns]))
     return namespaceSet.has(v)
   },
-}
-
-/**
- * The value-domain rule alone (no charging), for a value about to be INSERTED into guest data in
- * place (`push`, `Object.assign`): the charge walk runs after the mutation, and a refusal there
- * would leave the value inside a structure a guest `catch` can still reach.
- */
-function assertGuestData(values: unknown[]): void {
-  const seen = new WeakSet<object>()
-  const stack: unknown[] = [...values]
-  while (stack.length) {
-    const v = stack.pop()
-    if (typeof v === 'function') throw notGuestData()
-    if (!v || typeof v !== 'object' || seen.has(v)) continue
-    seen.add(v)
-    if (NAMESPACE_OBJECTS.has(v)) throw notGuestData()
-    if (HEAP_CONTENTS in v || DATE_WRAPPER in v || isGuestRegex(v)) continue // VM wrapper
-    for (const d of Object.values(Object.getOwnPropertyDescriptors(v)))
-      if ('value' in d) stack.push(d.value)
-  }
-}
-
-/**
- * A guest value as it LEAVES the VM (the run result): the VM's wrappers become the data their
- * `toJSON` already describes (a Set → its items, a Date → its JSON form, a regex → its source).
- * A wrapper's methods are sealed, so a structuredClone at a host's worker or process boundary
- * silently reduced a Set to `{ size }` (rc.2 sixteenth re-review M1). Copies only what changes.
- */
-export function egressData(
-  v: unknown,
-  seen = new Map<object, unknown>()
-): unknown {
-  if (!v || typeof v !== 'object') return v
-  if (seen.has(v)) return seen.get(v)
-  if (isGuestRegex(v)) return String(v)
-  if (HEAP_CONTENTS in v || DATE_WRAPPER in v) {
-    const json =
-      typeof (v as any).toJSON === 'function' ? (v as any).toJSON() : undefined
-    return egressData(json, seen)
-  }
-  if (Array.isArray(v)) {
-    const out: unknown[] = []
-    seen.set(v, out)
-    let changed = false
-    for (const x of v) {
-      const y = egressData(x, seen)
-      if (y !== x) changed = true
-      out.push(y)
-    }
-    if (!changed) seen.set(v, v)
-    return changed ? out : v
-  }
-  const proto = Object.getPrototypeOf(v)
-  if (proto !== Object.prototype && proto !== null) return v
-  const out: Record<string, unknown> = Object.create(proto)
-  seen.set(v, out)
-  let changed = false
-  for (const [k, x] of Object.entries(v)) {
-    const y = egressData(x, seen)
-    if (y !== x) changed = true
-    setGuestKey(out, k, y)
-  }
-  if (!changed) seen.set(v, v)
-  return changed ? out : v
 }
 
 function notGuestData(): AgentError {
@@ -2804,8 +2711,7 @@ const isPlainObject = (x: unknown): x is Record<string, unknown> =>
   !Array.isArray(x) &&
   (Object.getPrototypeOf(x) === Object.prototype ||
     Object.getPrototypeOf(x) === null) &&
-  !(HEAP_CONTENTS in x) &&
-  !(DATE_WRAPPER in x) &&
+  !isGuestDate(x) &&
   !isGuestRegex(x)
 
 const isPrimitive = (x: unknown) =>
@@ -2832,17 +2738,11 @@ function argOk(type: string, v: unknown): boolean {
     case 'array':
       return Array.isArray(v)
     case 'setLike':
-      return (
-        Array.isArray(v) || (!!v && typeof v === 'object' && HEAP_CONTENTS in v)
-      )
+      return Array.isArray(v) // a guest Set is an array
     case 'setSource':
       return typeof v === 'string' || argOk('setLike', v)
     case 'dateLike':
-      return (
-        typeof v === 'number' ||
-        typeof v === 'string' ||
-        (!!v && typeof v === 'object' && DATE_WRAPPER in v)
-      )
+      return typeof v === 'number' || typeof v === 'string' || isGuestDate(v)
     case 'amounts':
       return (
         isPlainObject(v) &&
@@ -3694,14 +3594,8 @@ function estimateBytes(
     seen.add(v)
     if (NAMESPACE_OBJECTS.has(v)) throw notGuestData()
     bytes += 16
-    // a VM wrapper's own methods are sealed parts of the wrapper, not values it holds
-    const wrapper = HEAP_CONTENTS in v || DATE_WRAPPER in v || isGuestRegex(v)
-    if (HEAP_CONTENTS in v) {
-      const contents = (v as any)[HEAP_CONTENTS]
-      stack.push(contents)
-      // a Set wrapper's membership index: one more slot per item
-      if (Array.isArray(contents)) bytes += contents.length * SLOT_BYTES
-    }
+    // a guest Set's membership index (VM-held): one more slot per item
+    if (isGuestSet(v)) bytes += v.length * SLOT_BYTES
     // a compiled regex retains its program behind a hidden symbol the key walk cannot see
     if (isGuestRegex(v)) bytes += regexBytes(v)
     if (ArrayBuffer.isView(v)) {
@@ -3732,15 +3626,14 @@ function estimateBytes(
       }
     } else if (!(v instanceof Date)) {
       // Own DATA properties only — never `v[k]`, which runs a getter. A getter's result is not
-      // stored memory, and running one is executing host code mid-measurement: the VM's own
-      // wrappers have getters (a Set's `size`), and a tosijs-schema builder's `.optional` returns
+      // stored memory, and running one is executing host code mid-measurement: a host object can
+      // carry getters, and a tosijs-schema builder's `.optional` returns
       // a NEW builder on every read, so walking `Schema` by `v[k]` never terminated.
       const descriptors = Object.getOwnPropertyDescriptors(v)
       for (const k of Object.keys(descriptors)) {
         bytes += k.length * 2 + SLOT_BYTES
         const d = descriptors[k]
-        if ('value' in d && !(wrapper && typeof d.value === 'function'))
-          stack.push(d.value)
+        if ('value' in d) stack.push(d.value)
         if (bytes > cap) break
       }
     }
@@ -3857,18 +3750,19 @@ function receiverRoot(node: any, ctx: RuntimeContext): string | undefined {
 }
 
 /**
- * Charge what an IN-PLACE mutation adds to the heap budget, where it happens.
+ * Charge what an IN-PLACE mutation adds to the heap budget, BEFORE it is inserted.
  *
  * The heap ledger is kept at BIND time, and a mutation binds nothing: a transpiled
  * `arr.push(x)` statement (or `a.fill(s)`, `set.add(x)`, `a.splice(0, 0, …)`) grew a held
  * value with no write for `trackHeapWrite` to see — 20MB under a 1MB cap (rc.2 second
- * re-review B2). So the two doors that mutate in place, `methodCall` and the `push` atom, call
- * this with what they inserted, charged to the run's estimate (`chargeHeap`), which a true
- * measurement corrects before any run fails.
+ * re-review B2). So the doors that mutate in place (`methodCall`, the `push` atom, `memoize`)
+ * call this with what they insert, charged to the run's estimate (`chargeHeap`), which a true
+ * measurement corrects before any run fails. The same walk refuses a value that is not guest
+ * data; doing it BEFORE the insertion means a refused value is never left inside a structure a
+ * guest `catch` could reach (seventeenth re-review). `restampReceiver` runs after.
  */
-function accountMutation(
+function chargeInsertion(
   ctx: RuntimeContext,
-  receiver: unknown,
   inserted: unknown[],
   op: string
 ): boolean {
@@ -3878,8 +3772,12 @@ function accountMutation(
     Math.max(0, cap - ctx.heapAccount.bytes)
   )
   if (!chargeHeapWalk(ctx, nodes, op)) return false
-  // Re-stamp the receiver's binding so a later re-bind of the same reference is not charged
-  // for the growth a second time.
+  return chargeHeap(ctx, bytes, op, [])
+}
+
+/** Re-stamp the receiver's binding AFTER an insertion, so a later re-bind of the same reference
+ * is not charged for the growth a second time. */
+function restampReceiver(ctx: RuntimeContext, receiver: unknown): void {
   const name = receiverRoot(receiver, ctx)
   if (name !== undefined) {
     const owner = ownerOf(ctx, name)
@@ -3889,7 +3787,6 @@ function accountMutation(
     if (entry && entry.ref === owner[name])
       entry.witness = heapWitness(entry.ref)
   }
-  return chargeHeap(ctx, bytes, op, [])
 }
 
 /**
@@ -4077,7 +3974,7 @@ function treeBytes(
     ancestors.add(v)
     stack.push([v, true, d])
     bytes += 8
-    const contents = HEAP_CONTENTS in v ? (v as any)[HEAP_CONTENTS] : v
+    const contents = v
     if (Array.isArray(contents)) {
       slots += contents.length
       for (let i = contents.length - 1; i >= 0; i--) {
@@ -4376,7 +4273,7 @@ function chargeForSize(ctx: RuntimeContext, value: any, op: string): boolean {
  */
 /**
  * Evaluate an expression to a GUEST VALUE. The guest value domain is closed: data (JSON-like
- * values) and the VM's own wrappers (Set, Date, regex) — never a host function or a builtin
+ * values, with Set, Date and regex as data) — never a host function or a builtin
  * namespace. Enforced HERE, where every expression's value is produced, not at the read sites
  * where an instance was once observed: the `member` guard alone left idents (`parseInt`),
  * namespace copies (`Object.values(Math)`), `toJSON` and dot-paths open (rc.2 fifteenth
@@ -4473,12 +4370,22 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
       primitiveOperand(prop, 'a computed key', 'expr.member')
       assertSafeProperty(String(prop))
 
-      const value = obj?.[prop]
+      // a guest Set's `size` is its length (a Set is an array of its items)
+      const value =
+        prop === 'size' && isGuestSet(obj) ? obj.length : obj?.[prop]
       // A member read never hands guest code a host FUNCTION: a method is something to call, not
       // a value to hold. Held, it could be called on another receiver or spliced onto a harmless
       // object — a stolen builder `validate` ran a smuggled pattern on the host's regex engine
       // (rc.2 fourteenth re-review B1), and `'a'.toUpperCase` was the same hole, carded earlier.
-      if (typeof value === 'function')
+      // A Set, Date or regex is DATA with VM-supplied methods (round 13): reading one of those
+      // methods gets the same instructive refusal, not a silent `undefined`.
+      if (
+        typeof value === 'function' ||
+        (value === undefined &&
+          typeof prop === 'string' &&
+          (isGuestSet(obj) || isGuestDate(obj) || isGuestRegex(obj)) &&
+          typeof intrinsicMethod(obj, prop) === 'function')
+      )
         throw new AgentError(
           `'${String(
             prop
@@ -4696,26 +4603,24 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
       if (typeof fn !== 'function')
         throw new Error(`'${method}' is not a function`)
       allocate(ctx, bound, `expr.${method}`)
-      if (
-        (MUTATING_METHODS.has(method) && typeof obj === 'object') ||
-        (method === 'assign' && obj === (builtins as any).Object)
-      )
-        assertGuestData(args)
+      // An in-place insertion is checked and charged BEFORE it happens — one walk over what is
+      // INSERTED (never an Object.assign target, which is already guest state): a refusal after
+      // the mutation left the value inside a structure a guest `catch` could reach, and a second,
+      // uncharged walk of the target cost O(|target|) per call (rc.2 seventeenth re-review B3).
+      const mutates = MUTATING_METHODS.has(method) && typeof obj === 'object'
+      const assigns = method === 'assign' && obj === (builtins as any).Object
+      if (assigns && (isGuestSet(args[0]) || isGuestDate(args[0])))
+        throw new AgentError(
+          'Object.assign cannot write into a Set or a Date (use its methods)',
+          'expr.assign'
+        )
+      if (mutates && !chargeInsertion(ctx, args, `expr.${method}`))
+        return undefined
+      if (assigns && !chargeInsertion(ctx, args.slice(1), 'expr.assign'))
+        return undefined
       const result = fn.apply(obj, args)
-      if (
-        MUTATING_METHODS.has(method) &&
-        typeof obj === 'object' &&
-        !accountMutation(ctx, node.object, args, `expr.${method}`)
-      )
-        return undefined
-      // `Object.assign(target, …sources)` grows its TARGET in place: the same I2 charge as a
-      // mutator, against the binding the target is reached through.
-      if (
-        method === 'assign' &&
-        obj === (builtins as any).Object &&
-        !accountMutation(ctx, node.arguments[0], args.slice(1), 'expr.assign')
-      )
-        return undefined
+      if (mutates) restampReceiver(ctx, node.object)
+      if (assigns) restampReceiver(ctx, node.arguments[0])
       return result
     }
 
@@ -5938,10 +5843,13 @@ export const push = defineAtom(
   async ({ list, item }, ctx) => {
     const resolvedList = resolveValue(list, ctx)
     const resolvedItem = resolveValue(item, ctx)
+    if (isGuestSet(resolvedList))
+      throw new AgentError('push cannot write into a Set (use add)', 'push')
     if (Array.isArray(resolvedList)) {
-      assertGuestData([resolvedItem])
+      // checked and charged BEFORE the insertion (seventeenth re-review)
+      if (!chargeInsertion(ctx, [resolvedItem], 'push')) return undefined
       resolvedList.push(resolvedItem)
-      if (!accountMutation(ctx, list, [resolvedItem], 'push')) return undefined
+      restampReceiver(ctx, list)
     }
     return resolvedList
   },
@@ -6062,10 +5970,11 @@ export const pick = defineAtom(
       // OWN properties only: `pick(o, ['constructor'])` read the inherited `Object` function and
       // handed the guest a live host function.
       for (const k of resolvedKeys) {
-        // enumerable own DATA only: a VM wrapper's sealed methods are not values to pick
-        // (rc.2 sixteenth re-review B2; the bind check refuses them as well)
+        // own DATA, as before round 12 (`pick(arr, ['length'])` works); a function is never
+        // picked, and the bind walk refuses one anyway (seventeenth re-review m4)
         const d = Object.getOwnPropertyDescriptor(resolvedObj ?? {}, k)
-        if (d && d.enumerable && 'value' in d) setGuestKey(res, k, d.value)
+        if (d && 'value' in d && typeof d.value !== 'function')
+          setGuestKey(res, k, d.value)
       }
     }
     return res
@@ -6549,15 +6458,27 @@ export const agentRun = defineAtom(
   s.object({ agentId: s.any, input: s.any }), // agentId can be string token or AST object
   s.any,
   async ({ agentId, input }, ctx) => {
-    const resolvedId = resolveValue(agentId, ctx)
+    // An inline AST is CODE for the child, never a value of the caller: resolving it evaluated
+    // the child's expressions (and, in v1, its bare strings) in the CALLER's scope before the
+    // child ran (found while reproducing the seventeenth re-review's M2).
+    const resolvedId =
+      agentId &&
+      typeof agentId === 'object' &&
+      'op' in agentId &&
+      !('$expr' in agentId)
+        ? agentId
+        : resolveValue(agentId, ctx)
     const rawInput = resolveValue(input, ctx)
 
+    // Resolved ONCE. The copy used to resolve each value a second time, so resolved DATA — a
+    // string that happened to name a caller variable — was read again as a reference, handing
+    // the child a value nobody passed it (seventeenth re-review M2).
     let resolvedInput = rawInput
     if (rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)) {
-      resolvedInput = {}
-      for (const k of Object.keys(rawInput)) {
-        setGuestKey(resolvedInput, k, resolveValue(rawInput[k], ctx))
-      }
+      // null-prototype, as vm.run's args are: an inherited name is never an argument (m5)
+      resolvedInput = Object.create(null)
+      for (const k of Object.keys(rawInput))
+        setGuestKey(resolvedInput, k, rawInput[k])
     }
 
     // Check if this is a procedure token
@@ -6841,7 +6762,13 @@ export const runCode = defineAtom(
     // The guest-built code is its OWN document: read it in its own format.
     childCtx.astVersion = astVersionOf(ast) ?? AST_VERSION_LEGACY
     try {
-      childCtx.args = resolvedArgs
+      // null-prototype, as vm.run's args are (m5): an inherited name is never an argument
+      childCtx.args =
+        resolvedArgs &&
+        typeof resolvedArgs === 'object' &&
+        !Array.isArray(resolvedArgs)
+          ? Object.assign(Object.create(null), resolvedArgs)
+          : resolvedArgs
       ownRoots(childCtx, childCtx.memo, childCtx.args)
       childCtx.output = undefined
       childCtx.localCall = false // dynamic code is an agent, whatever scope started it
@@ -6965,11 +6892,12 @@ export const memoize = defineAtom(
     // PERSIST one.
     if (ctx.error) return undefined
 
-    ctx.memo.set(k, result)
     // The cache is a heap ROOT, and a store is an insertion into it: a result held only here
     // — never bound to a name — was never charged, so the estimate never rose and the true
-    // measurement never ran. Ten unbound ~200KB results sat under a 1MB cap.
-    if (!accountMutation(ctx, undefined, [result], 'memoize')) return undefined
+    // measurement never ran. Ten unbound ~200KB results sat under a 1MB cap. Charged BEFORE
+    // the store, so a refused result is never left in the cache (seventeenth re-review).
+    if (!chargeInsertion(ctx, [result], 'memoize')) return undefined
+    ctx.memo.set(k, result)
     return result
   },
   { docs: 'Memoize steps result in memory', cost: 1 }

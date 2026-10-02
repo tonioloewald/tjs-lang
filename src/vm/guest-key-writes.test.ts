@@ -38,11 +38,9 @@ const ALLOWED: Record<string, string> = {
   'runtime.ts › sigTable › out[name]':
     'method names from the VM source (the table literals), onto Object.create(null)',
   'regex.ts › compileRegex › Object.defineProperty':
-    "the VM-owned PROGRAM symbol and a literal 'toString', on a regex object the VM built",
+    'the VM-owned PROGRAM symbol, on a regex object the VM built',
   'regex.ts › add › mark[state]':
     'an Int32Array indexed by closure state (VM-internal)',
-  'runtime.ts › sealMethods › Object.defineProperty':
-    "`k` iterates a VM-built wrapper's OWN method names, defined by the VM",
   'vm.ts › run › Object.assign':
     'the admitted (membrane-copied) arguments onto Object.create(null): with no prototype there is no __proto__ setter, so the key is an ordinary own property',
   'runtime.ts › rollback › target[key]':
@@ -65,10 +63,6 @@ const ALLOWED: Record<string, string> = {
     "a thread's empty-check registers (VM-internal)",
   'string-methods.ts › matchArray › Object.assign':
     'named groups onto Object.create(null): a group named __proto__ is an ordinary key there',
-  'runtime.ts › tagDateWrapper › Object.defineProperty':
-    'the VM-owned DATE_WRAPPER symbol on a wrapper the VM built',
-  'runtime.ts › withHeapContents › Object.defineProperty':
-    'the VM-owned HEAP_CONTENTS symbol on a wrapper the VM built',
   'runtime.ts › inputsResolvedContext › Object.defineProperty':
     "`field` iterates the literal tuple ['error', 'output']",
   'runtime.ts › <module> › Object.assign':

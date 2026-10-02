@@ -97,23 +97,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > once (the evaluator checks trust on every call); its cache is bounded. In predicates, a
 > string-literal pattern (`s.search('@')`) runs on the metered engine rather than being refused.
 >
+> **Since rc.1 — a Set, a Date and a regex are DATA (breaking).** A guest `Set` is an array of its
+> items (`s.size` is its length; `Array.isArray(s)` is true), and a `Date` is a frozen object of
+> its fields — `value` (ISO), `timestamp`, `year`, `month` (1–12), `day`, `hours`, `minutes`,
+> `seconds`, `dayOfWeek` — that JSON writes as its ISO string; a regex is an object of its
+> `source` and flags. Their methods are the VM's, dispatched by kind, so a value never carries a
+> function: the sealed wrappers and the run-result conversion that kept their methods away from
+> guest code are gone, with the four defects the seventeenth re-review found in them (a recursive
+> conversion that a deep or self-containing Set crashed, a `__proto__` key, an uncharged walk of
+> an `Object.assign` target, conversion only at the result). `push` and `Object.assign` into a Set
+> are refused (use its methods), and reading a method as a value (`const f = s.add`) is refused as
+> it is on a string. An in-place insertion is now checked and charged BEFORE it happens, so a
+> refused value is never left behind for a `catch` to reach. `agentRun` hands a sub-agent exactly
+> what it was passed: it resolved the input twice (a string that named a caller variable became
+> that variable's value) and evaluated an inline sub-agent's expressions in the CALLER's scope.
+> Sub-agent and `runCode` arguments are null-prototype, like `vm.run`'s. `pick` again copies any
+> own data property (`pick(arr, ['length'])`), never a function. An AST's `inputSchema` is
+> validated before the run's timer exists, so it is now capped on the product — 1M argument paths
+> and 1e8 schema-node × path steps (about 0.6s) — and refused past either: validate in the host,
+> or pass smaller arguments. A guest-program fuzzer (`src/vm/guest-fuzz.test.ts`) now checks the
+> invariants over random programs.
+>
 > **Since rc.1 — the AsyncJS value domain is closed (breaking).** A guest value is data — JSON
-> values and the VM's own Set, Date and regex wrappers — and never a host function or a builtin
+> values, with the VM's own Set, Date and regex as data (above) — and never a host function or a builtin
 > namespace. It is checked where values ENTER guest state: the walk that charges every bind,
 > insertion and reconcile now refuses a function or namespace anywhere in the value, so no
 > producer (an expression, an argument read, an atom result such as `pick`) can bypass it.
 > Arguments are a null-prototype object read by own key (`args.constructor` was the host's
 > `Object`, and `varsImport` could hand a capability `Object.prototype`). A Set or Date in the
-> run's RESULT is now plain data — its items, its date string — so a structuredClone at a worker
-> or process boundary keeps it (sealed wrapper methods had reduced a Set to `{ size }`); a host
-> that read wrapper methods off the result reads the data instead. Validation costs about 0.002
+> run's RESULT is plain data, so a structuredClone at a worker or process boundary keeps it
+> (wrapper methods had reduced a Set to `{ size }`); a host that read wrapper methods off the
+> result reads the data instead. Validation costs about 0.002
 > fuel per schema-node × data-node step (some 0.11 fuel per 6-field row): raise `fuel`, or
 > validate at your own edge, for large payloads. Earlier holes closed in this round of review: `const g = parseInt`, `Object.values(Math)`,
 > `{ toJSON: encodeURIComponent }`, `[Set].join('')` (which printed VM source) and a dot-path
 > `'s.add'` all handed out host functions, and a stolen `Set.add` called through a guest object's
 > own `hasOwnProperty` property grew a Set past `maxHeapBytes`. Method calls now dispatch to the
-> receiver kind's INTRINSIC, never to a property the guest owns; the VM wrappers' methods are
-> sealed and non-enumerable; a namespace can no longer reach the host's result (where
+> receiver kind's INTRINSIC, never to a property the guest owns; a namespace can no longer reach the host's result (where
 > `JSON.stringify` threw). `llmPredict` options are allowlisted (`model`, `temperature`,
 > `maxTokens`, `topP`, `stop`, `seed`, `responseFormat`, `tools`) and tools must be
 > `{ type: 'function', function: { name, description?, parameters?, strict? } }`. Validation is

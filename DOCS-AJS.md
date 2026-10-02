@@ -261,8 +261,9 @@ let nullish = a ?? defaultValue
 **Functions and namespaces are not values.** Call them; don't hold them. `Math.max(a, b)` and
 `s.trim()` work, but `const m = Math`, `const f = parseInt`, `items.map(parseInt)`,
 `Object.values(Math)` and `{ toJSON: encodeURIComponent }` are refused. A value in AsyncJS is data
-(numbers, strings, booleans, null, arrays, objects) or one of the VM's own `Set`, `Date` and regex
-values, and a `Set` or `Date` leaving the program becomes plain data (its items, its date string).
+(numbers, strings, booleans, null, arrays, objects). A `Set` is an array of its items, and a `Date`
+or a regex is a plain object of its fields; the VM supplies their methods (see below), so reading
+one as a value (`const f = s.add`) is refused too.
 
 **Operators take primitives.** `+`, `-`, `*`, `<`, … and computed keys (`obj[k]`) need strings,
 numbers, booleans or null; an object or array operand is an error, not a silent conversion to its
@@ -763,27 +764,38 @@ Number.parseInt('42') // 42
 Number.parseFloat('3.14') // 3.14
 ```
 
-### Set Operations
+### Set
 
-Set-like operations:
+`Set(items)` makes a set of unique items. A set **is an array** of its items (0.14.0) — data that
+JSON and `structuredClone` keep as it is — whose methods the VM supplies. `size` is its length.
+Change it with its own methods: `push` and `Object.assign` are refused on a set.
 
 ```javascript
-Set.add([1, 2], 3) // [1, 2, 3]
-Set.remove([1, 2, 3], 2) // [1, 3]
-Set.union([1, 2], [2, 3]) // [1, 2, 3]
-Set.intersection([1, 2], [2, 3]) // [2]
-Set.diff([1, 2, 3], [2]) // [1, 3]
+const tags = Set(['a', 'b', 'b']) // ['a', 'b']
+tags.add('c') // in place
+tags.remove('a')
+tags.has('b') // true
+tags.size // 2
+tags.union(['d']) // a new set: ['b', 'c', 'd']
+tags.intersection(['b', 'x']) // ['b']
+tags.diff(['b']) // ['c']
 ```
 
 ### Date
 
-Date factory with arithmetic:
+`Date(text)` (or `Date()` for now) makes a date. A date is a frozen **data object** (0.14.0):
+`value` (ISO string), `timestamp` (ms), `year`, `month` (1–12), `day`, `hours`, `minutes`,
+`seconds`, `dayOfWeek`. JSON writes it as its ISO string.
 
 ```javascript
+const d = Date('2024-01-15T10:00:00Z')
+d.year // 2024
+d.month // 1
+const next = d.add({ days: 1 }) // a new date; also years, months, hours, minutes, seconds, ms
+next.diff(d, 'days') // 1 (also 'seconds', 'minutes', 'hours'; default ms)
+d.isBefore(next) // true
+d.format('YYYY-MM-DD') // '2024-01-15' (also 'ISO', 'date', 'time')
 Date.now() // timestamp
-Date.create('2024-01-15') // Date object
-Date.add(date, 1, 'day') // new Date
-Date.format(date, 'YYYY-MM-DD')
 ```
 
 ### Schema

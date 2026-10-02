@@ -10,7 +10,14 @@
  * being listed — and on any listed name that mutates nothing (a stale entry).
  */
 import { describe, it, expect } from 'bun:test'
-import { builtins, isGuestCallableMethod, isMutatingMethod } from './runtime'
+import {
+  builtins,
+  DATE_METHODS,
+  intrinsicMethod,
+  isGuestCallableMethod,
+  isMutatingMethod,
+  SET_METHODS,
+} from './runtime'
 
 const RECEIVERS: Record<
   string,
@@ -33,15 +40,14 @@ const RECEIVERS: Record<
   },
   set: {
     make: () => builtins.Set([3, 1, 2]),
-    snapshot: (r) => JSON.stringify(r.toArray()),
-    // a wrapper's methods are non-enumerable (round 11): list its own names, not its keys
-    names: (r) => Object.getOwnPropertyNames(r),
+    snapshot: (r) => JSON.stringify(r),
+    // a guest Set is data (round 13): its methods are the VM's intrinsics, not its own
+    names: () => Object.keys(SET_METHODS),
   },
   date: {
     make: () => builtins.Date('2020-01-02T03:04:05Z'),
-    snapshot: (r) => String(r.timestamp),
-    // a wrapper's methods are non-enumerable (round 11): list its own names, not its keys
-    names: (r) => Object.getOwnPropertyNames(r),
+    snapshot: (r) => JSON.stringify(r),
+    names: () => Object.keys(DATE_METHODS),
   },
 }
 
@@ -58,10 +64,12 @@ function mutates(kind: string, name: string): boolean {
   const { make, snapshot } = RECEIVERS[kind]
   for (const args of ARG_SETS) {
     const r = make()
-    if (typeof r[name] !== 'function') return false
+    // dispatch exactly as methodCall does: the VM's intrinsic for this receiver
+    const fn = intrinsicMethod(r, name)
+    if (typeof fn !== 'function') return false
     const before = snapshot(r)
     try {
-      r[name](...args)
+      fn.apply(r, args)
     } catch {
       // wrong arity/type for this method — try the next argument set
     }

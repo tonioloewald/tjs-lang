@@ -11,7 +11,6 @@ import {
   newScopeState,
   admitGuestSchema,
   VALIDATION_FUEL_PER_STEP,
-  egressData,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate, isBuilder } from 'tosijs-schema'
@@ -89,15 +88,22 @@ export const DEFAULT_ARGS_MAX_BYTES = 4 * 1024 * 1024
 
 export type { RunOptions } from './admission'
 
+/** Validation of an AST's inputSchema visits at most this many argument paths. */
+const MAX_VALIDATION_PATHS = 1_000_000
+/**
+ * ...and does at most this much work, counted as (schema nodes) × (argument paths). Validation
+ * runs before the run's timer exists, so with `fuel: Infinity` a path cap alone let a 10k-node
+ * schema validate 125k leaves synchronously for 8s (seventeenth re-review m2) — about 6ns per
+ * step, so this ceiling is ~0.6s of worst-case work.
+ */
+const MAX_VALIDATION_STEPS = 100_000_000
+
 /**
  * Nodes in data as VALIDATION visits them: per occurrence, so a shared object is counted at
  * every path that reaches it (a WeakSet-deduped count let DAG-shaped arguments validate for
  * 1.7s on 0.25 fuel — fifteenth re-review M3). Stops at `limit`: past it the answer is only
  * "more than the run can afford", and counting further would be the unbounded work itself.
  */
-/** Validation of an AST's inputSchema visits at most this many argument paths. */
-const MAX_VALIDATION_PATHS = 1_000_000
-
 function countPaths(value: unknown, limit: number): number {
   let n = 0
   const stack = [value]
@@ -437,17 +443,21 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         // count only as far as the run could pay for — and never past an absolute cap: with
         // `fuel: Infinity` the bound was infinite, and cyclic arguments hung admission
         // (sixteenth re-review B3). Past the cap the arguments are too large to validate.
-        const affordable = Math.min(
+        const ceiling = Math.min(
           MAX_VALIDATION_PATHS,
+          Math.floor(MAX_VALIDATION_STEPS / Math.max(1, nodes))
+        )
+        const affordable = Math.min(
+          ceiling,
           Math.ceil(
             Math.max(0, startFuel - admissionFuel) /
               (nodes * VALIDATION_FUEL_PER_STEP)
           )
         )
         const paths = countPaths(args, affordable)
-        if (paths > MAX_VALIDATION_PATHS)
+        if (paths > ceiling)
           throw new AgentError(
-            `Arguments too large to validate against the inputSchema (over ${MAX_VALIDATION_PATHS} paths)`,
+            `Arguments too large to validate against the inputSchema (over ${ceiling} paths for a ${nodes}-node schema): validate in the host, or pass fewer, smaller arguments`,
             'vm.run'
           )
         validationFuel = nodes * paths * VALIDATION_FUEL_PER_STEP
@@ -641,7 +651,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     const allWarnings = [...warnings, ...(ctx.warnings ?? [])]
 
     return {
-      result: egressData(ctx.output),
+      result: ctx.output,
       error: ctx.error,
       fuelUsed: startFuel - ctx.fuel.current,
       trace: ctx.trace,

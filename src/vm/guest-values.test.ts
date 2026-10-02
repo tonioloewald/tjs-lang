@@ -1,6 +1,6 @@
 /**
- * The guest value domain is CLOSED: data and the VM's own wrappers, never a host function or a
- * builtin namespace (rc.2 fifteenth re-review B1, round 11).
+ * The guest value domain is CLOSED: data (a Set, Date or regex is data too since round 13), never
+ * a host function or a builtin namespace (rc.2 fifteenth re-review B1, round 11).
  *
  * The rule used to be enforced at the one read site where an instance was observed (`member`),
  * and the review found eight other routes. This is the ratchet: every route, and for each, that
@@ -25,8 +25,8 @@ async function attempt(src: string, vm = new AgentVM(), opts: any = {}) {
   return r.error ? { refused: r.error.message as string } : { result: r.result }
 }
 
-/** No function anywhere in a value — enumerable or not (a wrapper's sealed methods are not
- * enumerable, and an `Object.values` walk could not see them: sixteenth re-review). */
+/** No function anywhere in a value — enumerable or not (an `Object.values` walk could not see a
+ * non-enumerable one: sixteenth re-review). */
 function hasFunction(v: unknown, seen = new Set<unknown>()): boolean {
   if (typeof v === 'function') return true
   if (!v || typeof v !== 'object' || seen.has(v)) return false
@@ -63,8 +63,8 @@ describe('no route makes a host function or namespace a guest value', () => {
       "const f = 'a'.toUpperCase\n return { ok: true }",
     ],
     [
-      'a wrapper method read as a value',
-      'const s = Set([1])\n const f = s.add\n return { ok: true }',
+      'a Set method read as a value',
+      'const s = Set([1])\n const f = s.add\n return { f }',
     ],
   ]
   for (const [name, body] of ROUTES)
@@ -73,13 +73,13 @@ describe('no route makes a host function or namespace a guest value', () => {
       expect('refused' in r ? r.refused : 'admitted').toMatch(REFUSED)
     })
 
-  it('a VM wrapper cannot be harvested by enumeration or copy', async () => {
+  it('a Set or Date yields no function by enumeration or copy', async () => {
     const r = await attempt(`function f() {
       const s = Set([1, 2])
       const d = Date('2024-01-15')
       return { a: Object.values(s), b: Object.assign({}, s), c: { ...d }, k: Object.keys(s) }
     }`)
-    // refused (a wrapper is not an object argument), or a result with no function in it
+    // refused, or a result with no function in it
     if ('result' in r) expect(hasFunction((r as any).result)).toBe(false)
     else expect(r.refused).toBeTruthy()
   })
@@ -123,9 +123,8 @@ describe('no route makes a host function or namespace a guest value', () => {
     expect((r as any).result).toEqual({ own: true, other: false })
   })
 
-  it('a VM wrapper method cannot be replaced', async () => {
-    // AsyncJS has no member assignment, and a wrapper is not an object argument to
-    // Object.assign; the sealed (non-writable) methods are defense in depth behind both
+  it("a Set's methods cannot be replaced", async () => {
+    // AsyncJS has no member assignment, and Object.assign into a Set is refused
     for (const body of [
       'const s = Set([1])\n s.add = 5\n return { ok: true }',
       'const s = Set([1])\n Object.assign(s, { add: 5 })\n return { ok: true }',
@@ -245,7 +244,7 @@ describe('round 12: the domain is checked where values ENTER guest state (sixtee
     expect((r as any).result).toEqual({ v: 1 })
   })
 
-  it("an atom RESULT is checked where it is bound: pick of a wrapper's methods", async () => {
+  it("an atom RESULT is checked where it is bound: pick of a Set's methods", async () => {
     const { vm, received } = sinkVM()
     const r = await vm.run(
       {
@@ -338,7 +337,7 @@ describe('round 12: the domain is checked where values ENTER guest state (sixtee
     expect(received.some((v) => hasFunction(v))).toBe(false)
   })
 
-  it('a wrapper leaving the VM is data, so a structuredClone keeps it (M1)', async () => {
+  it('a Set or Date leaving the VM is data, so a structuredClone keeps it (M1)', async () => {
     const r = await attempt(
       `function f() { return { s: Set([1, 2, 3]), d: Date('2024-01-15') } }`
     )
@@ -364,5 +363,145 @@ describe('round 12: the domain is checked where values ENTER guest state (sixtee
     )
     expect(r.error?.message ?? 'admitted').toMatch(/too large to validate/)
     expect(performance.now() - t).toBeLessThan(2000)
+  })
+})
+
+describe('round 13: agentRun hands the child exactly what the caller passed (seventeenth re-review M2)', () => {
+  for (const [name, child] of [
+    ['a v1 child', { op: 'seq', steps: [{ op: 'sink', v: 'args.v' }] }],
+    [
+      'a v2 child',
+      {
+        $ajs: 2,
+        op: 'seq',
+        steps: [{ op: 'sink', v: { $kind: 'arg', path: 'v' } }],
+      },
+    ],
+  ] as const)
+    it(`${name}: the input is resolved once, and the inline AST is not evaluated in the caller`, async () => {
+      const got: unknown[] = []
+      const sink = defineAtom(
+        'sink',
+        s.object({ v: s.any }),
+        s.any,
+        async ({ v }) => {
+          got.push(v)
+          return null
+        },
+        { effects: 'io' }
+      )
+      await new AgentVM({ sink } as any).run(
+        {
+          op: 'seq',
+          steps: [
+            { op: 'varSet', key: 'secret', value: 'S' },
+            // DATA that happens to name a caller variable: a second resolve read it as one
+            {
+              op: 'varSet',
+              key: 'name',
+              value: { $expr: 'literal', value: 'secret' },
+            },
+            { op: 'agentRun', agentId: child, input: { v: 'name' } },
+          ],
+        } as any,
+        {},
+        { fuel: 1000 }
+      )
+      expect(got).toEqual(['secret'])
+    })
+})
+
+describe('round 13: inputSchema validation is bounded on schema × arguments (seventeenth re-review m2)', () => {
+  it('a large schema against large arguments is refused before validating, even with infinite fuel', async () => {
+    const anyOf = Array.from({ length: 2000 }, (_, i) => ({
+      type: 'object',
+      properties: { [`k${i}`]: { type: 'number' } },
+      required: [`k${i}`],
+    }))
+    // every item matches only the LAST branch: validation tries all of them
+    const leaf = () => Array.from({ length: 100 }, (_, i) => ({ k1999: i }))
+    const args = { x: Array.from({ length: 100 }, () => leaf()) }
+    const t = performance.now()
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [],
+        inputSchema: {
+          type: 'object',
+          properties: {
+            x: { type: 'array', items: { type: 'array', items: { anyOf } } },
+          },
+        },
+      } as any,
+      args,
+      { fuel: Infinity }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(/too large to validate/)
+    expect(performance.now() - t).toBeLessThan(2000)
+  })
+})
+
+describe('round 13: a Set, Date and regex are data (seventeenth re-review)', () => {
+  it("a Set's membership index is measured: one more slot per item than its array", async () => {
+    // grown in place with `add`, so the true measurement (reconcile) decides — not the factory's
+    // allocation bound, which already covers a Set built in one call
+    const opts = { fuel: 1e7, maxHeapBytes: 3_000_000, argsMaxBytes: 1e8 }
+    const run = (n: number) =>
+      new AgentVM().run(
+        transpile(
+          'function f(a: [0]) { const s = Set([])\n for (const x of a) { s.add(x) }\n return { n: s.length } }'
+        ).ast,
+        { a: Array.from({ length: n }, (_, i) => i) },
+        opts
+      )
+    expect((await run(100_000)).error).toBeUndefined()
+    // ~1.2MB of arguments + 1.2MB of items + 1.2MB of index: over 3MB only if the index counts
+    expect((await run(150_000)).error?.message ?? 'admitted').toMatch(
+      /Heap limit/
+    )
+  })
+
+  it('push (v1) and Object.assign cannot write into a Set', async () => {
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 's',
+            value: {
+              $expr: 'call',
+              callee: 'Set',
+              arguments: [{ $expr: 'literal', value: [1] }],
+            },
+          },
+          { op: 'push', list: 's', item: 2 },
+        ],
+      } as any,
+      {},
+      { fuel: 1000 }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /push cannot write into a Set/
+    )
+    const b = await attempt(
+      'function f() { const s = Set([1])\n Object.assign(s, [5, 6])\n return { s } }'
+    )
+    expect('refused' in b ? b.refused : 'admitted').toMatch(
+      /cannot write into a Set/
+    )
+  })
+
+  it('a Date is a data object, and JSON writes it as its ISO string', async () => {
+    const r = await attempt(`function f() {
+      const d = Date('2024-01-15T10:00:00Z')
+      return { y: d.year, m: d.month, j: JSON.stringify({ d }), n: d.add({ days: 1 }).value }
+    }`)
+    expect((r as any).result).toEqual({
+      y: 2024,
+      m: 1,
+      j: '{"d":"2024-01-15T10:00:00.000Z"}',
+      n: '2024-01-16T10:00:00.000Z',
+    })
   })
 })
