@@ -49,6 +49,17 @@ the engine change together. tosijs-coding-practices points every repo at it.
   converter does not approximate: it explains the site and points to the docs. An inconvertible
   regex is EVIDENCE that the regex does not state its intent (a lookaround standing in for
   structure, a backreference standing in for a grammar). The refusal is the useful output.
+- **Why regex backtracks (Tonio, 2026-10-03: "the reason for backtracking is typically to solve
+  problems caused by working around its lack of statefulness").** Plain regular expressions
+  need no backtracking: Thompson's construction (1968) matches them in linear time, and so does
+  our linear engine. Backtracking engines exist to serve the extensions that fake STATE or
+  STRUCTURE: backreferences (memory), lookaround (context) and greedy/lazy capture (extracting
+  structure by retrying). Even plain ambiguity, as in `(a|ab)c` or `.*foo`, is structure regex
+  cannot state. Pattern removes the ambiguity instead of searching it: possessive repetition,
+  ordered choice, and named stateful pieces (`quoted`, `balanced`, `sepBy`). A PEG choice point
+  re-reads input only within that choice, and can be memoised to linear time (packrat). So the
+  converter's rule is: when a regex needs backtracking to be correct, NAME the structure it is
+  encoding; never reproduce the retries.
 - **The long term.** Pattern paves the way to eliminating regex from TJS itself, not only from
   AsyncJS: the transpiler's own regex and hand-rolled scans first (see the priorities above), then
   the language surface.
