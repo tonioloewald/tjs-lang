@@ -1397,6 +1397,26 @@ function transformCallExpression(
   // Extract arguments
   const args = extractCallArguments(expr, ctx)
 
+  // An ATOM takes named arguments, always: `storeSet({ key, value })` (Tonio, 2026-10-03).
+  // Positional-ness exists only in the SOURCE: the AST encodes `foo(a, b)` as an input named
+  // `args`, which is indistinguishable from `foo({ args: [a, b] })`. So this is decided here, on
+  // the syntax, and nowhere else. Four review rounds (rc.2 eighteenth to twenty-first) tried to
+  // decide it in the VM from each atom's schema, and each broke a call that worked. Helpers
+  // (above) and the builtins listed here are functions, and keep positional arguments.
+  const named =
+    expr.arguments.length === 0 ||
+    (expr.arguments.length === 1 &&
+      expr.arguments[0].type === 'ObjectExpression')
+  if (!named && !POSITIONAL_BUILTINS.has(funcName)) {
+    throw new TranspileError(
+      `'${funcName}' takes named arguments: write ${funcName}({ name: value, … }), not ${funcName}(a, b). ` +
+        `Positional arguments are for local functions.`,
+      getLocation(expr),
+      ctx.source,
+      ctx.filename
+    )
+  }
+
   return {
     step: {
       op: funcName,
@@ -2284,6 +2304,9 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
 /**
  * Extract call arguments from a call expression
  */
+/** Builtins called positionally that the generic atom path emits (`Error('message')`). */
+const POSITIONAL_BUILTINS: ReadonlySet<string> = new Set(['Error'])
+
 function extractCallArguments(
   expr: CallExpression,
   ctx: TransformContext

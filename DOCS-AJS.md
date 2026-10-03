@@ -258,6 +258,10 @@ let fallback = a || defaultValue
 let nullish = a ?? defaultValue
 ```
 
+**Atoms take named arguments.** Call an atom with one object literal, `storeSet({ key, value })`,
+or with nothing, `random()`. A positional call fails at transpile time: `storeSet('k', v)` (refused). Your own functions (local helpers) and builtins (`Math.max(a, b)`, `Error('message')`) take
+positional arguments as usual.
+
 **Functions and namespaces are not values.** Call them; don't hold them. `Math.max(a, b)` and
 `s.trim()` work, but `const m = Math`, `const f = parseInt`, `items.map(parseInt)`,
 `Object.values(Math)` and `{ toJSON: encodeURIComponent }` are refused. A value in AsyncJS is data

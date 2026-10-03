@@ -4715,54 +4715,6 @@ function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
   return out
 }
 
-/**
- * THE rule for how a call's arguments reach an atom: the ONE place it is decided. The emitter
- * writes `args: [...]` for every call that is not a single object literal, `foo()` included,
- * because it cannot see an atom's schema. Rounds 14 and 15 each fixed one cell of this table in a
- * different place and broke a neighbouring one (rc.2 eighteenth to twentieth re-reviews):
- *
- * | atom declares              | `args` empty or absent  | `args` non-empty (positional) |
- * | -------------------------- | ----------------------- | ----------------------------- |
- * | `args: array` (positional) | receives `args: []`     | receives the values           |
- * | named inputs (a named      | runs with no inputs; a  | REFUSED, naming `foo({ … })`  |
- * |   `args` record included)  |   named `args` is kept  |                               |
- * | no object schema           | the step as written     | the step as written           |
- *
- * Pinned as a table by `call-shape.test.ts`.
- */
-function callShape(op: string, step: any, inputSchema: any): any {
-  const named = namedInputs(inputSchema)
-  if (!named) return step
-  // A POSITIONAL atom declares `args` as an ARRAY. A named input that happens to be called `args`
-  // (`runCode({ code, args: { n: 2 } })`, a record) is just a named input.
-  if (isPositionalAtom(inputSchema))
-    return 'args' in step ? step : { ...step, args: [] }
-  if (!Array.isArray(step.args)) return step
-  if (step.args.length > 0)
-    throw new AgentError(
-      `'${op}' takes named arguments: ${op}({ ${named.join(', ')} })`,
-      op
-    )
-  // `foo()` emits `args: []`. To a named atom that is no input at all, and it must not reach a
-  // named input that happens to be called `args` (runCode's) as its value.
-  const { args: _none, ...rest } = step
-  return rest
-}
-
-/** An atom whose input schema declares `args` as an array: it takes positional arguments. */
-function isPositionalAtom(inputSchema: any): boolean {
-  const args = (inputSchema?.schema ?? inputSchema)?.properties?.args
-  const type = args?.type
-  // an optional array is `type: ['array', 'null']` (the Error atom's)
-  return type === 'array' || (Array.isArray(type) && type.includes('array'))
-}
-
-/** An atom's named input keys, when its input schema is an object with declared properties. */
-function namedInputs(inputSchema: any): string[] | undefined {
-  const props = (inputSchema?.schema ?? inputSchema)?.properties
-  return props && typeof props === 'object' ? Object.keys(props) : undefined
-}
-
 export function defineAtom<I extends Record<string, any>, O = any>(
   op: string,
   inputSchema: any, // s.Schema<I>
@@ -4805,7 +4757,6 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         )
       ctx = origin
     }
-    step = callShape(op, step, inputSchema)
     const { op: _op, result: _res, ...inputData } = step
     // This step's allocation frame: what it allocates while it runs counts as transient until
     // it ends (`allocate`). Restored on the way out, so frames nest with the steps.

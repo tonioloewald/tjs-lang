@@ -553,8 +553,9 @@ describe('round 14: one reading of every member and call shape (eighteenth re-re
     const r = await attempt(
       "function f() { const r = agentRun('tok', { a: 1 })\n return { r } }"
     )
+    // refused at TRANSPILE time (the whole table is in call-shape.test.ts)
     expect('refused' in r ? r.refused : 'admitted').toMatch(
-      /'agentRun' takes named arguments: agentRun\(\{ agentId, input \}\)/
+      /'agentRun' takes named arguments: write agentRun\(\{ name: value, … \}\)/
     )
   })
 

@@ -107,10 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > guest Date, a stored one (an object with a numeric `timestamp`, which is what a Date becomes
 > after JSON, a store or a capability), a number of ms within the Date range, or a string that
 > parses; `Date.parse` is the same door. `format`'s keywords (`'ISO'`, `'date'`, `'time'`) are
-> case-insensitive. A regex is an object of its `source` and flags.
-> A positional call to an atom with named inputs (`agentRun(id, input)`) is refused with the named
-> shape (`agentRun({ agentId, input })`); it used to run with every input undefined. A call with
-> no arguments (`random()`) is not positional and runs as before. Their methods are the VM's, dispatched by kind, so a value never carries a
+> case-insensitive. A regex is an object of its `source` and flags. Their methods are the VM's, dispatched by kind, so a value never carries a
 > function: the sealed wrappers and the run-result conversion that kept their methods away from
 > guest code are gone, with the four defects the seventeenth re-review found in them (a recursive
 > conversion that a deep or self-containing Set crashed, a `__proto__` key, an uncharged walk of
@@ -126,6 +123,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > and 1e8 schema-node × path steps (about 0.6s) — and refused past either: validate in the host,
 > or pass smaller arguments. A guest-program fuzzer (`src/vm/guest-fuzz.test.ts`) now checks the
 > invariants over random programs.
+>
+> **Since rc.1 — AsyncJS atoms take named arguments (breaking).** A call to an atom is a single
+> object literal, `storeSet({ key, value })`, or no arguments, `random()`. Anything else, such as
+> `storeSet('k', v)`, `agentRun(id, input)` or `foo(opts)`, fails at transpile time and names the
+> shape that works. It used to compile, and an atom with named inputs then ran with every input
+> undefined and reported success. Local functions and `Error('message')` keep positional
+> arguments. The rule is checked on the source SYNTAX and nowhere else: the AST encodes
+> `foo(a, b)` as an input named `args`, which cannot be told apart from `foo({ args: [a, b] })`,
+> so the VM runs every AST as written. Four review rounds tried to decide positional versus
+> named in the VM from each atom's schema. Each broke a call that worked (`random()`, an
+> `args: s.any` atom, runCode's named `args`), so the decision moved to the one place that can
+> see it. **Embedders:** an atom you called positionally (an `args` input) is now called
+> `foo({ args: [a, b] })`.
 >
 > **Since rc.1 — the AsyncJS value domain is closed (breaking).** A guest value is data — JSON
 > values, with the VM's own Set, Date and regex as data (above) — and never a host function or a builtin
