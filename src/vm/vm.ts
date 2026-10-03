@@ -321,51 +321,42 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // slowest atom's own budget. See `defaultRunTimeout`.
     const timeoutMs = admitted.timeoutMs ?? this.defaultRunTimeout
 
-    // The run's OWN capabilities object: a shallow copy of the host's. The default store below
-    // used to be written INTO the host's object, so two runs sharing it shared the store (and a
-    // frozen object made `vm.run` throw) — rc.2 pre-tag review M1. The VM never writes to a
-    // host object.
-    // SHADOWS the host's object rather than flattening it: a flat copy dropped capabilities on a
-    // prototype or behind a getter (a class-instance `store` became the in-memory default, silently;
-    // rc.2 pre-tag re-review). Reads fall through to the host object as before rc.2; the one write
-    // below lands on the shadow.
-    const capabilities: Capabilities = Object.create(
-      admitted.capabilities ?? null
+    // The host's capabilities object, EXACTLY as passed: never copied, wrapped or written. Three
+    // rounds tried (a flat copy lost prototype members; a shadow lost the receiver, so `#private`
+    // fields threw; the original wrote the default store INTO the host object, sharing it across
+    // runs) — rc.2 pre-tag reviews. The VM only needed somewhere to put a default store, and that
+    // belongs to the RUN: `defaultStore` below, read by `storeOf(ctx)` when the host has none.
+    const hostCaps = admitted.capabilities
+    if (
+      hostCaps !== undefined &&
+      (hostCaps === null || typeof hostCaps !== 'object')
     )
+      throw new Error('vm.run: capabilities must be an object')
+    const capabilities: Capabilities = hostCaps ?? {}
 
     // Track warnings
     const warnings: string[] = []
 
-    // Default In-Memory Store if none provided (with warning)
-    if (!capabilities.store) {
-      const memoryStore = new Map<string, any>()
-      let warned = false
-      const defaultStore: Capabilities['store'] = {
-        get: async (key) => {
-          if (!warned) {
-            warned = true
-            warnings.push(
-              'Using default in-memory store (not suitable for production)'
-            )
-          }
-          return memoryStore.get(key)
-        },
-        set: async (key, value) => {
-          if (!warned) {
-            warned = true
-            warnings.push(
-              'Using default in-memory store (not suitable for production)'
-            )
-          }
-          memoryStore.set(key, value)
-        },
+    // The run's default in-memory store (with a warning), used only when the host gives none
+    const memoryStore = new Map<string, any>()
+    let warned = false
+    const warn = () => {
+      if (!warned) {
+        warned = true
+        warnings.push(
+          'Using default in-memory store (not suitable for production)'
+        )
       }
-      // defined on the SHADOW: an assignment would fail against a frozen host object that has a
-      // `store` key (inherited non-writable), and must never reach the host object at all
-      Object.defineProperty(capabilities, 'store', {
-        value: defaultStore,
-        enumerable: true,
-      })
+    }
+    const defaultStore: NonNullable<Capabilities['store']> = {
+      get: async (key) => {
+        warn()
+        return memoryStore.get(key)
+      },
+      set: async (key, value) => {
+        warn()
+        memoryStore.set(key, value)
+      },
     }
 
     // REJECT BEFORE ACQUIRING ANYTHING.
@@ -567,6 +558,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       heapAccount: { bytes: 0, transient: 0 },
       heapPerKey: new Map(),
       capabilities,
+      defaultStore,
       resolver: (op) => this.resolve(op),
       output: undefined,
       signal: controller.signal,

@@ -1,3 +1,4 @@
+import { storeOf } from '../runtime'
 import { s } from 'tosijs-schema'
 import {
   defineAtom,
@@ -73,7 +74,7 @@ export const storeCreateCollection = defineAtom(
   }),
   undefined,
   async ({ collection, dimension }, ctx) => {
-    const storeCap = ctx.capabilities.store as unknown as StoreBattery
+    const storeCap = storeOf(ctx) as unknown as StoreBattery
     if (!storeCap?.createCollection)
       throw new Error(
         "Capability 'store' missing or does not support createCollection."
@@ -96,7 +97,7 @@ export const storeVectorAdd = defineAtom(
   }),
   undefined,
   async ({ collection, doc }, ctx) => {
-    const storeCap = ctx.capabilities.store as unknown as StoreBattery
+    const storeCap = storeOf(ctx) as unknown as StoreBattery
     if (!storeCap?.vectorAdd)
       throw new Error(
         "Capability 'store' missing or does not support vectorAdd."
@@ -126,7 +127,7 @@ export const storeSearch = defineAtom(
   }),
   s.array(s.any),
   async ({ collection, queryVector, k, filter }, ctx) => {
-    const storeCap = ctx.capabilities.store as unknown as StoreBattery
+    const storeCap = storeOf(ctx) as unknown as StoreBattery
     if (!storeCap?.vectorSearch)
       throw new Error(
         "Capability 'store' missing or does not support vectorSearch."

@@ -141,9 +141,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `membraneMaxBytes` (a larger declared `Content-Length` is refused before reading) and aborted
 > when the cap is exceeded, not buffered whole first. Separately, `vm.run` used to write its
 > default in-memory store INTO the capabilities object you passed, so two runs sharing that
-> object shared the store, and a frozen object made the run throw. Each run now gets its own
-> shadow of your object: reads fall through to it, including prototype members and getters (a
-> class-instance `store` works as before), and the default store is written to the shadow only. In AJS, an atom input named `op`, `result`,
+> object shared the store, and a frozen object made the run throw. The VM now uses your
+> capabilities object exactly as passed: it is never copied, wrapped or written, so a class
+> instance with private fields or getters works as it always did. The default store belongs to the
+> run and is used only when your object has no `store`. A non-object `capabilities` is refused.
+> `httpFetch` also refuses methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS, and
+> the proxy-routing headers (`Forwarded`, `X-Forwarded-*`, `X-Original-URL`, method overrides).
+> It sends no browser cookies or HTTP auth (`credentials: 'omit'`; a custom `fetch` can opt in),
+> and it refuses a 307/308 that would carry the request body to another origin. In AJS, an atom input named `op`, `result`,
 > `resultConst` or `resultAssign` is refused at transpile time: it was silently read as a step
 > control field.
 >

@@ -251,6 +251,8 @@ export interface RuntimeContext {
   state: Record<string, any> // Current scope state
   consts: Set<string> // Variables declared with const (immutable)
   capabilities: Capabilities
+  /** The run's own in-memory store, used when the host's capabilities have none (`storeOf`). */
+  defaultStore?: NonNullable<Capabilities['store']>
   resolver: (op: string) => Atom<any, any> | undefined
   output?: any
   error?: AgentError // Monadic error - when set, subsequent atoms are skipped
@@ -6171,11 +6173,14 @@ function isDomainAllowed(urlString: string, allowedDomains: string[]): boolean {
 }
 
 /**
- * Request headers a guest may not set, matched case-insensitively. The Fetch spec's forbidden
- * request headers: a guest `Host` reached the wire on Bun and routed past the hostname allowlist
- * behind a Host-routing proxy, and the framing headers are a smuggling surface (rc.2 pre-tag
- * re-review). Plus the VM's own depth header, whose case variants were merged with the VM's value
- * and read back as the guest's (`'0, 1'` parsed as 0).
+ * Request headers a guest may not set, matched case-insensitively: those that ROUTE a request or
+ * FRAME it, plus the VM's own. A guest `Host` reached the wire on Bun and routed past the hostname
+ * allowlist behind a Host-routing proxy; `X-Forwarded-Host`, `Forwarded`, `X-Original-URL` and
+ * friends do the same job for other proxies; the framing headers are a smuggling surface (rc.2
+ * pre-tag re-reviews). The VM's depth header's case variants were merged with the VM's value and
+ * read back as the guest's (`'0, 1'` parsed as 0). This is NOT the whole Fetch forbidden list:
+ * `Cookie`, `Origin` and `Referer` stay allowed on purpose (APIs use them; in a browser the real ones
+ * are the browser's).
  */
 const FORBIDDEN_REQUEST_HEADERS: ReadonlySet<string> = new Set([
   'host',
@@ -6188,7 +6193,24 @@ const FORBIDDEN_REQUEST_HEADERS: ReadonlySet<string> = new Set([
   'trailer',
   'expect',
   'via',
+  'forwarded',
+  'x-original-url',
+  'x-rewrite-url',
+  'x-http-method-override',
+  'x-http-method',
+  'x-method-override',
   AGENT_DEPTH_HEADER.toLowerCase(),
+])
+
+/** The request methods an agent may use; CONNECT/TRACE/TRACK reached the wire on Bun. */
+const ALLOWED_FETCH_METHODS: ReadonlySet<string> = new Set([
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'OPTIONS',
 ])
 
 /** Refuse (never silently drop) a guest header the VM must own. */
@@ -6198,7 +6220,8 @@ function admitHeaders(headers: Record<string, string>): void {
     if (
       FORBIDDEN_REQUEST_HEADERS.has(n) ||
       n.startsWith('proxy-') ||
-      n.startsWith('sec-')
+      n.startsWith('sec-') ||
+      n.startsWith('x-forwarded-')
     )
       throw new Error(
         `httpFetch: the '${name}' header cannot be set by an agent`
@@ -6323,6 +6346,15 @@ export const fetch = defineAtom(
     )
       throw new Error("httpFetch's headers must be an object of strings")
     admitHeaders(headers as Record<string, string>)
+    if (
+      method !== undefined &&
+      !ALLOWED_FETCH_METHODS.has(String(method).toUpperCase())
+    )
+      throw new Error(
+        `httpFetch: method '${method}' is not allowed (use ${[
+          ...ALLOWED_FETCH_METHODS,
+        ].join(', ')})`
+      )
 
     // Get current depth from context (set by receiving endpoint)
     const currentDepth: number = ctx.context?.requestDepth ?? 0
@@ -6367,10 +6399,10 @@ export const fetch = defineAtom(
       for (let hop = 0; ; hop++) {
         res = await globalThis.fetch(target, {
           method: currentMethod,
-          // The guest's headers go to the FIRST origin only: a hop to another origin carries
-          // nothing the guest chose (its Authorization, cookies, …), only the VM's depth header.
-          // Stricter than the spec's Authorization-only strip, and nothing to enumerate (rc.2
-          // pre-tag re-review).
+          // The guest's headers go to the FIRST origin only: a hop to another origin carries none
+          // of them (its Authorization, cookies, …), only the VM's depth header, and never the
+          // guest's body (a cross-origin 307/308 is refused below). Stricter than the spec's
+          // Authorization-only strip, and nothing to enumerate (rc.2 pre-tag re-reviews).
           headers: {
             ...(new URL(target).origin === firstOrigin
               ? (headers as Record<string, string>)
@@ -6379,6 +6411,9 @@ export const fetch = defineAtom(
           },
           body: currentBody,
           redirect: 'manual',
+          // no ambient browser authority: the user's cookies and HTTP auth are not a capability
+          // the host granted (a custom fetch can opt in)
+          credentials: 'omit',
           signal: ctx.signal, // Pass abort signal for cancellation
         })
         const hopRes = res
@@ -6414,6 +6449,16 @@ export const fetch = defineAtom(
         } catch (e: any) {
           await refuse(`httpFetch: redirect refused: ${e.message}`, e)
         }
+        // a 307/308 re-sends the method AND body; to another origin that would carry the guest's
+        // body somewhere the guest did not address it
+        if (
+          (res.status === 307 || res.status === 308) &&
+          currentBody !== undefined &&
+          new URL(next).origin !== new URL(target).origin
+        )
+          await refuse(
+            'httpFetch: redirect refused: a 307/308 would re-send the request body to another origin'
+          )
         await res.body?.cancel()
         // 303 (and a POST answered with 301/302) becomes a GET without a body, as browsers do
         if (
@@ -6468,13 +6513,24 @@ const user = storeGet({ key: 'user:123' })
 
 **Warning:** Default in-memory store is not suitable for production.
 */
+/**
+ * The store a run uses: the host's, else the run's own default. Read HERE, when an atom needs it,
+ * never up front: a host getter that throws fails the atom (monadically), not `vm.run`, and the
+ * host object is never copied, wrapped or written (rc.2 pre-tag re-review 2).
+ */
+export function storeOf(
+  ctx: RuntimeContext
+): NonNullable<Capabilities['store']> | undefined {
+  return ctx.capabilities.store ?? ctx.defaultStore
+}
+
 export const storeGet = defineAtom(
   'storeGet',
   s.object({ key: s.string }),
   s.any,
   async ({ key }, ctx) => {
     const k = resolveValue(key, ctx)
-    return ctx.capabilities.store?.get(k)
+    return storeOf(ctx)?.get(k)
   },
   { docs: 'Store Get', cost: 5 }
 )
@@ -6486,7 +6542,7 @@ export const storeSet = defineAtom(
   async ({ key, value }, ctx) => {
     const k = resolveValue(key, ctx)
     const v = resolveValue(value, ctx)
-    return ctx.capabilities.store?.set(k, v)
+    return storeOf(ctx)?.set(k, v)
   },
   { docs: 'Store Set', cost: 5 }
 )
@@ -6496,7 +6552,7 @@ export const storeQuery = defineAtom(
   s.object({ query: s.any }),
   s.array(s.any),
   async ({ query }, ctx) =>
-    ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [],
+    storeOf(ctx)?.query?.(resolveValue(query, ctx)) ?? [],
   { docs: 'Store Query', cost: 5 }
 )
 
@@ -6541,7 +6597,7 @@ export const storeQueryWhere = defineAtom(
           'from tjs-lang/lang.'
       )
     }
-    const store = ctx.capabilities.store
+    const store = storeOf(ctx)
     if (!store?.queryPredicate) {
       // Fail loudly rather than degrading to an unfiltered read: callers use this to
       // narrow data, and silently returning everything would be a data-exposure bug.
@@ -6569,7 +6625,7 @@ export const vectorSearch = defineAtom(
   }),
   s.array(s.any),
   async ({ collection, vector, k }, ctx) =>
-    ctx.capabilities.store?.vectorSearch?.(
+    storeOf(ctx)?.vectorSearch?.(
       resolveValue(collection, ctx),
       resolveValue(vector, ctx),
       resolveValue(k, ctx)
@@ -7088,10 +7144,12 @@ export const memoize = defineAtom(
 Persistent caching across executions using store capability.
 
 ```javascript
-// Cache API result for 1 hour (3600000 ms)
-const weather = cache("weather-" + city, 3600000, () => {
-  return fetch("https://api.weather.com/" + city)
-})
+// Builder API (cache takes steps, which AsyncJS source cannot express): 1 hour
+Agent.take().cache(
+  (b) => b.httpFetch({ url: 'https://api.weather.com/' + city }).as('weather'),
+  'weather-' + city,
+  3600000
+)
 ```
 */
 export const cache = defineAtom(
@@ -7103,8 +7161,8 @@ export const cache = defineAtom(
   }),
   s.any,
   async ({ key, steps, ttlMs }, ctx) => {
-    if (!ctx.capabilities.store)
-      throw new Error("Capability 'store' missing for caching")
+    const store = storeOf(ctx)
+    if (!store) throw new Error("Capability 'store' missing for caching")
 
     const k =
       resolveValue(key, ctx) ??
@@ -7112,7 +7170,7 @@ export const cache = defineAtom(
 
     // Check cache
     const cacheKey = `cache:${k}`
-    const cached = await ctx.capabilities.store.get(cacheKey)
+    const cached = await store.get(cacheKey)
 
     if (cached) {
       // If object with timestamp?
@@ -7157,7 +7215,7 @@ export const cache = defineAtom(
     const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000)
 
     if ((ctx.fuel.current -= 5) <= 0) throw new Error('Out of Fuel')
-    await ctx.capabilities.store.set(cacheKey, { val: result, _exp: expiry })
+    await store.set(cacheKey, { val: result, _exp: expiry })
 
     return result
   },

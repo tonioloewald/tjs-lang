@@ -186,6 +186,16 @@ const origin = Bun.serve({
         status: 303,
         headers: { location: '/landed' },
       })
+    if (u.pathname === '/307-to-b')
+      return new Response(null, {
+        status: 307,
+        headers: { location: `http://127.0.0.1:${other.port}/echo` },
+      })
+    if (u.pathname === '/307-same')
+      return new Response(null, {
+        status: 307,
+        headers: { location: '/landed' },
+      })
     if (u.pathname === '/loop') {
       loops++
       return new Response(null, { status: 302, headers: { location: '/loop' } })
@@ -305,5 +315,146 @@ describe('capabilities are shadowed, not flattened (pre-tag re-review)', () => {
     )
     expect(r.error).toBeUndefined()
     expect(r.result).toEqual({ v: 'v' })
+  })
+})
+
+// Round 22 (pre-tag re-review 2): the host's capabilities object is used EXACTLY as passed.
+describe('capabilities are never copied, wrapped or written', () => {
+  const setGet =
+    "function f() { storeSet({ key: 'k', value: 'v' })\n const v = storeGet({ key: 'k' })\n return { v } }"
+
+  it('a #private-backed getter keeps its receiver', async () => {
+    class Caps {
+      #m = new Map<string, unknown>()
+      get store() {
+        const m = this.#m
+        return {
+          get: async (k: string) => m.get(k),
+          set: async (k: string, v: unknown) => void m.set(k, v),
+        }
+      }
+      peek(k: string) {
+        return this.#m.get(k)
+      }
+    }
+    const caps = new Caps()
+    const r = await run(setGet, { capabilities: caps })
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 'v' })
+    expect(caps.peek('k')).toBe('v')
+  })
+
+  it('a #private method fetch keeps its receiver', async () => {
+    class Caps {
+      #reply = 'private-ok'
+      async fetch() {
+        return this.#reply
+      }
+    }
+    const r = await run(
+      "function f() { const v = httpFetch({ url: 'https://x.test/' })\n return { v } }",
+      { capabilities: new Caps() }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 'private-ok' })
+  })
+
+  it('a getter that throws fails the atom monadically, not vm.run', async () => {
+    const caps = {
+      get store(): any {
+        throw new Error('store unavailable')
+      },
+    }
+    const r = await run(setGet, { capabilities: caps })
+    expect(r.error?.message ?? 'admitted').toMatch(/store unavailable/)
+  })
+
+  it('the host object is never written', async () => {
+    const caps = Object.freeze({})
+    const r = await run(setGet, { capabilities: caps })
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 'v' })
+  })
+
+  it('a non-object capabilities is refused by name', async () => {
+    await expect(run(setGet, { capabilities: 5 as any })).rejects.toThrow(
+      /capabilities must be an object/
+    )
+  })
+})
+
+describe('methods and routing headers are admitted (pre-tag re-review 2)', () => {
+  for (const method of ['CONNECT', 'TRACE', 'TRACK', 'connect'])
+    it(`refused: method ${method}`, async () => {
+      seen.length = 0
+      const r = await run(
+        fetchWith(`${A}/landed`, `, method: '${method}'`),
+        allow
+      )
+      expect(r.error?.message ?? 'admitted').toMatch(/method .* is not allowed/)
+      expect(seen.length).toBe(0)
+    })
+
+  for (const name of [
+    'X-Forwarded-Host',
+    'x-forwarded-for',
+    'Forwarded',
+    'X-Original-URL',
+    'X-HTTP-Method-Override',
+  ])
+    it(`refused: a guest '${name}' header`, async () => {
+      seen.length = 0
+      const r = await run(
+        fetchWith(
+          `${A}/landed`,
+          `, headers: { ${JSON.stringify(name)}: 'admin.internal' }`
+        ),
+        allow
+      )
+      expect(r.error?.message ?? 'admitted').toMatch(
+        /header cannot be set by an agent/
+      )
+      expect(seen.length).toBe(0)
+    })
+})
+
+describe('the opaque (browser) redirect branch', () => {
+  it('is refused, naming the escape hatches, and its body is released', async () => {
+    let cancelled = false
+    const real = globalThis.fetch
+    globalThis.fetch = (async () => ({
+      type: 'opaqueredirect',
+      status: 0,
+      headers: new Headers(),
+      body: { cancel: async () => void (cancelled = true) },
+    })) as any
+    try {
+      const r = await run(fetchSrc('https://api.github.com/x'), allow)
+      expect(r.error?.message ?? 'admitted').toMatch(/custom fetch capability/)
+      expect(cancelled).toBe(true)
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+})
+
+describe('a 307/308 carries the body only within its origin', () => {
+  it('refused: a cross-origin 307 with a body', async () => {
+    seen.length = 0
+    const r = await run(
+      fetchWith(`${A}/307-to-b`, `, method: 'POST', body: { a: 1 }`),
+      allow
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /307\/308 would re-send the request body/
+    )
+    expect(seen.some((x) => x.path.startsWith('B'))).toBe(false)
+  })
+  it('a same-origin 307 keeps the method', async () => {
+    const r = await run(
+      fetchWith(`${A}/307-same`, `, method: 'POST', body: { a: 1 }`),
+      allow
+    )
+    expect(r.result).toEqual({ v: 'landed:POST' })
   })
 })
