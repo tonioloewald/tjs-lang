@@ -2,12 +2,37 @@
 
 # Pattern: declarative matching for TJS and AJS, and regex as an opt-in
 
-**Status: proposed (Tonio, 2026-10-02).** Regex is deprecated in AJS in 0.14 and removed from the
+**Status: proposed (Tonio, 2026-10-02); direction set 2026-10-03, see below.** Regex is deprecated in AJS in 0.14 and removed from the
 core VM in 0.15. Hosts that want it opt back in. Its replacement is `Pattern`: a grammar built as
 DATA by a fluent builder and run by one engine. This note began as an imperative `Scanner`
 proposal; an outside draft (Gemini, with Tonio's guidance) argued for a declarative builder, and
 that is the better shape for this project. The draft's specifics were challenged; the outcomes
 are recorded below.
+
+## The direction: a standalone library, dogfooded to diamond hardness (Tonio, 2026-10-03)
+
+> "Our goal for Pattern is to build a code editing skill around it and share it across the repo.
+> Pattern would become a standalone library and between using it to replace regex as much as
+> possible in our compilation code and using it to edit code we should dogfood it to diamond
+> hardness."
+
+That reorders the plan below. Pattern is not mainly an AJS builtin with editing as a later extra.
+It is a **standalone library** whose first and heaviest users are us. Three users, each a different
+stress:
+
+1. **Code editing.** A skill agents use to edit source in every repo: the code mode, unique-match
+   edits, dry run, CLI. This is the daily load, measured by edits that apply the first time.
+2. **Our compilation code.** Regex and hand-rolled scans in the TJS/AJS front ends are replaced
+   wherever Pattern can, each replacement held byte-identical over the dogfood and compat
+   corpora. This is the correctness load.
+3. **AJS.** The VM builtin replacing guest regex, metered by construction. It comes last, and is
+   hardened by the two above.
+
+**Packaging (decided, Tonio 2026-10-03):** its **own repo and npm package** (working name
+`tosijs-pattern`), zero dependencies, its own tests and releases. tjs-lang depends on it as it does
+on tosijs-schema, and other repos (tosijs-ui, service-compris) can use it without tjs-lang. **The
+code-editing skill ships with it**: a SKILL.md plus a small CLI in the same repo, so the skill and
+the engine change together. tosijs-coding-practices points every repo at it.
 
 ## The goal: cost it accurately, for free
 
