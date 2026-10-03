@@ -203,6 +203,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > per-iteration `let p = o`) costs one pointer again: in rc.2's heap accounting it re-measured
 > the whole value, so a loop was quadratic in fuel where rc.1 was linear.
 >
+> **Since rc.1 — an outbound membrane on capability calls (security, breaking for some custom
+> atoms).** What an IO atom hands a capability is now a budgeted deep COPY of its resolved input,
+> checked against the input schema the atom declares (Tonio). The inbound membrane already did this
+> for what a capability returns. The outbound direction kept being found one site at a time:
+> - a `system` or `prompt` that was really an array of `video_url` parts;
+> - `tools` and `responseFormat` forwarded live, so a guest that caught a timeout changed them
+>   before a slow host serialised them;
+> - raw URLs.
+>
+> It applies to every core, battery and custom IO atom whose inputs the VM resolves, and fails by
+> refusing (`'<op>': its input does not have the shape the atom declares`). **Embedders:** a custom
+> IO atom now receives plain-data copies, and is called only with inputs matching its declared
+> schema; a `storeGet` key must be the string it declares.
+>
+> A fetch URL that is relative is decided by the URL parser itself (resolved against an http and
+> a `file:` sentinel). It passes only as a plain path naming no host, and contains no
+> tab/LF/CR/backslash a parser would rewrite. A hand-written "two leading slashes" check missed
+> `/\t/evil.com/x`.
+>
 > **Since rc.1 — AsyncJS checks every atom call against the atom's declared inputs (breaking).**
 > A call to an atom is a single object literal, `storeSet({ key, value })`, or no arguments,
 > `random()`. The transpiler now refuses, with a message naming what the atom takes:

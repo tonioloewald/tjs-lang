@@ -114,11 +114,14 @@ describe('Use Case: Sophisticated Agents', () => {
             // 1. Vectorize & Search
             .step({ op: 'storeVectorize', text: 'currentQuery' })
             .as('vec')
+            // bound as 'hits', not 'docs': in a v1 AST a bare string names a variable when one
+            // exists, so `collection: 'docs'` read the PREVIOUS results array on the second pass
+            // (the outbound membrane now refuses a non-string collection)
             .step({ op: 'storeSearch', collection: 'docs', queryVector: 'vec' })
-            .as('docs')
+            .as('hits')
 
             // 2. Judge
-            .jsonStringify({ value: 'docs' })
+            .jsonStringify({ value: 'hits' })
             .as('context')
             .step({
               op: 'llmPredictBattery',

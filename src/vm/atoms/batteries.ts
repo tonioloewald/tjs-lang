@@ -428,9 +428,11 @@ for (const atom of [
   atom.effects = 'io'
 }
 
-// Every battery atom calls `resolveValue` on its own inputs, so the VM must not resolve them
-// again (resolving twice can misread a resolved value). Set here, beside the definitions, so an
-// atom imported straight from this module carries it too.
+// Every battery atom is a leaf IO atom: the VM resolves its inputs, so everything it hands a
+// capability crosses the OUTBOUND membrane (a checked deep copy; `egressInput` in runtime.ts).
+// Their bodies' own `resolveValue` calls are the identity under a resolved context. (They used to
+// resolve their own, so a declared `system: s.string` was never checked against the resolved
+// value: an array of video_url parts reached the backend — rc.2 cumulative review 4.)
 for (const atom of [
   storeVectorize,
   storeCreateCollection,
@@ -439,4 +441,4 @@ for (const atom of [
   llmPredictBattery,
   llmVision,
 ])
-  atom.resolveInputs = false
+  atom.resolveInputs = true

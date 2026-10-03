@@ -795,6 +795,7 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
   resolve normally; a COPY of the context, or one with `state` replaced, is refused by name. An
   atom that takes **steps as input** must set `resolveInputs: false`, or they arrive evaluated.
   Dynamic `cost`/`timeoutMs` functions see the same resolved input as the body.
+- **IO atoms receive checked copies** (0.14.0, the outbound membrane): an `effects: 'io'` atom whose inputs the VM resolves gets a budgeted deep copy, validated against its declared `inputSchema` before the body runs (`egressInput` in `runtime.ts`). Declare the schema you actually accept; a mismatched call is refused. Core leaf IO atoms (`LEAF_IO_OPS`) and the battery atoms run this way
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
 - Access IO only via `ctx.capabilities`, which is the host's object exactly as passed (0.14.0: never copied or written). Read the store through `storeOf(ctx)`: `ctx.capabilities.store` is undefined when the host gave none, and the run's default store lives on the context

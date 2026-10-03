@@ -290,8 +290,9 @@ describe('llmPredictBattery cannot route images around the image rule (cumulativ
       text: 'hi',
       images: ['http://169.254.169.254/y'],
     })
+    // refused at the outbound membrane (user is declared string | array) or by admitLlmUser
     expect(r.error?.message ?? 'admitted').toMatch(
-      /user must be a string or a message array/
+      /user must be a string or a message array|does not have the shape the atom declares/
     )
     expect(calls.length).toBe(0)
   })
@@ -455,5 +456,97 @@ describe('cumulative review 3: the backend receives what was ADMITTED, never the
     ])
     expect(r.error).toBeDefined()
     expect(calls.length).toBe(0)
+  })
+})
+
+describe('cumulative review 4: the outbound membrane (declared shape, deep copy)', () => {
+  const videoParts = [
+    { type: 'video_url', video_url: { url: 'http://169.254.169.254/v' } },
+  ]
+  const runStep = (atoms: any, step: any) => {
+    const { capabilities, calls } = mockBattery()
+    return new AgentVM(atoms)
+      .run(
+        {
+          op: 'seq',
+          steps: [
+            {
+              op: 'varSet',
+              key: 'evil',
+              value: { $expr: 'literal', value: videoParts },
+            },
+            step,
+          ],
+        } as any,
+        {} as any,
+        { fuel: 1e5, capabilities }
+      )
+      .then((r) => ({ r, calls }))
+  }
+  it('llmPredictBattery: a system that is not a string is refused before the backend', async () => {
+    const { r, calls } = await runStep(
+      { llmPredictBattery },
+      { op: 'llmPredictBattery', system: 'evil', user: 'hi' }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /does not have the shape the atom declares/
+    )
+    expect(calls.length).toBe(0)
+  })
+  it('llmVision: a prompt that is not a string is refused before the backend', async () => {
+    const { r, calls } = await runStep(
+      { llmVision },
+      { op: 'llmVision', prompt: 'evil', images: [] }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /does not have the shape the atom declares/
+    )
+    expect(calls.length).toBe(0)
+  })
+  it('a guest that catches a timeout cannot change what a slow host is about to send', async () => {
+    let received: any
+    const capabilities = {
+      llmBattery: {
+        predict: async (_s: string, _u: any, tools: any) => {
+          await new Promise((r) => setTimeout(r, 120))
+          received = JSON.parse(JSON.stringify(tools))
+          return { content: 'ok' }
+        },
+      },
+    }
+    const tools = [{ type: 'function', function: { name: 'f' } }]
+    await new AgentVM({ llmPredictBattery } as any).run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'tools',
+            value: { $expr: 'literal', value: tools },
+          },
+          {
+            op: 'try',
+            try: [{ op: 'llmPredictBattery', user: 'hi', tools: 'tools' }],
+            catch: [
+              {
+                op: 'push',
+                list: 'tools',
+                item: {
+                  $expr: 'literal',
+                  value: { type: 'function', function: { name: 'injected' } },
+                },
+              },
+            ],
+          },
+        ],
+      } as any,
+      {} as any,
+      { fuel: 1e5, capabilities, timeoutOverrides: { llmPredictBattery: 30 } }
+    )
+    await new Promise((r) => setTimeout(r, 200))
+    // compared with a FRESH literal: the guest's push mutated the array the literal node holds,
+    // and the host received the copy taken before it
+    expect(received).toEqual([{ type: 'function', function: { name: 'f' } }])
+    expect(tools.length).toBe(2) // apparatus: the guest really did mutate its own array
   })
 })

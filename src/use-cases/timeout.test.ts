@@ -64,7 +64,11 @@ describe('Execution Timeout', () => {
       },
     }
 
-    const ast = vm.Agent.varSet({ key: 'items', value: [1, 2, 3, 4, 5] })
+    // string keys: storeGet declares `key: string`, and the outbound membrane holds it to that
+    const ast = vm.Agent.varSet({
+      key: 'items',
+      value: ['1', '2', '3', '4', '5'],
+    })
       .map('items', 'item', (b) => b.storeGet({ key: 'item' }).as('result'))
       .as('results')
       .toJSON()

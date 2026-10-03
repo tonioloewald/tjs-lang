@@ -53,6 +53,8 @@ const SCHEMA_SITES: Record<string, string> = {
     "the `filter` builtin: its schema argument is typed 'schema', admitted by checkArgs",
   'vm/runtime.ts › vmSchemaMethod › validate':
     'Schema.isValid (VM-implemented): validates the ADMITTED plain copy, validation charged first',
+  'vm/runtime.ts › egressInput › validate':
+    "the OUTBOUND membrane: an atom's own declared input schema (host-defined at defineAtom, never guest data), applied to a membrane copy of its resolved input",
   'vm/runtime.ts › exec › validate':
     "an atom's outputSchema: defined by the HOST with the atom, never by guest code",
   'vm/runtime.ts › ret › schemaFilter':

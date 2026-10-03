@@ -41,6 +41,10 @@ const ALLOWED: Record<string, string> = {
     'the VM-owned PROGRAM symbol, on a regex object the VM built',
   'regex.ts › add › mark[state]':
     'an Int32Array indexed by closure state (VM-internal)',
+  'runtime.ts › egressInput › Object.assign':
+    'a membrane copy of the resolved input onto Object.create(null): with no prototype, a `__proto__` key is an ordinary own property',
+  'runtime.ts › egressInput › out[key]':
+    "`key` iterates STEP_CONTROL_KEYS (op, result, resultConst, resultAssign): the VM's own names",
   'vm.ts › run › Object.assign':
     'the admitted (membrane-copied) arguments onto Object.create(null): with no prototype there is no __proto__ setter, so the key is an ordinary own property',
   'runtime.ts › rollback › target[key]':

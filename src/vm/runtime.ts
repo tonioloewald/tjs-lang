@@ -3600,11 +3600,13 @@ const SLOT_BYTES = 8
 
 function estimateBytes(
   value: any,
-  cap: number
+  cap: number,
+  /** Filled with every object the walk counted (reconcile re-seeds `measured` from it). */
+  counted?: WeakSet<object>
 ): { bytes: number; nodes: number } {
   let bytes = 0
   let nodes = 0
-  const seen = new WeakSet<object>()
+  const seen = counted ?? new WeakSet<object>()
   const stack = [value]
   while (stack.length && bytes <= cap) {
     const v = stack.pop()
@@ -4105,7 +4107,16 @@ function reconcileHeap(
   // `trackHeapWrite` relies on this).
   ctx.heapAccount.measured = undefined
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
-  const { bytes, nodes } = estimateBytes([...ctx.heapRoots, ...pending], cap)
+  // Re-seeded with what this walk counted: those values ARE in the live total now, so rebinding
+  // one costs a pointer. Clearing without re-seeding re-walked a large value on every rebind near
+  // the cap, quadratic (cumulative review 4).
+  const counted = new WeakSet<object>()
+  const { bytes, nodes } = estimateBytes(
+    [...ctx.heapRoots, ...pending],
+    cap,
+    counted
+  )
+  ctx.heapAccount.measured = counted
   if (!chargeHeapWalk(ctx, nodes, op)) return undefined
   return bytes
 }
@@ -4729,6 +4740,49 @@ const STEP_CONTROL_KEYS = new Set([
 ])
 
 /** A step with every INPUT field resolved to its value (control fields left as they are). */
+/**
+ * The OUTBOUND membrane (Tonio, 2026-10-03): what an IO atom hands a capability is a budgeted DEEP
+ * COPY of its resolved input, checked against the atom's DECLARED input schema. The inbound
+ * membrane already did this for what a capability returns; four review rounds found the outbound
+ * direction site by site: a `system` that was really an array of `video_url` parts, `tools` and
+ * `responseFormat` forwarded LIVE (a guest that caught a timeout mutated them before a slow host
+ * serialised them), raw URLs. One choke point covers every IO atom, including ones not yet
+ * written, and it fails by refusing. Terse on purpose: the transpiler is the friendly layer.
+ *
+ * Copy FIRST (budgeted by `membraneMaxBytes`), then validate the copy, so a huge or cyclic value
+ * never reaches the validator. Pure atoms are not copied (their inputs never leave the VM).
+ */
+function egressInput(
+  atom: AtomDef,
+  resolved: any,
+  ctx: RuntimeContext,
+  op: string
+): any {
+  if (atom.effects !== 'io') return resolved
+  const input = withoutControlKeys(resolved)
+  const crossed = membraneValueFrom(
+    `the input to '${op}'`,
+    input,
+    ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
+  )
+  if (!crossed.ok) throw new AgentError(`'${op}': ${crossed.reason}`, op)
+  const schema = isBuilder(atom.inputSchema)
+    ? (atom.inputSchema as any).schema
+    : atom.inputSchema
+  if (schema && !validate(crossed.value, schema))
+    throw new AgentError(
+      `'${op}': its input does not have the shape the atom declares`,
+      op
+    )
+  const out: Record<string, any> = Object.assign(
+    Object.create(null),
+    crossed.value
+  )
+  for (const key of STEP_CONTROL_KEYS)
+    if (key in resolved) out[key] = resolved[key]
+  return out
+}
+
 function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
   const out: Record<string, any> = {}
   for (const key of Object.keys(step)) {
@@ -4840,7 +4894,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // atom body all see the same values. (Cost functions saw raw AST nodes while the body saw
         // values, so `i => i.items.length` billed 1 for a 10-element array — rc.2 review.)
         const callInput = atom.resolveInputs
-          ? resolveAtomInputs(step, ctx)
+          ? egressInput(atom, resolveAtomInputs(step, ctx), ctx, op)
           : step
         // Built only when a cost or timeout FUNCTION asks for it — most atoms have neither.
         let fnInputMemo: any
@@ -6309,12 +6363,27 @@ function admitsMethod(verb: string, hostAllowed: unknown): boolean {
  * B1). Then the allowlist when one is set, otherwise the private-range block plus localhost only.
  * Throws with the reason; returns nothing.
  */
-/** `//host…` or a backslash form, after the C0 controls and spaces a URL parser strips first. */
-function isNetworkPath(url: string): boolean {
-  let i = 0
-  while (i < url.length && url.charCodeAt(i) <= 0x20) i++
-  const slash = (c: string | undefined) => c === '/' || c === '\\'
-  return slash(url[i]) && slash(url[i + 1])
+/**
+ * A relative URL that names NO host, decided by the real URL parser, never an imitation of it: a
+ * hand-written "starts with two slashes" check missed the tab/LF/CR the parser strips between them,
+ * so `/\t/evil.com/x` resolved cross-host (rc.2 cumulative review 4). Resolved against a special
+ * base and against `file:///` (they parse differently), it must stay on each base's host. It also
+ * may not contain what the parser silently strips or rewrites (C0 controls, space at the start,
+ * backslash), so the raw string the host receives cannot be read two ways.
+ */
+function isHostlessRelative(url: string): boolean {
+  if (/[\\\t\n\r]/.test(url) || (url.length > 0 && url.charCodeAt(0) <= 0x20))
+    return false
+  for (const base of ['http://sentinel.invalid/', 'file:///']) {
+    let resolved: URL
+    try {
+      resolved = new URL(url, base)
+    } catch {
+      return false
+    }
+    if (resolved.host !== new URL(base).host) return false
+  }
+  return true
 }
 
 /**
@@ -6349,12 +6418,13 @@ export function admitFetchUrl(
     // and resolves it against its own origin (the scheme check cannot see what it resolves to).
     if (destinationRequired)
       throw new Error(`Invalid URL: ${url}`, { cause: e })
-    // A NETWORK-PATH reference (`//host/x`, `\\\\host/x`, `/\\host/x`, after the whitespace a URL
-    // parser strips) names a host but borrows the page's SCHEME, which may be `file:` or an app
-    // shell's: refused on every path ("the shape is admitted always"; cumulative review 3).
-    if (isNetworkPath(url))
+    // Only a plain path names no other destination. A NETWORK-PATH reference (`//host/x` and
+    // its backslash and control-character forms) names a host but borrows the page's SCHEME,
+    // which may be `file:` or an app shell's: refused on every path ("the shape is admitted
+    // always"; cumulative reviews 3 and 4).
+    if (!isHostlessRelative(url))
       throw new Error(
-        `Fetch blocked: '${url}' names a host without a scheme; write an absolute http(s) URL`,
+        `Fetch blocked: '${url}' is not a plain relative path (it names a host, or contains characters a URL parser rewrites); write an absolute http(s) URL`,
         { cause: e }
       )
     if (allowedDomains)
@@ -7700,9 +7770,34 @@ export const EFFECTFUL_CORE_OPS = [
  * happens to be in force — the thing that made the old arrangement fragile.
  */
 const EFFECTFUL_SET: ReadonlySet<string> = new Set(EFFECTFUL_CORE_OPS)
+
+/**
+ * The IO atoms whose inputs are plain data (no steps, no inline AST), so the VM resolves them and
+ * the outbound membrane applies. Excluded on purpose: `cache`/`memoize` take steps; `agentRun`
+ * takes an inline AST (resolving it evaluated the child's expressions in the caller); `runCode`
+ * resolves its own `args`.
+ */
+const LEAF_IO_OPS: ReadonlySet<string> = new Set([
+  'httpFetch',
+  'storeGet',
+  'storeSet',
+  'storeQuery',
+  'storeQueryWhere',
+  'storeVectorSearch',
+  'llmPredict',
+  'transpileCode',
+  'xmlParse',
+  'consoleLog',
+  'consoleWarn',
+  'consoleError',
+  'storeProcedure',
+  'releaseProcedure',
+])
 for (const [op, atom] of Object.entries(coreAtoms as Record<string, AtomDef>)) {
   atom.effects = EFFECTFUL_SET.has(op) ? 'io' : 'pure'
-  // Every core atom resolves its own inputs (control atoms must NOT have their `steps`
-  // resolved), so the VM must not resolve them a second time.
-  atom.resolveInputs = false
+  // A core atom resolves its own inputs (control atoms must NOT have their `steps` resolved),
+  // EXCEPT the leaf IO atoms: the VM resolves theirs, so every value they hand a capability
+  // crosses the OUTBOUND membrane (`egressInput`). Their bodies' own `resolveValue` calls are the
+  // identity under a resolved context, so their behaviour is unchanged.
+  atom.resolveInputs = LEAF_IO_OPS.has(op)
 }

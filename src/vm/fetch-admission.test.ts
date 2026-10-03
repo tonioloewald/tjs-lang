@@ -861,7 +861,7 @@ describe('relative URLs belong to a host fetch, never to the built-in client', (
       context: { allowedFetchDomains: ['a.test'] },
     })
     expect(r.error?.message ?? 'admitted').toMatch(
-      /not an absolute URL|without a scheme/
+      /not an absolute URL|not a plain relative path/
     )
     expect(urls.length).toBe(0)
   })
@@ -906,7 +906,7 @@ describe('cumulative review B1: a relative URL cannot pass a configured allowlis
       fetchPolicy: { domains: ['api.example.com'] },
     })
     expect(r.error?.message ?? 'admitted').toMatch(
-      /not an absolute URL|without a scheme/
+      /not an absolute URL|not a plain relative path/
     )
     expect(urls.length).toBe(0)
   })
@@ -919,7 +919,7 @@ describe('cumulative review B1: a relative URL cannot pass a configured allowlis
     })
     const r = await fn()
     expect(r.error?.message ?? 'admitted').toMatch(
-      /not an absolute URL|without a scheme/
+      /not an absolute URL|not a plain relative path/
     )
     expect(urls.length).toBe(0)
   })
@@ -946,7 +946,7 @@ describe('cumulative review 2 B1: admission and forwarding use ONE string', () =
         context: { allowedFetchDomains: ['a.test'] },
       })
       expect(r.error?.message ?? 'admitted').toMatch(
-        /not an absolute URL|without a scheme/
+        /not an absolute URL|not a plain relative path/
       )
       expect(urls.length).toBe(0)
     })
@@ -958,7 +958,7 @@ describe('cumulative review 2 B1: admission and forwarding use ONE string', () =
       fetchPolicy: { domains: ['a.test'] },
     })
     expect(r1.error?.message ?? 'admitted').toMatch(
-      /not an absolute URL|without a scheme/
+      /not an absolute URL|not a plain relative path/
     )
     const f = capture()
     const fn = await SafeFunction({
@@ -968,7 +968,7 @@ describe('cumulative review 2 B1: admission and forwarding use ONE string', () =
     })
     const r2 = await fn()
     expect(r2.error?.message ?? 'admitted').toMatch(
-      /not an absolute URL|without a scheme/
+      /not an absolute URL|not a plain relative path/
     )
     expect(e.urls.length + f.urls.length).toBe(0)
   })
@@ -1001,7 +1001,7 @@ describe('cumulative review 3: network-path references and policy lists', () => 
       const { urls, caps } = capture()
       const r = await run(fetchSrc(odd), { capabilities: caps })
       expect(r.error?.message ?? 'admitted').toMatch(
-        /names a host without a scheme/
+        /not a plain relative path/
       )
       expect(urls.length).toBe(0)
     })
@@ -1024,5 +1024,35 @@ describe('cumulative review 3: network-path references and policy lists', () => 
       expect(r.error?.message ?? 'admitted').toMatch(
         new RegExp(`${name} must be an array of strings`)
       )
+    })
+})
+
+describe('cumulative review 4 B1: the real URL parser decides, not an imitation', () => {
+  const capture = () => {
+    const urls: string[] = []
+    return { urls, caps: { fetch: async (u: string) => (urls.push(u), 'ok') } }
+  }
+  for (const odd of [
+    '/\t/evil.com/x',
+    '/\n\\evil.com/x',
+    '\\\r\\evil.com/x',
+    '/\r\\evil.com/x',
+    '\t//evil.com/x',
+    '/x\ty',
+  ])
+    it(`no allowlist, host fetch: refused ${JSON.stringify(odd)}`, async () => {
+      const { urls, caps } = capture()
+      const r = await run(fetchSrc(odd), { capabilities: caps })
+      expect(r.error?.message ?? 'admitted').toMatch(
+        /not a plain relative path/
+      )
+      expect(urls.length).toBe(0)
+    })
+  for (const ok of ['/x', 'x/y?q=1', '../up#f', '?only'])
+    it(`a plain relative path still reaches a host fetch: ${ok}`, async () => {
+      const { urls, caps } = capture()
+      const r = await run(fetchSrc(ok), { capabilities: caps })
+      expect(r.error).toBeUndefined()
+      expect(urls).toEqual([ok])
     })
 })
