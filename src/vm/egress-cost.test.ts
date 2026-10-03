@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
-import { egressValue } from './runtime'
+import { egressValue, membraneValue } from './runtime'
 
 const big = (n: number) => Array.from({ length: n }, (_, i) => ({ i }))
 
@@ -272,6 +272,41 @@ describe('wide values: the walk stops at its budget, and a refusal reports what 
     }
     expect(read).toBeLessThan(1_000)
   })
+})
+
+describe('the early bails never refuse what fits (review 9)', () => {
+  // A value is accepted EXACTLY when its full-walk cost fits the budget. Round 34's Map/Set bail
+  // assumed every queued value costs at least 8, while a repeated reference cost 0, so a Map of
+  // shared values that fitted was refused. A repeat now costs one slot, as in the heap model.
+  const shared = { a: 1 }
+  const shapes: Array<[string, unknown]> = [
+    [
+      'a Map of shared values',
+      new Map(Array.from({ length: 1000 }, (_, i) => [i, shared])),
+    ],
+    [
+      'a Set of shared arrays',
+      new Set(Array.from({ length: 500 }, () => [shared, shared])),
+    ],
+    ['an array of shared objects', Array.from({ length: 1000 }, () => shared)],
+    [
+      'an object of shared values',
+      Object.fromEntries(
+        Array.from({ length: 500 }, (_, i) => ['k' + i, shared])
+      ),
+    ],
+  ]
+  for (const [label, value] of shapes) {
+    it(label, () => {
+      const full = membraneValue(value, 1e9)
+      expect(full.ok).toBe(true)
+      const cost = (full as any).bytes as number
+      for (const budget of [cost - 1, cost, cost + 1, Math.floor(cost * 1.1)]) {
+        const r = membraneValue(value, budget)
+        expect({ budget, ok: r.ok }).toEqual({ budget, ok: budget >= cost })
+      }
+    })
+  }
 })
 
 describe('egress copies are transient heap, released when the step ends (review 6, gap 6)', () => {

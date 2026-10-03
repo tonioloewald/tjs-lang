@@ -56,7 +56,9 @@ const SCHEMA_SITES: Record<string, string> = {
   'vm/runtime.ts › egressInput › validate':
     "the OUTBOUND membrane: an atom's own declared input schema (host-defined at defineAtom, never guest data), applied to a membrane copy of its resolved input",
   'vm/runtime.ts › exec › validate':
-    "an atom's outputSchema: defined by the HOST with the atom, never by guest code",
+    "a PURE atom's outputSchema: defined by the HOST with the atom, never by guest code",
+  'vm/runtime.ts › ingressValue › validate':
+    "an IO atom's outputSchema (host-defined with the atom), applied to the membrane copy of the capability's return; a mismatch ends the run",
   'vm/runtime.ts › ret › schemaFilter':
     "the return step's schema: admitGuestSchema before schemaFilter",
 }

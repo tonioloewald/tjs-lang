@@ -12,6 +12,8 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
+import { s } from 'tosijs-schema'
+import { defineAtom } from './runtime'
 
 function spyStore() {
   const sets: string[] = []
@@ -179,4 +181,151 @@ describe('a refusal at the capability boundary ends the run', () => {
     expect(r.result).toEqual({ done: true })
     expect(sets).toEqual(['caught'])
   })
+})
+
+describe('the INBOUND crossing ends the run too (cumulative review 9)', () => {
+  const big = Array.from({ length: 600_000 }, () => 0) // ~4.8MB against the 4MB default
+  const bigStore = (calls: { n: number }) => ({
+    get: async () => {
+      calls.n++
+      return big
+    },
+    set: async () => {},
+  })
+
+  it('an over-budget capability return inside try: no catch, nothing after', async () => {
+    const calls = { n: 0 }
+    const sets: string[] = []
+    const store = {
+      ...bigStore(calls),
+      set: async (k: string) => void sets.push(k),
+    }
+    const r = await run(
+      `function f() {
+        try {
+          const x = storeGet({ key: 'k' })
+        } catch (e) {
+          storeSet({ key: 'caught', value: 1 })
+        }
+        storeSet({ key: 'after', value: 1 })
+        return { done: true }
+      }`,
+      {},
+      { fuel: 1000, capabilities: { store } }
+    )
+    expect(r.error?.message).toMatch(
+      /Capability boundary rejected the return of 'storeGet'/
+    )
+    expect(sets).toEqual([])
+  })
+
+  it("the review's catch-and-retry loop ends after ONE walk", async () => {
+    const calls = { n: 0 }
+    const t0 = performance.now()
+    const r = await run(
+      `function f() {
+        let n = 0
+        while (true) {
+          try {
+            const x = storeGet({ key: 'k' })
+          } catch (e) {
+            n = n + 1
+          }
+        }
+        return { n }
+      }`,
+      {},
+      { fuel: 1000, capabilities: { store: bigStore(calls) } }
+    )
+    expect(r.error?.message).toMatch(/Capability boundary rejected/)
+    expect(calls.n).toBe(1)
+    expect(performance.now() - t0).toBeLessThan(2_000)
+  })
+
+  it('a capability returning a function ends the run', async () => {
+    const store = { get: async () => ({ f: () => 1 }), set: async () => {} }
+    const r = await run(
+      `function f() {
+        try { const x = storeGet({ key: 'k' }) } catch (e) { return { caught: true } }
+        return { done: true }
+      }`,
+      {},
+      { fuel: 1000, capabilities: { store } }
+    )
+    expect(r.error?.message).toMatch(/Capability boundary rejected/)
+  })
+
+  it("an IO atom's output that breaks its declared schema ends the run", async () => {
+    const liar = defineAtom(
+      'liar',
+      s.object({}),
+      s.string,
+      async () => 42 as any
+    )
+    const r = await new AgentVM({ liar }).run(
+      transpile(
+        `function f() {
+          try { const x = liar({}) } catch (e) { return { caught: true } }
+          return { done: true }
+        }`,
+        { atoms: { liar } } as any
+      ).ast,
+      {},
+      { fuel: 1000 }
+    )
+    expect(r.error?.message).toMatch(/Output validation failed for 'liar'/)
+  })
+})
+
+describe('constructs that loop end promptly after a halt (review 9, gap 4)', () => {
+  const opts = () => ({ fuel: 1e5, capabilities: { store: spyStore() } })
+  const cases: Array<[string, string]> = [
+    [
+      'a while body',
+      `function f(v: [0]) {
+        let i = 0
+        while (i < 100000) { storeGet({ key: v }); i = i + 1 }
+        return { i }
+      }`,
+    ],
+    [
+      'a while body that catches (the case only the halt stops)',
+      `function f(v: [0]) {
+        let i = 0
+        while (i < 100000) {
+          try { storeGet({ key: v }) } catch (e) {}
+          i = i + 1
+        }
+        return { i }
+      }`,
+    ],
+    [
+      'a for...of body',
+      `function f(v: [0]) {
+        const items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        for (const it of items) { storeGet({ key: v }) }
+        return { done: true }
+      }`,
+    ],
+    [
+      'a helper called in a loop',
+      `function h(v) {
+        storeGet({ key: v })
+        return 1
+      }
+      function f(v: [0]) {
+        let i = 0
+        while (i < 100000) { const r = h(v); i = i + 1 }
+        return { i }
+      }`,
+    ],
+  ]
+  for (const [label, src] of cases) {
+    it(label, async () => {
+      const r = await run(src, { v: [1, 2] }, opts())
+      expect(r.error?.message).toMatch(/does not have the shape/)
+      // one refusal, not 100,000 iterations of skipped steps
+      expect(r.fuelUsed).toBeLessThan(50)
+    })
+  }
 })

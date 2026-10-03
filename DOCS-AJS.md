@@ -395,13 +395,16 @@ Structural (deep) comparison is an explicit operation, never `==`. In TJS that o
 
 `a Is b` used to parse on the AJS path, because AJS and TJS shared one parser and the `Is` transform never checked which language it was compiling. It transformed to a call to a function AJS has no atom for, so it never worked; it merely failed later and less clearly. AJS now has its own parser and says so up front. See `src/lang/parser-agent.ts`.
 
-**A refusal at the capability boundary is not catchable: it ends the run** (0.14.0). That means
-an atom call whose input does not match what the atom declares, or a value that cannot be copied
-out to a capability (too large, too deep, not plain data). Nothing after it runs: no `catch`
+**A refusal at the capability boundary is not catchable: it ends the run** (0.14.0), in both
+directions. That means an atom call whose input does not match what the atom declares, a value
+that cannot be copied out to a capability (too large, too deep, not plain data), and a value a
+capability RETURNS that cannot be copied in, or that does not match what the atom declares it
+returns. Nothing after it runs: no `catch`
 block, no later step, no step of a parent agent. These are bugs in the program rather than
 failures of the world, and the transpiler reports the ones it can see before the program runs.
 Failures of the world (a fetch that fails, a model that is down, a store that throws) are caught
-by `try`/`catch` as before.
+by `try`/`catch` as before. (An `agentRun` served by the host's `agent` capability is a separate
+run: its refusal ends THAT run, and the parent sees an ordinary failure, as with any capability.)
 
 ---
 

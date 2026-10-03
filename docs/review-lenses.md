@@ -202,6 +202,13 @@ whole budget on top of what had already been charged, so fuel used could exceed 
 Bill the work done, reported on every exit, and make reporting it impossible to skip (round 33
 made `walked` a required field of every membrane refusal, so the compiler checks it).
 
+Better still, ask first: **can the guest catch the refusal and retry it?** If so, any imprecision
+in the bill repeats in a loop, and exactness has to hold on every path forever. Rounds 31–34 each
+found one more path. Prefer refusals that END THE RUN (`RuntimeContext.halt`), and state such a
+rule about the boundary in the functions that cross it, held by a parse (`membrane-doors.test.ts`).
+Round 34 stated it about the boundary and implemented it at the outbound sites, so the inbound
+refusal stayed catchable (cumulative review 9).
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

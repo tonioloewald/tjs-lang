@@ -679,13 +679,9 @@ export function membraneValue(
   const t = typeof value
   if (t === 'boolean' || t === 'number') return { ok: true, value }
   if (t === 'string') {
-    if ((value as string).length * 2 > maxBytes) {
-      return {
-        ok: false,
-        walked: 0,
-        reason: `string exceeds ${maxBytes}-byte membrane budget`,
-      }
-    }
+    // the same refusal and bill as the same string nested in a value
+    if ((value as string).length * 2 > maxBytes)
+      return overBudget(maxBytes, (value as string).length * 2)
     return { ok: true, value }
   }
   if (t === 'function' || t === 'symbol' || t === 'bigint') {
@@ -734,7 +730,16 @@ export function membraneValue(
         reason: 'the value exceeds the membrane depth limit',
       }
     }
-    if (seen.has(v)) continue // cycle / shared ref — structuredClone preserves it; don't recount
+    // A cycle or shared reference: structuredClone preserves it, so the value is not counted
+    // again, but the SLOT costs a pointer, as in the heap model ("every slot costs a pointer,
+    // repeat references included"). That makes the walk's early bails ("every queued value costs
+    // at least 8") true: round 34's Map/Set bail refused a Map of shared values that fitted by
+    // its real cost (cumulative review 9).
+    if (seen.has(v)) {
+      bytes += 8
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+      continue
+    }
     seen.add(v)
     bytes += 16
     if (bytes > maxBytes) return overBudget(maxBytes, bytes)
@@ -4886,6 +4891,48 @@ export function egressValue(
   return crossed.value
 }
 
+/**
+ * The INBOUND crossing: what a capability returns, into guest state. The counterpart of
+ * `egressValue`, and held to the same rule: a refusal ENDS THE RUN (`haltRun`). Round 34 made the
+ * outbound refusals halt and left this one a catchable error, so a guest could catch an oversized
+ * return and ask again, a walk per retry at ~2.5× the time its fuel allowed (cumulative review 9).
+ * The rule is about the BOUNDARY, so it lives in the closed set of functions that cross it
+ * (`egressValue`, this, and `vm.run`'s argument admission, which refuses before the run exists),
+ * and `membrane-doors.test.ts` parses for any other caller of the walk.
+ *
+ * A capability's output that does not match the atom's declared output schema is the same kind
+ * of refusal: the host's contract, broken at the boundary, never a failure of the world.
+ */
+function ingressValue(
+  ctx: RuntimeContext,
+  op: string,
+  result: unknown,
+  outputSchema: unknown
+): unknown {
+  const crossed = membraneValue(
+    result,
+    ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
+  )
+  if (!crossed.ok)
+    throw haltRun(
+      ctx,
+      new AgentError(
+        `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
+        op
+      )
+    )
+  if (
+    crossed.value !== undefined &&
+    outputSchema &&
+    !validate(crossed.value, outputSchema as any)
+  )
+    throw haltRun(
+      ctx,
+      new AgentError(`Output validation failed for '${op}'`, op)
+    )
+  return crossed.value
+}
+
 /** Ends the run with `error` (the first halt wins) and returns it to be thrown. */
 function haltRun(ctx: RuntimeContext, error: AgentError): AgentError {
   if (ctx.halt && !ctx.halt.error) ctx.halt.error = error
@@ -5163,7 +5210,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
 
         // 1a. A HALTED run takes no further steps: a refusal at the capability boundary ended it
         // (`RuntimeContext.halt`), and no catch block, parent step or sub-agent step runs after.
-        if (ctx.halt?.error) {
+        if (ctx.halt.error) {
           ctx.error = ctx.halt.error
           return
         }
@@ -5256,22 +5303,11 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           // the VM and need no crossing. See membraneValue.
           // Read atom.effects (not the captured `effects` default): io tagging is
           // applied post-construction via EFFECTFUL_CORE_OPS, mutating atom.effects.
-          if (atom.effects === 'io' && result !== undefined) {
-            const crossed = membraneValue(
-              result,
-              ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
-            )
-            if (!crossed.ok) {
-              ctx.error = new AgentError(
-                `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
-                op
-              )
-              return
-            }
-            result = crossed.value
-          }
-          // Validate output against schema (skip for undefined results)
-          if (
+          if (atom.effects === 'io' && result !== undefined)
+            result = ingressValue(ctx, op, result, outputSchema)
+          // A PURE atom's output check (its value never crossed a boundary): a failure here is
+          // the atom's own defect, and stays an ordinary error.
+          else if (
             result !== undefined &&
             outputSchema &&
             !validate(result, outputSchema)
