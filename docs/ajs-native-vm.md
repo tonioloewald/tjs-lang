@@ -164,6 +164,23 @@ The second one fired in 0.14.0-rc.2 (see Status). Kept for the record.
 - String semantics: code points, UTF-8 bytes, or JS-compatible UTF-16 units?
 - How much of tosijs-schema must be in Rust for atom I/O — all of it, or a core subset with the
   rest host-side?
+- **Errors as values instead of `try` (Tonio, 2026-10-04; proposed for AST v3).** The VM is already
+  monadic inside (`ctx.error` skips the remaining steps), and `try` is the one node that clears
+  it, which is exception semantics built without `throw`. The alternative is two clean classes:
+  - a recoverable failure becomes an error VALUE bound to the call's result, and the guest checks
+    it (`if (isError(r))`);
+  - a fatal one (capability-boundary refusal, fuel, heap, timeout) HALTS the run, which 0.14.0
+    already does for refusals.
+
+  It removes a control construct from the AST and the step machine (no unwinding, no catch
+  scope), makes errors data, and matches TJS's `MonadicError`. What it needs:
+  - a propagation rule for an error value used as an atom input, operand, member or method
+    receiver (propagate, as TJS does, or refuse);
+  - a new kind in the closed guest value domain (`guest-values.test.ts`);
+  - a format version, since v1/v2 ASTs contain `try`;
+  - a decision on AJS SOURCE `try`/`catch`: lower it in the transpiler to result checks (the
+    friendly layer) or refuse it with an instructive error. Models write try/catch reflexively,
+    so the grok REPAIR measure (#2809) should decide.
 
 ## Relationship to `tjs-lang/vm-ast`
 
