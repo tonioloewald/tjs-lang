@@ -86,7 +86,7 @@ const clientVM = new AgentVM({
 // server
 const serverVM = new AgentVM({
   getRecords: defineAtom('getRecords', In, Out, async (input, ctx) =>
-    ctx.capabilities.store.query(input)              // hit the datastore
+    storeOf(ctx).query(input)                         // hit the datastore (host store, else the run's default)
   ),
 })
 ```

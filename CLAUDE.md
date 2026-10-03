@@ -797,7 +797,7 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
   Dynamic `cost`/`timeoutMs` functions see the same resolved input as the body.
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
-- Access IO only via `ctx.capabilities`
+- Access IO only via `ctx.capabilities`, which is the host's object exactly as passed (0.14.0: never copied or written). Read the store through `storeOf(ctx)`: `ctx.capabilities.store` is undefined when the host gave none, and the run's default store lives on the context
 - **Return structured-cloneable data only** — no live host references, functions, or
   method-carrying objects (e.g. a `Response`; normalize to `{ ok, status, body }`). Every
   `effects: 'io'` return crosses a `structuredClone` capability membrane before it reaches

@@ -124,33 +124,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > or pass smaller arguments. A guest-program fuzzer (`src/vm/guest-fuzz.test.ts`) now checks the
 > invariants over random programs.
 >
-> **Since rc.1 — `httpFetch` admits every hop, and the VM never writes to your capabilities
-> (security).** In allowlist mode `httpFetch` compared only the hostname, so on Bun or Deno
-> `file://<allowed-host>/etc/hosts` read a host file. Every request is now admitted by one rule:
-> - the scheme must be `http:` or `https:`, in both modes;
-> - then the allowlist, or without one, nothing.
+> **Since rc.1 — `httpFetch` follows no redirects and admits only known headers; the VM never
+> writes to your capabilities (security, breaking).** In allowlist mode `httpFetch` compared only
+> the hostname, so on Bun or Deno `file://<allowed-host>/etc/hosts` read a host file. Every request
+> is now admitted by one rule: the scheme must be `http:` or `https:` in both modes, then the
+> allowlist, and without an allowlist nothing is fetched.
+> - **No redirects are followed.** A 3xx response comes back to the agent as data,
+>   `{ redirect: true, status, location }`, and fetching `location` is a new request, admitted
+>   like any other with its headers and body chosen afresh. In a browser `location` is null,
+>   because the browser hides it. Four review rounds each found another redirect rule the VM had
+>   re-implemented wrong (credentials re-sent, then the body re-sent on 307/308, then on 301/302
+>   for PUT, PATCH and DELETE), so the built-in client stopped following redirects. A host that
+>   wants them followed supplies a `fetch` capability.
+> - **Guest request headers are an allowlist:** `Accept`, `Accept-Language`, `Authorization`,
+>   `Cache-Control`, `Content-Language`, `Content-Type`, the `If-*` validators, `Range`,
+>   `User-Agent`, and `X-…` names (API keys). The exceptions are the `X-` names that route or claim
+>   identity at a proxy (`X-Forwarded-*`, `X-Original-*`, `X-Host`, `X-Real-IP`, method
+>   overrides) and the VM's `X-Agent-Depth`. Anything else is refused by name, never dropped. A
+>   guest `Host` was sent as given, and on Bun behind a Host-routing proxy it reached virtual
+>   hosts outside the allowlist; the denylist that replaced it kept growing.
+> - **Methods:** other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are refused.
+> - **No browser credentials:** cookies and HTTP auth are not sent (`credentials: 'omit'`); a
+>   custom `fetch` can opt in.
+> - **Bounded body:** the body is read under `membraneMaxBytes` (a larger declared
+>   `Content-Length` is refused before reading) and aborted once the cap is exceeded, not
+>   buffered whole first.
 >
-> Redirects are followed by the VM, not the host's `fetch`, and each hop is admitted again, so a
-> redirect to `169.254.169.254` or to a host outside the allowlist is refused. The guest's headers
-> go to the first origin only; a hop to another origin carries none of them. **In a browser every
-> redirect is refused**: the browser does not let the VM see where it leads. Fetch the final URL,
-> or provide a custom `fetch`. A guest may not set `Host`, the framing headers (`Content-Length`,
-> `Transfer-Encoding`, `Connection`, …), `Proxy-*`, `Sec-*` or `X-Agent-Depth`, in any letter case.
-> These are refused, not dropped. A guest `Host` was sent as given, and on Bun behind a
-> Host-routing proxy it reached virtual hosts outside the allowlist. The body is read under
-> `membraneMaxBytes` (a larger declared `Content-Length` is refused before reading) and aborted
-> when the cap is exceeded, not buffered whole first. Separately, `vm.run` used to write its
-> default in-memory store INTO the capabilities object you passed, so two runs sharing that
-> object shared the store, and a frozen object made the run throw. The VM now uses your
-> capabilities object exactly as passed: it is never copied, wrapped or written, so a class
-> instance with private fields or getters works as it always did. The default store belongs to the
-> run and is used only when your object has no `store`. A non-object `capabilities` is refused.
-> `httpFetch` also refuses methods other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS, and
-> the proxy-routing headers (`Forwarded`, `X-Forwarded-*`, `X-Original-URL`, method overrides).
-> It sends no browser cookies or HTTP auth (`credentials: 'omit'`; a custom `fetch` can opt in),
-> and it refuses a 307/308 that would carry the request body to another origin. In AJS, an atom input named `op`, `result`,
-> `resultConst` or `resultAssign` is refused at transpile time: it was silently read as a step
-> control field.
+> Separately, `vm.run` used to write its default in-memory store INTO the capabilities object you
+> passed, so two runs sharing that object shared the store, and a frozen object made the run throw.
+> The VM now uses your capabilities object exactly as passed: it is never copied, wrapped or
+> written, so a class instance with private fields or getters works as it always did.
+> - The default store belongs to the run and is used only when your object has no `store`.
+> - **Custom atoms:** read the store through `storeOf(ctx)`, not `ctx.capabilities.store`, which
+>   is now the host's own object and undefined when the host gave none.
+> - Each run, nested runs included, has its own default store.
+> - A non-object `capabilities` is refused.
+>
+> In AJS, an atom input named `op`, `result`, `resultConst` or `resultAssign` is refused at
+> transpile time: it was silently read as a step control field.
 >
 > **Since rc.1 — AsyncJS checks every atom call against the atom's declared inputs (breaking).**
 > A call to an atom is a single object literal, `storeSet({ key, value })`, or no arguments,

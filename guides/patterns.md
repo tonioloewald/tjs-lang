@@ -134,9 +134,11 @@ The **capability is the trust boundary**. Agent code is untrusted; capabilities 
 The default fetch atom:
 
 - Requires a domain allowlist (`ctx.context.allowedFetchDomains`); without one, every URL is refused
-- Fetches only `http:` and `https:` URLs, and admits every redirect hop by the same rule; the
-  agent's headers are sent to the first origin only, and in a browser redirects are refused
-- Refuses agent-set `Host`, framing, `Proxy-*`, `Sec-*` and `X-Agent-Depth` headers
+- Fetches only `http:` and `https:` URLs, and follows no redirects: a 3xx comes back as
+  `{ redirect: true, status, location }`, and fetching `location` is a new, separately admitted
+  request
+- Admits only common API request headers (`Accept`, `Authorization`, `Content-Type`, …) and `X-…`
+  names that do not route at a proxy; sends no browser cookies or HTTP auth
 - Reads the response under `membraneMaxBytes`
 - Automatically adds `X-Agent-Depth` header based on `ctx.context.requestDepth`
 - Rejects requests exceeding `MAX_AGENT_DEPTH` (default: 10)

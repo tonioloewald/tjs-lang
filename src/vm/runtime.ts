@@ -6094,8 +6094,9 @@ Response types: `"json"` (default for JSON content-type), `"text"`, `"dataUrl"` 
 
 Security:
 - Requires a `ctx.context.allowedFetchDomains` allowlist (or a custom `fetch` capability); without
-  one, every URL is refused. Only `http:`/`https:`, at every redirect hop; the body is read under
-  `membraneMaxBytes`
+  one, every URL is refused. Only `http:`/`https:`; no redirects are followed (a 3xx returns
+  `{ redirect: true, status, location }`); only allowlisted request headers; the body is read
+  under `membraneMaxBytes`
 - Automatically adds `X-Agent-Depth` header to prevent recursive agent loops
 - Custom fetch capability can override all restrictions
 */
@@ -6173,34 +6174,50 @@ function isDomainAllowed(urlString: string, allowedDomains: string[]): boolean {
 }
 
 /**
- * Request headers a guest may not set, matched case-insensitively: those that ROUTE a request or
- * FRAME it, plus the VM's own. A guest `Host` reached the wire on Bun and routed past the hostname
- * allowlist behind a Host-routing proxy; `X-Forwarded-Host`, `Forwarded`, `X-Original-URL` and
- * friends do the same job for other proxies; the framing headers are a smuggling surface (rc.2
- * pre-tag re-reviews). The VM's depth header's case variants were merged with the VM's value and
- * read back as the guest's (`'0, 1'` parsed as 0). This is NOT the whole Fetch forbidden list:
- * `Cookie`, `Origin` and `Referer` stay allowed on purpose (APIs use them; in a browser the real ones
- * are the browser's).
+ * The request headers a guest may set: an ALLOWLIST (Tonio, 2026-10-03). It replaced a denylist
+ * that four review rounds kept extending (`Host`, the framing headers, `Forwarded`,
+ * `X-Forwarded-*`, `X-Original-URL`, and then `X-Original-Host`, `X-Host`, `X-Real-IP`, …): every
+ * proxy invents another routing header, so "refuse the routing ones" never closes. These are the
+ * headers an API call needs; anything else needs a host-supplied `fetch` capability.
  */
-const FORBIDDEN_REQUEST_HEADERS: ReadonlySet<string> = new Set([
-  'host',
-  'content-length',
-  'transfer-encoding',
-  'connection',
-  'keep-alive',
-  'upgrade',
-  'te',
-  'trailer',
-  'expect',
-  'via',
-  'forwarded',
-  'x-original-url',
-  'x-rewrite-url',
-  'x-http-method-override',
-  'x-http-method',
-  'x-method-override',
-  AGENT_DEPTH_HEADER.toLowerCase(),
+const ALLOWED_REQUEST_HEADERS: ReadonlySet<string> = new Set([
+  'accept',
+  'accept-language',
+  'authorization',
+  'cache-control',
+  'content-language',
+  'content-type',
+  'if-match',
+  'if-modified-since',
+  'if-none-match',
+  'if-unmodified-since',
+  'range',
+  'user-agent',
 ])
+
+/**
+ * `X-` names are admitted for API keys and the like (`X-API-Key`), except those that ROUTE, FRAME or
+ * claim identity at a proxy, and the VM's own depth header (whose case variants were read back as
+ * the guest's value). The open-ended part is confined to this one prefix.
+ */
+const X_HEADER_REFUSED =
+  /^x-(?:forwarded|original|rewrite|host|real-ip|http-|method|client-ip|agent-depth|proxy|cluster-client-ip)/
+
+/** Refuse (never silently drop) a guest header outside the allowlist. */
+function admitHeaders(headers: Record<string, string>): void {
+  for (const name of Object.keys(headers)) {
+    const n = name.toLowerCase()
+    const ok =
+      ALLOWED_REQUEST_HEADERS.has(n) ||
+      (n.startsWith('x-') && !X_HEADER_REFUSED.test(n))
+    if (!ok)
+      throw new Error(
+        `httpFetch: the '${name}' header cannot be set by an agent (allowed: ${[
+          ...ALLOWED_REQUEST_HEADERS,
+        ].join(', ')}, and X-… names)`
+      )
+  }
+}
 
 /** The request methods an agent may use; CONNECT/TRACE/TRACK reached the wire on Bun. */
 const ALLOWED_FETCH_METHODS: ReadonlySet<string> = new Set([
@@ -6213,27 +6230,9 @@ const ALLOWED_FETCH_METHODS: ReadonlySet<string> = new Set([
   'OPTIONS',
 ])
 
-/** Refuse (never silently drop) a guest header the VM must own. */
-function admitHeaders(headers: Record<string, string>): void {
-  for (const name of Object.keys(headers)) {
-    const n = name.toLowerCase()
-    if (
-      FORBIDDEN_REQUEST_HEADERS.has(n) ||
-      n.startsWith('proxy-') ||
-      n.startsWith('sec-') ||
-      n.startsWith('x-forwarded-')
-    )
-      throw new Error(
-        `httpFetch: the '${name}' header cannot be set by an agent`
-      )
-  }
-}
-
-/** Redirect hops `httpFetch` follows, each admitted again. */
-const MAX_FETCH_REDIRECTS = 5
-
 /**
- * May `httpFetch` request this URL? ONE rule for the first request and every redirect hop:
+ * May `httpFetch` request this URL? ONE rule for every request (the built-in fetch follows no
+ * redirects; an agent that fetches a `location` makes a new request, admitted here again):
  * the scheme is `http:` or `https:` in BOTH modes, checked first. Allowlist mode used to compare only
  * the hostname, so on Bun `file://<allowed-host>/etc/hosts` read a host file (rc.2 pre-tag review
  * B1). Then the allowlist when one is set, otherwise the private-range block plus localhost only.
@@ -6382,94 +6381,42 @@ export const fetch = defineAtom(
       })
     }
 
-    // ONE admission rule, applied to this URL and to every redirect hop (rc.2 pre-tag review B1)
+    // ONE admission rule for every request (rc.2 pre-tag review B1)
     const allowedDomains: string[] | undefined =
       ctx.context?.allowedFetchDomains
     admitFetchUrl(url, allowedDomains)
 
-    // Default: global fetch with abort signal and depth header. Redirects are followed HERE, not
-    // by the host's fetch, so each hop is admitted by the same rule; and the body is read under
-    // the membrane's byte cap rather than in full first (rc.2 pre-tag review).
+    // Default: global fetch with abort signal and depth header. It follows NO redirects (Tonio,
+    // 2026-10-03): a 3xx comes back to the agent as data, `{ redirect: true, status, location }`, and
+    // fetching `location` is a NEW request the agent makes, admitted like any other, with headers and
+    // body chosen afresh. Four review rounds each found another rule of redirect-following the VM
+    // had re-implemented wrong (credentials re-sent, the body re-sent on 307/308, then on 301/302
+    // for PUT/PATCH/DELETE). A host that wants redirects followed supplies a `fetch` capability.
     if (typeof globalThis.fetch === 'function') {
-      let target = url
-      let currentMethod = method
-      let currentBody = body ? jsonOf(ctx, body, 'httpFetch') : undefined
-      let res: Response | undefined
-      const firstOrigin = new URL(url).origin
-      for (let hop = 0; ; hop++) {
-        res = await globalThis.fetch(target, {
-          method: currentMethod,
-          // The guest's headers go to the FIRST origin only: a hop to another origin carries none
-          // of them (its Authorization, cookies, …), only the VM's depth header, and never the
-          // guest's body (a cross-origin 307/308 is refused below). Stricter than the spec's
-          // Authorization-only strip, and nothing to enumerate (rc.2 pre-tag re-reviews).
-          headers: {
-            ...(new URL(target).origin === firstOrigin
-              ? (headers as Record<string, string>)
-              : {}),
-            ...depthHeaderFor(target, currentDepth + 1),
-          },
-          body: currentBody,
-          redirect: 'manual',
-          // no ambient browser authority: the user's cookies and HTTP auth are not a capability
-          // the host granted (a custom fetch can opt in)
-          credentials: 'omit',
-          signal: ctx.signal, // Pass abort signal for cancellation
-        })
-        const hopRes = res
-        // every exit from a redirect hop releases its body
-        const refuse = async (
-          message: string,
-          cause?: unknown
-        ): Promise<never> => {
-          await hopRes.body?.cancel().catch(() => undefined)
-          throw new Error(message, cause ? { cause } : undefined)
+      const res = await globalThis.fetch(url, {
+        method,
+        headers: {
+          ...(headers as Record<string, string>),
+          ...depthHeaderFor(url, currentDepth + 1),
+        },
+        body: body ? jsonOf(ctx, body, 'httpFetch') : undefined,
+        redirect: 'manual',
+        // no ambient browser authority: the user's cookies and HTTP auth are not a capability
+        // the host granted (a custom fetch can opt in)
+        credentials: 'omit',
+        signal: ctx.signal, // Pass abort signal for cancellation
+      })
+      if (
+        res.type === 'opaqueredirect' ||
+        (res.status >= 300 && res.status < 400)
+      ) {
+        await res.body?.cancel().catch(() => undefined)
+        // a browser hides where a redirect leads (`opaqueredirect`, status 0): location is null
+        return {
+          redirect: true,
+          status: res.status,
+          location: res.headers.get('location'),
         }
-        if (res.type === 'opaqueredirect')
-          await refuse(
-            'httpFetch: redirect refused — this runtime (a browser) does not let the VM see where a ' +
-              'redirect leads, so it cannot admit the next hop. Fetch the final URL, or provide a ' +
-              'custom fetch capability.'
-          )
-        const location =
-          res.status >= 300 && res.status < 400
-            ? res.headers.get('location')
-            : null
-        if (location === null) break
-        if (hop >= MAX_FETCH_REDIRECTS)
-          await refuse(`httpFetch: more than ${MAX_FETCH_REDIRECTS} redirects`)
-        let next = ''
-        try {
-          next = new URL(location, target).href
-        } catch (e) {
-          await refuse(`httpFetch: redirect to an invalid URL`, e)
-        }
-        try {
-          admitFetchUrl(next, allowedDomains)
-        } catch (e: any) {
-          await refuse(`httpFetch: redirect refused: ${e.message}`, e)
-        }
-        // a 307/308 re-sends the method AND body; to another origin that would carry the guest's
-        // body somewhere the guest did not address it
-        if (
-          (res.status === 307 || res.status === 308) &&
-          currentBody !== undefined &&
-          new URL(next).origin !== new URL(target).origin
-        )
-          await refuse(
-            'httpFetch: redirect refused: a 307/308 would re-send the request body to another origin'
-          )
-        await res.body?.cancel()
-        // 303 (and a POST answered with 301/302) becomes a GET without a body, as browsers do
-        if (
-          res.status === 303 ||
-          ((res.status === 301 || res.status === 302) &&
-            currentMethod?.toUpperCase() === 'POST')
-        ) {
-          currentMethod = 'GET'
-          currentBody = undefined
-        }
-        target = next
       }
 
       const cap = ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES

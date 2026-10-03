@@ -81,15 +81,20 @@ describe('B1: the scheme is admitted in allowlist mode too', () => {
   })
 })
 
-describe('every redirect hop is admitted again', () => {
-  for (const [hop, path] of [
-    ['to the cloud metadata address', '/to-metadata'],
-    ['to a host outside the allowlist', '/to-other'],
-    ['to a file: URL', '/to-file'],
+describe('a redirect is returned as data, never followed (Tonio, 2026-10-03)', () => {
+  for (const [hop, path, location] of [
+    [
+      'to the cloud metadata address',
+      '/to-metadata',
+      'http://169.254.169.254/latest/meta-data/',
+    ],
+    ['to a host outside the allowlist', '/to-other', 'http://example.com/'],
+    ['to a file: URL', '/to-file', 'file:///etc/hosts'],
   ])
-    it(`refused: a redirect ${hop}`, async () => {
+    it(`not followed: a redirect ${hop}`, async () => {
       const r = await run(fetchSrc(`${base}${path}`), allow)
-      expect(r.error?.message ?? 'admitted').toMatch(/redirect/i)
+      expect(r.error).toBeUndefined()
+      expect((r.result as any).v).toMatchObject({ redirect: true, location })
     })
 })
 
@@ -246,36 +251,63 @@ describe('guest headers are admitted (pre-tag re-review)', () => {
       expect(seen.length).toBe(0) // refused before any request
     })
 
-  it("a cross-origin hop carries none of the guest's headers", async () => {
+  it('a redirect to another origin is not followed, so nothing the guest chose reaches it', async () => {
     seen.length = 0
     const r = await run(
-      fetchWith(`${A}/to-b`, `, headers: { Authorization: 'Bearer secret' }`),
+      fetchWith(
+        `${A}/to-b`,
+        `, method: 'PUT', body: { secret: 1 }, headers: { Authorization: 'Bearer secret' }`
+      ),
       allow
     )
     expect(r.error).toBeUndefined()
-    expect(r.result).toEqual({ v: 'from-b' })
-    expect(seen.find((x) => x.path === 'A/to-b')?.auth).toBe('Bearer secret')
-    expect(seen.find((x) => x.path === 'B/echo')?.auth).toBeNull()
+    expect((r.result as any).v).toMatchObject({ redirect: true, status: 302 })
+    expect(seen.some((x) => x.path.startsWith('B'))).toBe(false)
+  })
+
+  it('allowed: the common API headers and an X- API key', async () => {
+    const r = await run(
+      fetchWith(
+        `${A}/landed`,
+        `, headers: { Accept: 'text/plain', Authorization: 'Bearer t', 'X-API-Key': 'k', 'Content-Type': 'text/plain' }`
+      ),
+      allow
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 'landed:GET' })
   })
 })
 
-describe('allowed redirects still work', () => {
-  it('a relative Location, same origin', async () => {
+describe('a 3xx comes back to the agent; fetching its location is a new request', () => {
+  it('a relative Location is returned as written', async () => {
     const r = await run(fetchWith(`${A}/rel`, ''), allow)
-    expect(r.result).toEqual({ v: 'landed:GET' })
+    expect((r.result as any).v).toEqual({
+      redirect: true,
+      status: 302,
+      location: 'landed',
+    })
   })
-  it('303 turns a POST into a GET', async () => {
+  it('the agent can follow it itself, as a new admitted request', async () => {
     const r = await run(
-      fetchWith(`${A}/see-other`, `, method: 'POST', body: { a: 1 }`),
+      `function f() {
+        const first = httpFetch({ url: ${JSON.stringify(
+          `${A}/see-other`
+        )}, method: 'POST', body: { a: 1 }, responseType: 'text' })
+        const next = httpFetch({ url: ${JSON.stringify(
+          A
+        )} + first.location, responseType: 'text' })
+        return { first: first.status, next }
+      }`,
       allow
     )
-    expect(r.result).toEqual({ v: 'landed:GET' })
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ first: 303, next: 'landed:GET' })
   })
-  it('the redirect cap stops a loop', async () => {
+  it('a loop costs one request per call', async () => {
     loops = 0
     const r = await run(fetchWith(`${A}/loop`, ''), allow)
-    expect(r.error?.message ?? 'admitted').toMatch(/more than 5 redirects/)
-    expect(loops).toBeLessThanOrEqual(6)
+    expect((r.result as any).v).toMatchObject({ redirect: true })
+    expect(loops).toBe(1)
   })
   it('a declared content-length over the cap is refused before the body is read', async () => {
     const r = await run(fetchWith(`${A}/declared-big`, ''), {
@@ -419,7 +451,7 @@ describe('methods and routing headers are admitted (pre-tag re-review 2)', () =>
 })
 
 describe('the opaque (browser) redirect branch', () => {
-  it('is refused, naming the escape hatches, and its body is released', async () => {
+  it('comes back as data with a null location, and its body is released', async () => {
     let cancelled = false
     const real = globalThis.fetch
     globalThis.fetch = (async () => ({
@@ -430,31 +462,15 @@ describe('the opaque (browser) redirect branch', () => {
     })) as any
     try {
       const r = await run(fetchSrc('https://api.github.com/x'), allow)
-      expect(r.error?.message ?? 'admitted').toMatch(/custom fetch capability/)
+      expect(r.error).toBeUndefined()
+      expect((r.result as any).v).toEqual({
+        redirect: true,
+        status: 0,
+        location: null,
+      })
       expect(cancelled).toBe(true)
     } finally {
       globalThis.fetch = real
     }
-  })
-})
-
-describe('a 307/308 carries the body only within its origin', () => {
-  it('refused: a cross-origin 307 with a body', async () => {
-    seen.length = 0
-    const r = await run(
-      fetchWith(`${A}/307-to-b`, `, method: 'POST', body: { a: 1 }`),
-      allow
-    )
-    expect(r.error?.message ?? 'admitted').toMatch(
-      /307\/308 would re-send the request body/
-    )
-    expect(seen.some((x) => x.path.startsWith('B'))).toBe(false)
-  })
-  it('a same-origin 307 keeps the method', async () => {
-    const r = await run(
-      fetchWith(`${A}/307-same`, `, method: 'POST', body: { a: 1 }`),
-      allow
-    )
-    expect(r.result).toEqual({ v: 'landed:POST' })
   })
 })

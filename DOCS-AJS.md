@@ -1072,6 +1072,11 @@ pass to `releaseScope` in a `finally` (an unreleased scope stays a heap root for
 run) — run normally
 either way (running them on a copy of the context is refused by name).
 
+`ctx.capabilities` is the host's capabilities object exactly as it was passed to `vm.run`: the VM
+never copies or writes to it (0.14.0). To use the key-value store, call `storeOf(ctx)`, which
+returns the host's `store` or else the run's own in-memory default. `ctx.capabilities.store` is
+undefined when the host provided none.
+
 Atoms must:
 
 - Be non-blocking (no synchronous CPU-heavy work)

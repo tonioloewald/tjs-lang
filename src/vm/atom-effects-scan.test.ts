@@ -38,6 +38,9 @@ const ATOM_SOURCES = [
 /** Markers that make an atom effectful. Extend when a new escape from purity appears. */
 const EFFECT_MARKERS: Array<[label: string, re: RegExp]> = [
   ['reads ctx.capabilities', /\bctx\.capabilities\b/],
+  // the store accessor reads ctx.capabilities.store inside a helper, where the marker above cannot
+  // see it (rc.2 pre-tag re-review 3: 9 store atoms went invisible to this scan)
+  ['reads the store (storeOf)', /\bstoreOf\s*\(/],
   ['is nondeterministic (Math.random)', /\bMath\.random\s*\(/],
   ['is nondeterministic (crypto)', /\bcrypto\s*\./],
   [
@@ -127,6 +130,20 @@ describe('effects tags match what the atom body does', () => {
     expect(ALL_SITES.length).toBeGreaterThan(50)
     expect(ALL_SITES.map((s) => s.op)).toContain('httpFetch')
     expect(ALL_SITES.map((s) => s.op)).toContain('xmlParse')
+  })
+
+  it('every store atom is SEEN as effectful (apparatus: the markers reach storeOf)', () => {
+    // The store atoms read the store through `storeOf(ctx)`, where `ctx.capabilities` is out of
+    // the marker's sight; without the storeOf marker the scan went blind to all of them (rc.2
+    // pre-tag re-review 3), so a NEW store atom tagged pure would pass.
+    for (const op of ['storeGet', 'storeSet', 'storeQuery']) {
+      const site = ALL_SITES.find((x) => x.op === op)
+      expect(site, op).toBeDefined()
+      expect(
+        EFFECT_MARKERS.some(([, re]) => re.test(site!.body)),
+        op
+      ).toBe(true)
+    }
   })
 
   it('every atom whose body is effectful is tagged io', () => {
