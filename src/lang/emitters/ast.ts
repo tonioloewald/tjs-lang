@@ -2341,6 +2341,17 @@ function checkAtomInputs(
   expr: CallExpression,
   ctx: TransformContext
 ): void {
+  // A step's CONTROL fields share its namespace with the atom's inputs: `foo({ op: 'x' })` ran a
+  // different atom, and `foo({ result: 'v' })` bound the return to a variable the source never
+  // assigned (rc.2 pre-tag review). Refused for every atom, contract or not.
+  for (const k of Object.keys(args))
+    if (RESERVED_STEP_KEYS.has(k))
+      throw new TranspileError(
+        `'${k}' cannot be an atom input: it is reserved for the step itself. Rename the input.`,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
   if (POSITIONAL_BUILTINS.has(name)) return
   const found = atomInputs(name, ctx)
   if (!found) return
@@ -2371,6 +2382,14 @@ function checkAtomInputs(
   for (const k of contract.required)
     if (!Object.hasOwn(args, k)) fail(`'${name}' needs '${k}'.${shape}${hint}`)
 }
+
+/** Step fields that are the VM's, not an atom's inputs. */
+const RESERVED_STEP_KEYS: ReadonlySet<string> = new Set([
+  'op',
+  'result',
+  'resultConst',
+  'resultAssign',
+])
 
 /** Builtins called positionally that the generic atom path emits (`Error('message')`). */
 const POSITIONAL_BUILTINS: ReadonlySet<string> = new Set(['Error'])

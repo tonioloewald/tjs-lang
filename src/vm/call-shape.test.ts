@@ -284,3 +284,24 @@ describe('every entry point that holds a VM checks against THAT VM’s atoms (tw
     ).toThrow(/pass its atoms: transpile\(src, \{ atoms: vm\.atoms \}\)/)
   })
 })
+
+describe('a step control field cannot be an atom input (pre-tag review)', () => {
+  for (const key of ['op', 'result', 'resultConst', 'resultAssign'])
+    for (const [who, atomsOpt] of [
+      ['an uncontracted name', {}],
+      ['an open-schema host atom', { atoms: { loose } }],
+    ] as const)
+      it(`'${key}' refused for ${who}`, () => {
+        const callee = who === 'an uncontracted name' ? 'mystery' : 'loose'
+        expect(() =>
+          transpile(
+            `function f() { const v = ${callee}({ ${key}: 'x' })\n return { v } }`,
+            atomsOpt as any
+          )
+        ).toThrow(
+          new RegExp(
+            `'${key}' cannot be an atom input: it is reserved for the step`
+          )
+        )
+      })
+})

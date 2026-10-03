@@ -124,6 +124,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > or pass smaller arguments. A guest-program fuzzer (`src/vm/guest-fuzz.test.ts`) now checks the
 > invariants over random programs.
 >
+> **Since rc.1 — `httpFetch` admits every hop, and the VM never writes to your capabilities
+> (security).** In allowlist mode `httpFetch` compared only the hostname, so on Bun or Deno
+> `file://<allowed-host>/etc/hosts` read a host file. Every request is now admitted by one rule:
+> - the scheme must be `http:` or `https:`, in both modes;
+> - then the allowlist, or without one, nothing.
+>
+> Redirects are followed by the VM, not the host's `fetch`, and each hop is admitted again, so a
+> redirect to `169.254.169.254` or to a host outside the allowlist is refused. The body is read
+> under `membraneMaxBytes` and the read is aborted when the cap is exceeded, not buffered whole
+> first. Separately, `vm.run` used to write its default in-memory store INTO the capabilities object
+> you passed, so two runs sharing that object shared the store, and a frozen object made the run
+> throw. Each run now gets its own copy. In AJS, an atom input named `op`, `result`,
+> `resultConst` or `resultAssign` is refused at transpile time: it was silently read as a step
+> control field.
+>
 > **Since rc.1 — AsyncJS checks every atom call against the atom's declared inputs (breaking).**
 > A call to an atom is a single object literal, `storeSet({ key, value })`, or no arguments,
 > `random()`. The transpiler now refuses, with a message naming what the atom takes:

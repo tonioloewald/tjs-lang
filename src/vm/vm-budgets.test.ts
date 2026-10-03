@@ -16,7 +16,7 @@ import { join } from 'path'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { AgentVM as AstVM } from './ast'
-import { builtins, methodBudgets } from './runtime'
+import { builtins, methodBudgets, SET_METHODS } from './runtime'
 
 const SLOT = 8
 
@@ -737,8 +737,24 @@ describe('round 2 (docs/reviews/0.14.0-rc.2-rereview-6.md), through transpile()'
     )
     expect(r.error).toBeUndefined()
     expect(r.result).toEqual({ n: 60000 })
-    // O(n × m) membership took seconds at this size; O(n + m) takes milliseconds
-    expect(performance.now() - t).toBeLessThan(1000)
+    void t
+    // SCALING, not an absolute limit (an absolute 1000ms failed at 3117ms on a loaded machine
+    // with correct behaviour — pre-tag review): the method alone, at n and 4n, best of 3. O(n + m)
+    // grows ~4x; O(n × m) grew ~16x.
+    const time = (n: number) => {
+      const items = Array.from({ length: n }, (_, i) => i)
+      const set = builtins.Set(items)
+      let best = Infinity
+      for (let k = 0; k < 3; k++) {
+        const t0 = performance.now()
+        SET_METHODS.intersection.call(set, items)
+        best = Math.min(best, performance.now() - t0)
+      }
+      return best
+    }
+    time(1000) // warm
+    const ratio = time(80_000) / Math.max(time(20_000), 0.05)
+    expect(ratio).toBeLessThan(9)
   })
 
   describe('bounds follow the arguments, not just the receiver (M3: no false rejection)', () => {
@@ -988,13 +1004,20 @@ describe('round 4: the regex engine and the methods over it are metered by const
   for (const [name, body] of rows)
     it(name, async () => {
       for (const fuel of [20, 200]) {
-        const t = performance.now()
-        const r = await new AgentVM().run(
-          transpile(`function f() { ${body}; return { ok: true } }`).ast,
-          {},
-          { fuel, timeoutMs: 600_000 }
-        )
-        const ms = performance.now() - t
+        // best of 3: a loaded machine adds time a run did not spend (529ms against a 300ms rate
+        // on a correct run — pre-tag review); the minimum is the run's own cost
+        let ms = Infinity
+        let r: any
+        for (let k = 0; k < 3; k++) {
+          const t = performance.now()
+          r = await new AgentVM().run(
+            transpile(`function f() { ${body}; return { ok: true } }`).ast,
+            {},
+            { fuel, timeoutMs: 600_000 }
+          )
+          ms = Math.min(ms, performance.now() - t)
+          if (ms <= fuel * 10 + 100) break
+        }
         expect({
           name,
           fuel,

@@ -11,6 +11,7 @@ import {
   newScopeState,
   admitGuestSchema,
   VALIDATION_FUEL_PER_STEP,
+  type Capabilities,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate, isBuilder } from 'tosijs-schema'
@@ -320,8 +321,14 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // slowest atom's own budget. See `defaultRunTimeout`.
     const timeoutMs = admitted.timeoutMs ?? this.defaultRunTimeout
 
-    // Default Capabilities
-    const capabilities = admitted.capabilities ?? {}
+    // The run's OWN capabilities object: a shallow copy of the host's. The default store below
+    // used to be written INTO the host's object, so two runs sharing it shared the store (and a
+    // frozen object made `vm.run` throw) — rc.2 pre-tag review M1. The VM never writes to a
+    // host object.
+    const capabilities: Capabilities = Object.assign(
+      Object.create(null),
+      admitted.capabilities ?? {}
+    )
 
     // Track warnings
     const warnings: string[] = []

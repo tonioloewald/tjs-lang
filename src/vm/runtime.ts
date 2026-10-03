@@ -6091,7 +6091,9 @@ const posted = fetch("https://api.example.com/items", {
 Response types: `"json"` (default for JSON content-type), `"text"`, `"dataUrl"` (for images)
 
 Security:
-- Requires `ctx.context.allowedFetchDomains` allowlist OR restricts to localhost
+- Requires a `ctx.context.allowedFetchDomains` allowlist (or a custom `fetch` capability); without
+  one, every URL is refused. Only `http:`/`https:`, at every redirect hop; the body is read under
+  `membraneMaxBytes`
 - Automatically adds `X-Agent-Depth` header to prevent recursive agent loops
 - Custom fetch capability can override all restrictions
 */
@@ -6168,6 +6170,89 @@ function isDomainAllowed(urlString: string, allowedDomains: string[]): boolean {
   }
 }
 
+/** Redirect hops `httpFetch` follows, each admitted again. */
+const MAX_FETCH_REDIRECTS = 5
+
+/**
+ * May `httpFetch` request this URL? ONE rule for the first request and every redirect hop:
+ * the scheme is `http:` or `https:` in BOTH modes, checked first. Allowlist mode used to compare only
+ * the hostname, so on Bun `file://<allowed-host>/etc/hosts` read a host file (rc.2 pre-tag review
+ * B1). Then the allowlist when one is set, otherwise the private-range block plus localhost only.
+ * Throws with the reason; returns nothing.
+ */
+function admitFetchUrl(
+  url: string,
+  allowedDomains: string[] | undefined
+): void {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch (e) {
+    throw new Error(`Invalid URL: ${url}`, { cause: e })
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+    throw new Error(
+      `Blocked URL: only http: or https: URLs may be fetched (got ${parsed.protocol})`
+    )
+  if (allowedDomains) {
+    if (!isDomainAllowed(url, allowedDomains))
+      throw new Error(
+        `Fetch blocked: domain not in allowlist. Allowed: ${allowedDomains.join(
+          ', '
+        )}`
+      )
+    return
+  }
+  // No allowlist: nothing may be fetched. A private address gets the more specific message. (A
+  // "localhost only" branch used to follow, unreachable: BLOCKED_HOSTS refuses localhost first.)
+  if (isBlockedUrl(url))
+    throw new Error(
+      `Blocked URL: private/internal addresses not allowed in default fetch`
+    )
+  throw new Error(
+    `Fetch blocked: no allowedFetchDomains configured. ` +
+      `Set ctx.context.allowedFetchDomains or provide a custom fetch capability.`
+  )
+}
+
+/**
+ * A response body read under a byte cap, stopping as soon as it is exceeded. `text()`, `json()` and
+ * `arrayBuffer()` read the whole body first, so the membrane's cap applied only after an unbounded
+ * read (rc.2 pre-tag review).
+ */
+async function readBounded(res: Response, cap: number): Promise<Uint8Array> {
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > cap) {
+    await res.body?.cancel()
+    throw new Error(
+      `httpFetch: response too large (${declared} bytes exceeds the ${cap}-byte limit)`
+    )
+  }
+  if (!res.body) return new Uint8Array(0)
+  const reader = res.body.getReader()
+  const parts: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > cap) {
+      await reader.cancel()
+      throw new Error(
+        `httpFetch: response too large (more than the ${cap}-byte limit)`
+      )
+    }
+    parts.push(value)
+  }
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const p of parts) {
+    out.set(p, at)
+    at += p.byteLength
+  }
+  return out
+}
+
 export const fetch = defineAtom(
   'httpFetch',
   s.object({
@@ -6227,78 +6312,87 @@ export const fetch = defineAtom(
       })
     }
 
-    // Check allowlist - if configured, it controls what's allowed
+    // ONE admission rule, applied to this URL and to every redirect hop (rc.2 pre-tag review B1)
     const allowedDomains: string[] | undefined =
       ctx.context?.allowedFetchDomains
-    if (allowedDomains) {
-      // Allowlist mode: only allow domains in the list
-      if (!isDomainAllowed(url, allowedDomains)) {
-        throw new Error(
-          `Fetch blocked: domain not in allowlist. Allowed: ${allowedDomains.join(
-            ', '
-          )}`
-        )
-      }
-      // Domain is in allowlist - skip SSRF check (allowlist takes precedence)
-    } else {
-      // No allowlist configured - use SSRF protection + localhost-only
-      if (isBlockedUrl(url)) {
-        throw new Error(
-          `Blocked URL: private/internal addresses not allowed in default fetch`
-        )
-      }
+    admitFetchUrl(url, allowedDomains)
 
-      // Additionally restrict to localhost when no allowlist
-      try {
-        const parsed = new URL(url)
-        const host = parsed.hostname.toLowerCase()
-        if (host !== 'localhost' && host !== '127.0.0.1' && host !== '[::1]') {
-          throw new Error(
-            `Fetch blocked: no allowedFetchDomains configured. ` +
-              `Set ctx.context.allowedFetchDomains or provide a custom fetch capability.`
-          )
-        }
-      } catch (e: any) {
-        if (e.message.includes('allowedFetchDomains')) throw e
-        throw new Error(`Invalid URL: ${url}`, { cause: e })
-      }
-    }
-
-    // Default: global fetch with abort signal and depth header
+    // Default: global fetch with abort signal and depth header. Redirects are followed HERE, not
+    // by the host's fetch, so each hop is admitted by the same rule; and the body is read under
+    // the membrane's byte cap rather than in full first (rc.2 pre-tag review).
     if (typeof globalThis.fetch === 'function') {
-      const res = await globalThis.fetch(url, {
-        method,
-        headers: {
-          ...(headers as Record<string, string>),
-          ...depthHeaderFor(url, currentDepth + 1),
-        },
-        body: body ? jsonOf(ctx, body, 'httpFetch') : undefined,
-        signal: ctx.signal, // Pass abort signal for cancellation
-      })
+      let target = url
+      let currentMethod = method
+      let currentBody = body ? jsonOf(ctx, body, 'httpFetch') : undefined
+      let res: Response | undefined
+      for (let hop = 0; ; hop++) {
+        res = await globalThis.fetch(target, {
+          method: currentMethod,
+          headers: {
+            ...(headers as Record<string, string>),
+            ...depthHeaderFor(target, currentDepth + 1),
+          },
+          body: currentBody,
+          redirect: 'manual',
+          signal: ctx.signal, // Pass abort signal for cancellation
+        })
+        const location =
+          res.status >= 300 && res.status < 400
+            ? res.headers.get('location')
+            : null
+        if (res.type === 'opaqueredirect')
+          throw new Error(
+            'httpFetch: redirect refused (this host cannot inspect where it leads)'
+          )
+        if (location === null) break
+        if (hop >= MAX_FETCH_REDIRECTS)
+          throw new Error(
+            `httpFetch: more than ${MAX_FETCH_REDIRECTS} redirects`
+          )
+        let next: string
+        try {
+          next = new URL(location, target).href
+        } catch {
+          throw new Error(`httpFetch: redirect to an invalid URL`)
+        }
+        try {
+          admitFetchUrl(next, allowedDomains)
+        } catch (e: any) {
+          throw new Error(`httpFetch: redirect refused: ${e.message}`, {
+            cause: e,
+          })
+        }
+        await res.body?.cancel()
+        // 303 (and a POST answered with 301/302) becomes a GET without a body, as browsers do
+        if (
+          res.status === 303 ||
+          ((res.status === 301 || res.status === 302) &&
+            currentMethod?.toUpperCase() === 'POST')
+        ) {
+          currentMethod = 'GET'
+          currentBody = undefined
+        }
+        target = next
+      }
+
+      const cap = ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
+      const bytes = await readBounded(res, cap)
+      const contentType =
+        res.headers.get('content-type') || 'application/octet-stream'
 
       // Handle dataUrl response type - converts binary to data URI
       if (responseType === 'dataUrl') {
-        const buffer = await res.arrayBuffer()
-        const bytes = new Uint8Array(buffer)
         let binary = ''
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i])
-        }
-        const base64 = btoa(binary)
-        const contentType =
-          res.headers.get('content-type') || 'application/octet-stream'
-        return `data:${contentType};base64,${base64}`
+        for (let i = 0; i < bytes.length; i += 0x8000)
+          binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+        return `data:${contentType};base64,${btoa(binary)}`
       }
 
+      const text = new TextDecoder().decode(bytes)
       // Try to parse JSON if content-type says so, else text
-      const contentType = res.headers.get('content-type')
-      if (
-        responseType === 'json' ||
-        (contentType && contentType.includes('application/json'))
-      ) {
-        return res.json()
-      }
-      return res.text()
+      if (responseType === 'json' || contentType.includes('application/json'))
+        return JSON.parse(text)
+      return text
     }
     throw new Error("Capability 'fetch' missing and no global fetch available")
   },
@@ -6314,10 +6408,10 @@ Persistent key-value storage. Requires `store` capability.
 
 ```javascript
 // Save data
-storeSet("user:123", { name: "Alice", prefs: {} })
+storeSet({ key: 'user:123', value: { name: 'Alice', prefs: {} } })
 
 // Retrieve later
-const user = storeGet("user:123")
+const user = storeGet({ key: 'user:123' })
 ```
 
 **Warning:** Default in-memory store is not suitable for production.

@@ -385,7 +385,8 @@ describe('nested and lazy quantifiers over empty-matchable bodies agree with Jav
         }
       }
       expect(compared).toBeGreaterThan(10_000) // apparatus
-    })
+      // ~2-5s of real work (12k differential comparisons); the 5s default failed under load
+    }, 30_000)
 })
 
 describe('the transpiler refuses an unsupported regex literal at its source', () => {
