@@ -4968,6 +4968,9 @@ const SCHEMA_DATA_KEYWORDS = new Set([
  * validated against the same live object: a `pattern: /re/` passed, and a later mutation would
  * have been validated as well (cumulative review 7). Own a copy; screen the copy; use the copy.
  *
+ * The `pattern` ban is a WORKAROUND, filed upstream as tosijs-schema#12 (an injectable pattern
+ * engine); see UPSTREAM.md. When the slot ships, fill it with `src/vm/regex.ts` and lift the ban.
+ *
  * `format` stays allowed: tosijs-schema's format validators are linear (fixed anchored regexes;
  * `email` is a hand-written scan, `uri` the URL parser) and run over input already paid for.
  */
