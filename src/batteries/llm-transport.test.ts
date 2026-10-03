@@ -125,6 +125,29 @@ describe('getLLMCapability — the real LM Studio HTTP client', () => {
     }
   })
 
+  it('predict() sends a message-array user as the conversation itself (rc.2 cumulative review 3)', async () => {
+    // It used to become ONE user message whose text was undefined, while the atom and its error
+    // message advertised arrays. The atom forwards the array admitted and rebuilt.
+    const fx = fixtureLMStudio(() => ({
+      json: { choices: [{ message: { content: 'ok' } }] },
+    }))
+    try {
+      const { predict } = getLLMCapability(fakeModels, fx.baseUrl)
+      const turns = [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'hello' },
+        { role: 'user', content: [{ type: 'text', text: 'and now?' }] },
+      ]
+      await predict('sys', turns as any)
+      expect(fx.captured.at(-1)!.body.messages).toEqual([
+        { role: 'system', content: 'sys' },
+        ...turns,
+      ])
+    } finally {
+      fx.stop()
+    }
+  })
+
   it('predict() falls back to an empty content when the model returns no choices', async () => {
     const fx = fixtureLMStudio(() => ({ json: { choices: [] } }))
     try {

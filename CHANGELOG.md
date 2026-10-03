@@ -189,11 +189,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > arrays: the model server may fetch an http(s) `image_url` itself. Inline base64 image data passes
 > (`data:image/…` or `data:application/octet-stream`, parameters allowed, which is what
 > `httpFetch`'s `dataUrl` returns). http(s) passes only against the run's `allowedFetchDomains`,
-> and is refused without one. `llmPredictBattery` takes a string or a message array; the
-> `{ text, images }` vision form is refused there (use `llmVision`). With an allowlist set, a fetch
-> URL that is not absolute is refused, because it names no host to check (`/x`, `//host/x` and the
-> backslash forms), and a host's `fetch` always receives the ADMITTED, normalised URL, never the
-> raw input. Rebinding a value already in scope (a
+> and is refused without one. What reaches the model server is the ADMITTED, normalised URL: a
+> backslash-userinfo URL that one parser reads as an allowed host and another as `169.254.169.254`
+> is never forwarded as written. `llmPredictBattery` takes a string or a message array, which the
+> VM REBUILDS from a closed shape (`{ role, content }`, content a string or `text`/`image_url`
+> parts; any other part type, such as `video_url`, is refused) and forwards with the admitted image
+> URLs; the shipped battery sends it as the conversation itself. The `{ text, images }` vision form
+> is refused there (use `llmVision`). With an allowlist set, a fetch URL that is not absolute is
+> refused, because it names no host to check. A NETWORK-PATH reference (`//host/x` and its
+> backslash forms) is refused on every path, since it borrows the page's scheme. A host's `fetch`
+> always receives the ADMITTED, normalised URL, never the raw input. A policy list that is not an
+> array of strings is refused (a string was read one character at a time). Rebinding a value already in scope (a
 > per-iteration `let p = o`) costs one pointer again: in rc.2's heap accounting it re-measured
 > the whole value, so a loop was quadratic in fuel where rc.1 was linear.
 >

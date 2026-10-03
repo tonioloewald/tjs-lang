@@ -6,6 +6,7 @@ import {
   admitTools,
   storeOf,
   admitFetchUrl,
+  policyList,
 } from '../runtime'
 
 // --- Interfaces ---
@@ -194,8 +195,8 @@ export const llmPredictBattery = defineAtom(
 
     const resolvedSystem =
       resolveValue(system, ctx) ?? 'You are a helpful agent.'
-    const resolvedUser = resolveValue(user, ctx)
-    admitLlmUser(resolvedUser, ctx)
+    // what is forwarded is REBUILT from what was admitted
+    const resolvedUser = admitLlmUser(resolveValue(user, ctx), ctx)
     const resolvedTools = admitTools(
       resolveValue(tools, ctx),
       'llmPredictBattery'
@@ -227,15 +228,20 @@ export const llmPredictBattery = defineAtom(
  * without one (rc.2 cumulative review M2). ONE helper for every atom that forwards images:
  * `llmPredictBattery` bypassed it with a `{ text, images }` user (cumulative review 2 M1).
  */
-function admitImageUrls(images: unknown, ctx: any, op: string): void {
+function admitImageUrls(images: unknown, ctx: any, op: string): string[] {
+  // RETURNS what may be forwarded, and the caller forwards exactly that: an admitted http(s) image
+  // is its normalised `href`, never the guest's string. Checking one string and forwarding another
+  // let `http://a.test\\@169.254.169.254/` pass a WHATWG allowlist check and reach a Python backend
+  // as a request to the metadata address (rc.2 cumulative review 3).
   if (!Array.isArray(images))
     throw new Error(`${op}: images must be an array of strings`)
+  const admitted: string[] = []
   for (const img of images) {
     if (typeof img !== 'string')
       throw new Error(`${op}: images must be an array of strings`)
     if (img.toLowerCase().startsWith('data:')) {
       // parsed by splitting, not a regex: `data:<type>[;params];base64,` (no nested quantifier for
-      // our own ReDoS guardrail to flag)
+      // our own ReDoS guardrail to flag). Inline data names no host; it is forwarded as given.
       const comma = img.indexOf(',')
       const params = (comma < 0 ? '' : img.slice(5, comma)).split(';')
       const type = params[0].trim().toLowerCase()
@@ -243,14 +249,22 @@ function admitImageUrls(images: unknown, ctx: any, op: string): void {
         params[params.length - 1].trim().toLowerCase() === 'base64' &&
         (type === 'application/octet-stream' ||
           /^image\/[a-z0-9.+-]+$/.test(type))
-      )
+      ) {
+        admitted.push(img)
         continue
+      }
       throw new Error(
         `${op}: an inline image must be base64 image data (data:image/...;base64,...)`
       )
     }
     try {
-      admitFetchUrl(img, ctx.context?.allowedFetchDomains, true)
+      admitted.push(
+        admitFetchUrl(
+          img,
+          policyList(ctx.context?.allowedFetchDomains, 'allowedFetchDomains'),
+          true
+        )
+      )
     } catch (e: any) {
       // the fetch message suggests a custom fetch capability, which a model server never uses
       throw new Error(
@@ -262,30 +276,81 @@ function admitImageUrls(images: unknown, ctx: any, op: string): void {
       )
     }
   }
+  return admitted
 }
 
 /**
- * `llmPredictBattery`'s user: a string, or a message array whose `image_url` parts are admitted
- * like any image. The `{ text, images }` object (the vision form) is refused here: it reached the
- * backend's multimodal path with no image admission. Use `llmVision` for images.
+ * `llmPredictBattery`'s user, REBUILT from a closed shape (the copy is what is forwarded, never the
+ * guest's value): a string, or an array of `{ role: string, content }` where content is a string or
+ * an array of parts typed exactly `text` (a string `text`) or `image_url` (admitted, rebuilt with
+ * the admitted URL). Anything else is refused. Checking only `image_url` parts let `video_url` and
+ * `audio_url` through to backends that fetch them (cumulative review 3); the `{ text, images }`
+ * vision form is refused too (use `llmVision`).
  */
-function admitLlmUser(user: unknown, ctx: any): void {
-  if (typeof user === 'string') return
-  if (!Array.isArray(user))
+function admitLlmUser(user: unknown, ctx: any): string | any[] {
+  if (typeof user === 'string') return user
+  const refuse = (why: string): never => {
     throw new Error(
-      'llmPredictBattery: user must be a string or a message array (use llmVision for images)'
+      `llmPredictBattery: ${why} (user is a string, or an array of { role, content } messages whose ` +
+        `content is a string or text/image_url parts; use llmVision for images)`
     )
-  const urls: string[] = []
-  for (const message of user) {
-    const content = (message as any)?.content
-    if (!Array.isArray(content)) continue
-    for (const part of content) {
-      if ((part as any)?.type !== 'image_url') continue
-      const ref = (part as any).image_url
-      urls.push(typeof ref === 'string' ? ref : ref?.url)
-    }
   }
-  if (urls.length) admitImageUrls(urls, ctx, 'llmPredictBattery')
+  if (!Array.isArray(user))
+    return refuse('user must be a string or a message array')
+  return user.map((message) => {
+    if (
+      message === null ||
+      typeof message !== 'object' ||
+      Array.isArray(message)
+    )
+      return refuse('each message must be an object')
+    const keys = Object.keys(message)
+    if (keys.some((k) => k !== 'role' && k !== 'content'))
+      return refuse('a message has only role and content')
+    const { role, content } = message as { role: unknown; content: unknown }
+    if (typeof role !== 'string')
+      return refuse('a message role must be a string')
+    if (typeof content === 'string') return { role, content }
+    if (!Array.isArray(content))
+      return refuse('message content must be a string or an array of parts')
+    return {
+      role,
+      content: content.map((part) => {
+        if (part === null || typeof part !== 'object' || Array.isArray(part))
+          return refuse('each content part must be an object')
+        const p = part as Record<string, unknown>
+        const pkeys = Object.keys(p)
+        if (p.type === 'text') {
+          if (
+            pkeys.some((k) => k !== 'type' && k !== 'text') ||
+            typeof p.text !== 'string'
+          )
+            return refuse('a text part is { type: "text", text: string }')
+          return { type: 'text', text: p.text }
+        }
+        if (p.type === 'image_url') {
+          if (pkeys.some((k) => k !== 'type' && k !== 'image_url'))
+            return refuse(
+              'an image_url part is { type: "image_url", image_url }'
+            )
+          const ref = p.image_url as any
+          const url =
+            typeof ref === 'string'
+              ? ref
+              : ref &&
+                typeof ref === 'object' &&
+                Object.keys(ref).every((k) => k === 'url')
+              ? ref.url
+              : refuse('an image_url is a string or { url }')
+          const [admittedUrl] = admitImageUrls([url], ctx, 'llmPredictBattery')
+          return { type: 'image_url', image_url: { url: admittedUrl } }
+        }
+        return refuse(
+          `a content part of type '${String(p.type)}' is not supported`
+        )
+      }),
+    }
+  })
 }
 
 // Vision battery interface (multimodal)
@@ -330,8 +395,12 @@ export const llmVision = defineAtom(
       resolveValue(system, ctx) ??
       'You analyze images accurately and concisely.'
     const resolvedPrompt = resolveValue(prompt, ctx)
-    const resolvedImages = resolveValue(images, ctx) ?? []
-    admitImageUrls(resolvedImages, ctx, 'llmVision')
+    // forwarded: the ADMITTED urls, never the guest's strings
+    const resolvedImages = admitImageUrls(
+      resolveValue(images, ctx) ?? [],
+      ctx,
+      'llmVision'
+    )
     const resolvedFormat = admitResponseFormat(
       resolveValue(responseFormat, ctx),
       'llmVision'

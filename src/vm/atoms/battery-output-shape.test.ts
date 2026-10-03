@@ -334,3 +334,126 @@ describe("llmVision accepts httpFetch's own dataUrl output", () => {
       expect(calls.length).toBe(1)
     })
 })
+
+describe('cumulative review 3: the backend receives what was ADMITTED, never the guest string', () => {
+  const ctx = { allowedFetchDomains: ['a.test'] }
+  it('llmVision forwards the normalised href', async () => {
+    const { capabilities, calls } = mockBattery()
+    const r = await new AgentVM({ llmVision } as any).run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'llmVision',
+            prompt: 'p',
+            images: ['HTTPS://A.TEST/x/../cat.png'],
+            result: 'o',
+          },
+        ],
+      } as any,
+      {} as any,
+      { fuel: 1e5, capabilities, context: ctx }
+    )
+    expect(r.error).toBeUndefined()
+    expect(calls[0].user.images).toEqual(['https://a.test/cat.png'])
+  })
+  it('a backslash-userinfo URL never reaches the backend as written', async () => {
+    const { capabilities, calls } = mockBattery()
+    await new AgentVM({ llmVision } as any).run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'llmVision',
+            prompt: 'p',
+            images: ['http://a.test\\\\@169.254.169.254/latest'],
+            result: 'o',
+          },
+        ],
+      } as any,
+      {} as any,
+      { fuel: 1e5, capabilities, context: ctx }
+    )
+    for (const c of calls)
+      for (const u of c.user.images) expect(new URL(u).href).toBe(u) // canonical form only
+    expect(JSON.stringify(calls)).not.toContain('\\\\')
+  })
+
+  const runUser = (user: unknown) => {
+    const { capabilities, calls } = mockBattery()
+    return new AgentVM({ llmPredictBattery } as any)
+      .run(
+        {
+          op: 'seq',
+          steps: [
+            {
+              op: 'varSet',
+              key: 'u',
+              value: { $expr: 'literal', value: user },
+            },
+            { op: 'llmPredictBattery', user: 'u', result: 'out' },
+          ],
+        } as any,
+        {} as any,
+        { fuel: 1e5, capabilities, context: ctx }
+      )
+      .then((r) => ({ r, calls }))
+  }
+  it('llmPredictBattery forwards a REBUILT message array with admitted image hrefs', async () => {
+    const { r, calls } = await runUser([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'hi' },
+          {
+            type: 'image_url',
+            image_url: { url: 'HTTPS://A.TEST/a/../b.png' },
+          },
+        ],
+      },
+    ])
+    expect(r.error).toBeUndefined()
+    expect(calls[0].user).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'hi' },
+          { type: 'image_url', image_url: { url: 'https://a.test/b.png' } },
+        ],
+      },
+    ])
+  })
+  for (const part of [
+    { type: 'video_url', video_url: { url: 'http://169.254.169.254/v' } },
+    { type: 'audio_url', audio_url: { url: 'http://169.254.169.254/a' } },
+    { type: 'input_audio', input_audio: { data: 'x', format: 'wav' } },
+    { type: 'file', file: { file_id: 'x' } },
+    { type: 'IMAGE_URL', image_url: { url: 'http://169.254.169.254/i' } },
+    {
+      type: 'image_url',
+      image_url: { url: 'https://a.test/x.png' },
+      video_url: 'http://169.254.169.254/',
+    },
+    { type: 'text', text: 'hi', image_url: 'http://169.254.169.254/' },
+  ])
+    it(`refused before the backend: ${JSON.stringify(part).slice(
+      0,
+      60
+    )}`, async () => {
+      const { r, calls } = await runUser([{ role: 'user', content: [part] }])
+      expect(r.error).toBeDefined()
+      expect(calls.length).toBe(0)
+    })
+  it('a message with an extra key is refused', async () => {
+    const { r, calls } = await runUser([
+      {
+        role: 'user',
+        content: 'hi',
+        name: 'x',
+        url: 'http://169.254.169.254/',
+      },
+    ])
+    expect(r.error).toBeDefined()
+    expect(calls.length).toBe(0)
+  })
+})

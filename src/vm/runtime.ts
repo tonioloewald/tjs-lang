@@ -6309,6 +6309,26 @@ function admitsMethod(verb: string, hostAllowed: unknown): boolean {
  * B1). Then the allowlist when one is set, otherwise the private-range block plus localhost only.
  * Throws with the reason; returns nothing.
  */
+/** `//host…` or a backslash form, after the C0 controls and spaces a URL parser strips first. */
+function isNetworkPath(url: string): boolean {
+  let i = 0
+  while (i < url.length && url.charCodeAt(i) <= 0x20) i++
+  const slash = (c: string | undefined) => c === '/' || c === '\\'
+  return slash(url[i]) && slash(url[i + 1])
+}
+
+/**
+ * A host's per-run policy list (`allowedFetchDomains`, `allowedFetchMethods`,
+ * `allowedRequestHeaders`): an array of strings, or absent. A string was iterated one character at
+ * a time, so `'api.example.com'` admitted single-letter hosts (cumulative review 3).
+ */
+export function policyList(value: unknown, name: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string'))
+    throw new Error(`${name} must be an array of strings`)
+  return value
+}
+
 export function admitFetchUrl(
   url: string,
   allowedDomains: string[] | undefined,
@@ -6329,6 +6349,14 @@ export function admitFetchUrl(
     // and resolves it against its own origin (the scheme check cannot see what it resolves to).
     if (destinationRequired)
       throw new Error(`Invalid URL: ${url}`, { cause: e })
+    // A NETWORK-PATH reference (`//host/x`, `\\\\host/x`, `/\\host/x`, after the whitespace a URL
+    // parser strips) names a host but borrows the page's SCHEME, which may be `file:` or an app
+    // shell's: refused on every path ("the shape is admitted always"; cumulative review 3).
+    if (isNetworkPath(url))
+      throw new Error(
+        `Fetch blocked: '${url}' names a host without a scheme; write an absolute http(s) URL`,
+        { cause: e }
+      )
     if (allowedDomains)
       throw new Error(
         `Fetch blocked: '${url}' is not an absolute URL, and an allowlist needs one to check`,
@@ -6442,19 +6470,25 @@ export const fetch = defineAtom(
     // and the built-in client fetches nothing. Partial applications were each the next review's
     // blocker: headers only for the built-in client (re-review 5), then the URL scheme left out of
     // the host path, so the documented safeFetch read `file://` on Bun (re-review 6).
-    const allowedDomains: string[] | undefined =
-      ctx.context?.allowedFetchDomains
+    // the host's policy lists, validated up front on every request (a malformed one is an error
+    // whether or not this request happens to consult it)
+    const allowedDomains = policyList(
+      ctx.context?.allowedFetchDomains,
+      'allowedFetchDomains'
+    )
+    const allowedMethods = policyList(
+      ctx.context?.allowedFetchMethods,
+      'allowedFetchMethods'
+    )
+    const allowedHeaders = policyList(
+      ctx.context?.allowedRequestHeaders,
+      'allowedRequestHeaders'
+    )
     // the ADMITTED url is the one sent, on both paths
     const target = admitFetchUrl(url, allowedDomains, !ctx.capabilities.fetch)
-    admitHeaders(
-      headers as Record<string, string>,
-      ctx.context?.allowedRequestHeaders
-    )
+    admitHeaders(headers as Record<string, string>, allowedHeaders)
     const verb = method === undefined ? undefined : String(method).toUpperCase()
-    if (
-      verb !== undefined &&
-      !admitsMethod(verb, ctx.context?.allowedFetchMethods)
-    )
+    if (verb !== undefined && !admitsMethod(verb, allowedMethods))
       throw new Error(
         `httpFetch: method '${method}' is not allowed (use ${[
           ...ALLOWED_FETCH_METHODS,

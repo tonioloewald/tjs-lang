@@ -860,7 +860,9 @@ describe('relative URLs belong to a host fetch, never to the built-in client', (
       capabilities: caps,
       context: { allowedFetchDomains: ['a.test'] },
     })
-    expect(r.error?.message ?? 'admitted').toMatch(/not an absolute URL/)
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /not an absolute URL|without a scheme/
+    )
     expect(urls.length).toBe(0)
   })
 
@@ -903,7 +905,9 @@ describe('cumulative review B1: a relative URL cannot pass a configured allowlis
       capabilities: caps,
       fetchPolicy: { domains: ['api.example.com'] },
     })
-    expect(r.error?.message ?? 'admitted').toMatch(/not an absolute URL/)
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /not an absolute URL|without a scheme/
+    )
     expect(urls.length).toBe(0)
   })
   it('SafeFunction fetchPolicy.domains: refused', async () => {
@@ -914,7 +918,9 @@ describe('cumulative review B1: a relative URL cannot pass a configured allowlis
       fetchPolicy: { domains: ['api.example.com'] },
     })
     const r = await fn()
-    expect(r.error?.message ?? 'admitted').toMatch(/not an absolute URL/)
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /not an absolute URL|without a scheme/
+    )
     expect(urls.length).toBe(0)
   })
 })
@@ -939,7 +945,9 @@ describe('cumulative review 2 B1: admission and forwarding use ONE string', () =
         capabilities: caps,
         context: { allowedFetchDomains: ['a.test'] },
       })
-      expect(r.error?.message ?? 'admitted').toMatch(/not an absolute URL/)
+      expect(r.error?.message ?? 'admitted').toMatch(
+        /not an absolute URL|without a scheme/
+      )
       expect(urls.length).toBe(0)
     })
   it('Eval and SafeFunction with fetchPolicy.domains: refused too', async () => {
@@ -949,7 +957,9 @@ describe('cumulative review 2 B1: admission and forwarding use ONE string', () =
       capabilities: e.caps,
       fetchPolicy: { domains: ['a.test'] },
     })
-    expect(r1.error?.message ?? 'admitted').toMatch(/not an absolute URL/)
+    expect(r1.error?.message ?? 'admitted').toMatch(
+      /not an absolute URL|without a scheme/
+    )
     const f = capture()
     const fn = await SafeFunction({
       body: "return httpFetch({ url: '/\\\\a.test/x' })",
@@ -957,7 +967,9 @@ describe('cumulative review 2 B1: admission and forwarding use ONE string', () =
       fetchPolicy: { domains: ['a.test'] },
     })
     const r2 = await fn()
-    expect(r2.error?.message ?? 'admitted').toMatch(/not an absolute URL/)
+    expect(r2.error?.message ?? 'admitted').toMatch(
+      /not an absolute URL|without a scheme/
+    )
     expect(e.urls.length + f.urls.length).toBe(0)
   })
   it('the host fetch receives the ADMITTED, normalised href, not the raw input', async () => {
@@ -969,4 +981,48 @@ describe('cumulative review 2 B1: admission and forwarding use ONE string', () =
     expect(r.error).toBeUndefined()
     expect(urls).toEqual(['https://a.test/y'])
   })
+})
+
+describe('cumulative review 3: network-path references and policy lists', () => {
+  const capture = () => {
+    const urls: string[] = []
+    return { urls, caps: { fetch: async (u: string) => (urls.push(u), 'ok') } }
+  }
+  for (const odd of [
+    '//a.test/x',
+    '\\\\a.test/x',
+    '/\\a.test/x',
+    ' //a.test/x',
+    '\\/a.test/x',
+  ])
+    it(`no allowlist, host fetch: a network-path reference is refused ${JSON.stringify(
+      odd
+    )}`, async () => {
+      const { urls, caps } = capture()
+      const r = await run(fetchSrc(odd), { capabilities: caps })
+      expect(r.error?.message ?? 'admitted').toMatch(
+        /names a host without a scheme/
+      )
+      expect(urls.length).toBe(0)
+    })
+  it('a path-relative URL still reaches a host fetch without an allowlist', async () => {
+    const { urls, caps } = capture()
+    const r = await run(fetchSrc('/x'), { capabilities: caps })
+    expect(r.error).toBeUndefined()
+    expect(urls).toEqual(['/x'])
+  })
+  for (const [name, value] of [
+    ['allowedFetchDomains', 'a.test'],
+    ['allowedFetchMethods', 'POST'],
+    ['allowedRequestHeaders', [1]],
+  ] as const)
+    it(`a ${name} that is not an array of strings is refused`, async () => {
+      const r = await run(fetchSrc('https://a.test/'), {
+        capabilities: capture().caps,
+        context: { [name]: value },
+      })
+      expect(r.error?.message ?? 'admitted').toMatch(
+        new RegExp(`${name} must be an array of strings`)
+      )
+    })
 })

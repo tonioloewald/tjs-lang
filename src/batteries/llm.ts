@@ -14,7 +14,12 @@ import { LLM_BASE_URL } from './config'
  * User content can be a simple string or multimodal with images.
  * Images should be URLs or data URIs (data:image/...;base64,...)
  */
-export type UserContent = string | { text: string; images?: string[] }
+export type UserContent =
+  | string
+  | { text: string; images?: string[] }
+  // a multi-turn conversation: `llmPredictBattery` forwards it already admitted and REBUILT
+  // (role + text/image_url parts only), so it is sent as the conversation itself
+  | Array<{ role: string; content: unknown }>
 
 export interface LLMCapability {
   predict(
@@ -29,7 +34,10 @@ export interface LLMCapability {
 /**
  * Build user message content - supports text-only or multimodal (text + images)
  */
-function buildUserMessage(user: UserContent): { role: string; content: any } {
+function buildUserMessage(user: Exclude<UserContent, unknown[]>): {
+  role: string
+  content: any
+} {
   if (typeof user === 'string') {
     return { role: 'user', content: user }
   }
@@ -115,7 +123,7 @@ export function getLLMCapability(
           : models.getLLM()
         const messages = [
           { role: 'system', content: system },
-          buildUserMessage(user),
+          ...(Array.isArray(user) ? user : [buildUserMessage(user)]),
         ]
 
         const response = await fetch(`${baseUrl}/chat/completions`, {

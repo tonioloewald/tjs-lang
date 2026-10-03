@@ -559,7 +559,7 @@ Chat completion with system prompt, tool calling, and structured output support.
 | Field            | Type     | Required | Description                                   |
 | ---------------- | -------- | -------- | --------------------------------------------- |
 | `system`         | `string` | No       | System prompt (defaults to helpful assistant) |
-| `user`           | `string` | Yes      | User message                                  |
+| `user`           | `string` or messages | Yes | A string, or `{ role, content }` messages (content: a string or `text`/`image_url` parts; images follow the fetch rule) |
 | `tools`          | `any[]`  | No       | Tool definitions (OpenAI format)              |
 | `responseFormat` | `any`    | No       | Structured output format                      |
 
