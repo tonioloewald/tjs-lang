@@ -140,6 +140,111 @@ describe('egress is charged by the bytes it moves', () => {
   })
 })
 
+describe('a refused walk is billed whatever refused it (cumulative review 6, B-1)', () => {
+  // Round 31 billed a refusal only when its reason said "byte budget". A value refused for its
+  // DEPTH, with a megabyte walked first, cost the base cost alone. A guest can build that value,
+  // but a 10,000-deep chain takes ~7s of (charged) guest work to build, so these rows call
+  // `egressValue` directly. Measured through transpile() once: ~216 fuel and ~250ms a refusal.
+  let deep: any = null
+  for (let i = 0; i < 10_010; i++) deep = { n: deep }
+
+  it('a copy the HEAP ceiling refuses is still billed for its walk', async () => {
+    // The copy is held as transient heap while the capability runs; a value over half the
+    // ceiling cannot be copied. `allocate` throws, and the walk before it is still paid for.
+    const LOOP = `function f(v: [{ i: 0 }], n: 0) {
+      let k = 0
+      let refused = 0
+      while (k < n) {
+        try {
+          storeSet({ key: 'k', value: v })
+        } catch (e) {
+          refused = refused + 1
+        }
+        k = k + 1
+      }
+      return { refused }
+    }`
+    const run = (n: number) =>
+      new AgentVM().run(
+        transpile(LOOP).ast,
+        { v: big(20_000), n },
+        {
+          fuel: 1e7,
+          maxHeapBytes: 1_200_000,
+          capabilities: { store: memoryStore() },
+        }
+      )
+    const one = await run(1)
+    const many = await run(21)
+    expect(one.result).toEqual({ refused: 1 })
+    expect(many.result).toEqual({ refused: 21 })
+    expect(many.fuelUsed - one.fuelUsed).toBeGreaterThan(20 * 16)
+  })
+
+  it('a copy larger than the whole heap ceiling is billed for the walk before it', () => {
+    // `allocate` refuses a copy over the ceiling BEFORE charging anything, so without the
+    // billing around it the walk that measured the copy was free.
+    const ctx: any = {
+      fuel: { current: 1e6 },
+      maxHeapBytes: 1_000,
+      heapAccount: { bytes: 0, transient: 0 },
+    }
+    expect(() => egressValue(ctx, 'op', big(5_000))).toThrow(/Heap limit/)
+    expect(1e6 - ctx.fuel.current).toBeGreaterThanOrEqual(50)
+  })
+
+  // Refusals a guest cannot build (its values are a closed domain), billed the same way: the
+  // backstop for a value built some way nobody has thought of.
+  const wideThen = (last: unknown) => ({ wide: big(5_000), z: last })
+  class Thing {
+    x = 1
+  }
+  const kinds: Array<[string, unknown]> = [
+    ['depth (a guest CAN build this)', wideThen(deep)],
+    ['a function', wideThen(() => 1)],
+    [
+      'an accessor',
+      wideThen(
+        Object.defineProperty({}, 'g', { get: () => 1, enumerable: true })
+      ),
+    ],
+    ['a class instance', wideThen(new Thing())],
+  ]
+  for (const [label, value] of kinds) {
+    it(`a refusal for ${label} is billed its budget`, () => {
+      const ctx: any = { fuel: { current: 1e6 }, membraneMaxBytes: 1e6 }
+      expect(() => egressValue(ctx, 'op', value)).toThrow()
+      // budget = 1MB at 20,000 bytes per fuel
+      expect(1e6 - ctx.fuel.current).toBeGreaterThanOrEqual(50)
+    })
+  }
+})
+
+describe('egress copies are transient heap, released when the step ends (review 6, gap 6)', () => {
+  it('many large copies under a small heap ceiling do not accumulate', async () => {
+    const LOOP = `function f(v: [{ i: 0 }], n: 0) {
+      let k = 0
+      while (k < n) {
+        storeSet({ key: 'k', value: v })
+        k = k + 1
+      }
+      return { k }
+    }`
+    // one copy fits beside the live value; twenty would not, if they were not released
+    const r = await new AgentVM().run(
+      transpile(LOOP).ast,
+      { v: big(10_000), n: 20 },
+      {
+        fuel: 1e7,
+        maxHeapBytes: 2_000_000,
+        capabilities: { store: memoryStore() },
+      }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ k: 20 })
+  })
+})
+
 describe('every route to a capability goes through it (M-1)', () => {
   it('agentRun: the host receives a copy, so its mutation is not visible to the guest', async () => {
     let received: any
@@ -212,7 +317,7 @@ describe('every route to a capability goes through it (M-1)', () => {
       {},
       { fuel: 1000, capabilities: { store } }
     )
-    expect(r.error?.message).toMatch(/key must be a string/)
+    expect(r.error?.message).toMatch(/a key is required/)
     expect(store.data.size).toBe(0)
   })
 })
@@ -238,32 +343,52 @@ describe('v1 ASTs resolve through egress as before', () => {
   })
 })
 
-describe('key-less cache and memoize blocks are keyed by their steps', () => {
-  // Both called `hash.exec(...)`, the step wrapper, which returns nothing: every key-less block
-  // shared the entry `undefined` and returned ANOTHER block's result. Found when `cache` began
-  // refusing a key that is not a string.
-  for (const op of ['cache', 'memoize'] as const) {
-    it(`${op}: two different blocks keep their own results`, async () => {
-      const store = memoryStore()
-      const block = (v: string, as: string) => ({
-        op,
-        steps: [{ op: 'return', value: v }],
-        result: as,
-      })
-      const r = await new AgentVM().run(
-        {
-          op: 'seq',
-          steps: [
-            block('first', 'a'),
-            block('second', 'b'),
-            { op: 'return', value: { a: 'a', b: 'b' } },
-          ],
-        } as any,
-        {},
-        { fuel: 1000, capabilities: { store } }
-      )
-      expect(r.error).toBeUndefined()
-      expect(r.result).toEqual({ a: 'first', b: 'second' })
-    })
-  }
+describe('cache keys cross the membrane like any other input (cumulative review 6, M-4)', () => {
+  it('a cache key over membraneMaxBytes never reaches the store', async () => {
+    const store = memoryStore()
+    let gets = 0
+    store.get = async (k: string) => {
+      gets++
+      return store.data.get(k)
+    }
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'cache',
+            key: 'x'.repeat(200_000),
+            steps: [{ op: 'return', value: 1 }],
+            result: 'got',
+          },
+        ],
+      } as any,
+      {},
+      { fuel: 1e5, membraneMaxBytes: 100_000, capabilities: { store } }
+    )
+    expect(r.error).toBeDefined()
+    expect(gets).toBe(0)
+  })
+
+  it('a result that cannot cross is a failed step, not a silent miss (M-2, decided)', async () => {
+    const store = memoryStore()
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'cache',
+            key: 'k',
+            steps: [{ op: 'return', value: { s: 'y'.repeat(100_000) } }],
+            result: 'got',
+          },
+          { op: 'return', value: { got: 'got' } },
+        ],
+      } as any,
+      {},
+      { fuel: 1e5, membraneMaxBytes: 50_000, capabilities: { store } }
+    )
+    expect(r.error?.message).toMatch(/membrane budget/)
+    expect(store.data.size).toBe(0)
+  })
 })

@@ -85,6 +85,33 @@ travels as data") applied here. Source stays the authoring form; the serialized
 AST is the wire/exec form the small VM walks. A `$predicate` could carry either,
 with the AST as the portable default.
 
+## Predicate as DATA — Pattern's sibling (Tonio, 2026-10-04)
+
+The Pattern decision (`docs/pattern.md`: built as data, canonically serializable, run by a
+metered engine, never by the host's) argues for the same shape here: **`Predicate` becomes the
+first-class, serializable, safely executable representation of a predicate.**
+
+- **The serialized form is what executes, not a by-product.** Today a `$predicate` carries
+  SOURCE, which compiles to native JS, so the `$predicate` paths run only `trustPredicate`-
+  registered source: "verified" is a promise to an author, not a sandbox. A Predicate as data
+  (the predicate-subset AST, the same AST family as AJS) runs on the metered engine, so an
+  UNTRUSTED predicate is safe to evaluate: the lift CLAUDE.md lists as planned, made structural.
+- **One engine.** It runs on the AJS VM, so on the Rust/wasm VM once that ships
+  (`docs/ajs-native-vm.md`). That is the "small portable predicate VM" above, and it does not
+  have to be a separate VM.
+- **It composes with Pattern.** A string predicate's matching is a Pattern (data), never a regex
+  literal, so a serialized Predicate contains no host-engine door.
+- **Same delivery as Pattern:** a fluent builder and the TJS/AJS source forms author it; `toJSON`
+  and `fromJSON` round-trip exactly; JSON Schema carries it as `$predicate`, alongside
+  `$pattern`.
+- **Home: tjs-lang (Tonio, 2026-10-04).** AJS is the runtime that executes it, so Predicate lives
+  with the VM rather than in tosijs-schema; tosijs-schema keeps its `$predicate` evaluator slot
+  (`setPredicateEvaluator`), which tjs-lang fills. (Pattern is different: it has users that are
+  not schemas, so it is its own leaf package.)
+- **Native compilation stays an optimisation for TRUSTED predicates.** A verified predicate from
+  a trusted author may still compile to JS for speed. The data form is the contract, and the
+  compiled form must agree with it (a differential test, as with the inline runtime).
+
 ## `asCompared` — the missing half of a type
 
 **Status:** designed, not built. Targeted as a patch after 0.13.3 — it is additive and

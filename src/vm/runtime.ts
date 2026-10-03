@@ -4748,7 +4748,8 @@ const STEP_CONTROL_KEYS = new Set([
 
 /**
  * The OUTBOUND membrane (Tonio, 2026-10-03): what a capability receives from guest code is a DEEP
- * COPY, so a host never holds a live guest object (four review rounds found the outbound direction
+ * COPY, so a capability never holds a live guest object (an atom's own cost and timeout functions
+ * are host code of the atom author's and see the resolved input before it is copied) (four review rounds found the outbound direction
  * site by site: a `system` that was really an array of `video_url` parts, `tools` forwarded live
  * and mutated by a guest that caught a timeout, raw URLs).
  *
@@ -4774,17 +4775,31 @@ export function egressValue(
     ? Math.max(0, ctx.fuel.current) / FUEL_PER_ALLOCATED_BYTE
     : Infinity
   const budget = Math.min(cap, payable)
-  const crossed = membraneValueFrom(subject, value, budget, (bytes) =>
-    allocate(ctx, bytes, op)
-  )
-  if (!crossed.ok) {
-    if (/-byte membrane budget/.test(crossed.reason)) {
-      // The walk read `budget` bytes before it stopped: that work is paid for.
-      if (ctx.fuel) ctx.fuel.current -= budget * FUEL_PER_ALLOCATED_BYTE
-      if (payable < cap) throw new AgentError('Out of Fuel', op)
+  // A REFUSED walk is billed its whole budget, whatever refused it. The walk never reads past
+  // its budget, so the budget bounds the work it did, and the bill does not depend on WHY it
+  // stopped. Round 31 billed only a refusal whose reason said "byte budget", so a value refused
+  // for its depth (walked last, after a megabyte) cost nothing (cumulative review 6, B-1). Billing
+  // that depends on the outcome is the shape that kept failing; this has no outcome in it.
+  // Deliberately an overcharge for a small refused value: refusing is never cheaper than the walk
+  // could have been.
+  const refused = (error: unknown): never => {
+    if (ctx.fuel) {
+      ctx.fuel.current -= budget * FUEL_PER_ALLOCATED_BYTE
+      if (ctx.fuel.current <= 0) throw new AgentError('Out of Fuel', op)
     }
-    throw new AgentError(`'${op}': ${crossed.reason}`, op)
+    throw error
   }
+  let crossed: MembraneResult
+  try {
+    crossed = membraneValueFrom(subject, value, budget, (bytes) =>
+      allocate(ctx, bytes, op)
+    )
+  } catch (e) {
+    // `allocate` refused the copy (the heap ceiling): the walk before it still happened.
+    return refused(e)
+  }
+  if (!crossed.ok)
+    return refused(new AgentError(`'${op}': ${crossed.reason}`, op))
   return crossed.value
 }
 
@@ -4829,6 +4844,61 @@ function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
   return out
 }
 
+/** Keywords whose value is a MAP of names to schemas: the names are not keywords. */
+const SCHEMA_MAP_KEYWORDS = new Set([
+  'properties',
+  '$defs',
+  'definitions',
+  'dependentSchemas',
+])
+/** Keywords whose value is data, not a schema. */
+const SCHEMA_DATA_KEYWORDS = new Set(['enum', 'const', 'default', 'examples'])
+
+/**
+ * An IO atom's input schema is checked when the atom is DEFINED (Tonio, 2026-10-04), so the host
+ * hears about it at registration rather than on a guest's first call:
+ * - it must exist: the outbound membrane validates every call against it, and an atom with none
+ *   was copied but never checked (`s.object({})` declares "takes nothing");
+ * - it may not contain `pattern` or `patternProperties`: validation compiles them on the HOST's
+ *   regex engine and runs them on strings the guest chose, outside fuel. Guest schemas already
+ *   refuse them; an atom that needs a pattern checks it in its body. (The direction for JSON
+ *   Schema is Pattern: `docs/pattern.md`.)
+ */
+function admitIoInputSchema(op: string, inputSchema: unknown): void {
+  if (inputSchema == null)
+    throw new Error(
+      `Atom '${op}' is an IO atom and declares no input schema. Every call is checked against ` +
+        `it at the capability boundary: declare what it takes, or s.object({}) for nothing.`
+    )
+  const root = isBuilder(inputSchema)
+    ? (inputSchema as any).schema
+    : inputSchema
+  const seen = new Set<object>()
+  const stack: unknown[] = [root]
+  while (stack.length) {
+    const node = stack.pop()
+    if (node === null || typeof node !== 'object' || seen.has(node)) continue
+    seen.add(node)
+    if (Array.isArray(node)) {
+      stack.push(...node)
+      continue
+    }
+    const n = node as Record<string, unknown>
+    if (typeof n.pattern === 'string' || n.patternProperties !== undefined)
+      throw new Error(
+        `Atom '${op}' is an IO atom whose input schema uses a regex ('pattern'/'patternProperties'). ` +
+          `It would run on the host's regex engine over guest-chosen strings: check the pattern ` +
+          `in the atom's body instead.`
+      )
+    for (const [key, value] of Object.entries(n)) {
+      if (SCHEMA_DATA_KEYWORDS.has(key)) continue
+      if (SCHEMA_MAP_KEYWORDS.has(key) && value && typeof value === 'object')
+        stack.push(...Object.values(value as object))
+      else stack.push(value)
+    }
+  }
+}
+
 export function defineAtom<I extends Record<string, any>, O = any>(
   op: string,
   inputSchema: any, // s.Schema<I>
@@ -4857,6 +4927,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     timeoutMs,
     1000
   ) as number
+  if (effects === 'io') admitIoInputSchema(op, inputSchema)
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
     if (ctx.inputsResolved) {
@@ -5260,7 +5331,7 @@ return { result }  // Returns { result: <computed value> }
 */
 export const ret = defineAtom(
   'return',
-  undefined,
+  s.any,
   s.any,
   async (step: any, ctx) => {
     // If in error state, propagate the error as the output
@@ -7291,34 +7362,32 @@ const result = memoize("expensive-" + id, () => {
 ```
 */
 /**
- * The key a `memoize`/`cache` block is stored under: the given one, or a digest of the block's
- * steps. Both used to call `hash.exec(...)`, the STEP wrapper, which returns nothing, so every
- * key-less block shared the one entry `undefined` and returned another block's result (found
- * when `cache` began refusing a non-string key, cumulative review 5).
+ * A `memoize`/`cache` block's key, which is REQUIRED (Tonio, 2026-10-04). A key-less block used
+ * to be keyed by `hash.exec(...)`, the step wrapper, which returns nothing, so every key-less block
+ * shared the entry `undefined`. Keying it by a digest of its steps was no better: the steps are
+ * the same when the data they read is not, so a block run with other inputs (or in a loop)
+ * returned the first result, for `cache` across runs for 24 hours. Only the author knows what the
+ * result depends on, so the author names it.
  */
-async function blockKey(
-  key: unknown,
-  steps: unknown,
-  ctx: RuntimeContext,
-  op: string
-): Promise<any> {
-  const given = resolveValue(key, ctx)
-  if (given !== undefined) return given
-  const str = stringifyInput(ctx, steps, op)
-  if (!chargeForSize(ctx, str, op)) return undefined
-  return digestHex(str, 'SHA-256')
+function blockKey(key: unknown, ctx: RuntimeContext, op: string): string {
+  const k = resolveValue(key, ctx)
+  if (typeof k !== 'string')
+    throw new AgentError(
+      `'${op}': a key is required, a string naming what the result depends on`,
+      op
+    )
+  return k
 }
 
 export const memoize = defineAtom(
   'memoize',
-  s.object({ key: s.string.optional, steps: s.array(s.any) }),
+  s.object({ key: s.string, steps: s.array(s.any) }),
   s.any,
   async ({ key, steps }, ctx) => {
     // In-memory memoization scoped to VM run
     if (!ctx.memo) ctx.memo = new Map()
 
-    const k = await blockKey(key, steps, ctx, 'memoize')
-    if (ctx.error) return undefined
+    const k = blockKey(key, ctx, 'memoize')
 
     // Check if result exists
     if (ctx.memo.has(k)) {
@@ -7377,7 +7446,7 @@ Agent.take().cache(
 export const cache = defineAtom(
   'cache',
   s.object({
-    key: s.string.optional,
+    key: s.string,
     steps: s.array(s.any),
     ttlMs: s.number.optional,
   }),
@@ -7386,12 +7455,9 @@ export const cache = defineAtom(
     const store = storeOf(ctx)
     if (!store) throw new Error("Capability 'store' missing for caching")
 
-    const k = await blockKey(key, steps, ctx, 'cache')
-    if (ctx.error) return undefined
-    // The key is concatenated into a string the host store receives: a STRING, never a value
-    // whose ToString would be host work on a guest object.
-    if (typeof k !== 'string')
-      throw new AgentError("'cache': its key must be a string", 'cache')
+    // The key reaches the host store: capped by the outbound membrane like any other input
+    // (cumulative review 6, M-4).
+    const k: string = egressValue(ctx, 'cache', blockKey(key, ctx, 'cache'))
 
     // Check cache
     const cacheKey = `cache:${k}`
@@ -7507,7 +7573,7 @@ export const random = defineAtom(
 
 export const uuid = defineAtom(
   'uuid',
-  undefined,
+  s.object({}),
   s.string,
   async () => {
     // Prefer crypto.randomUUID when available
@@ -7714,7 +7780,7 @@ export const releaseProcedure = defineAtom(
 
 export const clearExpiredProcedures = defineAtom(
   'clearExpiredProcedures',
-  undefined,
+  s.object({}),
   s.number,
   async () => {
     const now = Date.now()

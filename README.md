@@ -195,18 +195,19 @@ a standalone entry point, not an increment (import only what you need):
 
 | Entry point                   | Bundle           | Size   | Gzipped   |
 | ----------------------------- | ---------------- | ------ | --------- |
-| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 118 KB | **37 KB** |
-| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 290 KB | 88 KB |
-| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 172 KB | 54 KB |
+| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 129 KB | **41 KB** |
+| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 305 KB | 93 KB |
+| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 185 KB | 58 KB |
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
-| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 365 KB | 117 KB    |
-| `tjs-lang` (full, TS support) | index.js         | 493 KB | 159 KB    |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 370 KB | 118 KB    |
+| `tjs-lang` (full, TS support) | index.js         | 508 KB | 164 KB    |
 
 The transpiler grew ~11% in 0.14.0 — `Type` examples are now read for what they mean
 (floats, unions, recursive references) and checked by a real fixed-point solver, and it carries
 the linear regex engine (regex literals are checked at transpile time; `compilePredicate` runs on
-it). The VM grew ~30% since rc.1 (to 88 KB gzipped with the transpiler, 37 KB without; the regex
-engine is about 7 KB of that) for its budgets: every method guest
+it). The VM without a parser roughly DOUBLED since rc.1 (21 KB to 41 KB gzipped, measured against the
+published rc.1; with the transpiler 71 KB to 93 KB; the regex engine is about 7 KB) for its budgets
+and its two membranes: every method guest
 code can call declares the exact type of each argument and what a call may allocate, and is
 charged for it before it runs; and guest regexes run on the VM's own linear-time engine instead
 of the host's backtracking one, so no pattern can hang a run

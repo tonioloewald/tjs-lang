@@ -1094,6 +1094,19 @@ never copies or writes to it (0.14.0). To use the key-value store, call `storeOf
 returns the host's `store` or else the run's own in-memory default. `ctx.capabilities.store` is
 undefined when the host provided none.
 
+**What a capability receives is a copy (0.14.0).** An IO atom (`effects: 'io'`, the default)
+whose inputs the VM resolves gets a deep copy of them, paid for in fuel and checked against its
+declared input schema, before its body runs. So:
+
+- **Declare an input schema.** `defineAtom` refuses an IO atom without one; write
+  `s.object({})` for an atom that takes nothing.
+- **No `pattern` in it.** `defineAtom` refuses an IO atom whose input schema contains `pattern`
+  or `patternProperties`, because validation would run that regex on the host's engine over
+  strings the guest chose. Check the pattern in the atom's body.
+- **An atom defined with `{ resolveInputs: false }` makes its own copies**: pass every guest value
+  it hands a capability through `egressValue(ctx, op, value)` (exported), which charges for the
+  copy and caps it at `membraneMaxBytes`.
+
 Atoms must:
 
 - Be non-blocking (no synchronous CPU-heavy work)

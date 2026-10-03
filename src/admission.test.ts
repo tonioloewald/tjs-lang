@@ -17,6 +17,7 @@ import { Eval, SafeFunction } from './lang/eval'
 import { transpile, tjs } from './lang/index'
 import { compilePredicate, emitVerifiedPredicate } from './lang/predicate'
 import { defineAtom } from './vm/runtime'
+import { s } from 'tosijs-schema'
 import { checkedQuota } from './vm/admission'
 
 // Just under the 8KB source default (0.14.0) — the cap IS the bound on parse work for
@@ -747,16 +748,22 @@ describe('re-review 12: every budget option is read through the funnel', () => {
   it('an atom with an invalid static timeoutMs is refused where it is defined', () => {
     for (const bad of [NaN, -1, '10'] as any[])
       expect(() =>
-        defineAtom('bad', undefined, undefined, async () => 1, {
+        defineAtom('bad', s.object({}), undefined, async () => 1, {
           timeoutMs: bad,
         })
       ).toThrow(/Invalid timeoutMs of atom 'bad'/)
   })
 
   it('an atom with timeoutMs: Infinity does not make every run on the VM unbounded', () => {
-    const forever = defineAtom('forever', undefined, undefined, async () => 1, {
-      timeoutMs: Infinity,
-    })
+    const forever = defineAtom(
+      'forever',
+      s.object({}),
+      undefined,
+      async () => 1,
+      {
+        timeoutMs: Infinity,
+      }
+    )
     const vm = new AgentVM({ forever })
     expect(Number.isFinite(vm.defaultRunTimeout)).toBe(true)
   })
@@ -777,7 +784,7 @@ describe('re-review 12: every budget option is read through the funnel', () => {
 })
 
 describe('re-review 13: every run option is classified, and quotaUsed is a counter', () => {
-  const ping = defineAtom('ping', undefined, undefined, async () => 1, {
+  const ping = defineAtom('ping', s.object({}), undefined, async () => 1, {
     effects: 'pure',
   })
   const fourPings = {
@@ -792,7 +799,7 @@ describe('re-review 13: every run option is classified, and quotaUsed is a count
       const calls: number[] = []
       const counted = defineAtom(
         'ping',
-        undefined,
+        s.object({}),
         undefined,
         async () => {
           calls.push(1)
@@ -851,7 +858,7 @@ describe('re-review 14: a table is checked over exactly the set its reads resolv
     const calls: number[] = []
     const ping = defineAtom(
       'ping',
-      undefined,
+      s.object({}),
       undefined,
       async () => {
         calls.push(1)
@@ -911,7 +918,7 @@ describe('re-review 14: a table is checked over exactly the set its reads resolv
   it('a quotas table changed AFTER admission changes nothing — the VM reads a snapshot', async () => {
     const { calls, vm } = counted()
     const quotas: Record<string, number> = { ping: 2 }
-    const bump = defineAtom('bump', undefined, undefined, async () => {
+    const bump = defineAtom('bump', s.object({}), undefined, async () => {
       quotas.ping = NaN
     })
     const vm2 = new AgentVM({ ping: (vm as any).atoms.ping, bump })
@@ -927,12 +934,12 @@ describe('re-review 14: a table is checked over exactly the set its reads resolv
   it('a shared quotaUsed corrupted MID-RUN refuses the next step', async () => {
     const { calls } = counted()
     const quotaUsed: Record<string, any> = {}
-    const corrupt = defineAtom('corrupt', undefined, undefined, async () => {
+    const corrupt = defineAtom('corrupt', s.object({}), undefined, async () => {
       quotaUsed.ping = -100
     })
     const ping = defineAtom(
       'ping',
-      undefined,
+      s.object({}),
       undefined,
       async () => {
         calls.push(1)
@@ -958,7 +965,7 @@ describe('re-review 14: a table is checked over exactly the set its reads resolv
   it("an atom named like an Object.prototype member is not charged by the prototype's function", async () => {
     const toString = defineAtom(
       'toString',
-      undefined,
+      s.object({}),
       undefined,
       async () => 1,
       {
@@ -976,7 +983,7 @@ describe('re-review 14: a table is checked over exactly the set its reads resolv
 
   it('a function timeoutMs on defineAtom is still supported (its result is checked per call)', () => {
     expect(() =>
-      defineAtom('slow', undefined, undefined, async () => 1, {
+      defineAtom('slow', s.object({}), undefined, async () => 1, {
         timeoutMs: (() => 50) as any,
       })
     ).not.toThrow()
@@ -988,7 +995,7 @@ describe("re-review 14 (pre-empted): a lying shared counter cannot lower this ru
     const calls: number[] = []
     const ping = defineAtom(
       'ping',
-      undefined,
+      s.object({}),
       undefined,
       async () => {
         calls.push(1)
@@ -1014,7 +1021,7 @@ describe('re-review 15: the options are read ONCE, and the run reads only what w
     const calls: number[] = []
     const ping = defineAtom(
       'ping',
-      undefined,
+      s.object({}),
       undefined,
       async () => {
         calls.push(1)
@@ -1131,7 +1138,7 @@ describe('re-review 15: the options are read ONCE, and the run reads only what w
   it('a function timeoutMs on defineAtom is USED: its result times the atom out', async () => {
     const slow = defineAtom(
       'slow',
-      undefined,
+      s.object({}),
       undefined,
       () => new Promise((resolve) => setTimeout(resolve, 300)),
       { timeoutMs: (() => 20) as any }
@@ -1183,7 +1190,7 @@ describe('re-review 16 follow-ups', () => {
     const calls: number[] = []
     const ping = defineAtom(
       'ping',
-      undefined,
+      s.object({}),
       undefined,
       async () => {
         calls.push(1)

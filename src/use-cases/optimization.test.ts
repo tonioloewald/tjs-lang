@@ -267,65 +267,44 @@ describe('Use Case: Optimization', () => {
     expect(runBig.result.result).toBe(6765)
   })
 
-  it('should memoize without a key', async () => {
-    let calls = 0
-    const expensiveAtom = {
-      op: 'expensive',
-      inputSchema: s.any,
-      create: (input: any) => ({ op: 'expensive', ...input }),
-      exec: async (step: any, ctx: any) => {
-        calls++
-        ctx.state[step.result] = 'done'
-      },
-    }
-
-    const customVM = new AgentVM({ expensive: expensiveAtom })
-    const builder = customVM.Agent
-
-    // The SAME block twice is one call. (This test used two DIFFERENT blocks, res1 and res2, and
-    // expected one call: it passed only because every key-less block shared the key `undefined`,
-    // so a different block returned the first one's result. Cumulative review 5.)
-    const same = builder
-      .memoize((b) => b.step({ op: 'expensive' }).as('res'))
-      .memoize((b) => b.step({ op: 'expensive' }).as('res'))
-      .return(s.object({}))
-    await customVM.run(same.toJSON(), {})
-    expect(calls).toBe(1)
-
-    // Different blocks are different entries.
-    calls = 0
-    const different = customVM.Agent.memoize((b) =>
-      b.step({ op: 'expensive' }).as('res1')
-    )
-      .memoize((b) => b.step({ op: 'expensive' }).as('res2'))
-      .return(s.object({}))
-    await customVM.run(different.toJSON(), {})
-    expect(calls).toBe(2)
-  })
-
-  it('should cache without a key', async () => {
-    const store = new Map<string, any>()
-    const caps = {
-      store: {
-        get: mock(async (key) => store.get(key)),
-        set: mock(async (key, value) => store.set(key, value)),
-      },
-    }
-
-    const vm = new AgentVM()
-    const logic = Agent.take(s.object({}))
-      .cache((b) =>
-        b
-          .varSet({ key: 'res', value: 'computed' })
-          .varSet({ key: 'result', value: 'computed' })
-          .as('res')
+  // Key-less memoize and cache are REFUSED (Tonio, 2026-10-04). These tests used to assert that
+  // a key-less block was reused; it was, because every key-less block shared the key
+  // `undefined`, so a DIFFERENT block returned the first one's result. Keying by the steps is no
+  // better (same steps, different inputs), so the author names the key.
+  for (const op of ['memoize', 'cache'] as const) {
+    it(`refuses a key-less ${op}, before running its steps`, async () => {
+      let calls = 0
+      const expensiveAtom = {
+        op: 'expensive',
+        inputSchema: s.any,
+        create: (input: any) => ({ op: 'expensive', ...input }),
+        exec: async (step: any, ctx: any) => {
+          calls++
+          ctx.state[step.result] = 'done'
+        },
+      }
+      const store = new Map<string, any>()
+      const caps = {
+        store: {
+          get: mock(async (key) => store.get(key)),
+          set: mock(async (key, value) => store.set(key, value)),
+        },
+      }
+      const customVM = new AgentVM({ expensive: expensiveAtom })
+      const builder: any = customVM.Agent
+      const logic = builder[op]((b: any) =>
+        b.step({ op: 'expensive' }).as('res')
+      ).return(s.object({}))
+      const r = await customVM.run(
+        logic.toJSON(),
+        {},
+        {
+          capabilities: caps as any,
+        }
       )
-      .as('result')
-      .return(s.object({ result: s.string }))
-
-    await vm.run(logic.toJSON(), {}, { capabilities: caps as any })
-    await vm.run(logic.toJSON(), {}, { capabilities: caps as any })
-
-    expect(caps.store.set).toHaveBeenCalledTimes(1)
-  })
+      expect(r.error?.message).toMatch(/a key is required/)
+      expect(calls).toBe(0)
+      expect(caps.store.set).toHaveBeenCalledTimes(0)
+    })
+  }
 })

@@ -226,10 +226,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > for the walk it caused. The first version of this membrane charged nothing, so a loop over a
 > large value used about 100× the CPU for the same fuel (cumulative review 5).
 >
-> **Fixed: key-less `cache` and `memoize` blocks shared one entry.** Both derived the default key
-> by calling the `hash` atom's step wrapper, which returns nothing, so every key-less block was
-> stored under `undefined` and returned another block's result. A `cache` entry is shared across
-> runs for 24 hours by default. The key is now a digest of the block's steps.
+> **`cache` and `memoize` require a key (breaking).** A key-less block derived its key by calling
+> the `hash` atom's step wrapper, which returns nothing, so every key-less block was stored under
+> `undefined` and returned ANOTHER block's result; a `cache` entry is shared across runs for 24
+> hours by default. Keying by a digest of the steps is no better: the steps are the same when the
+> data they read is not. Only the author knows what a result depends on, so the builder's `key`
+> is now required and the VM refuses a block without one. A store written by an earlier version
+> may hold a stale `cache:undefined` entry; it is safe to delete. A key larger than
+> `membraneMaxBytes` is refused like any other capability input, and a result too large to cross
+> fails the step rather than being returned uncached.
+>
+> **IO atoms declare their inputs (breaking for embedders).** `defineAtom` refuses an IO atom
+> (`effects: 'io'`, the default) with no input schema (use `s.object({})` for none), or whose input
+> schema contains `pattern`/`patternProperties`: the outbound membrane validates every call
+> against that schema, so a pattern there ran on the host's regex engine over guest-chosen
+> strings, outside fuel. Check patterns in the atom's body. (The JSON Schema direction is Pattern:
+> `docs/pattern.md`.) A refused outbound copy is billed for the walk whatever refused it; round
+> 31 billed only a refusal for size, so a value refused for its depth cost nothing (cumulative
+> review 6).
 >
 > A fetch URL that is relative is decided by the URL parser itself (resolved against an http and
 > a `file:` sentinel). It passes only as a plain path naming no host, and contains no
