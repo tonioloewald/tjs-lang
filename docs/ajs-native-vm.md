@@ -1,9 +1,20 @@
 <!--{"parent": "ajs.md", "order": 6}-->
 
-# AJS Native VM (Rust → wasm) — post-1.0 direction
+# AJS Native VM (Rust → wasm) — the 1.0 VM
 
-**Status:** design note, not critical path. Nothing here blocks the 1.0 language release.
-**Purpose:** a long-term answer to VM robustness and safety. Revisit when a trigger (below) fires.
+**Status (Tonio, 2026-10-04): DECIDED, critical path for 1.0, after 0.14 ships and Pattern lands.**
+The JS VM finishes 0.14; the Rust/wasm VM is the next VM workstream, with the JS VM as its
+conformance reference until it replaces it on the untrusted path.
+**Why now:** the "structural to JS-in-JS" trigger below has fired. Most 0.14.0-rc.2 blockers
+(thirty-one review rounds) were one class: guest work done by HOST builtins (coercion,
+`structuredClone`, `JSON.stringify`, the host regex engine) that the VM had to find, bound and
+charge door by door, and guest values that are host objects (prototypes, getters, live references
+in both directions). Each round closed a door; the next found a branch of the fix. In wasm the
+VM owns its allocator and its value representation, so "charged before it allocates" and "nothing
+live crosses" hold for the whole VM at once, and the VM is cleanly isolated from ordinary
+JavaScript. Expected side benefit: throughput, because metering stops being a guard at every door
+(to be MEASURED in the phase-1 spike against the JS VM, not assumed: capability crossings and
+string conversion at the boundary cost something the JS VM does not pay).
 **Decided against:** a native TJS runtime (forking V8/JSC). TJS works within the JS ecosystem and
 influences it; it does not replace it. AJS is different — it is the untrusted-code path, and that
 is where a second implementation earns its keep.
@@ -137,6 +148,8 @@ bumping the version.*
    that appears.
 
 ## Triggers for making this critical path
+
+The second one fired in 0.14.0-rc.2 (see Status). Kept for the record.
 
 - Universal endpoints want predicates executed inside Postgres.
 - A sandbox issue that is structural to JS-in-JS rather than a bug.
