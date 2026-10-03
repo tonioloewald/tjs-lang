@@ -1,10 +1,11 @@
-import { storeOf } from '../runtime'
 import { s } from 'tosijs-schema'
 import {
   defineAtom,
   resolveValue,
   admitResponseFormat,
   admitTools,
+  storeOf,
+  admitFetchUrl,
 } from '../runtime'
 
 // --- Interfaces ---
@@ -260,6 +261,18 @@ export const llmVision = defineAtom(
       'You analyze images accurately and concisely.'
     const resolvedPrompt = resolveValue(prompt, ctx)
     const resolvedImages = resolveValue(images, ctx) ?? []
+    // An image URL is a request the BACKEND may make on the agent's behalf (vLLM and mlx-vlm fetch
+    // http(s) image_url server-side), so it gets the fetch rule: an inline `data:image/…;base64,`
+    // passes; http(s) only against the run's allowlist, and never without one (rc.2 cumulative
+    // review M2: a guest could otherwise reach 169.254.169.254 through the model server).
+    if (!Array.isArray(resolvedImages))
+      throw new Error('llmVision: images must be an array of strings')
+    for (const img of resolvedImages) {
+      if (typeof img !== 'string')
+        throw new Error('llmVision: images must be an array of strings')
+      if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(img)) continue
+      admitFetchUrl(img, ctx.context?.allowedFetchDomains, true)
+    }
     const resolvedFormat = admitResponseFormat(
       resolveValue(responseFormat, ctx),
       'llmVision'

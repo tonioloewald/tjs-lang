@@ -868,3 +868,52 @@ describe('relative URLs belong to a host fetch, never to the built-in client', (
     expect(r.error?.message ?? 'admitted').toMatch(/Invalid URL/)
   })
 })
+
+describe('cumulative review B1: a relative URL cannot pass a configured allowlist', () => {
+  const capture = () => {
+    const urls: string[] = []
+    return { urls, caps: { fetch: async (u: string) => (urls.push(u), 'ok') } }
+  }
+  const RELATIVE = [
+    '/admin/secrets',
+    'admin',
+    '?x=1',
+    '../x',
+    '#frag',
+    '%2F%2Fevil.com/x',
+    '/%5Cevil.com',
+  ]
+  for (const rel of RELATIVE)
+    it(`vm.run allowedFetchDomains: refused ${rel}`, async () => {
+      const { urls, caps } = capture()
+      const r = await run(fetchSrc(rel), {
+        capabilities: caps,
+        context: { allowedFetchDomains: ['a.test'] },
+      })
+      expect(r.error?.message ?? 'admitted').toMatch(
+        /relative, and an allowlist needs an absolute URL/
+      )
+      expect(urls.length).toBe(0)
+    })
+  it('Eval fetchPolicy.domains: refused', async () => {
+    const { urls, caps } = capture()
+    const r = await Eval({
+      code: "return httpFetch({ url: '/admin/secrets' })",
+      capabilities: caps,
+      fetchPolicy: { domains: ['api.example.com'] },
+    })
+    expect(r.error?.message ?? 'admitted').toMatch(/relative/)
+    expect(urls.length).toBe(0)
+  })
+  it('SafeFunction fetchPolicy.domains: refused', async () => {
+    const { urls, caps } = capture()
+    const fn = await SafeFunction({
+      body: "return httpFetch({ url: '/admin/secrets' })",
+      capabilities: caps,
+      fetchPolicy: { domains: ['api.example.com'] },
+    })
+    const r = await fn()
+    expect(r.error?.message ?? 'admitted').toMatch(/relative/)
+    expect(urls.length).toBe(0)
+  })
+})

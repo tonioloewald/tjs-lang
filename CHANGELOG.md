@@ -185,6 +185,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > In AJS, an atom input named `op`, `result`, `resultConst` or `resultAssign` is refused at
 > transpile time: it was silently read as a step control field.
 >
+> `llmVision` image URLs follow the same rule as a fetch: the model server may fetch an http(s)
+> `image_url` itself, so inline `data:image/…;base64,` passes, and http(s) passes only against the
+> run's `allowedFetchDomains` (refused without one). With an allowlist set, a RELATIVE fetch URL is
+> refused: it names no host, so it cannot be checked. Rebinding a value already in scope (a
+> per-iteration `let p = o`) costs one pointer again: in rc.2's heap accounting it re-measured
+> the whole value, so a loop was quadratic in fuel where rc.1 was linear.
+>
 > **Since rc.1 — AsyncJS checks every atom call against the atom's declared inputs (breaking).**
 > A call to an atom is a single object literal, `storeSet({ key, value })`, or no arguments,
 > `random()`. The transpiler now refuses, with a message naming what the atom takes:

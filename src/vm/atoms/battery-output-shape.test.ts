@@ -212,3 +212,52 @@ describe('a guest response-format schema is admitted (rc.2 thirteenth re-review)
     expect(calls[0].responseFormat.json_schema.schema.required).toEqual(['a'])
   })
 })
+
+describe('llmVision image URLs get the fetch rule (rc.2 cumulative review M2)', () => {
+  // The BACKEND may fetch an http(s) image_url server-side, so an image URL is a request made on
+  // the agent's behalf: inline data passes; http(s) only against the run's allowlist.
+  const run = (images: string[], context?: Record<string, unknown>) => {
+    const { capabilities, calls } = mockBattery()
+    const vm = new AgentVM({ llmVision } as any)
+    return vm
+      .run(
+        {
+          op: 'seq',
+          steps: [{ op: 'llmVision', prompt: 'p', images, result: 'out' }],
+        } as any,
+        {} as any,
+        { fuel: 1e5, capabilities, context }
+      )
+      .then((r) => ({ r, calls }))
+  }
+
+  it('inline base64 image data passes with no allowlist', async () => {
+    const { r, calls } = await run(['data:image/png;base64,iVBORw0KGgo='])
+    expect(r.error).toBeUndefined()
+    expect(calls.length).toBe(1)
+  })
+
+  for (const url of [
+    'http://169.254.169.254/latest/meta-data/',
+    'https://images.example.com/cat.png',
+    'file:///etc/hosts',
+    'data:text/html,<script>',
+  ])
+    it(`refused without an allowlist, before the backend is called: ${url}`, async () => {
+      const { r, calls } = await run([url])
+      expect(r.error).toBeDefined()
+      expect(calls.length).toBe(0)
+    })
+
+  it('an http(s) image on the allowlist passes; one off it is refused', async () => {
+    const ok = await run(['https://images.example.com/cat.png'], {
+      allowedFetchDomains: ['images.example.com'],
+    })
+    expect(ok.r.error).toBeUndefined()
+    const bad = await run(['https://169.254.169.254/x'], {
+      allowedFetchDomains: ['images.example.com'],
+    })
+    expect(bad.r.error?.message ?? 'admitted').toMatch(/not in allowlist/)
+    expect(bad.calls.length).toBe(0)
+  })
+})

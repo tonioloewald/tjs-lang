@@ -269,3 +269,37 @@ describe('the measurement sees every live scope, and only live ones', () => {
     expect(after).toBe(before)
   })
 })
+
+describe('rebinding an already-measured value is O(1) (rc.2 cumulative review M1)', () => {
+  const program = (n: number) =>
+    transpile(
+      `function f() { let o = { items: [] }\n let i = 0\n while (i < ${n}) { o.items.push({ k: i })\n let p = o\n i = i + 1 }\n return { n: o.items.length } }`
+    ).ast
+
+  it('an alias per loop iteration scales linearly in fuel', async () => {
+    const fuel = async (n: number) =>
+      (
+        await new AgentVM().run(
+          program(n),
+          {},
+          { fuel: 1e7, timeoutMs: 600_000 }
+        )
+      ).fuelUsed
+    const a = await fuel(1000)
+    const b = await fuel(4000)
+    // linear: ~4x; the re-walk per alias was ~11x (1628 -> 18515)
+    expect(b / a).toBeLessThan(5)
+  })
+
+  it('aliases do not let a run hold more than the ceiling', async () => {
+    // many DISTINCT 100KB strings, each bound then aliased: the ceiling still binds
+    const r = await new AgentVM().run(
+      transpile(
+        `function f() { let keep = []\n let i = 0\n while (i < 200) { let s = { v: 'x'.repeat(50000) + i }\n let alias = s\n keep.push(alias)\n i = i + 1 }\n return { n: keep.length } }`
+      ).ast,
+      {},
+      { fuel: 1e7, maxHeapBytes: 2_000_000, timeoutMs: 600_000 }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(/Heap limit/)
+  })
+})

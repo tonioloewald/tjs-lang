@@ -314,6 +314,8 @@ export interface RuntimeContext {
     bytes: number
     /** Bytes allocated by steps still executing (see `allocate`); released as each ends. */
     transient: number
+    /** Values already measured into `bytes` this run (see `trackHeapWrite`'s value fast path). */
+    measured?: WeakSet<object>
   }
   /** The allocation frame of the innermost step executing on this context (see `allocate`). */
   allocFrame?: { bytes: number }
@@ -4097,6 +4099,11 @@ function reconcileHeap(
   pending: unknown[],
   op: string
 ): number | undefined {
+  // The estimate is about to be REPLACED by what is live now, so "already measured into the
+  // estimate" stops being true of a value that is no longer reachable from a root: forget them
+  // all, and each is measured again the next time it is bound (the value fast path in
+  // `trackHeapWrite` relies on this).
+  ctx.heapAccount.measured = undefined
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
   const { bytes, nodes } = estimateBytes([...ctx.heapRoots, ...pending], cap)
   if (!chargeHeapWalk(ctx, nodes, op)) return undefined
@@ -4152,6 +4159,21 @@ function trackHeapWrite(
   )
     return true
 
+  // VALUE FAST PATH: memory belongs to VALUES, not names. A value this run has already measured
+  // is in the estimate, and every in-place growth since was charged at the insertion, before it
+  // happened (`chargeInsertion`; AsyncJS has no member assignment). So binding it under ANOTHER
+  // name adds one pointer, not a re-walk: `let p = o` inside a loop body (a new binding each
+  // iteration) re-walked all of `o` every time, quadratic in fuel and time where rc.1 was linear
+  // (rc.2 cumulative review M1). The per-name path above is the special case of this.
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    ctx.heapAccount.measured?.has(value)
+  ) {
+    ledger.set(key, { size: 0, ref: value, witness })
+    return chargeHeap(ctx, SLOT_BYTES, op, [])
+  }
+
   // APPEND FAST PATH: the same array, longer — measure only the new tail, so accumulating
   // stays linear.
   const appended =
@@ -4173,6 +4195,8 @@ function trackHeapWrite(
     ref: value,
     witness,
   })
+  if (value !== null && typeof value === 'object')
+    (ctx.heapAccount.measured ??= new WeakSet()).add(value)
   return chargeHeap(ctx, bytes, op, []) // already written: the root holds it
 }
 
@@ -6289,7 +6313,7 @@ function admitsMethod(verb: string, hostAllowed: unknown): boolean {
  * names a host. */
 const RELATIVE_BASE = 'https://relative.invalid/'
 
-function admitFetchUrl(
+export function admitFetchUrl(
   url: string,
   allowedDomains: string[] | undefined,
   destinationRequired = true
@@ -6302,6 +6326,12 @@ function admitFetchUrl(
     // (the playground fetches '/texts/…'): a path-relative one names no other destination, so it
     // passes. A protocol-relative one (`//evil.example/x`) NAMES a host, and is admitted like an
     // absolute URL. The built-in client has no origin to resolve against, so it refuses both.
+    //
+    // UNLESS an allowlist is set: a relative URL names no host, so it cannot be checked against
+    // one, and "a configured allowlist never silently stops applying" means it is refused. A
+    // returned-early relative URL used to reach the host page's own origin past
+    // `fetchPolicy.domains` (rc.2 cumulative review B1). Without an allowlist the host owns the
+    // destination; the scheme check cannot see what a relative URL resolves to.
     if (!destinationRequired) {
       let resolved: URL | undefined
       try {
@@ -6309,7 +6339,14 @@ function admitFetchUrl(
       } catch {
         resolved = undefined
       }
-      if (resolved && resolved.host === new URL(RELATIVE_BASE).host) return
+      if (resolved && resolved.host === new URL(RELATIVE_BASE).host) {
+        if (allowedDomains)
+          throw new Error(
+            `Fetch blocked: '${url}' is relative, and an allowlist needs an absolute URL to check`,
+            { cause: e }
+          )
+        return
+      }
       if (resolved) return admitFetchUrl(resolved.href, allowedDomains, false)
     }
     throw new Error(`Invalid URL: ${url}`, { cause: e })
