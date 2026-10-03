@@ -59,56 +59,27 @@ describe('egress is charged by the bytes it moves', () => {
     expect(many.fuelUsed - one.fuelUsed).toBeGreaterThan(39 * 16)
   })
 
-  it('a REFUSED call is charged too: catching and retrying is not free', async () => {
-    const REFUSED = `function f(v: [{ i: 0 }], n: 0) {
-      let k = 0
-      let refused = 0
-      while (k < n) {
-        try {
-          storeGet({ key: v })
-        } catch (e) {
-          refused = refused + 1
-        }
-        k = k + 1
+  // Refusals END THE RUN (Tonio, 2026-10-04; cumulative review 8). The rows here used to catch a
+  // refusal and retry it in a loop, measuring that every retry was billed; four review rounds
+  // each found one more refusal path billed short. A refusal that cannot be caught cannot be
+  // looped on. See 'a refusal at the capability boundary ends the run' below.
+  it('a walk stopped by membraneMaxBytes ends the run, billed for what it read', async () => {
+    const r = await new AgentVM().run(
+      transpile(`function f(v: [{ i: 0 }]) {
+        storeSet({ key: 'k', value: v })
+        return { done: true }
+      }`).ast,
+      { v: big(20_000) },
+      {
+        fuel: 1e6,
+        membraneMaxBytes: 100_000,
+        capabilities: { store: memoryStore() },
       }
-      return { refused }
-    }`
-    const one = await fuelFor(REFUSED, { v: big(20_000), n: 1 })
-    const many = await fuelFor(REFUSED, { v: big(20_000), n: 40 })
-    expect(one.result).toEqual({ refused: 1 })
-    expect(many.result).toEqual({ refused: 40 })
-    expect(many.fuelUsed - one.fuelUsed).toBeGreaterThan(39 * 16)
-  })
-
-  it('a walk stopped by membraneMaxBytes is charged for what it read', async () => {
-    const REFUSED = `function f(v: [{ i: 0 }], n: 0) {
-      let k = 0
-      let refused = 0
-      while (k < n) {
-        try {
-          storeSet({ key: 'k', value: v })
-        } catch (e) {
-          refused = refused + 1
-        }
-        k = k + 1
-      }
-      return { refused }
-    }`
-    const run = (n: number) =>
-      new AgentVM().run(
-        transpile(REFUSED).ast,
-        { v: big(20_000), n },
-        {
-          fuel: 1e6,
-          membraneMaxBytes: 100_000,
-          capabilities: { store: memoryStore() },
-        }
-      )
-    const one = await run(1)
-    const many = await run(41)
-    expect(many.result).toEqual({ refused: 41 })
-    // 100,000 bytes walked per refusal at 20,000 bytes per fuel: 5 fuel each, 40 more refusals.
-    expect(many.fuelUsed - one.fuelUsed).toBeGreaterThan(200)
+    )
+    expect(r.error?.message).toMatch(/membrane budget/)
+    // 100,000 bytes walked at 20,000 bytes per fuel
+    expect(r.fuelUsed).toBeGreaterThan(5)
+    expect(r.fuelUsed).toBeLessThanOrEqual(1e6)
   })
 
   it('a walk the remaining fuel cannot pay for is Out of Fuel, and stops there', () => {
@@ -148,77 +119,41 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
   let deep: any = null
   for (let i = 0; i < 10_010; i++) deep = { n: deep }
 
-  it('a copy the HEAP ceiling refuses is still billed for its walk', async () => {
-    // The copy is held as transient heap while the capability runs; a value over half the
-    // ceiling cannot be copied. `allocate` throws, and the walk before it is still paid for.
-    const LOOP = `function f(v: [{ i: 0 }], n: 0) {
-      let k = 0
-      let refused = 0
-      while (k < n) {
-        try {
-          storeSet({ key: 'k', value: v })
-        } catch (e) {
-          refused = refused + 1
-        }
-        k = k + 1
-      }
-      return { refused }
+  it('a heap-refused copy ends the run with its own error, billed once, never overdrawn', async () => {
+    const SRC = `function f(v: [{ i: 0 }]) {
+      storeSet({ key: 'k', value: v })
+      return { done: true }
     }`
-    const run = (n: number) =>
-      new AgentVM().run(
-        transpile(LOOP).ast,
-        { v: big(20_000), n },
-        {
-          fuel: 1e7,
-          maxHeapBytes: 1_200_000,
-          capabilities: { store: memoryStore() },
-        }
-      )
-    const one = await run(1)
-    const many = await run(21)
-    expect(one.result).toEqual({ refused: 1 })
-    expect(many.result).toEqual({ refused: 21 })
-    // `allocate` charges this copy before the ceiling refuses it, so the bill is that charge and
-    // no more (round 32 billed the budget again on top: cumulative review 7).
-    expect(many.fuelUsed - one.fuelUsed).toBeGreaterThan(20 * 16)
-  })
-
-  it('a heap-refused copy caught with little fuel to spare keeps its own error, and never overdraws', async () => {
-    const CAUGHT = `function f(v: [{ i: 0 }]) {
-      let refused = 0
-      try {
-        storeSet({ key: 'k', value: v })
-      } catch (e) {
-        refused = 1
-      }
-      return { refused }
-    }`
-    const opts = (fuel: number) => ({
+    const ast = transpile(SRC).ast
+    const opts = (fuel: number, maxHeapBytes: number) => ({
       fuel,
-      maxHeapBytes: 1_200_000,
+      maxHeapBytes,
       capabilities: { store: memoryStore() },
     })
-    const ast = transpile(CAUGHT).ast
-    const roomy = await new AgentVM().run(ast, { v: big(20_000) }, opts(1e7))
-    expect(roomy.result).toEqual({ refused: 1 })
-    const tight = roomy.fuelUsed + 5
-    const r = await new AgentVM().run(ast, { v: big(20_000) }, opts(tight))
-    expect(r.result).toEqual({ refused: 1 })
+    const refused = await new AgentVM().run(
+      ast,
+      { v: big(20_000) },
+      opts(1e7, 1_200_000)
+    )
+    expect(refused.error?.message).toMatch(/Heap limit/)
+    // with little fuel to spare it keeps its own error and does not overdraw
+    const tight = refused.fuelUsed + 5
+    const r = await new AgentVM().run(
+      ast,
+      { v: big(20_000) },
+      opts(tight, 1_200_000)
+    )
+    expect(r.error?.message).toMatch(/Heap limit/)
     expect(r.fuelUsed).toBeLessThanOrEqual(tight)
-
-    // ...and is billed ONCE: against the same copy accepted, refusing adds the reconcile walk
-    // (measured +40), not the copy a second time (+74 when the walk was billed again).
+    // billed ONCE: against the same copy accepted, refusing adds the reconcile walk (measured
+    // +40), not the copy a second time (+74 when round 32 billed the walk again)
     const accepted = await new AgentVM().run(
       ast,
       { v: big(20_000) },
-      {
-        fuel: 1e7,
-        maxHeapBytes: 1e8,
-        capabilities: { store: memoryStore() },
-      }
+      opts(1e7, 1e8)
     )
-    expect(accepted.result).toEqual({ refused: 0 })
-    expect(roomy.fuelUsed - accepted.fuelUsed).toBeLessThan(55)
+    expect(accepted.result).toEqual({ done: true })
+    expect(refused.fuelUsed - accepted.fuelUsed).toBeLessThan(55)
   })
 
   it('a copy larger than the whole heap ceiling is billed for the walk before it', () => {
@@ -276,6 +211,67 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
       expect(ctx.fuel.current).toBeGreaterThan(0)
     })
   }
+})
+
+describe('wide values: the walk stops at its budget, and a refusal reports what it cost (review 8)', () => {
+  it('a refused N-key object is billed for enumerating its keys', () => {
+    // `Object.keys` cannot stop early; round 33 billed at most the (tiny) budget for it
+    const wide: Record<string, number> = {}
+    for (let i = 0; i < 300_000; i++) wide['k' + i] = i
+    const ctx: any = { fuel: { current: 1e6 }, membraneMaxBytes: 1024 }
+    expect(() => egressValue(ctx, 'op', wide)).toThrow(/membrane budget/)
+    // 300,000 keys × 8 bytes at 20,000 bytes per fuel = 120 fuel
+    expect(1e6 - ctx.fuel.current).toBeGreaterThanOrEqual(120)
+  })
+
+  it('a refused wide object stops reading descriptors at the budget', () => {
+    const wide: Record<string, number> = {}
+    for (let i = 0; i < 100_000; i++) wide['k' + i] = i
+    let reads = 0
+    const counted = new Proxy(wide, {
+      getOwnPropertyDescriptor(t, k) {
+        reads++
+        return Reflect.getOwnPropertyDescriptor(t, k)
+      },
+    })
+    const ctx: any = { fuel: { current: 1e6 }, membraneMaxBytes: 1024 }
+    expect(() => egressValue(ctx, 'op', { w: counted })).toThrow(
+      /membrane budget/
+    )
+    // `Object.keys` itself reads every descriptor (it checks each key is enumerable): that is the
+    // unavoidable work `enumerated` bills. The walk's OWN reads stop at the budget: without the
+    // per-key check it read all 100,000 again.
+    expect(reads).toBeLessThan(100_000 + 1_000)
+  })
+
+  it('a refused Map or Set stops reading entries at the budget', () => {
+    let read = 0
+    const big = new Map<number, number>()
+    for (let i = 0; i < 200_000; i++) big.set(i, i)
+    const realNext = Map.prototype.entries
+    // count entries actually pulled from the intrinsic iterator
+    Map.prototype.entries = function (this: Map<any, any>) {
+      const it = realNext.call(this)
+      return {
+        next: () => {
+          read++
+          return it.next()
+        },
+        [Symbol.iterator]() {
+          return this
+        },
+      } as any
+    }
+    try {
+      const ctx: any = { fuel: { current: 1e6 }, membraneMaxBytes: 1024 }
+      expect(() => egressValue(ctx, 'op', { m: big })).toThrow(
+        /membrane budget/
+      )
+    } finally {
+      Map.prototype.entries = realNext
+    }
+    expect(read).toBeLessThan(1_000)
+  })
 })
 
 describe('egress copies are transient heap, released when the step ends (review 6, gap 6)', () => {

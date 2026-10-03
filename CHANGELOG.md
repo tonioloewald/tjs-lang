@@ -259,6 +259,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > only a refusal for size (a depth refusal after a megabyte was free); round 32 billed the whole
 > budget on top of what the copy had already been charged (cumulative reviews 6 and 7).
 >
+> **A refusal at the capability boundary ends the run (breaking).** An atom call whose input does
+> not match the atom's declared schema, or a value refused on its way out to a capability (too
+> large, too deep, not plain data, over the heap ceiling or the fuel), can no longer be caught by
+> `try`/`catch`: no catch block, later step or parent-agent step runs, and the run reports the
+> refusal. Ordinary failures (a fetch that fails, a store that throws) are caught as before. Four
+> review rounds in a row (cumulative reviews 5 to 8) each found a refusal path billed short of the
+> work it did, and each mattered only because a guest could catch the refusal and retry it in a
+> loop. A refusal that ends the run costs at most one bounded walk (Tonio).
+>
 > **Persisted ASTs:** a stored AST (`procedureStore`, a saved builder program) containing a
 > key-less `memoize` or `cache` now fails when it runs, with "a key is required". Add a key.
 >

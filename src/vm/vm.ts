@@ -556,6 +556,8 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       consts: new Set(),
       // Created WITH the run, never lazily: see `heapAccount` in runtime.ts.
       heapAccount: { bytes: 0, transient: 0 },
+      // Created WITH the run: a refusal at the capability boundary ends it (see runtime.ts).
+      halt: {},
       heapPerKey: new Map(),
       capabilities,
       defaultStore,
@@ -650,6 +652,12 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       // settles would hold the run open, turning cancellation into a path that starts
       // unmetered work.
       controller.abort()
+    }
+
+    // A halted run reports what halted it, whatever a later step left behind.
+    if (ctx.halt.error) {
+      ctx.error = ctx.halt.error
+      ctx.output = ctx.halt.error
     }
 
     // If there's an error but no output was set, set the error as output

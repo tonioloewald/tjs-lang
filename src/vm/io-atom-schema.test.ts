@@ -121,6 +121,18 @@ describe('IO atom input schemas, refused at defineAtom', () => {
     expect(() => defineAtom('loopy', cyclic, s.any, body)).toThrow(/is cyclic/)
   })
 
+  it('a dependentRequired or dependencies NAME called pattern is not the keyword', () => {
+    const schema = {
+      type: 'object',
+      properties: { pattern: { type: 'string' }, flags: { type: 'string' } },
+      dependentRequired: { pattern: ['flags'] },
+      dependencies: { pattern: { required: ['flags'] } },
+    }
+    expect(() =>
+      defineAtom('depsNamedPattern', schema, s.any, body)
+    ).not.toThrow()
+  })
+
   it('a PROPERTY named pattern is not the keyword', () => {
     const schema = {
       type: 'object',

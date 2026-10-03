@@ -317,6 +317,19 @@ export interface RuntimeContext {
     /** Values already measured into `bytes` this run (see `trackHeapWrite`'s value fast path). */
     measured?: WeakSet<object>
   }
+  /**
+   * The run's HALT record (Tonio, 2026-10-04): a refusal at the capability boundary ends the run.
+   * Every step checks it where every step passes (`exec`, beside the abort check), so a halted run
+   * takes no further step: no catch block, no parent step, no sub-agent step. Run STATE rather than
+   * a flag on the error, because errors are re-wrapped (a sub-agent's failure is re-thrown as a
+   * plain Error) and a flag would be dropped on the way. REQUIRED and created with the run, like
+   * `heapAccount`, so every derived context (each a spread) shares the same record.
+   *
+   * Why: rounds 31–34 of the rc.2 reviews each blocked on billing a REFUSED crossing exactly,
+   * because a guest could catch the refusal and loop, turning any imprecision into a repeatable
+   * amplifier. A refusal that ends the run can cost at most one bounded walk.
+   */
+  halt: { error?: AgentError }
   /** The allocation frame of the innermost step executing on this context (see `allocate`). */
   allocFrame?: { bytes: number }
   /**
@@ -691,7 +704,7 @@ export function membraneValue(
     const { v, depth } = stack.pop()!
     if (v === null || v === undefined) {
       bytes += 8
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       continue
     }
     const vt = typeof v
@@ -704,14 +717,14 @@ export function membraneValue(
     }
     if (vt === 'string') {
       bytes += (v as string).length * 2 + 8
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       continue
     }
     if (vt !== 'object') {
       // number / boolean — a large array/Map/Set of primitives must still be
       // budgeted, so check here too (this branch used to `continue` unchecked).
       bytes += 8
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       continue
     }
     if (depth > MEMBRANE_MAX_DEPTH) {
@@ -724,7 +737,7 @@ export function membraneValue(
     if (seen.has(v)) continue // cycle / shared ref — structuredClone preserves it; don't recount
     seen.add(v)
     bytes += 16
-    if (bytes > maxBytes) return overBudget(maxBytes)
+    if (bytes > maxBytes) return overBudget(maxBytes, bytes)
     if (Array.isArray(v)) {
       // `Object.keys` on an array yields its indices AND any non-index own enumerable
       // property. Both are needed: the index branch was hardened separately and the
@@ -745,15 +758,15 @@ export function membraneValue(
       bytes = own.bytes
     } else if (v instanceof Date) {
       bytes += 32 // fixed-size builtin
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
     } else if (ArrayBuffer.isView(v)) {
       // TypedArray / DataView — charge the REAL backing size, not a flat
       // estimate: a 500MB Uint8Array must not cross a small budget.
       bytes += (v as ArrayBufferView).byteLength
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
     } else if (v instanceof ArrayBuffer) {
       bytes += v.byteLength
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
     } else if (v instanceof Map || v instanceof Set) {
       // Walk entries so a large collection is both budgeted and kind-checked (a value
       // could itself be a function / host ref). structuredClone clones keys and values,
@@ -780,14 +793,21 @@ export function membraneValue(
         }
       }
       bytes += 16
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       // `.call` on the intrinsic method, driven by hand — never `for…of`, which would
       // consult the object's own `Symbol.iterator` again.
       const it = isMap
         ? Map.prototype.entries.call(v as Map<any, any>)
         : Set.prototype.values.call(v as Set<any>)
       const next = it.next.bind(it)
+      // Checked PER ENTRY: every queued value costs at least 8, so the walk stops at its budget
+      // instead of queueing a million entries first (cumulative review 8). The iterator is lazy,
+      // so stopping here stops the work.
+      let queued = 0
       for (let step = next(); !step.done; step = next()) {
+        queued += isMap ? 2 : 1
+        if (bytes + queued * 8 > maxBytes)
+          return overBudget(maxBytes, bytes + queued * 8)
         if (isMap) {
           const [mk, mv] = step.value as [any, any]
           stack.push({ v: mk, depth: depth + 1 })
@@ -815,10 +835,10 @@ export function membraneValue(
           reason: `capability return contains an instance of ${name}; only plain data crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
         }
       }
-      const own = readOwnData(v)
-      if (!own.ok) return { ...own, walked: bytes + own.walked }
+      const own = readOwnData(v, bytes, maxBytes)
+      if (!own.ok) return own
       bytes += own.bytes
-      if (bytes > maxBytes) return overBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       for (const value of own.values) stack.push({ v: value, depth: depth + 1 })
     }
   }
@@ -866,15 +886,18 @@ export function membraneValue(
  * the highest-stakes file in the repo is review burden for nothing, and the kind of pair
  * that drifts the moment someone improves the wording of one.
  */
-function overBudget(maxBytes: number): {
+function overBudget(
+  maxBytes: number,
+  walked: number
+): {
   ok: false
   reason: string
   walked: number
 } {
   return {
     ok: false,
-    // the walk stops the moment it passes its budget, so it read the budget
-    walked: maxBytes,
+    // the bytes actually tallied when it stopped: one definition of `walked` on every path
+    walked,
     reason: `the value exceeds the ${maxBytes}-byte membrane budget`,
   }
 }
@@ -918,7 +941,8 @@ function readArrayData(
     stack.push({ v: d.value, depth: depth + 1 })
     pushed++
     indexCount++
-    if (bytes + pushed * 8 > maxBytes) return overBudget(maxBytes)
+    if (bytes + pushed * 8 > maxBytes)
+      return overBudget(maxBytes, bytes + pushed * 8)
   }
 
   // Everything the index scan did not reach, plus every non-index own property. When the
@@ -942,7 +966,8 @@ function readArrayData(
     // charged. An index is a slot and is not.
     if (asIndex < 0) bytes += k.length * 2 + 8
     else indexCount++
-    if (bytes + pushed * 8 > maxBytes) return overBudget(maxBytes)
+    if (bytes + pushed * 8 > maxBytes)
+      return overBudget(maxBytes, bytes + pushed * 8)
   }
 
   // HOLES ARE NOT FREE, because `structuredClone` reproduces `length`.
@@ -962,7 +987,7 @@ function readArrayData(
   const holes = len - indexCount
   if (holes > 0) {
     bytes += holes * 8
-    if (bytes > maxBytes) return overBudget(maxBytes)
+    if (bytes > maxBytes) return overBudget(maxBytes, bytes)
   }
 
   return { ok: true, bytes }
@@ -1004,13 +1029,20 @@ function isArrayIndex(k: string): boolean {
 }
 
 function readOwnData(
-  v: object
+  v: object,
+  startBytes: number,
+  maxBytes: number
 ):
   | { ok: true; values: unknown[]; bytes: number }
   | { ok: false; reason: string; walked: number } {
   const values: unknown[] = []
   let bytes = 0
-  for (const k of Object.keys(v)) {
+  // `Object.keys` is the one step that cannot stop early: its work is billed if the walk refuses
+  // (each key at least 8), so a refusal of a 300k-key object reports what enumerating it cost
+  // (cumulative review 8). Accepted values are priced as before: keys by name, values when popped.
+  const keys = Object.keys(v)
+  const enumerated = keys.length * 8
+  for (const k of keys) {
     const d = Object.getOwnPropertyDescriptor(v, k)
     // An array's key list is its INDICES plus any non-index own property, and only the
     // latter is a name that crosses. `structuredClone` copies an element as a slot; the
@@ -1029,11 +1061,15 @@ function readOwnData(
     if (d && (d.get || d.set)) {
       return {
         ok: false,
-        walked: bytes,
+        walked: startBytes + Math.max(bytes, enumerated),
         reason: `capability return has an accessor property '${k}'; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
     bytes += k.length * 2 + 8
+    // Stop at the budget per key (each costs at least 8) instead of reading every descriptor of
+    // a huge object first. Only the KEY bytes are counted here, so what is accepted is unchanged.
+    if (startBytes + bytes > maxBytes)
+      return overBudget(maxBytes, startBytes + Math.max(bytes, enumerated))
     values.push(d ? d.value : undefined)
   }
   return { ok: true, values, bytes }
@@ -4815,14 +4851,23 @@ export function egressValue(
   // (cumulative reviews 6 and 7). A bill must never depend on the refusal's reason or outcome.
   const fuelAtEntry = ctx.fuel?.current ?? 0
   let walked = 0
+  // Every refusal here ENDS THE RUN (`haltRun`): see `RuntimeContext.halt`.
   const bill = (error: unknown): never => {
-    if (ctx.fuel) {
+    // Unlimited fuel (`fuel: Infinity`) has nothing to bill: Infinity − Infinity is NaN, and a
+    // NaN meter read as exhausted (cumulative review 8).
+    if (ctx.fuel && Number.isFinite(ctx.fuel.current)) {
       const spent = fuelAtEntry - ctx.fuel.current
       const owed = Math.max(0, walked * FUEL_PER_ALLOCATED_BYTE - spent)
       ctx.fuel.current = Math.max(0, ctx.fuel.current - owed)
-      if (ctx.fuel.current <= 0) throw new AgentError('Out of Fuel', op)
+      if (ctx.fuel.current <= 0)
+        throw haltRun(ctx, new AgentError('Out of Fuel', op))
     }
-    throw error
+    throw haltRun(
+      ctx,
+      error instanceof AgentError
+        ? error
+        : new AgentError(String((error as any)?.message ?? error), op)
+    )
   }
   let crossed: MembraneResult
   try {
@@ -4841,6 +4886,12 @@ export function egressValue(
   return crossed.value
 }
 
+/** Ends the run with `error` (the first halt wins) and returns it to be thrown. */
+function haltRun(ctx: RuntimeContext, error: AgentError): AgentError {
+  if (ctx.halt && !ctx.halt.error) ctx.halt.error = error
+  return ctx.halt?.error ?? error
+}
+
 /**
  * `egressValue` for an atom the VM resolved: the copy is then validated against the atom's
  * DECLARED input schema (whose size is the host's, and whose input has been paid for). Pure atoms
@@ -4857,9 +4908,12 @@ function egressInput(
   const schema = ioSchemaOf(atom, op)
   const copy = egressValue(ctx, op, withoutControlKeys(resolved))
   if (!validate(copy, schema as any))
-    throw new AgentError(
-      `'${op}': its input does not have the shape the atom declares`,
-      op
+    throw haltRun(
+      ctx,
+      new AgentError(
+        `'${op}': its input does not have the shape the atom declares`,
+        op
+      )
     )
   const out: Record<string, any> = Object.assign(Object.create(null), copy)
   for (const key of STEP_CONTROL_KEYS)
@@ -4886,9 +4940,17 @@ const SCHEMA_MAP_KEYWORDS = new Set([
   '$defs',
   'definitions',
   'dependentSchemas',
+  'dependencies', // draft-07: name → schema or name list
 ])
 /** Keywords whose value is data, not a schema. */
-const SCHEMA_DATA_KEYWORDS = new Set(['enum', 'const', 'default', 'examples'])
+const SCHEMA_DATA_KEYWORDS = new Set([
+  'enum',
+  'const',
+  'default',
+  'examples',
+  'dependentRequired', // name → list of names: a property called 'pattern' is not the keyword
+  'required',
+])
 
 /**
  * An IO atom's input schema is ADMITTED when the atom is defined (Tonio, 2026-10-04), and the
@@ -4983,6 +5045,8 @@ function admitIoInputSchema(op: string, inputSchema: unknown): unknown {
 
 /** The admitted input schema of each IO atom: the only one its calls are validated against. */
 const IO_SCHEMAS = new WeakMap<object, unknown>()
+/** IO atoms whose late admission (`ioSchemaOf`) was refused, with why. */
+const IO_SCHEMA_REFUSALS = new WeakMap<object, Error>()
 
 /**
  * The schema an IO atom's calls are validated against. Admitted at `defineAtom`; an atom tagged
@@ -4990,9 +5054,17 @@ const IO_SCHEMAS = new WeakMap<object, unknown>()
  * refuses the call. Never read from `atom.inputSchema`, which the host can still change.
  */
 function ioSchemaOf(atom: AtomDef, op: string): unknown {
+  const refused = IO_SCHEMA_REFUSALS.get(atom)
+  if (refused) throw refused
   let schema = IO_SCHEMAS.get(atom)
   if (schema === undefined) {
-    schema = admitIoInputSchema(op, atom.inputSchema)
+    try {
+      schema = admitIoInputSchema(op, atom.inputSchema)
+    } catch (e) {
+      // remembered, so a refused atom is not re-walked on every call
+      IO_SCHEMA_REFUSALS.set(atom, e as Error)
+      throw e
+    }
     IO_SCHEMAS.set(atom, schema)
   }
   return schema
@@ -5084,6 +5156,13 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           }
           local[op] = used + 1
           ctx.quotaUsed[op] = used + 1
+        }
+
+        // 1a. A HALTED run takes no further steps: a refusal at the capability boundary ended it
+        // (`RuntimeContext.halt`), and no catch block, parent step or sub-agent step runs after.
+        if (ctx.halt?.error) {
+          ctx.error = ctx.halt.error
+          return
         }
 
         // 1b. An aborted run takes no further steps. `vm.run` stops WAITING when its deadline
