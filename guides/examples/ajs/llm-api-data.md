@@ -10,7 +10,7 @@ function findCovers({ song = 'Yesterday', artist = 'Beatles' }) {
   let query = song + ' ' + artist
   let url =
     'https://itunes.apple.com/search?term=' + query + '&limit=25&media=music'
-  let response = httpFetch({ url, cache: 3600 })
+  let response = httpFetch({ url })
 
   // Format results for LLM analysis
   let results = response.results || []

@@ -124,18 +124,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > or pass smaller arguments. A guest-program fuzzer (`src/vm/guest-fuzz.test.ts`) now checks the
 > invariants over random programs.
 >
-> **Since rc.1 — AsyncJS atoms take named arguments (breaking).** A call to an atom is a single
-> object literal, `storeSet({ key, value })`, or no arguments, `random()`. Anything else, such as
-> `storeSet('k', v)`, `agentRun(id, input)` or `foo(opts)`, fails at transpile time and names the
-> shape that works. It used to compile, and an atom with named inputs then ran with every input
-> undefined and reported success. Local functions and `Error('message')` keep positional
-> arguments. The rule is checked on the source SYNTAX and nowhere else: the AST encodes
-> `foo(a, b)` as an input named `args`, which cannot be told apart from `foo({ args: [a, b] })`,
-> so the VM runs every AST as written. Four review rounds tried to decide positional versus
-> named in the VM from each atom's schema. Each broke a call that worked (`random()`, an
-> `args: s.any` atom, runCode's named `args`), so the decision moved to the one place that can
-> see it. **Embedders:** an atom you called positionally (an `args` input) is now called
-> `foo({ args: [a, b] })`.
+> **Since rc.1 — AsyncJS checks every atom call against the atom's declared inputs (breaking).**
+> A call to an atom is a single object literal, `storeSet({ key, value })`, or no arguments,
+> `random()`. The transpiler now refuses, with a message naming what the atom takes:
+> - a positional call (`storeSet('k', v)`, `foo(opts)`);
+> - a spread (`foo({ ...opts })`, which was silently dropped);
+> - an input the atom does not declare (`httpFetch({ url, cache })`; four playground examples
+>   asked for a `cache` that `httpFetch` never had);
+> - a missing required input.
+>
+> These all used to compile and run the atom with inputs undefined, reporting success. Core atoms
+> are checked from a table generated from their schemas (`src/vm/core-atom-inputs.ts`). Pass your
+> own atoms to check calls to them too: `transpile(src, { atoms: vm.atoms })`. Local functions
+> and `Error('message')` keep positional arguments. **The VM does not check parameters; it runs
+> an AST as written.** Its job is to be correct and safe; preventing bad code is the
+> transpiler's job (Tonio). An AST built by hand or by another front end is that producer's
+> responsibility. Four review rounds tried to make the VM decide what a call meant from each
+> atom's schema, and each broke a call that worked. **Embedders:** an atom you called
+> positionally (an `args` input) is now called `foo({ args: [a, b] })`.
 >
 > **Since rc.1 — the AsyncJS value domain is closed (breaking).** A guest value is data — JSON
 > values, with the VM's own Set, Date and regex as data (above) — and never a host function or a builtin

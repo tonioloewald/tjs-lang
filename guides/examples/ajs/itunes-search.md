@@ -12,7 +12,7 @@ function searchMusic({ query = 'Beatles', limit = 5 }) {
     '&limit=' +
     limit +
     '&media=music'
-  let response = httpFetch({ url, cache: 3600 })
+  let response = httpFetch({ url })
   let tracks = response.results.map((x) => ({
     artist: x.artistName,
     track: x.trackName,

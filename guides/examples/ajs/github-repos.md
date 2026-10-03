@@ -12,7 +12,7 @@ function searchRepos({ query = 'tosijs', perPage = 5 }) {
     '&per_page=' +
     perPage +
     '&sort=stars'
-  let response = httpFetch({ url, cache: 300 })
+  let response = httpFetch({ url })
   let repos = response.items.map((x) => ({
     name: x.full_name,
     stars: x.stargazers_count,

@@ -4,6 +4,7 @@
  * Converts parsed JavaScript into Agent99's JSON AST format.
  */
 
+import { CORE_ATOM_INPUTS } from '../../vm/core-atom-inputs'
 import type {
   Statement,
   Expression,
@@ -1407,6 +1408,11 @@ function transformCallExpression(
     expr.arguments.length === 0 ||
     (expr.arguments.length === 1 &&
       expr.arguments[0].type === 'ObjectExpression')
+  // `foo()` has no inputs: no `args` key, which would otherwise land in an atom's named input
+  // that happens to be called `args` (rc.2 twenty-second re-review B1). Positional builtins keep
+  // their empty list.
+  if (expr.arguments.length === 0 && !POSITIONAL_BUILTINS.has(funcName))
+    delete args.args
   if (!named && !POSITIONAL_BUILTINS.has(funcName)) {
     throw new TranspileError(
       `'${funcName}' takes named arguments: write ${funcName}({ name: value, … }), not ${funcName}(a, b). ` +
@@ -1416,6 +1422,8 @@ function transformCallExpression(
       ctx.filename
     )
   }
+
+  checkAtomInputs(funcName, args, expr, ctx)
 
   return {
     step: {
@@ -2304,6 +2312,65 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
 /**
  * Extract call arguments from a call expression
  */
+/** An atom's declared inputs: the host's own schema when it passed `atoms`, else the core table. */
+function atomInputs(
+  name: string,
+  ctx: TransformContext
+): { keys: readonly string[]; required: readonly string[] } | undefined {
+  const host = (ctx.options as any)?.atoms?.[name]
+  if (host) {
+    const sc = (host.inputSchema as any)?.schema ?? host.inputSchema
+    const props = sc?.properties
+    // a schema that declares no properties (or no schema) declares no key contract
+    if (
+      !props ||
+      typeof props !== 'object' ||
+      sc.additionalProperties !== false
+    )
+      return undefined
+    return {
+      keys: Object.keys(props),
+      required: Array.isArray(sc.required) ? sc.required : [],
+    }
+  }
+  return Object.hasOwn(CORE_ATOM_INPUTS, name)
+    ? CORE_ATOM_INPUTS[name]
+    : undefined
+}
+
+/**
+ * An atom call is checked against the atom's DECLARED inputs, here, where the mistake can be
+ * explained (Tonio, 2026-10-03: "it's AJS's job to prevent you from writing code with bad
+ * parameters"; the VM runs an AST as written). Before, a misspelled or missing input ran the
+ * atom with it undefined and reported success — `httpFetch({ url, cache })` in four playground
+ * examples asked for caching that never existed.
+ */
+function checkAtomInputs(
+  name: string,
+  args: Record<string, unknown>,
+  expr: CallExpression,
+  ctx: TransformContext
+): void {
+  if (POSITIONAL_BUILTINS.has(name)) return
+  const contract = atomInputs(name, ctx)
+  if (!contract) return
+  const shape = `${name}({ ${contract.keys.join(', ')} })`
+  const fail = (message: string) => {
+    throw new TranspileError(
+      message,
+      getLocation(expr),
+      ctx.source,
+      ctx.filename
+    )
+  }
+  for (const k of Object.keys(args))
+    if (!contract.keys.includes(k))
+      fail(`'${name}' has no input '${k}'. It takes ${shape}`)
+  for (const k of contract.required)
+    if (!Object.hasOwn(args, k))
+      fail(`'${name}' needs '${k}'. It takes ${shape}`)
+}
+
 /** Builtins called positionally that the generic atom path emits (`Error('message')`). */
 const POSITIONAL_BUILTINS: ReadonlySet<string> = new Set(['Error'])
 
@@ -2320,10 +2387,18 @@ function extractCallArguments(
     const result: Record<string, any> = {}
 
     for (const prop of obj.properties) {
-      if (prop.type === 'Property') {
-        const key = propertyKeyName(prop, ctx)
-        result[key] = expressionToValue(prop.value as Expression, ctx)
+      if (prop.type !== 'Property') {
+        // A spread was DROPPED here, silently: `foo({ ...opts })` ran with no inputs and reported
+        // success (rc.2 twenty-second re-review B2). An atom's inputs are written out by name.
+        throw new TranspileError(
+          `A spread is not supported in an atom call: name each input, e.g. foo({ a: opts.a, b: opts.b })`,
+          getLocation(prop as any),
+          ctx.source,
+          ctx.filename
+        )
       }
+      const key = propertyKeyName(prop, ctx)
+      result[key] = expressionToValue(prop.value as Expression, ctx)
     }
 
     return result

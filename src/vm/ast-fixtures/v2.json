@@ -826,7 +826,6 @@
       "steps": [
         {
           "op": "random",
-          "args": [],
           "result": "r",
           "resultConst": true
         },

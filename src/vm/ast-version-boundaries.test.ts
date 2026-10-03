@@ -78,7 +78,7 @@ describe('behaviour: every boundary refuses a format it cannot read', () => {
     const result = await vm.run(
       {
         op: 'seq',
-        steps: [{ op: 'storeProcedure', ast: FUTURE, as: 'tok' }],
+        steps: [{ op: 'storeProcedure', ast: FUTURE, result: 'tok' }],
       } as any,
       {}
     )

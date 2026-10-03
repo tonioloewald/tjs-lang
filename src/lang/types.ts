@@ -122,8 +122,12 @@ export interface TranspileOptions {
   maxSourceBytes?: number
   /** Include source locations in output AST */
   sourceMaps?: boolean
-  /** Atom registry for validation (optional) */
-  atoms?: Record<string, { op: string }>
+  /**
+   * The host's atoms (e.g. `vm.atoms`). Each atom call is checked against its declared
+   * `inputSchema` (input names and required inputs), so a bad parameter fails HERE, with a message,
+   * rather than running. Core atoms are checked without this; pass it for your own atoms.
+   */
+  atoms?: Record<string, { op: string; inputSchema?: unknown }>
   /** Filename for error messages */
   filename?: string
   /** Whether to use strict type checking */

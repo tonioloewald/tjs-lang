@@ -12,7 +12,7 @@ function getWeather({ lat = 37.7749, lon = -122.4194 }) {
     '&longitude=' +
     lon +
     '&current_weather=true'
-  let response = httpFetch({ url, cache: 1800 })
+  let response = httpFetch({ url })
   let weather = response.current_weather
   return { weather }
 }

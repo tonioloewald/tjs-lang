@@ -120,7 +120,7 @@ export const examples: Example[] = [
     group: 'api',
     code: `function getWeather({ lat = 37.7749, lon = -122.4194 }) {
   let url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&current_weather=true'
-  let response = httpFetch({ url, cache: 1800 })
+  let response = httpFetch({ url })
   let weather = response.current_weather
   return { weather }
 }`,
@@ -131,7 +131,7 @@ export const examples: Example[] = [
     group: 'api',
     code: `function searchMusic({ query = 'Beatles', limit = 5 }) {
   let url = 'https://itunes.apple.com/search?term=' + query + '&limit=' + limit + '&media=music'
-  let response = httpFetch({ url, cache: 3600 })
+  let response = httpFetch({ url })
   let tracks = response.results.map(x => ({
     artist: x.artistName,
     track: x.trackName,
@@ -146,7 +146,7 @@ export const examples: Example[] = [
     group: 'api',
     code: `function searchRepos({ query = 'tosijs', perPage = 5 }) {
   let url = 'https://api.github.com/search/repositories?q=' + query + '&per_page=' + perPage + '&sort=stars'
-  let response = httpFetch({ url, cache: 300 })
+  let response = httpFetch({ url })
   let repos = response.items.map(x => ({
     name: x.full_name,
     stars: x.stargazers_count,
@@ -212,7 +212,7 @@ export const examples: Example[] = [
   // Search iTunes for the song
   let query = song + ' ' + artist
   let url = 'https://itunes.apple.com/search?term=' + query + '&limit=25&media=music'
-  let response = httpFetch({ url, cache: 3600 })
+  let response = httpFetch({ url })
 
   // Format results for LLM analysis
   let results = response.results || []

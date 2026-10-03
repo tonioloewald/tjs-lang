@@ -33,16 +33,26 @@ const loose = defineAtom(
   async ({ args }: { args?: unknown }) => args ?? 'none',
   { effects: 'pure' }
 )
-const atoms = { greet, loose } as any
+// a named input that happens to be called `args`, optional (as runCode's is)
+const withArgs = defineAtom(
+  'withArgs',
+  s.object({ code: s.string.optional, args: s.record(s.any).optional }),
+  s.any,
+  async ({ args }: { args?: Record<string, unknown> }) => args ?? 'none',
+  { effects: 'pure' }
+)
+const atoms = { greet, loose, withArgs } as any
 
 const RUNS: Array<[string, string, unknown]> = [
   ['named call', "greet({ name: 'ann' })", 'hi ann'],
   ['empty call', 'greet()', 'hi you'],
   ['core atom, empty call', 'random() >= 0 ? 1 : 1', 1],
   ['named call to an input called args', 'loose({ args: [1, 2] })', [1, 2]],
+  ['empty call to an atom with a named `args` input', 'withArgs()', 'none'],
 ]
 
 const REFUSED_AT_TRANSPILE: Array<[string, string]> = [
+  ['a spread in an atom call', 'greet({ ...opts })'],
   ['positional values to a named atom', "greet('ann')"],
   ['positional values to an untyped args atom', 'loose(1, 2, 3)'],
   ['positional values to a core atom', "storeSet('k', 1)"],
@@ -63,7 +73,7 @@ for (const [label, VM] of [
         const src = call.includes('?')
           ? `function f() { const r = random()\n return { v: r >= 0 ? 1 : 1 } }`
           : `function f() { const v = ${call}\n return { v } }`
-        const r = await run(transpile(src).ast)
+        const r = await run(transpile(src, { atoms }).ast)
         expect(r.error).toBeUndefined()
         expect(r.result).toEqual({ v: want })
       })
@@ -101,7 +111,72 @@ describe('the transpiler refuses a positional atom call, naming the shape that w
   for (const [cell, call] of REFUSED_AT_TRANSPILE)
     it(cell, () => {
       expect(() =>
-        transpile(`function f(opts) { const v = ${call}\n return { v } }`)
-      ).toThrow(/takes named arguments: write \w+\(\{ name: value, … \}\)/)
+        transpile(`function f(opts) { const v = ${call}\n return { v } }`, {
+          atoms,
+        })
+      ).toThrow(/takes named arguments|spread is not supported/)
+    })
+})
+
+describe("the transpiler checks an atom call against the atom's declared inputs", () => {
+  const compile =
+    (call: string, opts: any = {}) =>
+    () =>
+      transpile(`function f() { const v = ${call}\n return { v } }`, opts)
+
+  it('core atom: an input it does not have', () => {
+    expect(compile("storeSet({ key: 'k', val: 1 })")).toThrow(
+      /'storeSet' has no input 'val'\. It takes storeSet\(\{ key, value \}\)/
+    )
+  })
+  it('core atom: a required input missing', () => {
+    expect(compile('storeSet({ value: 1 })')).toThrow(
+      /'storeSet' needs 'key'\. It takes storeSet\(\{ key, value \}\)/
+    )
+  })
+  it("the playground's old httpFetch({ url, cache }) — an input that never existed", () => {
+    expect(compile("httpFetch({ url: 'u', cache: 60 })")).toThrow(
+      /'httpFetch' has no input 'cache'/
+    )
+  })
+  it('host atom: checked against its own schema when the host passes { atoms }', () => {
+    expect(compile("greet({ nam: 'x' })", { atoms })).toThrow(
+      /'greet' has no input 'nam'\. It takes greet\(\{ name \}\)/
+    )
+    // without the registry the transpiler cannot know the atom, and does not guess
+    expect(compile("greet({ nam: 'x' })")).not.toThrow()
+  })
+  it('a host atom overrides a core atom of the same name', () => {
+    const storeSet = defineAtom(
+      'storeSet',
+      s.object({ k: s.string }),
+      s.any,
+      async () => null
+    )
+    expect(
+      compile("storeSet({ k: 'x' })", { atoms: { storeSet } })
+    ).not.toThrow()
+  })
+
+  // The VM runs an AST as written (Tonio, 2026-10-03: correctness and safety are the VM's job;
+  // preventing bad parameters is the transpiler's). Hand-built: the transpiler cannot write it.
+  for (const [label, VM] of [
+    ['vm', AgentVM],
+    ['vm-ast', AstVM],
+  ] as const)
+    it(`${label}: a hand-built step with an undeclared input runs as written`, async () => {
+      const r = await new (VM as any)(atoms).run(
+        {
+          op: 'seq',
+          steps: [
+            { op: 'greet', nam: 'x', result: 'v' },
+            { op: 'return', value: { v: 'v' } },
+          ],
+        },
+        {},
+        { fuel: 100 }
+      )
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ v: 'hi you' })
     })
 })

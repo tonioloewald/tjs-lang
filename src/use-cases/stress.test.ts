@@ -359,8 +359,7 @@ describe('Capability Failure Modes', () => {
       steps: [
         {
           op: 'llmPredict',
-          system: 'You are helpful',
-          user: 'Hello',
+          prompt: 'Hello',
           result: 'response',
         },
         { op: 'return', schema: {} },
@@ -388,8 +387,7 @@ describe('Capability Failure Modes', () => {
       steps: [
         {
           op: 'llmPredict',
-          system: 'You are helpful',
-          user: 'Hello',
+          prompt: 'Hello',
           result: 'response',
         },
         {

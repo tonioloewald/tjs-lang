@@ -258,8 +258,13 @@ let fallback = a || defaultValue
 let nullish = a ?? defaultValue
 ```
 
-**Atoms take named arguments.** Call an atom with one object literal, `storeSet({ key, value })`,
-or with nothing, `random()`. A positional call fails at transpile time: `storeSet('k', v)` (refused). Your own functions (local helpers) and builtins (`Math.max(a, b)`, `Error('message')`) take
+**Atoms take named arguments, and the transpiler checks them.** Call an atom with one object
+literal, `storeSet({ key, value })`, or with nothing, `random()`. A positional call, a spread, an
+input the atom does not declare, or a missing required input fails at transpile time and names what
+the atom takes: `storeSet('k', v)` (refused). Core atoms are always checked; pass your own atoms to
+check calls to them too: `transpile(src, { atoms: vm.atoms })`. The VM itself does not check
+parameters. It runs an AST as written, so an AST built by hand or by another front end must get
+them right. Your own functions (local helpers) and builtins (`Math.max(a, b)`, `Error('message')`) take
 positional arguments as usual.
 
 **Functions and namespaces are not values.** Call them; don't hold them. `Math.max(a, b)` and
