@@ -75,7 +75,11 @@ function createAgentServer(): Server {
             fuel: 1000,
             context: {
               requestDepth: depth,
-              allowedFetchDomains: ['localhost', '127.0.0.1'],
+              allowedFetchDomains: [
+                `localhost:${TEST_PORT}`,
+                `127.0.0.1:${TEST_PORT}`,
+              ],
+              allowedFetchMethods: ['POST'],
             },
             capabilities: {
               // Use default fetch which has depth protection
@@ -342,7 +346,8 @@ describe('Fetch Domain Allowlist', () => {
       {
         fuel: 100,
         context: {
-          allowedFetchDomains: ['localhost'],
+          // an entry admits only the default port unless it names one
+          allowedFetchDomains: [`localhost:${TEST_PORT}`],
         },
       }
     )

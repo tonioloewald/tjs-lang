@@ -940,17 +940,32 @@ These property names are blocked to prevent prototype pollution:
 - `constructor`
 - `prototype`
 
-### SSRF Protection
+### Fetching (httpFetch)
 
-The `httpFetch` atom can be configured with:
+The built-in `httpFetch` is a **demonstration** capability, highly constrained by default. A real
+deployment supplies its own `fetch` capability. Either way, the agent's REQUEST is admitted the
+same way:
+- **Methods:** GET and HEAD by default. A host enables more for a run with
+  `context.allowedFetchMethods`. CONNECT, TRACE and TRACK are never admitted.
+- **Headers:** a closed list: `Accept`, `Accept-Language`, `Authorization`, `Cache-Control`,
+  `Content-Language`, `Content-Type`, the `If-*` validators, `Range`, `User-Agent`, `X-API-Key`,
+  `X-Request-Id`, `X-Correlation-Id`, `X-Requested-With`. A host adds names with
+  `context.allowedRequestHeaders`. `X-Agent-Depth` belongs to the VM and is never admitted.
 
-- Allowlisted hosts only
-- Blocked private IP ranges
-- Request signing requirements
+The built-in client also:
+- needs `context.allowedFetchDomains`, and without it nothing is fetched. An entry admits the
+  default port only (`api.example.com`) unless it names one (`api.example.com:8443`); `*.example.com`
+  matches subdomains;
+- fetches only `http:` and `https:`;
+- **follows no redirects**: a redirect returns `{ redirect: true, status, location }` (location
+  absolute; null in a browser), and fetching it is a new, separately admitted request;
+- sends no browser cookies or HTTP auth;
+- reads the body under `membraneMaxBytes`.
 
-### ReDoS Protection
+### Regular expressions
 
-Suspicious regex patterns are rejected before execution.
+Guest regexes run on the VM's own linear, metered engine (no backtracking, so no catastrophic
+patterns). Regex is deprecated in AsyncJS 0.14 in favour of `Pattern` (see `docs/pattern.md`).
 
 ### Execution Tracing
 

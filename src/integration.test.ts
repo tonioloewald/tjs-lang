@@ -67,7 +67,8 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
     const resultDenied = await VM.run(
       ast,
       { userId: '123', amount: 600 },
-      { capabilities: caps }
+      // the host's fetch POSTs, so the host enables POST for the run (GET/HEAD by default)
+      { capabilities: caps, context: { allowedFetchMethods: ['POST'] } }
     )
 
     expect(resultDenied.result.approved).toBe(0)
@@ -82,7 +83,8 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
     const resultApproved = await VM.run(
       ast,
       { userId: '123', amount: 100 },
-      { capabilities: caps }
+      // the host's fetch POSTs, so the host enables POST for the run (GET/HEAD by default)
+      { capabilities: caps, context: { allowedFetchMethods: ['POST'] } }
     )
 
     expect(resultApproved.result.approved).toBe(1)

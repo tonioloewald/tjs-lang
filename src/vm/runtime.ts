@@ -6096,8 +6096,10 @@ Security:
 - Requires a `ctx.context.allowedFetchDomains` allowlist (or a custom `fetch` capability); without
   one, every URL is refused. Only `http:`/`https:`; no redirects are followed (a redirect returns
   `{ redirect: true, status, location }`, location absolute; a 304 is a response); a closed list of
-  request headers (`context.allowedRequestHeaders` adds more); the body is read under
-  `membraneMaxBytes`. A custom `fetch` capability gets the guest's headers and method as sent
+  request headers (`context.allowedRequestHeaders` adds more); GET/HEAD only by default
+  (`context.allowedFetchMethods` adds more); an allowlist entry admits the default port unless it
+  names one; the body is read under `membraneMaxBytes`. A DEMONSTRATION capability: real
+  deployments supply their own `fetch`, which gets the same admission of method and headers
 - Automatically adds `X-Agent-Depth` header to prevent recursive agent loops
 - Custom fetch capability can override all restrictions
 */
@@ -6155,9 +6157,21 @@ function isDomainAllowed(urlString: string, allowedDomains: string[]): boolean {
   try {
     const url = new URL(urlString)
     const host = url.hostname.toLowerCase()
+    // `new URL` writes the scheme's default port as '' (Tonio, 2026-10-03): an entry admits only
+    // the default port unless it names one ('api.example.com:8443'). Matching the hostname alone
+    // admitted every port of an allowed host (`:6379`, `:9200`) — rc.2 pre-tag re-review 5.
+    const port = url.port
 
-    for (const pattern of allowedDomains) {
-      const p = pattern.toLowerCase()
+    for (const entry of allowedDomains) {
+      const e = entry.toLowerCase()
+      const colon = e.lastIndexOf(':')
+      const hasPort =
+        colon > 0 && /^\d+$/.test(e.slice(colon + 1)) && !e.endsWith(']')
+      const p = hasPort ? e.slice(0, colon) : e
+      // an entry that names the scheme's default port means the default port
+      const named = hasPort ? e.slice(colon + 1) : ''
+      const defaultPort = url.protocol === 'https:' ? '443' : '80'
+      if ((named === defaultPort ? '' : named) !== port) continue
       if (p.startsWith('*.')) {
         // Wildcard: *.example.com matches sub.example.com and example.com
         const suffix = p.slice(1) // .example.com
@@ -6228,18 +6242,10 @@ function admitHeaders(
       throw new Error(
         `httpFetch: the '${name}' header cannot be set by an agent (allowed: ${[
           ...ALLOWED_REQUEST_HEADERS,
+          ...extra,
         ].join(', ')}; a host adds more with context.allowedRequestHeaders)`
       )
   }
-}
-
-/** The VM owns the depth header: a guest copy, in any letter case, is refused on every path. */
-function refuseDepthHeader(headers: Record<string, string>): void {
-  for (const name of Object.keys(headers))
-    if (name.toLowerCase() === AGENT_DEPTH_HEADER.toLowerCase())
-      throw new Error(
-        `httpFetch: the '${name}' header cannot be set by an agent`
-      )
 }
 
 /** The statuses that redirect (and only with a Location). */
@@ -6247,16 +6253,23 @@ const REDIRECT_STATUSES: ReadonlySet<number> = new Set([
   301, 302, 303, 307, 308,
 ])
 
-/** The request methods an agent may use; CONNECT/TRACE/TRACK reached the wire on Bun. */
-const ALLOWED_FETCH_METHODS: ReadonlySet<string> = new Set([
-  'GET',
-  'HEAD',
-  'POST',
-  'PUT',
-  'PATCH',
-  'DELETE',
-  'OPTIONS',
-])
+/**
+ * The request methods an agent may use BY DEFAULT: read-only (Tonio, 2026-10-03: the built-in fetch
+ * is a demonstration capability, "highly constrained being the default"; a real deployment supplies
+ * its own fetch). A host enables POST, PUT, … for a run with `context.allowedFetchMethods`.
+ * CONNECT/TRACE/TRACK are never admitted (they reached the wire on Bun).
+ */
+const ALLOWED_FETCH_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD'])
+
+/** A method the agent may use: the standard set, plus any the host declared for the run. */
+function admitsMethod(verb: string, hostAllowed: unknown): boolean {
+  if (ALLOWED_FETCH_METHODS.has(verb)) return true
+  if (verb === 'CONNECT' || verb === 'TRACE' || verb === 'TRACK') return false
+  return (
+    Array.isArray(hostAllowed) &&
+    hostAllowed.some((m) => typeof m === 'string' && m.toUpperCase() === verb)
+  )
+}
 
 /**
  * May `httpFetch` request this URL? ONE rule for every request (the built-in fetch follows no
@@ -6372,7 +6385,25 @@ export const fetch = defineAtom(
       )
     )
       throw new Error("httpFetch's headers must be an object of strings")
-    refuseDepthHeader(headers as Record<string, string>)
+    // ONE admission of the agent's REQUEST, whoever sends it (Tonio, 2026-10-03): the headers and
+    // the method are what an agent may ASK for, not properties of the transport. Applying them to
+    // the built-in client only (round 24) handed a host's own fetch the agent's raw Host, Cookie
+    // and PROPFIND, and the documented host patterns forward `init` unchanged (rc.2 pre-tag
+    // re-review 5). A host that needs more DECLARES it for the run.
+    admitHeaders(
+      headers as Record<string, string>,
+      ctx.context?.allowedRequestHeaders
+    )
+    const verb = method === undefined ? undefined : String(method).toUpperCase()
+    if (
+      verb !== undefined &&
+      !admitsMethod(verb, ctx.context?.allowedFetchMethods)
+    )
+      throw new Error(
+        `httpFetch: method '${method}' is not allowed (use ${[
+          ...ALLOWED_FETCH_METHODS,
+        ].join(', ')}; a host adds more with context.allowedFetchMethods)`
+      )
 
     // Get current depth from context (set by receiving endpoint)
     const currentDepth: number = ctx.context?.requestDepth ?? 0
@@ -6390,7 +6421,7 @@ export const fetch = defineAtom(
       // value below cannot be shadowed).
       // Pass depth info so it can add the header
       return ctx.capabilities.fetch(url, {
-        method,
+        method: verb,
         headers: {
           ...headers,
           [AGENT_DEPTH_HEADER]: String(currentDepth + 1),
@@ -6401,19 +6432,7 @@ export const fetch = defineAtom(
       })
     }
 
-    // The BUILT-IN client's own admission: the request headers, the method, then the URL (one
-    // rule for every request; rc.2 pre-tag reviews)
-    admitHeaders(
-      headers as Record<string, string>,
-      ctx.context?.allowedRequestHeaders
-    )
-    const verb = method === undefined ? undefined : String(method).toUpperCase()
-    if (verb !== undefined && !ALLOWED_FETCH_METHODS.has(verb))
-      throw new Error(
-        `httpFetch: method '${method}' is not allowed (use ${[
-          ...ALLOWED_FETCH_METHODS,
-        ].join(', ')})`
-      )
+    // The built-in client's URL admission (one rule for every request)
     const allowedDomains: string[] | undefined =
       ctx.context?.allowedFetchDomains
     admitFetchUrl(url, allowedDomains)

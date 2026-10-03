@@ -55,8 +55,13 @@ const server = Bun.serve({
 })
 afterAll(() => server.stop(true))
 const base = `http://127.0.0.1:${server.port}`
+// allowlist entries name the fixture servers' ports (an entry admits only the default port
+// otherwise); POST/PUT are enabled for the rows that need them — the default is GET/HEAD
 const allow = {
-  context: { allowedFetchDomains: ['127.0.0.1', 'api.github.com'] },
+  context: {
+    allowedFetchDomains: [`127.0.0.1:${server.port}`, 'api.github.com'],
+    allowedFetchMethods: ['POST', 'PUT', 'PATCH'],
+  },
 }
 
 describe('B1: the scheme is admitted in allowlist mode too', () => {
@@ -221,6 +226,8 @@ afterAll(() => {
   origin.stop(true)
 })
 const A = `http://127.0.0.1:${origin.port}`
+// origin A is allowed; origin B (the other server) is deliberately NOT on the allowlist
+allow.context.allowedFetchDomains.push(`127.0.0.1:${origin.port}`)
 const fetchWith = (url: string, extra: string) =>
   `function f() { const v = httpFetch({ url: ${JSON.stringify(
     url
@@ -526,29 +533,49 @@ describe('round 24: a closed header list, widened only by the host; allowlists b
       /header cannot be set by an agent/
     )
   })
-  it("a host's own fetch receives the guest's headers and method; only the depth header is refused", async () => {
+  it("a host's own fetch gets the SAME admission: undeclared headers and methods are refused", async () => {
     const got: any[] = []
     const caps = {
-      fetch: async (url: string, init: any) => {
+      fetch: async (_url: string, init: any) => {
         got.push(init)
         return 'ok'
       },
     }
-    const ok = await run(
+    const bad = await run(
       fetchWith(
         'https://x.test/',
         `, method: 'PROPFIND', headers: { Cookie: 'c=1' }`
       ),
       { capabilities: caps }
     )
+    expect(bad.error?.message ?? 'admitted').toMatch(
+      /cannot be set by an agent|not allowed/
+    )
+    expect(got.length).toBe(0)
+    // the host DECLARES what its own fetch needs, and then the agent may ask for it
+    const ok = await run(
+      fetchWith(
+        'https://x.test/',
+        `, method: 'propfind', headers: { Cookie: 'c=1' }`
+      ),
+      {
+        capabilities: caps,
+        context: {
+          allowedRequestHeaders: ['Cookie'],
+          allowedFetchMethods: ['PROPFIND'],
+        },
+      }
+    )
     expect(ok.error).toBeUndefined()
     expect(got[0].method).toBe('PROPFIND')
     expect(got[0].headers.Cookie).toBe('c=1')
-    const bad = await run(
+    const depth = await run(
       fetchWith('https://x.test/', `, headers: { 'x-AGENT-depth': '0' }`),
-      { capabilities: caps }
+      {
+        capabilities: caps,
+      }
     )
-    expect(bad.error?.message ?? 'admitted').toMatch(
+    expect(depth.error?.message ?? 'admitted').toMatch(
       /header cannot be set by an agent/
     )
   })
@@ -576,6 +603,125 @@ describe('round 24: a closed header list, widened only by the host; allowlists b
       expect(init.method).toBe('PATCH')
       expect(init.credentials).toBe('omit')
       expect(init.redirect).toBe('manual')
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+})
+
+describe('round 25: highly constrained by default, widened only by the host (Tonio, 2026-10-03)', () => {
+  const stub = async (body: () => Promise<void>) => {
+    const real = globalThis.fetch
+    const calls: any[] = []
+    globalThis.fetch = (async (u: string, i: any) => {
+      calls.push({ u, i })
+      return new Response('ok', { headers: { 'content-type': 'text/plain' } })
+    }) as any
+    try {
+      await body()
+    } finally {
+      globalThis.fetch = real
+    }
+    return calls
+  }
+
+  it('the default methods are GET and HEAD; POST needs the host to enable it', async () => {
+    const ctx = { context: { allowedFetchDomains: ['api.github.com'] } }
+    const r = await run(
+      fetchWith('https://api.github.com/x', `, method: 'POST', body: { a: 1 }`),
+      ctx
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /method 'POST' is not allowed/
+    )
+    const calls = await stub(async () => {
+      const ok = await run(
+        fetchWith(
+          'https://api.github.com/x',
+          `, method: 'POST', body: { a: 1 }`
+        ),
+        {
+          context: { ...ctx.context, allowedFetchMethods: ['post'] },
+        }
+      )
+      expect(ok.error).toBeUndefined()
+    })
+    expect(calls[0].i.method).toBe('POST')
+  })
+
+  it('CONNECT/TRACE are refused even if a host lists them', async () => {
+    for (const m of ['CONNECT', 'TRACE', 'TRACK']) {
+      const r = await run(
+        fetchWith('https://api.github.com/x', `, method: '${m}'`),
+        {
+          context: {
+            allowedFetchDomains: ['api.github.com'],
+            allowedFetchMethods: [m],
+          },
+        }
+      )
+      expect(r.error?.message ?? 'admitted').toMatch(/not allowed/)
+    }
+  })
+
+  it('a host-declared header name matches case-insensitively', async () => {
+    await stub(async () => {
+      const r = await run(
+        fetchWith(
+          'https://api.github.com/x',
+          `, headers: { 'X-CUSTOM-thing': 'v' }`
+        ),
+        {
+          context: {
+            allowedFetchDomains: ['api.github.com'],
+            allowedRequestHeaders: ['x-Custom-THING'],
+          },
+        }
+      )
+      expect(r.error).toBeUndefined()
+    })
+  })
+
+  it('an allowlist entry admits the default port only, unless it names one', async () => {
+    const ctx = (domains: string[]) => ({
+      context: { allowedFetchDomains: domains },
+    })
+    for (const [url, domains, ok] of [
+      ['https://api.github.com/x', ['api.github.com'], true],
+      ['https://api.github.com:6379/x', ['api.github.com'], false],
+      ['https://api.github.com:8443/x', ['api.github.com:8443'], true],
+      ['https://api.github.com/x', ['api.github.com:443'], true],
+      ['https://api.github.com:8443/x', ['api.github.com:9000'], false],
+      ['https://x.github.com:6379/x', ['*.github.com'], false],
+    ] as const) {
+      await stub(async () => {
+        const r = await run(fetchWith(url, ''), ctx([...domains]))
+        expect({ url, domains, ok: !r.error }).toEqual({ url, domains, ok })
+      })
+    }
+  })
+
+  it('redirect = 301/302/303/307/308 WITH a Location (both conditions pinned)', async () => {
+    const real = globalThis.fetch
+    const respond = (status: number, location?: string) =>
+      (globalThis.fetch = (async () =>
+        new Response(status === 304 ? null : 'body', {
+          status,
+          headers: location
+            ? { location, 'content-type': 'text/plain' }
+            : { 'content-type': 'text/plain' },
+        })) as any)
+    try {
+      respond(301) // no Location: an ordinary response
+      let r = await run(fetchSrc('https://api.github.com/x'), {
+        context: { allowedFetchDomains: ['api.github.com'] },
+      })
+      expect((r.result as any).v).toBe('body')
+      respond(300, '/elsewhere') // a Location on a non-redirect status: an ordinary response
+      r = await run(fetchSrc('https://api.github.com/x'), {
+        context: { allowedFetchDomains: ['api.github.com'] },
+      })
+      expect((r.result as any).v).toBe('body')
     } finally {
       globalThis.fetch = real
     }

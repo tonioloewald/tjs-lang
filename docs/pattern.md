@@ -35,6 +35,24 @@ on tosijs-schema, and other repos (tosijs-ui, service-compris) can use it withou
 code-editing skill ships with it**: a SKILL.md plus a small CLI in the same repo, so the skill and
 the engine change together. tosijs-coding-practices points every repo at it.
 
+## Regex is not a parser, and Pattern does not pretend it is (Tonio, 2026-10-03)
+
+> "The worst features in Regex are basically workarounds to allow it to do slightly more terrible
+> things to work around the fact that it's simply not a parser." "To the extent we can't just
+> convert regex into Pattern it will reflect that regex does not correctly reflect intent."
+
+- **What regex costs.** A backtracking regex always terminates, but its worst case is
+  exponential, and with backreferences matching is NP-hard. Its cost cannot be read from its
+  source, which is why this project spent review rounds metering it. Pattern's cost is a property
+  of the engine.
+- **The conversion rule.** Simple regexes convert to Pattern mechanically. Where one cannot, the
+  converter does not approximate: it explains the site and points to the docs. An inconvertible
+  regex is EVIDENCE that the regex does not state its intent (a lookaround standing in for
+  structure, a backreference standing in for a grammar). The refusal is the useful output.
+- **The long term.** Pattern paves the way to eliminating regex from TJS itself, not only from
+  AsyncJS: the transpiler's own regex and hand-rolled scans first (see the priorities above), then
+  the language surface.
+
 ## The goal: cost it accurately, for free
 
 The point is not to stop ReDoS (Tonio, 2026-10-02). The point is that whatever a pattern

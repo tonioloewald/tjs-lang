@@ -146,10 +146,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >   Host-routing proxy it reached virtual hosts outside the allowlist. A denylist kept growing, and
 >   so did an "X- except the routing ones" rule (`X-Envoy-Original-Dst-Host`, `X-Originating-IP`, …),
 >   so neither survived.
-> - **A host's own `fetch` capability is the escape hatch:** it receives the guest's method and
->   headers as sent and applies its own policy. The VM still refuses a guest `X-Agent-Depth`.
->   Redirect handling and `credentials` are then the host's.
-> - **Methods:** other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are refused.
+> - **A host's own `fetch` capability** receives the agent's request after the same admission
+>   (above). Redirect handling and `credentials` are then the host's.
+> - **The built-in `httpFetch` is a demonstration capability, highly constrained by default**
+>   (Tonio). A real deployment supplies its own `fetch`. **Methods:** GET and HEAD by default;
+>   a host enables more for a run with `context.allowedFetchMethods`. CONNECT, TRACE and TRACK
+>   are never admitted. **Ports:** an `allowedFetchDomains` entry admits the scheme's default port
+>   only, unless it names one (`api.example.com:8443`); matching the hostname alone admitted
+>   every port of an allowed host. **One admission, every path:** the agent's method and headers
+>   are admitted the same way when a host's own `fetch` sends the request, so a host that needs
+>   `Cookie` or PROPFIND declares it.
 > - **No browser credentials:** cookies and HTTP auth are not sent (`credentials: 'omit'`); a
 >   custom `fetch` can opt in.
 > - **Bounded body:** the body is read under `membraneMaxBytes` (a larger declared
