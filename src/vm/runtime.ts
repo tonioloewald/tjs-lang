@@ -6094,9 +6094,10 @@ Response types: `"json"` (default for JSON content-type), `"text"`, `"dataUrl"` 
 
 Security:
 - Requires a `ctx.context.allowedFetchDomains` allowlist (or a custom `fetch` capability); without
-  one, every URL is refused. Only `http:`/`https:`; no redirects are followed (a 3xx returns
-  `{ redirect: true, status, location }`); only allowlisted request headers; the body is read
-  under `membraneMaxBytes`
+  one, every URL is refused. Only `http:`/`https:`; no redirects are followed (a redirect returns
+  `{ redirect: true, status, location }`, location absolute; a 304 is a response); a closed list of
+  request headers (`context.allowedRequestHeaders` adds more); the body is read under
+  `membraneMaxBytes`. A custom `fetch` capability gets the guest's headers and method as sent
 - Automatically adds `X-Agent-Depth` header to prevent recursive agent loops
 - Custom fetch capability can override all restrictions
 */
@@ -6193,31 +6194,58 @@ const ALLOWED_REQUEST_HEADERS: ReadonlySet<string> = new Set([
   'if-unmodified-since',
   'range',
   'user-agent',
+  // X- names: a closed list too. An open "X- except the routing ones" was a denylist inside the
+  // allowlist, and the next review found `X-Envoy-Original-Dst-Host`, `X-Originating-IP`, … (rc.2
+  // pre-tag re-review 4). A host that needs more widens the list (`allowedRequestHeaders`).
+  'x-api-key',
+  'x-request-id',
+  'x-correlation-id',
+  'x-requested-with',
 ])
 
 /**
- * `X-` names are admitted for API keys and the like (`X-API-Key`), except those that ROUTE, FRAME or
- * claim identity at a proxy, and the VM's own depth header (whose case variants were read back as
- * the guest's value). The open-ended part is confined to this one prefix.
+ * Refuse (never silently drop) a guest header the BUILT-IN client does not admit: not on the list,
+ * and not added by the host for this run (`context.allowedRequestHeaders`, exact names,
+ * case-insensitive). The VM's own depth header is refused even if the host lists it.
  */
-const X_HEADER_REFUSED =
-  /^x-(?:forwarded|original|rewrite|host|real-ip|http-|method|client-ip|agent-depth|proxy|cluster-client-ip)/
-
-/** Refuse (never silently drop) a guest header outside the allowlist. */
-function admitHeaders(headers: Record<string, string>): void {
+function admitHeaders(
+  headers: Record<string, string>,
+  hostAllowed: unknown
+): void {
+  const extra = new Set(
+    Array.isArray(hostAllowed)
+      ? hostAllowed
+          .filter((h): h is string => typeof h === 'string')
+          .map((h) => h.toLowerCase())
+      : []
+  )
   for (const name of Object.keys(headers)) {
     const n = name.toLowerCase()
-    const ok =
-      ALLOWED_REQUEST_HEADERS.has(n) ||
-      (n.startsWith('x-') && !X_HEADER_REFUSED.test(n))
-    if (!ok)
+    if (
+      n === AGENT_DEPTH_HEADER.toLowerCase() ||
+      !(ALLOWED_REQUEST_HEADERS.has(n) || extra.has(n))
+    )
       throw new Error(
         `httpFetch: the '${name}' header cannot be set by an agent (allowed: ${[
           ...ALLOWED_REQUEST_HEADERS,
-        ].join(', ')}, and X-… names)`
+        ].join(', ')}; a host adds more with context.allowedRequestHeaders)`
       )
   }
 }
+
+/** The VM owns the depth header: a guest copy, in any letter case, is refused on every path. */
+function refuseDepthHeader(headers: Record<string, string>): void {
+  for (const name of Object.keys(headers))
+    if (name.toLowerCase() === AGENT_DEPTH_HEADER.toLowerCase())
+      throw new Error(
+        `httpFetch: the '${name}' header cannot be set by an agent`
+      )
+}
+
+/** The statuses that redirect (and only with a Location). */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([
+  301, 302, 303, 307, 308,
+])
 
 /** The request methods an agent may use; CONNECT/TRACE/TRACK reached the wire on Bun. */
 const ALLOWED_FETCH_METHODS: ReadonlySet<string> = new Set([
@@ -6344,16 +6372,7 @@ export const fetch = defineAtom(
       )
     )
       throw new Error("httpFetch's headers must be an object of strings")
-    admitHeaders(headers as Record<string, string>)
-    if (
-      method !== undefined &&
-      !ALLOWED_FETCH_METHODS.has(String(method).toUpperCase())
-    )
-      throw new Error(
-        `httpFetch: method '${method}' is not allowed (use ${[
-          ...ALLOWED_FETCH_METHODS,
-        ].join(', ')})`
-      )
+    refuseDepthHeader(headers as Record<string, string>)
 
     // Get current depth from context (set by receiving endpoint)
     const currentDepth: number = ctx.context?.requestDepth ?? 0
@@ -6366,8 +6385,9 @@ export const fetch = defineAtom(
     }
 
     if (ctx.capabilities.fetch) {
-      // Custom fetch capability handles its own validation (the guest's headers were admitted
-      // above, so the depth header below cannot be shadowed by a case variant)
+      // A host's own fetch is the escape hatch: it receives what the guest sent and applies its
+      // own policy. Only the VM's depth header is guarded here (refused above in any case, so the
+      // value below cannot be shadowed).
       // Pass depth info so it can add the header
       return ctx.capabilities.fetch(url, {
         method,
@@ -6381,7 +6401,19 @@ export const fetch = defineAtom(
       })
     }
 
-    // ONE admission rule for every request (rc.2 pre-tag review B1)
+    // The BUILT-IN client's own admission: the request headers, the method, then the URL (one
+    // rule for every request; rc.2 pre-tag reviews)
+    admitHeaders(
+      headers as Record<string, string>,
+      ctx.context?.allowedRequestHeaders
+    )
+    const verb = method === undefined ? undefined : String(method).toUpperCase()
+    if (verb !== undefined && !ALLOWED_FETCH_METHODS.has(verb))
+      throw new Error(
+        `httpFetch: method '${method}' is not allowed (use ${[
+          ...ALLOWED_FETCH_METHODS,
+        ].join(', ')})`
+      )
     const allowedDomains: string[] | undefined =
       ctx.context?.allowedFetchDomains
     admitFetchUrl(url, allowedDomains)
@@ -6394,7 +6426,7 @@ export const fetch = defineAtom(
     // for PUT/PATCH/DELETE). A host that wants redirects followed supplies a `fetch` capability.
     if (typeof globalThis.fetch === 'function') {
       const res = await globalThis.fetch(url, {
-        method,
+        method: verb,
         headers: {
           ...(headers as Record<string, string>),
           ...depthHeaderFor(url, currentDepth + 1),
@@ -6406,17 +6438,23 @@ export const fetch = defineAtom(
         credentials: 'omit',
         signal: ctx.signal, // Pass abort signal for cancellation
       })
+      // A REDIRECT is a 301/302/303/307/308 with a Location, or a browser's opaque redirect (which
+      // hides it: location null). A 304 Not Modified, a 300 or a 3xx without Location is not, and
+      // returns as a response (pre-tag re-review 4). `location` is resolved against the URL.
+      const location = res.headers.get('location')
       if (
         res.type === 'opaqueredirect' ||
-        (res.status >= 300 && res.status < 400)
+        (REDIRECT_STATUSES.has(res.status) && location !== null)
       ) {
         await res.body?.cancel().catch(() => undefined)
-        // a browser hides where a redirect leads (`opaqueredirect`, status 0): location is null
-        return {
-          redirect: true,
-          status: res.status,
-          location: res.headers.get('location'),
-        }
+        let absolute: string | null = location
+        if (location !== null)
+          try {
+            absolute = new URL(location, url).href
+          } catch {
+            absolute = location
+          }
+        return { redirect: true, status: res.status, location: absolute }
       }
 
       const cap = ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES

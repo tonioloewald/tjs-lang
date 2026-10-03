@@ -129,20 +129,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > the hostname, so on Bun or Deno `file://<allowed-host>/etc/hosts` read a host file. Every request
 > is now admitted by one rule: the scheme must be `http:` or `https:` in both modes, then the
 > allowlist, and without an allowlist nothing is fetched.
-> - **No redirects are followed.** A 3xx response comes back to the agent as data,
->   `{ redirect: true, status, location }`, and fetching `location` is a new request, admitted
->   like any other with its headers and body chosen afresh. In a browser `location` is null,
->   because the browser hides it. Four review rounds each found another redirect rule the VM had
+> - **No redirects are followed.** A redirect (301, 302, 303, 307 or 308 with a `Location`) comes
+>   back to the agent as data, `{ redirect: true, status, location }`, with `location` resolved to
+>   an absolute URL, and fetching it is a new request, admitted like any other with its headers
+>   and body chosen afresh. A 304 Not Modified, or any other 3xx, is an ordinary response. In a
+>   browser `location` is null, because the browser hides it. Four review rounds each found another redirect rule the VM had
 >   re-implemented wrong (credentials re-sent, then the body re-sent on 307/308, then on 301/302
 >   for PUT, PATCH and DELETE), so the built-in client stopped following redirects. A host that
 >   wants them followed supplies a `fetch` capability.
-> - **Guest request headers are an allowlist:** `Accept`, `Accept-Language`, `Authorization`,
+> - **Guest request headers are a closed list:** `Accept`, `Accept-Language`, `Authorization`,
 >   `Cache-Control`, `Content-Language`, `Content-Type`, the `If-*` validators, `Range`,
->   `User-Agent`, and `X-…` names (API keys). The exceptions are the `X-` names that route or claim
->   identity at a proxy (`X-Forwarded-*`, `X-Original-*`, `X-Host`, `X-Real-IP`, method
->   overrides) and the VM's `X-Agent-Depth`. Anything else is refused by name, never dropped. A
->   guest `Host` was sent as given, and on Bun behind a Host-routing proxy it reached virtual
->   hosts outside the allowlist; the denylist that replaced it kept growing.
+>   `User-Agent`, `X-API-Key`, `X-Request-Id`, `X-Correlation-Id` and `X-Requested-With`. A host
+>   adds names for a run with `context.allowedRequestHeaders`, as it does with
+>   `allowedFetchDomains`. Anything else is refused by name, never dropped, and `X-Agent-Depth` is
+>   refused even if a host lists it. A guest `Host` was sent as given, and on Bun behind a
+>   Host-routing proxy it reached virtual hosts outside the allowlist. A denylist kept growing, and
+>   so did an "X- except the routing ones" rule (`X-Envoy-Original-Dst-Host`, `X-Originating-IP`, …),
+>   so neither survived.
+> - **A host's own `fetch` capability is the escape hatch:** it receives the guest's method and
+>   headers as sent and applies its own policy. The VM still refuses a guest `X-Agent-Depth`.
+>   Redirect handling and `credentials` are then the host's.
 > - **Methods:** other than GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are refused.
 > - **No browser credentials:** cookies and HTTP auth are not sent (`credentials: 'omit'`); a
 >   custom `fetch` can opt in.

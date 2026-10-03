@@ -1,7 +1,7 @@
 /**
- * What `httpFetch` may fetch, and how much of it: one admission rule at EVERY hop (rc.2 pre-tag
- * review B1 and its redirect/body minor), and a VM that never writes to the host's capabilities
- * object (M1).
+ * What `httpFetch` may fetch, and how much of it: one admission rule for every request, redirects
+ * RETURNED to the agent and never followed, a closed list of request headers (rc.2 pre-tag reviews),
+ * and a VM that never writes to the host's capabilities object.
  *
  * "May this URL be fetched" used to be answered in pieces: the scheme and private-range check ran
  * only WITHOUT an allowlist, the allowlist compared only the hostname, a redirect was followed by
@@ -201,6 +201,8 @@ const origin = Bun.serve({
         status: 307,
         headers: { location: '/landed' },
       })
+    if (u.pathname === '/not-modified')
+      return new Response(null, { status: 304 })
     if (u.pathname === '/loop') {
       loops++
       return new Response(null, { status: 302, headers: { location: '/loop' } })
@@ -279,12 +281,12 @@ describe('guest headers are admitted (pre-tag re-review)', () => {
 })
 
 describe('a 3xx comes back to the agent; fetching its location is a new request', () => {
-  it('a relative Location is returned as written', async () => {
+  it('a relative Location is resolved to an absolute URL', async () => {
     const r = await run(fetchWith(`${A}/rel`, ''), allow)
     expect((r.result as any).v).toEqual({
       redirect: true,
       status: 302,
-      location: 'landed',
+      location: `${A}/landed`,
     })
   })
   it('the agent can follow it itself, as a new admitted request', async () => {
@@ -293,9 +295,7 @@ describe('a 3xx comes back to the agent; fetching its location is a new request'
         const first = httpFetch({ url: ${JSON.stringify(
           `${A}/see-other`
         )}, method: 'POST', body: { a: 1 }, responseType: 'text' })
-        const next = httpFetch({ url: ${JSON.stringify(
-          A
-        )} + first.location, responseType: 'text' })
+        const next = httpFetch({ url: first.location, responseType: 'text' })
         return { first: first.status, next }
       }`,
       allow
@@ -430,9 +430,36 @@ describe('methods and routing headers are admitted (pre-tag re-review 2)', () =>
   for (const name of [
     'X-Forwarded-Host',
     'x-forwarded-for',
+    'X-Forwarded',
     'Forwarded',
     'X-Original-URL',
+    'X-Original-Host',
+    'X-Host',
+    'X-Real-IP',
+    'True-Client-IP',
+    'X-Client-IP',
+    'X-Cluster-Client-IP',
+    'X-Proxy-Authorization',
     'X-HTTP-Method-Override',
+    'X-Rewrite-URL',
+    'X-Method-Override',
+    'X-Envoy-Original-Dst-Host',
+    'X-Envoy-Internal',
+    'X-Envoy-Original-Path',
+    'X-Upstream-Host',
+    'X-Backend-Host',
+    'X-Override-URL',
+    'X-Originating-IP',
+    'X-True-Client-IP',
+    'X-Remote-Addr',
+    'X-Remote-IP',
+    'X-Azure-ClientIP',
+    'X-Scheme',
+    'X-Url-Scheme',
+    'X-Custom-Thing',
+    'Cookie',
+    'Origin',
+    'Referer',
   ])
     it(`refused: a guest '${name}' header`, async () => {
       seen.length = 0
@@ -469,6 +496,86 @@ describe('the opaque (browser) redirect branch', () => {
         location: null,
       })
       expect(cancelled).toBe(true)
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+})
+
+describe('round 24: a closed header list, widened only by the host; allowlists bind the built-in client', () => {
+  it('a host widens the list for a run, by exact name', async () => {
+    const r = await run(
+      fetchWith(`${A}/landed`, `, headers: { 'X-Custom-Thing': 'v' }`),
+      {
+        context: {
+          ...allow.context,
+          allowedRequestHeaders: ['x-custom-thing'],
+        },
+      }
+    )
+    expect(r.error).toBeUndefined()
+  })
+  it('the depth header stays refused even if the host lists it', async () => {
+    const r = await run(
+      fetchWith(`${A}/landed`, `, headers: { 'X-Agent-Depth': '0' }`),
+      {
+        context: { ...allow.context, allowedRequestHeaders: ['x-agent-depth'] },
+      }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /header cannot be set by an agent/
+    )
+  })
+  it("a host's own fetch receives the guest's headers and method; only the depth header is refused", async () => {
+    const got: any[] = []
+    const caps = {
+      fetch: async (url: string, init: any) => {
+        got.push(init)
+        return 'ok'
+      },
+    }
+    const ok = await run(
+      fetchWith(
+        'https://x.test/',
+        `, method: 'PROPFIND', headers: { Cookie: 'c=1' }`
+      ),
+      { capabilities: caps }
+    )
+    expect(ok.error).toBeUndefined()
+    expect(got[0].method).toBe('PROPFIND')
+    expect(got[0].headers.Cookie).toBe('c=1')
+    const bad = await run(
+      fetchWith('https://x.test/', `, headers: { 'x-AGENT-depth': '0' }`),
+      { capabilities: caps }
+    )
+    expect(bad.error?.message ?? 'admitted').toMatch(
+      /header cannot be set by an agent/
+    )
+  })
+  it('a 304 Not Modified is a response, not a redirect', async () => {
+    const r = await run(
+      fetchWith(`${A}/not-modified`, `, headers: { 'If-None-Match': '"abc"' }`),
+      allow
+    )
+    expect(r.error).toBeUndefined()
+    expect((r.result as any).v).toBe('')
+  })
+  it('the method is sent upper-cased, and credentials are omitted', async () => {
+    let init: any
+    const real = globalThis.fetch
+    globalThis.fetch = (async (_u: string, i: any) => {
+      init = i
+      return new Response('ok', { headers: { 'content-type': 'text/plain' } })
+    }) as any
+    try {
+      const r = await run(
+        fetchWith('https://api.github.com/x', `, method: 'patch'`),
+        allow
+      )
+      expect(r.error).toBeUndefined()
+      expect(init.method).toBe('PATCH')
+      expect(init.credentials).toBe('omit')
+      expect(init.redirect).toBe('manual')
     } finally {
       globalThis.fetch = real
     }

@@ -137,8 +137,9 @@ The default fetch atom:
 - Fetches only `http:` and `https:` URLs, and follows no redirects: a 3xx comes back as
   `{ redirect: true, status, location }`, and fetching `location` is a new, separately admitted
   request
-- Admits only common API request headers (`Accept`, `Authorization`, `Content-Type`, …) and `X-…`
-  names that do not route at a proxy; sends no browser cookies or HTTP auth
+- Admits a closed list of request headers (`Accept`, `Authorization`, `Content-Type`,
+  `X-API-Key`, …; a host adds names with `context.allowedRequestHeaders`); sends no browser cookies
+  or HTTP auth. A host's own `fetch` capability receives the agent's headers as sent
 - Reads the response under `membraneMaxBytes`
 - Automatically adds `X-Agent-Depth` header based on `ctx.context.requestDepth`
 - Rejects requests exceeding `MAX_AGENT_DEPTH` (default: 10)
