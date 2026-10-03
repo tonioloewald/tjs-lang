@@ -253,7 +253,7 @@ export async function Eval(options: EvalOptions): Promise<{
     // `transpile` rather than parsed again.
     const parsed = parseAgentSource(wrappedCode)
     const used = identifiersIn(parsed.ast)
-    const { ast } = transpile(wrappedCode, { parsed })
+    const { ast } = transpile(wrappedCode, { parsed, atoms: vm.atoms as any })
 
     // Box return values in objects for VM strict-return compliance.
     // Walk AST and wrap each { op: 'return', value } into
@@ -371,7 +371,7 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
   checkSourceSize(source, maxSourceBytes, 'SafeFunction source')
 
   // Pre-compile the AST (done once at creation time)
-  const { ast } = transpile(source)
+  const { ast } = transpile(source, { atoms: getVM().atoms as any })
 
   // Box return values for VM strict-return compliance
   wrapReturnValues(ast)

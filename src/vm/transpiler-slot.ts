@@ -8,14 +8,20 @@
  * The entries that DO want a parser (`tjs-lang/vm`, the main entry, `tjs-lang/eval`) import it
  * from here.
  */
-let transpileImpl: ((source: string) => { ast: unknown }) | null = null
+let transpileImpl:
+  | ((source: string, options?: { atoms?: unknown }) => { ast: unknown })
+  | null = null
 
 /** Supply the transpiler. Called by `tjs-lang/vm`'s entry; deliberately NOT by `vm-ast`. */
-export function setTranspiler(fn: (source: string) => { ast: unknown }): void {
+export function setTranspiler(
+  fn: (source: string, options?: { atoms?: unknown }) => { ast: unknown }
+): void {
   transpileImpl = fn
 }
 
 /** The transpiler an entry supplied, or null (the AST-only VM). */
-export function getTranspiler(): ((source: string) => { ast: unknown }) | null {
+export function getTranspiler():
+  | ((source: string, options?: { atoms?: unknown }) => { ast: unknown })
+  | null {
   return transpileImpl
 }

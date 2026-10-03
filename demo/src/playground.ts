@@ -855,7 +855,7 @@ export class Playground extends Component<PlaygroundParts> {
     }, 100)
 
     try {
-      const transpileResult = transpile(code)
+      const transpileResult = transpile(code, { atoms: this.vm.atoms as any })
       this.lastAst = transpileResult
 
       this.parts.statusBar.textContent = 'Running...'
@@ -930,7 +930,8 @@ export class Playground extends Component<PlaygroundParts> {
             embed: () => noLLMError(),
           },
           code: {
-            transpile: (source: string) => transpile(source).ast,
+            transpile: (source: string) =>
+              transpile(source, { atoms: this.vm.atoms as any }).ast,
           },
         },
       })

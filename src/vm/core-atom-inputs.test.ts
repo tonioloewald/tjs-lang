@@ -9,14 +9,14 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { coreAtoms } from './runtime'
 import { CORE_ATOM_INPUTS } from './core-atom-inputs'
+import { contractOf } from '../lang/atom-contract'
 
 function derive() {
-  const out: Record<string, { keys: string[]; required: string[] }> = {}
+  // the transpiler's own reading of a schema: one derivation, not two (twenty-third re-review)
+  const out: Record<string, { keys: string[] | null; required: string[] }> = {}
   for (const [op, atom] of Object.entries(coreAtoms as Record<string, any>)) {
-    const sc = atom.inputSchema?.schema ?? atom.inputSchema
-    const props = sc?.properties
-    if (!props || typeof props !== 'object') continue
-    out[op] = { keys: Object.keys(props), required: sc.required ?? [] }
+    const c = contractOf(atom.inputSchema)
+    if (c) out[op] = { keys: c.keys && [...c.keys], required: [...c.required] }
   }
   return out
 }

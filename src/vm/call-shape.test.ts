@@ -17,6 +17,8 @@ import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { AgentVM as AstVM } from './ast'
 import { defineAtom } from './runtime'
+import { AgentVM as FullVM } from './index'
+import { createAgent } from '../lang/core'
 
 const greet = defineAtom(
   'greet',
@@ -51,12 +53,17 @@ const RUNS: Array<[string, string, unknown]> = [
   ['empty call to an atom with a named `args` input', 'withArgs()', 'none'],
 ]
 
-const REFUSED_AT_TRANSPILE: Array<[string, string]> = [
-  ['a spread in an atom call', 'greet({ ...opts })'],
-  ['positional values to a named atom', "greet('ann')"],
-  ['positional values to an untyped args atom', 'loose(1, 2, 3)'],
-  ['positional values to a core atom', "storeSet('k', 1)"],
-  ['a single non-literal argument', 'greet(opts)'],
+const NAMED_SHAPE = /takes named arguments: write \w+\(\{ name: value, … \}\)/
+const REFUSED_AT_TRANSPILE: Array<[string, string, RegExp]> = [
+  [
+    'a spread in an atom call',
+    'greet({ ...opts })',
+    /spread is not supported in an atom call: name each input, e\.g\. foo\(\{ a: opts\.a/,
+  ],
+  ['positional values to a named atom', "greet('ann')", NAMED_SHAPE],
+  ['positional values to an untyped args atom', 'loose(1, 2, 3)', NAMED_SHAPE],
+  ['positional values to a core atom', "storeSet('k', 1)", NAMED_SHAPE],
+  ['a single non-literal argument', 'greet(opts)', NAMED_SHAPE],
 ]
 
 for (const [label, VM] of [
@@ -108,13 +115,13 @@ for (const [label, VM] of [
   })
 
 describe('the transpiler refuses a positional atom call, naming the shape that works', () => {
-  for (const [cell, call] of REFUSED_AT_TRANSPILE)
+  for (const [cell, call, message] of REFUSED_AT_TRANSPILE)
     it(cell, () => {
       expect(() =>
         transpile(`function f(opts) { const v = ${call}\n return { v } }`, {
           atoms,
         })
-      ).toThrow(/takes named arguments|spread is not supported/)
+      ).toThrow(message)
     })
 })
 
@@ -179,4 +186,85 @@ describe("the transpiler checks an atom call against the atom's declared inputs"
       expect(r.error).toBeUndefined()
       expect(r.result).toEqual({ v: 'hi you' })
     })
+})
+
+describe('every entry point that holds a VM checks against THAT VM’s atoms (twenty-third re-review)', () => {
+  // a host atom that OVERRIDES a core name with a wider contract
+  const httpFetch = defineAtom(
+    'httpFetch',
+    s.object({ url: s.string, cache: s.number.optional }),
+    s.any,
+    async ({ url, cache }: { url: string; cache?: number }) =>
+      `${url}:${cache}`,
+    { effects: 'pure' }
+  )
+  // an OPEN raw schema with a required input
+  const rawj = defineAtom(
+    'rawj',
+    {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    } as any,
+    s.any,
+    async () => 'ok',
+    { effects: 'pure' }
+  )
+  const vm = new FullVM({ greet, httpFetch, rawj } as any)
+
+  it('vm.run(source): a host override with a wider schema is accepted', async () => {
+    const r = await vm.run(
+      "function f() { const v = httpFetch({ url: 'x', cache: 5 })\n return { v } }",
+      {},
+      { fuel: 100 }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 'x:5' })
+  })
+
+  it('vm.run(source): a misspelled host input is refused before running', async () => {
+    await expect(
+      vm.run(
+        "function f() { const v = greet({ nam: 'x' })\n return { v } }",
+        {},
+        { fuel: 100 }
+      )
+    ).rejects.toThrow(
+      /'greet' has no input 'nam'\. It takes greet\(\{ name \}\)/
+    )
+  })
+
+  it('createAgent: a misspelled host input is refused', () => {
+    expect(() =>
+      createAgent(
+        "function f() { const v = greet({ nam: 'x' })\n return { v } }",
+        vm
+      )
+    ).toThrow(/'greet' has no input 'nam'/)
+  })
+
+  it('an OPEN schema still requires what it requires', () => {
+    expect(() =>
+      transpile('function f() { const v = rawj({})\n return { v } }', {
+        atoms: { rawj } as any,
+      })
+    ).toThrow(/'rawj' needs 'url'/)
+    // open: an undeclared input is not an error
+    expect(() =>
+      transpile(
+        "function f() { const v = rawj({ url: 'u', extra: 1 })\n return { v } }",
+        {
+          atoms: { rawj } as any,
+        }
+      )
+    ).not.toThrow()
+  })
+
+  it('without the registry, a core-name refusal says how to check against your own atom', () => {
+    expect(() =>
+      transpile(
+        "function f() { const v = httpFetch({ url: 'x', cache: 5 })\n return { v } }"
+      )
+    ).toThrow(/transpile with \{ atoms: vm\.atoms \}/)
+  })
 })

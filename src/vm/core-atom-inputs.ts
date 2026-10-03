@@ -9,7 +9,7 @@
  * (`additionalProperties: false`), so an input not listed here is an error.
  */
 export interface AtomInputs {
-  readonly keys: readonly string[]
+  readonly keys: readonly string[] | null
   readonly required: readonly string[]
 }
 

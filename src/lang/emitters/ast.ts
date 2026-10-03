@@ -4,6 +4,7 @@
  * Converts parsed JavaScript into Agent99's JSON AST format.
  */
 
+import { contractOf, type AtomContract } from '../atom-contract'
 import { CORE_ATOM_INPUTS } from '../../vm/core-atom-inputs'
 import type {
   Statement,
@@ -2316,25 +2317,14 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
 function atomInputs(
   name: string,
   ctx: TransformContext
-): { keys: readonly string[]; required: readonly string[] } | undefined {
+): { contract: AtomContract; fromCore: boolean } | undefined {
   const host = (ctx.options as any)?.atoms?.[name]
   if (host) {
-    const sc = (host.inputSchema as any)?.schema ?? host.inputSchema
-    const props = sc?.properties
-    // a schema that declares no properties (or no schema) declares no key contract
-    if (
-      !props ||
-      typeof props !== 'object' ||
-      sc.additionalProperties !== false
-    )
-      return undefined
-    return {
-      keys: Object.keys(props),
-      required: Array.isArray(sc.required) ? sc.required : [],
-    }
+    const contract = contractOf(host.inputSchema)
+    return contract && { contract, fromCore: false }
   }
   return Object.hasOwn(CORE_ATOM_INPUTS, name)
-    ? CORE_ATOM_INPUTS[name]
+    ? { contract: CORE_ATOM_INPUTS[name], fromCore: true }
     : undefined
 }
 
@@ -2342,7 +2332,7 @@ function atomInputs(
  * An atom call is checked against the atom's DECLARED inputs, here, where the mistake can be
  * explained (Tonio, 2026-10-03: "it's AJS's job to prevent you from writing code with bad
  * parameters"; the VM runs an AST as written). Before, a misspelled or missing input ran the
- * atom with it undefined and reported success — `httpFetch({ url, cache })` in four playground
+ * atom with it undefined and reported success: `httpFetch({ url, cache })` in four playground
  * examples asked for caching that never existed.
  */
 function checkAtomInputs(
@@ -2352,9 +2342,17 @@ function checkAtomInputs(
   ctx: TransformContext
 ): void {
   if (POSITIONAL_BUILTINS.has(name)) return
-  const contract = atomInputs(name, ctx)
-  if (!contract) return
-  const shape = `${name}({ ${contract.keys.join(', ')} })`
+  const found = atomInputs(name, ctx)
+  if (!found) return
+  const { contract, fromCore } = found
+  const shape = contract.keys
+    ? ` It takes ${name}({ ${contract.keys.join(', ')} }).`
+    : ''
+  // Checked against the CORE contract because no atoms were passed: say how to check against
+  // the host's own, in case it defines an atom of this name with other inputs.
+  const hint = fromCore
+    ? ` (If your host defines its own '${name}', transpile with { atoms: vm.atoms }.)`
+    : ''
   const fail = (message: string) => {
     throw new TranspileError(
       message,
@@ -2363,12 +2361,12 @@ function checkAtomInputs(
       ctx.filename
     )
   }
-  for (const k of Object.keys(args))
-    if (!contract.keys.includes(k))
-      fail(`'${name}' has no input '${k}'. It takes ${shape}`)
+  if (contract.keys)
+    for (const k of Object.keys(args))
+      if (!contract.keys.includes(k))
+        fail(`'${name}' has no input '${k}'.${shape}${hint}`)
   for (const k of contract.required)
-    if (!Object.hasOwn(args, k))
-      fail(`'${name}' needs '${k}'. It takes ${shape}`)
+    if (!Object.hasOwn(args, k)) fail(`'${name}' needs '${k}'.${shape}${hint}`)
 }
 
 /** Builtins called positionally that the generic atom path emits (`Error('message')`). */

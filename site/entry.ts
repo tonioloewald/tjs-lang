@@ -35,7 +35,10 @@ registerDialect('ajs', {
     // A broken example is a failure (thrown); an AGENT that returns an error is a result.
     // AJS errors are values (AgentError, monadic) — `fuel-limits` exists to show one — so a
     // run that ends in an error is reported, not thrown.
-    const { ast } = transpile(source, { maxSourceBytes: 64 * 1024 })
+    const { ast } = transpile(source, {
+      maxSourceBytes: 64 * 1024,
+      atoms: vm.atoms as any,
+    })
     const fuel = typeof options.fuel === 'number' ? options.fuel : 10_000
     const args =
       options.args && typeof options.args === 'object' ? options.args : {}

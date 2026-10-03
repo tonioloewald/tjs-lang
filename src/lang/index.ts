@@ -437,13 +437,17 @@ export async function tjsWithCache(
  */
 export function createAgent(
   source: string,
-  vm: { run: (ast: any, args: any, options?: any) => Promise<any> },
+  vm: {
+    run: (ast: any, args: any, options?: any) => Promise<any>
+    atoms?: Record<string, { op: string; inputSchema?: unknown }>
+  },
   runOptions?: { fuel?: number; capabilities?: any }
 ): ((args: Record<string, any>) => Promise<any>) & {
   signature: FunctionSignature
   ast: SeqNode
 } {
-  const { ast, signature } = transpile(source)
+  // checked against the atoms of the VM it will run on (twenty-third re-review)
+  const { ast, signature } = transpile(source, { atoms: vm.atoms })
 
   const agent = async (args: Record<string, any>) => {
     const result = await vm.run(ast, args, runOptions)

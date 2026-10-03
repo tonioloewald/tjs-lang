@@ -135,7 +135,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >
 > These all used to compile and run the atom with inputs undefined, reporting success. Core atoms
 > are checked from a table generated from their schemas (`src/vm/core-atom-inputs.ts`). Pass your
-> own atoms to check calls to them too: `transpile(src, { atoms: vm.atoms })`. Local functions
+> own atoms to check calls to them too: `transpile(src, { atoms: vm.atoms })`. Every entry point
+> that holds a VM does this itself (`vm.run(source)`, `createAgent`, `Eval`, `SafeFunction`), so
+> a host atom that overrides a core name is checked against its own inputs. Without `atoms`, a
+> refusal on a core name says to pass them. An open schema (no `additionalProperties: false`)
+> still requires what it lists. An AST persisted under rc.1 with a positional atom call (e.g. in
+> `procedureStore`) never delivered its inputs; re-transpile it. Local functions
 > and `Error('message')` keep positional arguments. **The VM does not check parameters; it runs
 > an AST as written.** Its job is to be correct and safe; preventing bad code is the
 > transpiler's job (Tonio). An AST built by hand or by another front end is that producer's

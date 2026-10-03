@@ -300,7 +300,9 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
               'transpile(source, { maxSourceBytes: 8192 }) from tjs-lang/lang.',
           })
         try {
-          ast = transpileImpl(astOrToken).ast as BaseNode
+          // checked against THIS VM's atoms (twenty-third re-review)
+          ast = transpileImpl(astOrToken, { atoms: this.atoms as any })
+            .ast as BaseNode
         } catch (e: any) {
           throw new Error(`AJS transpilation failed: ${e.message}`, {
             cause: e,
