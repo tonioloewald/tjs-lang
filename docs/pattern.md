@@ -354,10 +354,37 @@ becomes correct by construction. It is not a gate. Migration is per pass, each h
 byte-for-byte over the dogfood and compat corpora: the AJS preprocessor first (four steps,
 untrusted input), then the TJS transforms one at a time. Not before `Pattern` itself is solid.
 
+## Serializable, and the answer to JSON Schema's `pattern` (Tonio, 2026-10-04)
+
+**A Pattern serializes.** It is built as data by a fluent builder, so it has a canonical JSON
+form that round-trips exactly (`Pattern.fromJSON(p.toJSON())` matches what `p` matches), carries
+no code, and can be stored, sent to another process, or embedded in a schema. This is part of
+the spec, not an afterthought: it is what lets a Pattern travel with an AST and run on any host
+(including the Rust/wasm VM, `docs/ajs-native-vm.md`).
+
+**JSON Schema's `pattern` keyword is ECMAScript regex by definition**, and running it on a
+backtracking host engine is the door the 0.14.0 reviews kept closing. The direction:
+
+- **Accept only a `pattern` that converts to a Pattern.** The converter (see Migration) either
+  proves the regex equivalent and runs it on the Pattern engine, or refuses it and explains why,
+  pointing at the docs. An inconvertible regex is evidence it does not state its intent.
+- **A Pattern keyword for schemas** (working name `$pattern`): the serialized Pattern, the same
+  progressive-enhancement shape as `$predicate`. Aware validators run the Pattern; naive ones
+  can be given the equivalent regex where one exists.
+- **A library of named Patterns for the classic entities**: email address, URL, UUID, ISO date
+  and time, semver, hostname, IPv4/IPv6, hex colour, and so on. Each is written once, readable,
+  tested against published corpora, and serializes like any other Pattern. The argument for
+  Pattern replacing regex is made by these being better than the regexes people copy from
+  Stack Overflow.
+
+Until then (0.14.0): an IO atom's declared input schema may not contain a `pattern`
+(refused at `defineAtom`), because the outbound membrane would run it on guest-chosen strings on
+the host's engine. Guest schemas already refuse it.
+
 ## Out of scope for now: predicates
 
 `compilePredicate`, `tjs-lang/css` and `$predicate` keep regex on the linear engine. JSON
-Schema's `pattern` keyword is ECMAScript regex by definition. Moving predicates to `Pattern` is
+Schema's `pattern` keyword is covered above. Moving predicates to `Pattern` is
 a likely next step, since the pattern is data, but it is a separate decision, made after
 `Pattern` exists.
 
