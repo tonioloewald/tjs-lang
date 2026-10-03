@@ -91,6 +91,8 @@ The VM starts with **zero capabilities**. You grant what each agent needs:
 
 ```typescript
 const capabilities = {
+  // your own wrapper (illustrative name): checks the destination, no redirects or ambient
+  // credentials. See guides/safe-eval.md for a complete, tested one.
   fetch: createFetchCapability({
     allowedHosts: ['api.example.com'],
   }),

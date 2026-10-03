@@ -89,7 +89,7 @@ const result = await vm.run(
   { topic: 'Agents' },
   {
     fuel: 500, // Strict CPU budget
-    capabilities: { fetch: http }, // Allow ONLY http, block everything else
+    capabilities: { fetch: http }, // YOUR fetch wrapper: the only network access (see guides/safe-eval.md)
   }
 )
 ```

@@ -11,6 +11,7 @@
 import { describe, it, expect, afterAll } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
+import { Eval, SafeFunction } from '../lang/eval'
 
 const run = (src: string, opts: any = {}) =>
   new AgentVM().run(transpile(src).ast, {}, { fuel: 1000, ...opts })
@@ -725,5 +726,145 @@ describe('round 25: highly constrained by default, widened only by the host (Ton
     } finally {
       globalThis.fetch = real
     }
+  })
+})
+
+describe('round 26: the whole request SHAPE is admitted on every path; the destination when set', () => {
+  const spy = () => {
+    const calls: any[] = []
+    return {
+      calls,
+      caps: {
+        fetch: async (url: string, init: any) => {
+          calls.push({ url, init })
+          return 'host-ok'
+        },
+      },
+    }
+  }
+
+  it('host path: a method alone is refused (no other reason to refuse)', async () => {
+    const { calls, caps } = spy()
+    const r = await run(fetchWith('https://x.test/', `, method: 'DELETE'`), {
+      capabilities: caps,
+    })
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /method 'DELETE' is not allowed/
+    )
+    expect(calls.length).toBe(0)
+  })
+
+  it('host path: a header alone is refused (GET, so the method passes)', async () => {
+    const { calls, caps } = spy()
+    const r = await run(
+      fetchWith('https://x.test/', `, headers: { Cookie: 'c=1' }`),
+      { capabilities: caps }
+    )
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /'Cookie' header cannot be set by an agent/
+    )
+    expect(calls.length).toBe(0)
+  })
+
+  for (const url of [
+    'file://api.example.com/etc/hosts',
+    'ftp://api.example.com/x',
+    'data:text/plain,x',
+  ])
+    it(`host path: refused before the host fetch is called: ${url}`, async () => {
+      const { calls, caps } = spy()
+      const r = await run(fetchSrc(url), { capabilities: caps })
+      expect(r.error?.message ?? 'admitted').toMatch(
+        /http: or https:|Invalid URL/
+      )
+      expect(calls.length).toBe(0)
+    })
+
+  it('host path: a configured domain allowlist applies; without one, the host owns the destination', async () => {
+    const a = spy()
+    const refused = await run(fetchSrc('https://b.test/'), {
+      capabilities: a.caps,
+      context: { allowedFetchDomains: ['a.test'] },
+    })
+    expect(refused.error?.message ?? 'admitted').toMatch(/not in allowlist/)
+    expect(a.calls.length).toBe(0)
+    const b = spy()
+    const owned = await run(fetchSrc('https://b.test/'), {
+      capabilities: b.caps,
+    })
+    expect(owned.error).toBeUndefined()
+    expect(b.calls.length).toBe(1)
+  })
+})
+
+describe('Eval/SafeFunction: a host-only fetchPolicy (re-review 6 M2)', () => {
+  it('Eval: POST is refused until fetchPolicy.methods allows it; the policy is not a guest variable', async () => {
+    const calls: any[] = []
+    const capabilities = {
+      fetch: async (url: string, init: any) => {
+        calls.push(init)
+        return 'ok'
+      },
+    }
+    const code =
+      "return httpFetch({ url: 'https://x.test/', method: 'POST', body: { a: 1 } })"
+    const denied = await Eval({ code, capabilities })
+    expect(denied.error?.message ?? 'admitted').toMatch(/fetchPolicy\.methods/)
+    expect(calls.length).toBe(0)
+    const ok = await Eval({
+      code,
+      capabilities,
+      fetchPolicy: { methods: ['POST'] },
+    })
+    expect(ok.error).toBeUndefined()
+    expect(calls[0].method).toBe('POST')
+    const hidden = await Eval({
+      code: 'return typeof fetchPolicy',
+      fetchPolicy: { methods: ['POST'] },
+    })
+    expect(hidden.result).not.toBe('object')
+  })
+
+  it('SafeFunction: fetchPolicy.domains binds a host fetch', async () => {
+    const calls: any[] = []
+    const fn = await SafeFunction({
+      body: "return httpFetch({ url: 'https://b.test/' })",
+      capabilities: {
+        fetch: async (url: string) => {
+          calls.push(url)
+          return 'ok'
+        },
+      },
+      fetchPolicy: { domains: ['a.test'] },
+    })
+    const r = await fn()
+    expect(r.error?.message ?? 'admitted').toMatch(/not in allowlist/)
+    expect(calls.length).toBe(0)
+  })
+})
+
+describe('relative URLs belong to a host fetch, never to the built-in client', () => {
+  const capture = () => {
+    const urls: string[] = []
+    return { urls, caps: { fetch: async (u: string) => (urls.push(u), 'ok') } }
+  }
+  it('a path-relative URL reaches a host fetch, which resolves it against its own origin', async () => {
+    const { urls, caps } = capture()
+    const r = await run(fetchSrc('/texts/coffee.txt'), { capabilities: caps })
+    expect(r.error).toBeUndefined()
+    expect(urls).toEqual(['/texts/coffee.txt'])
+  })
+  it('a protocol-relative URL names a host, so a configured allowlist binds it', async () => {
+    const { urls, caps } = capture()
+    const r = await run(fetchSrc('//evil.example/x'), {
+      capabilities: caps,
+      context: { allowedFetchDomains: ['a.test'] },
+    })
+    expect(r.error?.message ?? 'admitted').toMatch(/not in allowlist/)
+    expect(urls.length).toBe(0)
+  })
+  it('the built-in client refuses a relative URL', async () => {
+    const r = await run(fetchSrc('/texts/coffee.txt'), allow)
+    expect(r.error?.message ?? 'admitted').toMatch(/Invalid URL/)
   })
 })

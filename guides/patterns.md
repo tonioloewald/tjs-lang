@@ -105,7 +105,8 @@ Since agents are untrusted code, security must be enforced at the **capability l
 3. **Receiving endpoints** - Check depth headers and reject requests that are too deep
 
 ```typescript
-// Host provides a secure fetch capability
+// Host provides a secure fetch capability (your own wrapper; illustrative name; see
+// guides/safe-eval.md for a complete, tested one)
 capabilities: {
   fetch: createSecureFetch({
     allowedDomains: ['api.weather.com', 'api.github.com'],

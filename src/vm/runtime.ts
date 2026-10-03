@@ -6077,16 +6077,18 @@ export const keys = defineAtom(
 // 8. IO (Cost 5)
 
 /*#
-## fetch
+## httpFetch
 
-HTTP requests. Requires `fetch` capability or uses global fetch with SSRF protection.
+HTTP requests, through the host's `fetch` capability or the built-in client.
 
 ```javascript
-const data = fetch("https://api.example.com/data")
-const posted = fetch("https://api.example.com/items", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: { name: "New Item" }
+const data = httpFetch({ url: 'https://api.example.com/data' })
+// POST needs the host to enable it for the run: context.allowedFetchMethods: ['POST']
+const posted = httpFetch({
+  url: 'https://api.example.com/items',
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: { name: 'New Item' }
 })
 ```
 
@@ -6101,7 +6103,9 @@ Security:
   names one; the body is read under `membraneMaxBytes`. A DEMONSTRATION capability: real
   deployments supply their own `fetch`, which gets the same admission of method and headers
 - Automatically adds `X-Agent-Depth` header to prevent recursive agent loops
-- Custom fetch capability can override all restrictions
+- A custom `fetch` capability receives the ADMITTED request (scheme, method and headers always;
+  the domain allowlist when set) plus the depth header, and owns redirects, credentials and the
+  destination policy when no allowlist is set
 */
 
 /** Maximum agent request depth to prevent recursive loops */
@@ -6243,7 +6247,9 @@ function admitHeaders(
         `httpFetch: the '${name}' header cannot be set by an agent (allowed: ${[
           ...ALLOWED_REQUEST_HEADERS,
           ...extra,
-        ].join(', ')}; a host adds more with context.allowedRequestHeaders)`
+        ].join(
+          ', '
+        )}; the host can allow more: vm.run context.allowedRequestHeaders, or Eval/SafeFunction fetchPolicy.headers)`
       )
   }
 }
@@ -6279,14 +6285,33 @@ function admitsMethod(verb: string, hostAllowed: unknown): boolean {
  * B1). Then the allowlist when one is set, otherwise the private-range block plus localhost only.
  * Throws with the reason; returns nothing.
  */
+/** A base no real request can have, to tell a path-relative URL (resolves here) from one that
+ * names a host. */
+const RELATIVE_BASE = 'https://relative.invalid/'
+
 function admitFetchUrl(
   url: string,
-  allowedDomains: string[] | undefined
+  allowedDomains: string[] | undefined,
+  destinationRequired = true
 ): void {
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch (e) {
+    // A RELATIVE URL reaches only a host's own fetch, which resolves it against its own origin
+    // (the playground fetches '/texts/…'): a path-relative one names no other destination, so it
+    // passes. A protocol-relative one (`//evil.example/x`) NAMES a host, and is admitted like an
+    // absolute URL. The built-in client has no origin to resolve against, so it refuses both.
+    if (!destinationRequired) {
+      let resolved: URL | undefined
+      try {
+        resolved = new URL(url, RELATIVE_BASE)
+      } catch {
+        resolved = undefined
+      }
+      if (resolved && resolved.host === new URL(RELATIVE_BASE).host) return
+      if (resolved) return admitFetchUrl(resolved.href, allowedDomains, false)
+    }
     throw new Error(`Invalid URL: ${url}`, { cause: e })
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
@@ -6302,6 +6327,9 @@ function admitFetchUrl(
       )
     return
   }
+  // A host's own fetch without an allowlist owns its destination policy; only the shape (above)
+  // is the VM's to admit.
+  if (!destinationRequired) return
   // No allowlist: nothing may be fetched. A private address gets the more specific message. (A
   // "localhost only" branch used to follow, unreachable: BLOCKED_HOSTS refuses localhost first.)
   if (isBlockedUrl(url))
@@ -6385,11 +6413,16 @@ export const fetch = defineAtom(
       )
     )
       throw new Error("httpFetch's headers must be an object of strings")
-    // ONE admission of the agent's REQUEST, whoever sends it (Tonio, 2026-10-03): the headers and
-    // the method are what an agent may ASK for, not properties of the transport. Applying them to
-    // the built-in client only (round 24) handed a host's own fetch the agent's raw Host, Cookie
-    // and PROPFIND, and the documented host patterns forward `init` unchanged (rc.2 pre-tag
-    // re-review 5). A host that needs more DECLARES it for the run.
+    // ONE admission of the agent's REQUEST, whoever sends it (Tonio, 2026-10-03). Its SHAPE (the
+    // scheme, the method, the headers) is admitted on every path, always. Its DESTINATION
+    // (`allowedFetchDomains`, ports) is admitted on every path WHEN SET, so a configured allowlist
+    // never silently stops applying; without one, a host's own fetch owns the destination policy
+    // and the built-in client fetches nothing. Partial applications were each the next review's
+    // blocker: headers only for the built-in client (re-review 5), then the URL scheme left out of
+    // the host path, so the documented safeFetch read `file://` on Bun (re-review 6).
+    const allowedDomains: string[] | undefined =
+      ctx.context?.allowedFetchDomains
+    admitFetchUrl(url, allowedDomains, !ctx.capabilities.fetch)
     admitHeaders(
       headers as Record<string, string>,
       ctx.context?.allowedRequestHeaders
@@ -6402,7 +6435,9 @@ export const fetch = defineAtom(
       throw new Error(
         `httpFetch: method '${method}' is not allowed (use ${[
           ...ALLOWED_FETCH_METHODS,
-        ].join(', ')}; a host adds more with context.allowedFetchMethods)`
+        ].join(
+          ', '
+        )}; the host can allow more: vm.run context.allowedFetchMethods, or Eval/SafeFunction fetchPolicy.methods)`
       )
 
     // Get current depth from context (set by receiving endpoint)
@@ -6416,10 +6451,8 @@ export const fetch = defineAtom(
     }
 
     if (ctx.capabilities.fetch) {
-      // A host's own fetch is the escape hatch: it receives what the guest sent and applies its
-      // own policy. Only the VM's depth header is guarded here (refused above in any case, so the
-      // value below cannot be shadowed).
-      // Pass depth info so it can add the header
+      // A host's own fetch receives the ADMITTED request (above) plus the depth header, and owns
+      // what remains: redirects, credentials, and the destination when no allowlist is set.
       return ctx.capabilities.fetch(url, {
         method: verb,
         headers: {
@@ -6431,11 +6464,6 @@ export const fetch = defineAtom(
         responseType,
       })
     }
-
-    // The built-in client's URL admission (one rule for every request)
-    const allowedDomains: string[] | undefined =
-      ctx.context?.allowedFetchDomains
-    admitFetchUrl(url, allowedDomains)
 
     // Default: global fetch with abort signal and depth header. It follows NO redirects (Tonio,
     // 2026-10-03): a 3xx comes back to the agent as data, `{ redirect: true, status, location }`, and
@@ -6873,6 +6901,7 @@ Useful for generating agents to send to other services via fetch.
 // Generate an agent and send it to a worker
 let code = llmPredict({ prompt: 'Write an AsyncJS data processor' })
 let ast = transpileCode({ code })
+// POST is enabled by the host for the run (context.allowedFetchMethods: ['POST'])
 let result = httpFetch({
   url: 'https://worker.example.com/run',
   method: 'POST',

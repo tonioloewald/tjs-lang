@@ -135,6 +135,29 @@ builds), **not** sticky `RegExp` calls. Host regex inside the VM would bring bac
 this replaces and tie the portable VM to ECMAScript regex. Range loops are also faster than a
 regex call per token, and port to any language in an afternoon.
 
+## Fluency and natural mapping (Tonio, 2026-10-03)
+
+> "Going from rail diagram to Pattern code should be trivial and reading a pattern invocation
+> should read like a description of a clean regex read back by a fluent engineer. `[a-z]+` e.g.
+> `atLeastOne(lowercase.letter)` where `atLeastOne` and `lowercase` are pieces of Pattern."
+
+The API is judged by two read-aloud tests:
+- **Rail diagram to code is one-to-one.** Every element of a railroad diagram (a terminal, a
+  sequence, a choice branch, a loop, an optional bypass) is exactly one Pattern piece, nested the
+  way the diagram nests. Drawing the diagram from the code, or the code from the diagram, is
+  mechanical. That also makes the diagram a free rendering of any Pattern, for docs and the
+  playground.
+- **Code reads as a description.** A pattern invocation reads like a fluent engineer reading a
+  clean regex aloud: `[a-z]+` is `atLeastOne(lowercase.letter)`, `\d{3}` is
+  `exactly(3, digit)`, `(,\s*)?` is `optional(sequence(',', any(whitespace)))`. Character
+  classes are NOUNS with readable refinements (`lowercase.letter`, `digit`, `hex.digit`);
+  repetition and choice are VERBS that take the noun (`atLeastOne`, `any`, `optional`,
+  `oneOf`).
+- **Names come from the reading, not from regex syntax.** No `plus`, `star` or `question`; no
+  flags. Where a reader would say "a quoted string" or "a comma-separated list", there is a
+  piece by that name (`quoted`, `sepBy`), which is also how inconvertible regexes get their
+  structure named.
+
 ## The API (draft)
 
 Combinators take sub-patterns. There are no modifier flags that apply to "the next token": those

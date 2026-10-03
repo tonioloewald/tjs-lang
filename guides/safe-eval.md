@@ -68,12 +68,18 @@ a capability returns is copied across a boundary before the guest sees it, so th
 holds a live host object.
 
 ```js
+// `init` (method, headers, body) is chosen by the UNTRUSTED code. The VM admits its shape first
+// (http/https only, GET/HEAD unless you allow more, a closed list of headers); your fetch decides
+// where it may go, and should not follow redirects or send ambient credentials.
 const allowed = ['api.example.com']
 const safeFetch = (url, init) => {
-  if (!allowed.includes(new URL(url).host)) {
-    throw new Error(`Domain not allowed: ${new URL(url).host}`)
+  const { protocol, hostname } = new URL(url)
+  if (protocol !== 'https:' || !allowed.includes(hostname)) {
+    throw new Error(`Domain not allowed: ${hostname}`)
   }
-  return fetch(url, init).then((r) => r.json()) // the BODY, not the Response
+  return fetch(url, { ...init, redirect: 'error', credentials: 'omit' }).then((r) =>
+    r.json()
+  ) // the BODY, not the Response
 }
 
 const cheap = await Eval({

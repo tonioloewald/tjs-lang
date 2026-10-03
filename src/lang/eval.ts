@@ -71,8 +71,13 @@ export interface SafeCapabilities {
    * So `capabilities: { fetch: globalThis.fetch }` never works; wrap it:
    *
    * ```ts
-   * fetch: (url, init) => fetch(url, init).then((r) => r.json())
+   * fetch: (url, init) =>
+   *   fetch(url, { ...init, redirect: 'error', credentials: 'omit' }).then((r) => r.json())
    * ```
+   *
+   * `init` is chosen by the guest, after the VM admits its shape (http/https, GET/HEAD unless
+   * `fetchPolicy.methods` allows more, a closed header list). Your fetch owns the destination:
+   * check the hostname, or set `fetchPolicy.domains`. See guides/safe-eval.md for a complete one.
    *
    * This used to be typed `typeof globalThis.fetch`, which invited exactly that call, and the
    * README's own example made it (0.14.0 docs review). TypeScript cannot forbid it —
@@ -83,6 +88,31 @@ export interface SafeCapabilities {
   console?: Pick<typeof console, 'log' | 'warn' | 'error'>
   /** Additional capabilities to expose */
   [key: string]: unknown
+}
+
+/**
+ * The HOST's fetch policy for a run, kept apart from guest `context` (which becomes guest variables).
+ * Forwarded to `vm.run`'s run context: `domains` → `allowedFetchDomains`, `methods` →
+ * `allowedFetchMethods`, `headers` → `allowedRequestHeaders`. Without it, `httpFetch` admits GET
+ * and HEAD and a closed list of headers; a domain allowlist applies to a host `fetch` only when set.
+ * (Before this, Eval and SafeFunction could not declare any of these: rc.2 pre-tag re-review 6.)
+ */
+export interface FetchPolicy {
+  domains?: string[]
+  methods?: string[]
+  headers?: string[]
+}
+
+/** The run context a FetchPolicy becomes. */
+function fetchContext(
+  policy: FetchPolicy | undefined
+): Record<string, unknown> | undefined {
+  if (!policy) return undefined
+  return {
+    ...(policy.domains && { allowedFetchDomains: policy.domains }),
+    ...(policy.methods && { allowedFetchMethods: policy.methods }),
+    ...(policy.headers && { allowedRequestHeaders: policy.headers }),
+  }
 }
 
 /** A context key that can be declared as a parameter name. */
@@ -157,6 +187,8 @@ export interface EvalOptions {
   timeoutMs?: number
   /** Capabilities to inject (fetch, console, etc.) */
   capabilities?: SafeCapabilities
+  /** The host's fetch policy for the run (see FetchPolicy); never visible to guest code. */
+  fetchPolicy?: FetchPolicy
   /**
    * Maximum bytes of source accepted, refused BEFORE transpilation (default 8 KB — `DEFAULT_MAX_SOURCE_BYTES`).
    *
@@ -225,6 +257,7 @@ export async function Eval(options: EvalOptions): Promise<{
     capabilities = {},
     maxSourceBytes = DEFAULT_MAX_SOURCE_BYTES,
     argsMaxBytes,
+    fetchPolicy,
   } = options
 
   const vm = getVM()
@@ -296,6 +329,7 @@ export async function Eval(options: EvalOptions): Promise<{
       timeoutMs,
       capabilities,
       argsMaxBytes,
+      context: fetchContext(fetchPolicy),
     })
 
     // Unwrap the boxed result
@@ -331,6 +365,8 @@ export interface SafeFunctionOptions {
   timeoutMs?: number
   /** Capabilities to inject (fetch, console, etc.) */
   capabilities?: SafeCapabilities
+  /** The host's fetch policy for the run (see FetchPolicy); never visible to guest code. */
+  fetchPolicy?: FetchPolicy
   /** Max bytes of `body` accepted, refused before transpilation. See EvalOptions. */
   maxSourceBytes?: number
   /**
@@ -359,6 +395,7 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
     capabilities = {},
     maxSourceBytes = DEFAULT_MAX_SOURCE_BYTES,
     argsMaxBytes,
+    fetchPolicy,
   } = options
 
   const vm = getVM()
@@ -389,6 +426,7 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
         timeoutMs,
         capabilities,
         argsMaxBytes,
+        context: fetchContext(fetchPolicy),
       })
 
       // Unwrap the boxed result

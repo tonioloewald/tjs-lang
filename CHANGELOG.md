@@ -146,8 +146,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >   Host-routing proxy it reached virtual hosts outside the allowlist. A denylist kept growing, and
 >   so did an "X- except the routing ones" rule (`X-Envoy-Original-Dst-Host`, `X-Originating-IP`, …),
 >   so neither survived.
-> - **A host's own `fetch` capability** receives the agent's request after the same admission
->   (above). Redirect handling and `credentials` are then the host's.
+> - **A host's own `fetch` capability** receives the agent's request after the same admission.
+>   The request's SHAPE is admitted on every path, always: `http:`/`https:` only (`file://` read
+>   a host file through the documented `safeFetch` on Bun), the method and the headers. Its
+>   DESTINATION (`allowedFetchDomains`, with ports) is enforced on every path when set; without
+>   it, a host fetch owns the destination. Redirects and `credentials` are then the host's; the
+>   documented `safeFetch` refuses redirects and omits credentials.
+> - **`Eval` and `SafeFunction` take a host-only `fetchPolicy`** (`{ domains, methods, headers }`),
+>   forwarded to the run and never visible to guest code. Their `context` option is guest
+>   variables, so before this they could not allow a POST at all.
+> - **Migration, hosts with their own `fetch`:** an agent's POST, PUT or DELETE now needs
+>   `context.allowedFetchMethods` (or `fetchPolicy.methods`), and headers outside the closed list
+>   need `context.allowedRequestHeaders` (or `fetchPolicy.headers`).
 > - **The built-in `httpFetch` is a demonstration capability, highly constrained by default**
 >   (Tonio). A real deployment supplies its own `fetch`. **Methods:** GET and HEAD by default;
 >   a host enables more for a run with `context.allowedFetchMethods`. CONNECT, TRACE and TRACK
