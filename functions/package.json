@@ -34,11 +34,16 @@
     "        THREE ranges (<11.1.1, >=12.0.0 <12.0.1, >=13.0.0 <13.0.1); ours is 9.0.1,",
     "        so only the first applies and the lowest safe version is 11.1.1.",
     "",
+    "@fastify/busboy  GHSA-xjh9-v7x6-24jw (oversized multipart boundary) + GHSA-x8mw-p69m-v3mx",
+    "        (prototype-named part header), both DoS, both <3.2.1 (published 2026-10-03).",
+    "        Reached via firebase-admin > @fastify/busboy; 3.2.1 is a patch within its range.",
+    "",
     "Drop an entry once the parent ships a bump that already satisfies it — an override",
     "that is no longer doing anything is a pin nobody is checking."
   ],
   "overrides": {
     "qs": "^6.16.0",
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "@fastify/busboy": "^3.2.1"
   }
 }

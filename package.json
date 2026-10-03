@@ -361,6 +361,8 @@
     "   form-data   ^2.5.6  GHSA-hmw2-7cc7-3qxx (<2.5.6). firebase-admin >",
     "                       @google-cloud/storage > retry-request > @types/request.",
     "                       A patch within 2.x, NOT the 4.x line.",
+    "   @fastify/busboy ^3.2.1  GHSA-xjh9-v7x6-24jw + GHSA-x8mw-p69m-v3mx (both <3.2.1,",
+    "                       published 2026-10-03). firebase-admin > @fastify/busboy.",
     "   qs          ^6.16.0 GHSA-x5fp-wj9c-mxmx + GHSA-4mjr-xmp4-gh2g.",
     "   uuid        ^11.1.1 GHSA-w5hq-g745-h8pq. The advisory lists three ranges;",
     "                       ours was 9.0.1, so the lowest safe version is 11.1.1.",
@@ -393,6 +395,7 @@
     "qs": "^6.16.0",
     "uuid": "^11.1.1",
     "protobufjs": "^7.6.5",
-    "@grpc/grpc-js": "^1.14.5"
+    "@grpc/grpc-js": "^1.14.5",
+    "@fastify/busboy": "^3.2.1"
   }
 }
