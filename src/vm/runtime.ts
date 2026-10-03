@@ -294,7 +294,7 @@ export interface RuntimeContext {
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   maxSourceBytes?: number // The run's `maxSourceBytes`. For guest-built source (runCode/transpileCode) it can only LOWER the 8KB cap — see `guestSourceCap`
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
-  membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default MEMBRANE_MAX_BYTES)
+  membraneMaxBytes?: number // Cap on the estimated size of a value crossing the capability boundary in either direction (default MEMBRANE_MAX_BYTES; outbound, remaining fuel bounds it too — see `egressValue`)
   maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default MAX_HEAP_BYTES). Fuel bounds work; this bounds peak memory.
   /**
    * Running estimate of live guest-state bytes, held in a SHARED OBJECT rather than as a
@@ -631,9 +631,10 @@ const PLAIN_PROTOTYPES = new Set<unknown>([
 export function membraneValueFrom(
   subject: string,
   value: unknown,
-  maxBytes: number
+  maxBytes: number,
+  admit?: (bytes: number) => void
 ): MembraneResult {
-  const r = membraneValue(value, maxBytes)
+  const r = membraneValue(value, maxBytes, admit)
   return r.ok
     ? r
     : { ok: false, reason: r.reason.replace(/capability return/g, subject) }
@@ -641,7 +642,12 @@ export function membraneValueFrom(
 
 export function membraneValue(
   value: unknown,
-  maxBytes: number
+  maxBytes: number,
+  /**
+   * Called with the walked size BETWEEN the walk and the copy, so a caller can charge for the
+   * copy before it exists (the outbound membrane passes `allocate`). It may throw.
+   */
+  admit?: (bytes: number) => void
 ): MembraneResult {
   // Fast path: primitives are pure data with no reachable reference.
   if (value === null || value === undefined) return { ok: true, value }
@@ -799,6 +805,7 @@ export function membraneValue(
     }
   }
 
+  admit?.(bytes)
   try {
     return { ok: true, value: structuredClone(value), bytes }
   } catch (e: any) {
@@ -4102,9 +4109,9 @@ function reconcileHeap(
   op: string
 ): number | undefined {
   // The estimate is about to be REPLACED by what is live now, so "already measured into the
-  // estimate" stops being true of a value that is no longer reachable from a root: forget them
-  // all, and each is measured again the next time it is bound (the value fast path in
-  // `trackHeapWrite` relies on this).
+  // estimate" stops being true of a value no longer reachable from a root. Cleared for the walk
+  // (the value fast path in `trackHeapWrite` relies on it), then re-seeded below with exactly the
+  // values the walk counted.
   ctx.heapAccount.measured = undefined
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
   // Re-seeded with what this walk counted: those values ARE in the live total now, so rebinding
@@ -4739,18 +4746,53 @@ const STEP_CONTROL_KEYS = new Set([
   'resultAssign',
 ])
 
-/** A step with every INPUT field resolved to its value (control fields left as they are). */
 /**
- * The OUTBOUND membrane (Tonio, 2026-10-03): what an IO atom hands a capability is a budgeted DEEP
- * COPY of its resolved input, checked against the atom's DECLARED input schema. The inbound
- * membrane already did this for what a capability returns; four review rounds found the outbound
- * direction site by site: a `system` that was really an array of `video_url` parts, `tools` and
- * `responseFormat` forwarded LIVE (a guest that caught a timeout mutated them before a slow host
- * serialised them), raw URLs. One choke point covers every IO atom, including ones not yet
- * written, and it fails by refusing. Terse on purpose: the transpiler is the friendly layer.
+ * The OUTBOUND membrane (Tonio, 2026-10-03): what a capability receives from guest code is a DEEP
+ * COPY, so a host never holds a live guest object (four review rounds found the outbound direction
+ * site by site: a `system` that was really an array of `video_url` parts, `tools` forwarded live
+ * and mutated by a guest that caught a timeout, raw URLs).
  *
- * Copy FIRST (budgeted by `membraneMaxBytes`), then validate the copy, so a huge or cyclic value
- * never reaches the validator. Pure atoms are not copied (their inputs never leave the VM).
+ * The copy is work proportional to guest data, so it is a DOOR in the `docs/vm-budgets.md` sense
+ * and is paid for like one: the walk is budgeted by what the run's remaining fuel can pay (and by
+ * `membraneMaxBytes`), and the copy is charged through `allocate()`, as fuel and transient heap,
+ * BEFORE `structuredClone` runs. A walk that stops at its budget is charged for what it read; when
+ * fuel was the binding limit that is `Out of Fuel`, as it is for run arguments. Round 30 copied
+ * first and charged nothing, so a refused call cost no fuel at all (cumulative review 5, B-1).
+ *
+ * Every IO atom reaches a capability through this function: the VM-resolved ones via
+ * `egressInput`, the rest by calling it themselves. `egress-doors.test.ts` parses the atom
+ * definitions and fails on an IO atom that does neither and is not listed with a reason.
+ */
+export function egressValue(
+  ctx: RuntimeContext,
+  op: string,
+  value: unknown,
+  subject = `the input to '${op}'`
+): any {
+  const cap = ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
+  const payable = ctx.fuel
+    ? Math.max(0, ctx.fuel.current) / FUEL_PER_ALLOCATED_BYTE
+    : Infinity
+  const budget = Math.min(cap, payable)
+  const crossed = membraneValueFrom(subject, value, budget, (bytes) =>
+    allocate(ctx, bytes, op)
+  )
+  if (!crossed.ok) {
+    if (/-byte membrane budget/.test(crossed.reason)) {
+      // The walk read `budget` bytes before it stopped: that work is paid for.
+      if (ctx.fuel) ctx.fuel.current -= budget * FUEL_PER_ALLOCATED_BYTE
+      if (payable < cap) throw new AgentError('Out of Fuel', op)
+    }
+    throw new AgentError(`'${op}': ${crossed.reason}`, op)
+  }
+  return crossed.value
+}
+
+/**
+ * `egressValue` for an atom the VM resolved: the copy is then validated against the atom's
+ * DECLARED input schema (whose size is the host's, and whose input has been paid for). Pure atoms
+ * are not copied: their inputs never leave the VM. Terse on purpose: the transpiler is the
+ * friendly layer.
  */
 function egressInput(
   atom: AtomDef,
@@ -4759,30 +4801,22 @@ function egressInput(
   op: string
 ): any {
   if (atom.effects !== 'io') return resolved
-  const input = withoutControlKeys(resolved)
-  const crossed = membraneValueFrom(
-    `the input to '${op}'`,
-    input,
-    ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
-  )
-  if (!crossed.ok) throw new AgentError(`'${op}': ${crossed.reason}`, op)
+  const copy = egressValue(ctx, op, withoutControlKeys(resolved))
   const schema = isBuilder(atom.inputSchema)
     ? (atom.inputSchema as any).schema
     : atom.inputSchema
-  if (schema && !validate(crossed.value, schema))
+  if (schema && !validate(copy, schema))
     throw new AgentError(
       `'${op}': its input does not have the shape the atom declares`,
       op
     )
-  const out: Record<string, any> = Object.assign(
-    Object.create(null),
-    crossed.value
-  )
+  const out: Record<string, any> = Object.assign(Object.create(null), copy)
   for (const key of STEP_CONTROL_KEYS)
     if (key in resolved) out[key] = resolved[key]
   return out
 }
 
+/** A step with every INPUT field resolved to its value (control fields left as they are). */
 function resolveAtomInputs(step: any, ctx: RuntimeContext): any {
   const out: Record<string, any> = {}
   for (const key of Object.keys(step)) {
@@ -4893,14 +4927,14 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // Resolve ONCE, before anything reads the input: the cost and timeout functions and the
         // atom body all see the same values. (Cost functions saw raw AST nodes while the body saw
         // values, so `i => i.items.length` billed 1 for a 10-element array — rc.2 review.)
-        const callInput = atom.resolveInputs
-          ? egressInput(atom, resolveAtomInputs(step, ctx), ctx, op)
+        const resolvedInput = atom.resolveInputs
+          ? resolveAtomInputs(step, ctx)
           : step
         // Built only when a cost or timeout FUNCTION asks for it — most atoms have neither.
         let fnInputMemo: any
         const fnInput = () =>
           (fnInputMemo ??= atom.resolveInputs
-            ? withoutControlKeys(callInput)
+            ? withoutControlKeys(resolvedInput)
             : inputData)
         const overrideCost = ctx.costOverrides?.[op]
         const baseCost = overrideCost !== undefined ? overrideCost : cost
@@ -4915,6 +4949,11 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           ctx.error = new AgentError('Out of Fuel', op)
           return
         }
+        // 2b. The outbound membrane, AFTER the base cost: a refused call has paid for itself, and
+        // the copy is charged by the bytes it moves (`egressValue`).
+        const callInput = atom.resolveInputs
+          ? egressInput(atom, resolvedInput, ctx, op)
+          : step
 
         // 3. Execution with Timeout (per-atom override > atom default)
         const overrideTimeout = ctx.timeoutOverrides?.[op]
@@ -6971,7 +7010,12 @@ export const agentRun = defineAtom(
     if (!ctx.capabilities.agent?.run)
       throw new Error("Capability 'agent.run' missing")
 
-    const result = await ctx.capabilities.agent.run(resolvedId, resolvedInput)
+    // Through the outbound membrane: the host receives copies, paid for (`egressValue`).
+    const sent = egressValue(ctx, 'agentRun', {
+      agentId: resolvedId,
+      input: resolvedInput,
+    })
+    const result = await ctx.capabilities.agent.run(sent.agentId, sent.input)
 
     // Check if this is a RunResult (has fuelUsed property) - unwrap it
     if (
@@ -7246,6 +7290,25 @@ const result = memoize("expensive-" + id, () => {
 })
 ```
 */
+/**
+ * The key a `memoize`/`cache` block is stored under: the given one, or a digest of the block's
+ * steps. Both used to call `hash.exec(...)`, the STEP wrapper, which returns nothing, so every
+ * key-less block shared the one entry `undefined` and returned another block's result (found
+ * when `cache` began refusing a non-string key, cumulative review 5).
+ */
+async function blockKey(
+  key: unknown,
+  steps: unknown,
+  ctx: RuntimeContext,
+  op: string
+): Promise<any> {
+  const given = resolveValue(key, ctx)
+  if (given !== undefined) return given
+  const str = stringifyInput(ctx, steps, op)
+  if (!chargeForSize(ctx, str, op)) return undefined
+  return digestHex(str, 'SHA-256')
+}
+
 export const memoize = defineAtom(
   'memoize',
   s.object({ key: s.string.optional, steps: s.array(s.any) }),
@@ -7254,9 +7317,8 @@ export const memoize = defineAtom(
     // In-memory memoization scoped to VM run
     if (!ctx.memo) ctx.memo = new Map()
 
-    const k =
-      resolveValue(key, ctx) ??
-      (await hash.exec({ value: steps, algorithm: 'SHA-256' }, ctx))
+    const k = await blockKey(key, steps, ctx, 'memoize')
+    if (ctx.error) return undefined
 
     // Check if result exists
     if (ctx.memo.has(k)) {
@@ -7324,9 +7386,12 @@ export const cache = defineAtom(
     const store = storeOf(ctx)
     if (!store) throw new Error("Capability 'store' missing for caching")
 
-    const k =
-      resolveValue(key, ctx) ??
-      (await hash.exec({ value: steps, algorithm: 'SHA-256' }, ctx))
+    const k = await blockKey(key, steps, ctx, 'cache')
+    if (ctx.error) return undefined
+    // The key is concatenated into a string the host store receives: a STRING, never a value
+    // whose ToString would be host work on a guest object.
+    if (typeof k !== 'string')
+      throw new AgentError("'cache': its key must be a string", 'cache')
 
     // Check cache
     const cacheKey = `cache:${k}`
@@ -7375,7 +7440,11 @@ export const cache = defineAtom(
     const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000)
 
     if ((ctx.fuel.current -= 5) <= 0) throw new Error('Out of Fuel')
-    await store.set(cacheKey, { val: result, _exp: expiry })
+    // Through the outbound membrane: the store receives a copy, paid for (`egressValue`).
+    await store.set(
+      cacheKey,
+      egressValue(ctx, 'cache', { val: result, _exp: expiry })
+    )
 
     return result
   },
@@ -7469,6 +7538,26 @@ export const uuid = defineAtom(
   { docs: 'Generate UUID', cost: 1 }
 )
 
+/** The hex digest `hash` returns; shared with `cache`'s default key. */
+async function digestHex(str: string, algo: string): Promise<string> {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const encoder = new TextEncoder()
+    const data = encoder.encode(str)
+    const hashBuffer = await crypto.subtle.digest(algo, data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+  }
+
+  // Fallback for environments without crypto.subtle
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = (hash << 5) - hash + char
+    hash |= 0 // Convert to 32bit integer
+  }
+  return String(hash)
+}
+
 export const hash = defineAtom(
   'hash',
   s.object({
@@ -7481,24 +7570,7 @@ export const hash = defineAtom(
     // The digest reads every byte, so charge for it. Flat-charged, `hash` cost 1.2 fuel for
     // 1KB and for 1MB alike.
     if (!chargeForSize(ctx, str, 'hash')) return undefined
-    const algo = resolveValue(algorithm, ctx) || 'SHA-256'
-
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-      const encoder = new TextEncoder()
-      const data = encoder.encode(str)
-      const hashBuffer = await crypto.subtle.digest(algo, data)
-      const hashArray = Array.from(new Uint8Array(hashBuffer))
-      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
-    }
-
-    // Fallback for environments without crypto.subtle
-    let hash = 0
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i)
-      hash = (hash << 5) - hash + char
-      hash |= 0 // Convert to 32bit integer
-    }
-    return String(hash)
+    return digestHex(str, resolveValue(algorithm, ctx) || 'SHA-256')
   },
   { docs: 'Hash a value', cost: 1 }
 )

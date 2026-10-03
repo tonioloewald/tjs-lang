@@ -307,7 +307,7 @@ await vm.run(ast, args, {
   fuel, capabilities, timeoutMs, trace,
   costOverrides: { atomOp: 5 },             // per-atom fuel cost override
   timeoutOverrides: { atomOp: 60_000 },     // per-atom wall-clock override (ms; 0 disables)
-  membraneMaxBytes: 4 * 1024 * 1024,        // cap on a capability return's size (default 4MB)
+  membraneMaxBytes: 4 * 1024 * 1024,        // cap on a value crossing the capability boundary, either direction (default 4MB)
   argsMaxBytes: 4 * 1024 * 1024,            // ceiling on run ARGUMENTS (default 4MB); fuel bounds them too (~8KB/fuel)
   maxHeapBytes: 64 * 1024 * 1024,           // ceiling on bytes held LIVE in guest scope (default 64MB)
   quotas: { llmPredict: 3, httpFetch: 10 }, // per-atom CALL caps; absent op ⇒ unlimited
@@ -795,7 +795,7 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
   resolve normally; a COPY of the context, or one with `state` replaced, is refused by name. An
   atom that takes **steps as input** must set `resolveInputs: false`, or they arrive evaluated.
   Dynamic `cost`/`timeoutMs` functions see the same resolved input as the body.
-- **IO atoms receive checked copies** (0.14.0, the outbound membrane): an `effects: 'io'` atom whose inputs the VM resolves gets a budgeted deep copy, validated against its declared `inputSchema` before the body runs (`egressInput` in `runtime.ts`). Declare the schema you actually accept; a mismatched call is refused. Core leaf IO atoms (`LEAF_IO_OPS`) and the battery atoms run this way
+- **IO atoms receive checked copies** (0.14.0, the outbound membrane): an `effects: 'io'` atom whose inputs the VM resolves gets a deep copy, validated against its declared `inputSchema` before the body runs (`egressInput` in `runtime.ts`). Declare the schema you actually accept; a mismatched call is refused. The copy is a DOOR and is paid for: its walk is budgeted by the remaining fuel and `membraneMaxBytes`, and it is charged through `allocate()` before it is made (`egressValue`). An IO atom with `resolveInputs: false` must pass what it hands a capability through `egressValue` itself (exported). Core and battery atoms are held to this by `src/vm/egress-doors.test.ts`
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
 - Access IO only via `ctx.capabilities`, which is the host's object exactly as passed (0.14.0: never copied or written). Read the store through `storeOf(ctx)`: `ctx.capabilities.store` is undefined when the host gave none, and the run's default store lives on the context

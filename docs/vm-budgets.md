@@ -179,6 +179,7 @@ the same engine, through a RegExp-protocol adapter (`src/lang/predicate-regex.ts
 | Implicit coercion (operators, computed keys, primitive-taking methods) | the string form of an object | **refused** (above) |
 | Atoms | data atoms (v1 ops only; see below), VM services | data atoms delegate to the same gated primitives; every atom is listed in a ratchet table with its allocation story |
 | Capability returns | io atoms | the membrane (`membraneMaxBytes`), then I2 at the bind |
+| Capability inputs (the outbound membrane) | the deep copy of what an io atom hands a capability | `egressValue`: walk budgeted by remaining fuel and `membraneMaxBytes`, copy charged through `allocate()` before `structuredClone`; a walk stopped at its budget is charged for what it read. Every io atom is on it (`egress-doors.test.ts`) |
 | Binds and insertions | `setStateVar`, `accountMutation`, memo stores, holder pushes | I2 |
 | Literals (`[...]`, `{...}`) | O(AST size), bounded by admission | none needed: the AST is already budgeted |
 

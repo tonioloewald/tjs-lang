@@ -215,7 +215,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > It applies to every core, battery and custom IO atom whose inputs the VM resolves, and fails by
 > refusing (`'<op>': its input does not have the shape the atom declares`). **Embedders:** a custom
 > IO atom now receives plain-data copies, and is called only with inputs matching its declared
-> schema; a `storeGet` key must be the string it declares.
+> schema; a `storeGet` key must be the string it declares. An IO atom with
+> `resolveInputs: false` should pass what it hands a capability through the newly exported
+> `egressValue`. `agentRun`'s capability route and `cache` now do (both handed the host live guest
+> objects), and a `cache` key must be a string.
+>
+> The copy is paid for. Its walk is budgeted by the run's remaining fuel and by
+> `membraneMaxBytes`, which **now caps both directions** (it was documented for returns only).
+> The copy is charged as an allocation before it is made, and a call that is refused is charged
+> for the walk it caused. The first version of this membrane charged nothing, so a loop over a
+> large value used about 100× the CPU for the same fuel (cumulative review 5).
+>
+> **Fixed: key-less `cache` and `memoize` blocks shared one entry.** Both derived the default key
+> by calling the `hash` atom's step wrapper, which returns nothing, so every key-less block was
+> stored under `undefined` and returned another block's result. A `cache` entry is shared across
+> runs for 24 hours by default. The key is now a digest of the block's steps.
 >
 > A fetch URL that is relative is decided by the URL parser itself (resolved against an http and
 > a `file:` sentinel). It passes only as a plain path naming no host, and contains no

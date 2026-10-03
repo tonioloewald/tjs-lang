@@ -184,6 +184,18 @@ is enforced at more than one door, it must have one definition that every door c
 same round, the method table admitted a guest Date that the `Date()` factory then rejected,
 because each decided separately what a date is (`timestampOf` is now the single definition).
 
+## 10. A new choke point states its cost — and is metered before it works
+
+A gate added for safety is also a door: if it does work proportional to guest data, it is an
+amplifier until it is charged. Ask of every new membrane, check or copy: what does one crossing
+cost, who pays, and is it charged BEFORE the work, including when it refuses? In rc.2 round 30
+the outbound membrane deep-copied every IO atom's input before the base cost and charged
+nothing, so a `storeSet` loop over a large value ran 100× the CPU for the same fuel, and a
+refused call (caught and retried) was free. The review that found it had approved the gate for
+WHAT it checked; nobody had asked what it cost. The rule the VM already had applies: size it
+against what the run can pay, charge it, then do it (`egressValue`, `vm.run`'s argument
+admission).
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

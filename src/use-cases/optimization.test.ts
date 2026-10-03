@@ -282,14 +282,25 @@ describe('Use Case: Optimization', () => {
     const customVM = new AgentVM({ expensive: expensiveAtom })
     const builder = customVM.Agent
 
-    const logic = builder
-      .memoize((b) => b.step({ op: 'expensive' }).as('res1'))
+    // The SAME block twice is one call. (This test used two DIFFERENT blocks, res1 and res2, and
+    // expected one call: it passed only because every key-less block shared the key `undefined`,
+    // so a different block returned the first one's result. Cumulative review 5.)
+    const same = builder
+      .memoize((b) => b.step({ op: 'expensive' }).as('res'))
+      .memoize((b) => b.step({ op: 'expensive' }).as('res'))
+      .return(s.object({}))
+    await customVM.run(same.toJSON(), {})
+    expect(calls).toBe(1)
+
+    // Different blocks are different entries.
+    calls = 0
+    const different = customVM.Agent.memoize((b) =>
+      b.step({ op: 'expensive' }).as('res1')
+    )
       .memoize((b) => b.step({ op: 'expensive' }).as('res2'))
       .return(s.object({}))
-
-    await customVM.run(logic.toJSON(), {})
-
-    expect(calls).toBe(1)
+    await customVM.run(different.toJSON(), {})
+    expect(calls).toBe(2)
   })
 
   it('should cache without a key', async () => {

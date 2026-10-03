@@ -321,3 +321,32 @@ describe('a reconcile forgets which values were measured (cumulative review 2)',
     expect(r.error?.message ?? 'escaped the ceiling').toMatch(/Heap limit/)
   })
 })
+
+describe('a reconcile re-seeds what it counted (cumulative review 4, pinned in review 5)', () => {
+  // A value over half the cap, rebound after a reconcile. Without the re-seed, each rebind
+  // re-walks it, which pushes the estimate over the cap, which reconciles, which forgets it
+  // again: one full walk per rebind. Garbage (`g`, `h`) inflates the estimate so the reconcile
+  // happens before the loop. Measured: 190 extra rebinds cost 109 fuel with the re-seed and 915
+  // without it.
+  const SRC = (n: number) => `function f() {
+    let a = []
+    let i = 0
+    while (i < 850) { a.push({ i: i, s: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' }); i = i + 1 }
+    let g = 'z'.repeat(20000)
+    g = ''
+    let h = 'y'.repeat(20000)
+    h = ''
+    let b = null
+    let k = 0
+    while (k < ${n}) { b = a; b = null; k = k + 1 }
+    return { n: a.length }
+  }`
+  it('rebinding a large value after a reconcile costs a pointer, not a walk', async () => {
+    const opts = { fuel: 1e7, maxHeapBytes: 200_000 }
+    const few = await new AgentVM().run(transpile(SRC(10)).ast, {}, opts)
+    const many = await new AgentVM().run(transpile(SRC(200)).ast, {}, opts)
+    expect(few.error).toBeUndefined()
+    expect(many.error).toBeUndefined()
+    expect(many.fuelUsed - few.fuelUsed).toBeLessThan(300)
+  })
+})

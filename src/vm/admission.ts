@@ -65,7 +65,7 @@ export interface RunOptions {
   quotaUsed?: Record<string, number>
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
-  membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
+  membraneMaxBytes?: number // Cap on the estimated size of a value crossing the capability boundary, in EITHER direction: a capability's return into guest state, and (0.14.0) an IO atom's input out to a capability (default 4MB)
   argsMaxBytes?: number // Ceiling on the run ARGUMENTS crossing into guest state (default DEFAULT_ARGS_MAX_BYTES); the run's fuel bounds it too — see ARG_BYTES_PER_FUEL
   maxSourceBytes?: number // Ceiling on SOURCE passed as a string (default DEFAULT_MAX_SOURCE_BYTES; 0/Infinity disable — trusted source only). For guest-built source (runCode/transpileCode) it can only LOWER the cap — see guestSourceCap
   maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
