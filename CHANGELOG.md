@@ -241,9 +241,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > schema contains `pattern`/`patternProperties`: the outbound membrane validates every call
 > against that schema, so a pattern there ran on the host's regex engine over guest-chosen
 > strings, outside fuel. Check patterns in the atom's body. (The JSON Schema direction is Pattern:
-> `docs/pattern.md`.) A refused outbound copy is billed for the walk whatever refused it; round
-> 31 billed only a refusal for size, so a value refused for its depth cost nothing (cumulative
-> review 6).
+> `docs/pattern.md`.) The schema is admitted as a frozen plain-JSON COPY when the atom is
+> defined, and every call is validated against that copy: a `pattern` is refused whatever its
+> value (a RegExp included), any other non-JSON value is refused rather than converted, and
+> changing `atom.inputSchema` afterwards changes nothing. An atom tagged `io` after definition is
+> admitted at its first call. Migration:
+>
+> ```js
+> defineAtom('ping', undefined, s.any, fn)               // refused
+> defineAtom('ping', s.object({}), s.any, fn)            // takes nothing
+> defineAtom('lookup', s.object({ id: s.string.pattern('^[a-z]+$') }), …) // refused:
+> defineAtom('lookup', s.object({ id: s.string }), …)    // check the id in the body
+> ```
+>
+> A refused outbound copy is billed for the work its walk did, whatever refused it, never more
+> than the fuel present, and keeps its own error unless fuel genuinely ran out. Round 31 billed
+> only a refusal for size (a depth refusal after a megabyte was free); round 32 billed the whole
+> budget on top of what the copy had already been charged (cumulative reviews 6 and 7).
+>
+> **Persisted ASTs:** a stored AST (`procedureStore`, a saved builder program) containing a
+> key-less `memoize` or `cache` now fails when it runs, with "a key is required". Add a key.
 >
 > A fetch URL that is relative is decided by the URL parser itself (resolved against an http and
 > a `file:` sentinel). It passes only as a plain path naming no host, and contains no

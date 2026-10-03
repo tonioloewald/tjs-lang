@@ -178,7 +178,47 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
     const many = await run(21)
     expect(one.result).toEqual({ refused: 1 })
     expect(many.result).toEqual({ refused: 21 })
+    // `allocate` charges this copy before the ceiling refuses it, so the bill is that charge and
+    // no more (round 32 billed the budget again on top: cumulative review 7).
     expect(many.fuelUsed - one.fuelUsed).toBeGreaterThan(20 * 16)
+  })
+
+  it('a heap-refused copy caught with little fuel to spare keeps its own error, and never overdraws', async () => {
+    const CAUGHT = `function f(v: [{ i: 0 }]) {
+      let refused = 0
+      try {
+        storeSet({ key: 'k', value: v })
+      } catch (e) {
+        refused = 1
+      }
+      return { refused }
+    }`
+    const opts = (fuel: number) => ({
+      fuel,
+      maxHeapBytes: 1_200_000,
+      capabilities: { store: memoryStore() },
+    })
+    const ast = transpile(CAUGHT).ast
+    const roomy = await new AgentVM().run(ast, { v: big(20_000) }, opts(1e7))
+    expect(roomy.result).toEqual({ refused: 1 })
+    const tight = roomy.fuelUsed + 5
+    const r = await new AgentVM().run(ast, { v: big(20_000) }, opts(tight))
+    expect(r.result).toEqual({ refused: 1 })
+    expect(r.fuelUsed).toBeLessThanOrEqual(tight)
+
+    // ...and is billed ONCE: against the same copy accepted, refusing adds the reconcile walk
+    // (measured +40), not the copy a second time (+74 when the walk was billed again).
+    const accepted = await new AgentVM().run(
+      ast,
+      { v: big(20_000) },
+      {
+        fuel: 1e7,
+        maxHeapBytes: 1e8,
+        capabilities: { store: memoryStore() },
+      }
+    )
+    expect(accepted.result).toEqual({ refused: 0 })
+    expect(roomy.fuelUsed - accepted.fuelUsed).toBeLessThan(55)
   })
 
   it('a copy larger than the whole heap ceiling is billed for the walk before it', () => {
@@ -190,12 +230,14 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
       heapAccount: { bytes: 0, transient: 0 },
     }
     expect(() => egressValue(ctx, 'op', big(5_000))).toThrow(/Heap limit/)
-    expect(1e6 - ctx.fuel.current).toBeGreaterThanOrEqual(50)
+    // 5,000 objects of ~34 bytes: ~8.5 fuel walked
+    expect(1e6 - ctx.fuel.current).toBeGreaterThan(5)
   })
 
   // Refusals a guest cannot build (its values are a closed domain), billed the same way: the
-  // backstop for a value built some way nobody has thought of.
-  const wideThen = (last: unknown) => ({ wide: big(5_000), z: last })
+  // backstop for a value built some way nobody has thought of. The offender comes FIRST in key
+  // order because the walk pops LIFO: it is reached after the wide part has been read.
+  const wideThen = (last: unknown) => ({ z: last, wide: big(5_000) })
   class Thing {
     x = 1
   }
@@ -211,11 +253,27 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
     ['a class instance', wideThen(new Thing())],
   ]
   for (const [label, value] of kinds) {
-    it(`a refusal for ${label} is billed its budget`, () => {
+    it(`a refusal for ${label} is billed what it walked, no more`, () => {
       const ctx: any = { fuel: { current: 1e6 }, membraneMaxBytes: 1e6 }
       expect(() => egressValue(ctx, 'op', value)).toThrow()
-      // budget = 1MB at 20,000 bytes per fuel
-      expect(1e6 - ctx.fuel.current).toBeGreaterThanOrEqual(50)
+      // the wide part (~170KB at 20,000 bytes per fuel) was read; the 1MB budget was not
+      const spent = 1e6 - ctx.fuel.current
+      expect(spent).toBeGreaterThan(5)
+      expect(spent).toBeLessThan(50)
+    })
+
+    it(`a refusal for ${label} under low fuel keeps its own reason`, () => {
+      // 40 fuel pays for ~800KB: more than the walk (~430KB with the depth chain), well under the
+      // 1MB cap. Round 32 billed the whole budget, so any refusal here read "Out of Fuel".
+      const ctx: any = { fuel: { current: 40 }, membraneMaxBytes: 1e6 }
+      let message = ''
+      try {
+        egressValue(ctx, 'op', value)
+      } catch (e: any) {
+        message = e.message
+      }
+      expect(message).not.toBe('Out of Fuel')
+      expect(ctx.fuel.current).toBeGreaterThan(0)
     })
   }
 })

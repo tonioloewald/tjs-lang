@@ -196,6 +196,12 @@ WHAT it checked; nobody had asked what it cost. The rule the VM already had appl
 against what the run can pay, charge it, then do it (`egressValue`, `vm.run`'s argument
 admission).
 
+And the bill for a REFUSED crossing must not depend on the refusal's reason or outcome. Round 31
+billed only a refusal whose message said "byte budget"; round 32 overcorrected and billed the
+whole budget on top of what had already been charged, so fuel used could exceed fuel granted.
+Bill the work done, reported on every exit, and make reporting it impossible to skip (round 33
+made `walked` a required field of every membrane refusal, so the compiler checks it).
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

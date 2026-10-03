@@ -598,7 +598,15 @@ const MEMBRANE_MAX_DEPTH = 10_000 // reject absurd nesting before it can stack-o
 
 export type MembraneResult =
   | { ok: true; value: unknown; bytes?: number }
-  | { ok: false; reason: string }
+  | {
+      ok: false
+      reason: string
+      /**
+       * Bytes the walk read before it refused: REQUIRED, so a refusal path that does not report its
+       * work does not compile. The outbound membrane bills exactly this (cumulative review 7).
+       */
+      walked: number
+    }
 
 /**
  * The prototypes plain data may have. Anything else is a CLASS INSTANCE, and the copy keeps
@@ -637,7 +645,11 @@ export function membraneValueFrom(
   const r = membraneValue(value, maxBytes, admit)
   return r.ok
     ? r
-    : { ok: false, reason: r.reason.replace(/capability return/g, subject) }
+    : {
+        ok: false,
+        reason: r.reason.replace(/capability return/g, subject),
+        walked: r.walked,
+      }
 }
 
 export function membraneValue(
@@ -657,6 +669,7 @@ export function membraneValue(
     if ((value as string).length * 2 > maxBytes) {
       return {
         ok: false,
+        walked: 0,
         reason: `string exceeds ${maxBytes}-byte membrane budget`,
       }
     }
@@ -665,6 +678,7 @@ export function membraneValue(
   if (t === 'function' || t === 'symbol' || t === 'bigint') {
     return {
       ok: false,
+      walked: 0,
       reason: `a ${t} cannot cross the capability boundary into guest state`,
     }
   }
@@ -684,6 +698,7 @@ export function membraneValue(
     if (vt === 'function' || vt === 'symbol' || vt === 'bigint') {
       return {
         ok: false,
+        walked: bytes,
         reason: `capability return contains a ${vt}, which cannot cross into guest state`,
       }
     }
@@ -702,6 +717,7 @@ export function membraneValue(
     if (depth > MEMBRANE_MAX_DEPTH) {
       return {
         ok: false,
+        walked: bytes,
         reason: 'the value exceeds the membrane depth limit',
       }
     }
@@ -757,6 +773,7 @@ export function membraneValue(
       if (proto !== (isMap ? Map.prototype : Set.prototype)) {
         return {
           ok: false,
+          walked: bytes,
           reason: `capability return contains a ${
             isMap ? 'Map' : 'Set'
           } subclass; the boundary takes plain data only, because a subclass can override how it is read`,
@@ -794,11 +811,12 @@ export function membraneValue(
         const name = proto?.constructor?.name || 'an unnamed class'
         return {
           ok: false,
+          walked: bytes,
           reason: `capability return contains an instance of ${name}; only plain data crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
         }
       }
       const own = readOwnData(v)
-      if (!own.ok) return own
+      if (!own.ok) return { ...own, walked: bytes + own.walked }
       bytes += own.bytes
       if (bytes > maxBytes) return overBudget(maxBytes)
       for (const value of own.values) stack.push({ v: value, depth: depth + 1 })
@@ -811,6 +829,7 @@ export function membraneValue(
   } catch (e: any) {
     return {
       ok: false,
+      walked: bytes,
       reason: `capability return is not structured-cloneable: ${
         e?.message || e
       }`,
@@ -847,9 +866,15 @@ export function membraneValue(
  * the highest-stakes file in the repo is review burden for nothing, and the kind of pair
  * that drifts the moment someone improves the wording of one.
  */
-function overBudget(maxBytes: number): { ok: false; reason: string } {
+function overBudget(maxBytes: number): {
+  ok: false
+  reason: string
+  walked: number
+} {
   return {
     ok: false,
+    // the walk stops the moment it passes its budget, so it read the budget
+    walked: maxBytes,
     reason: `the value exceeds the ${maxBytes}-byte membrane budget`,
   }
 }
@@ -860,7 +885,7 @@ function readArrayData(
   maxBytes: number,
   stack: Array<{ v: any; depth: number }>,
   depth: number
-): { ok: true; bytes: number } | { ok: false; reason: string } {
+): { ok: true; bytes: number } | { ok: false; reason: string; walked: number } {
   let bytes = startBytes
   /** Values queued for the walk. Each will cost at least 8 — the early-bail lower bound. */
   let pushed = 0
@@ -880,6 +905,7 @@ function readArrayData(
     if (d.get || d.set) {
       return {
         ok: false,
+        walked: bytes + pushed * 8,
         reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
@@ -904,6 +930,7 @@ function readArrayData(
     if (d && (d.get || d.set)) {
       return {
         ok: false,
+        walked: bytes + pushed * 8,
         reason: `capability return has an accessor ${
           asIndex >= 0 ? `at index ${k}` : `property '${k}'`
         }; the boundary takes plain data only, because reading an accessor would execute host code`,
@@ -980,7 +1007,7 @@ function readOwnData(
   v: object
 ):
   | { ok: true; values: unknown[]; bytes: number }
-  | { ok: false; reason: string } {
+  | { ok: false; reason: string; walked: number } {
   const values: unknown[] = []
   let bytes = 0
   for (const k of Object.keys(v)) {
@@ -1002,6 +1029,7 @@ function readOwnData(
     if (d && (d.get || d.set)) {
       return {
         ok: false,
+        walked: bytes,
         reason: `capability return has an accessor property '${k}'; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
@@ -4775,31 +4803,41 @@ export function egressValue(
     ? Math.max(0, ctx.fuel.current) / FUEL_PER_ALLOCATED_BYTE
     : Infinity
   const budget = Math.min(cap, payable)
-  // A REFUSED walk is billed its whole budget, whatever refused it. The walk never reads past
-  // its budget, so the budget bounds the work it did, and the bill does not depend on WHY it
-  // stopped. Round 31 billed only a refusal whose reason said "byte budget", so a value refused
-  // for its depth (walked last, after a megabyte) cost nothing (cumulative review 6, B-1). Billing
-  // that depends on the outcome is the shape that kept failing; this has no outcome in it.
-  // Deliberately an overcharge for a small refused value: refusing is never cheaper than the walk
-  // could have been.
-  const refused = (error: unknown): never => {
+  // A refused crossing is billed the WORK IT DID, reported on every exit of the walk (`walked` is
+  // a required field of a refusal, so a path that does not report cannot compile), less what
+  // the crossing has already spent (`allocate` charges the copy, and a reconcile it triggers, even
+  // when it then refuses). Never more than the fuel present at entry, and
+  // `Out of Fuel` only when fuel actually reaches zero, so a refusal keeps its own reason.
+  //
+  // Round 31 billed only a refusal whose reason said "byte budget" (a depth refusal after a
+  // megabyte was free); round 32 billed the whole budget on top of `allocate`'s own charge, so
+  // fuel used could exceed fuel granted and any refusal under low fuel read "Out of Fuel"
+  // (cumulative reviews 6 and 7). A bill must never depend on the refusal's reason or outcome.
+  const fuelAtEntry = ctx.fuel?.current ?? 0
+  let walked = 0
+  const bill = (error: unknown): never => {
     if (ctx.fuel) {
-      ctx.fuel.current -= budget * FUEL_PER_ALLOCATED_BYTE
+      const spent = fuelAtEntry - ctx.fuel.current
+      const owed = Math.max(0, walked * FUEL_PER_ALLOCATED_BYTE - spent)
+      ctx.fuel.current = Math.max(0, ctx.fuel.current - owed)
       if (ctx.fuel.current <= 0) throw new AgentError('Out of Fuel', op)
     }
     throw error
   }
   let crossed: MembraneResult
   try {
-    crossed = membraneValueFrom(subject, value, budget, (bytes) =>
+    crossed = membraneValueFrom(subject, value, budget, (bytes) => {
+      walked = bytes
       allocate(ctx, bytes, op)
-    )
+    })
   } catch (e) {
-    // `allocate` refused the copy (the heap ceiling): the walk before it still happened.
-    return refused(e)
+    // `allocate` refused the copy (the heap ceiling, or fuel): the walk happened either way
+    return bill(e)
   }
-  if (!crossed.ok)
-    return refused(new AgentError(`'${op}': ${crossed.reason}`, op))
+  if (!crossed.ok) {
+    walked = crossed.walked
+    return bill(new AgentError(`'${op}': ${crossed.reason}`, op))
+  }
   return crossed.value
 }
 
@@ -4816,11 +4854,9 @@ function egressInput(
   op: string
 ): any {
   if (atom.effects !== 'io') return resolved
+  const schema = ioSchemaOf(atom, op)
   const copy = egressValue(ctx, op, withoutControlKeys(resolved))
-  const schema = isBuilder(atom.inputSchema)
-    ? (atom.inputSchema as any).schema
-    : atom.inputSchema
-  if (schema && !validate(copy, schema))
+  if (!validate(copy, schema as any))
     throw new AgentError(
       `'${op}': its input does not have the shape the atom declares`,
       op
@@ -4855,48 +4891,111 @@ const SCHEMA_MAP_KEYWORDS = new Set([
 const SCHEMA_DATA_KEYWORDS = new Set(['enum', 'const', 'default', 'examples'])
 
 /**
- * An IO atom's input schema is checked when the atom is DEFINED (Tonio, 2026-10-04), so the host
- * hears about it at registration rather than on a guest's first call:
- * - it must exist: the outbound membrane validates every call against it, and an atom with none
- *   was copied but never checked (`s.object({})` declares "takes nothing");
- * - it may not contain `pattern` or `patternProperties`: validation compiles them on the HOST's
- *   regex engine and runs them on strings the guest chose, outside fuel. Guest schemas already
- *   refuse them; an atom that needs a pattern checks it in its body. (The direction for JSON
- *   Schema is Pattern: `docs/pattern.md`.)
+ * An IO atom's input schema is ADMITTED when the atom is defined (Tonio, 2026-10-04), and the
+ * admitted copy is the only schema its calls are ever validated against:
+ * - it must exist: the outbound membrane validates every call against it (`s.object({})` declares
+ *   "takes nothing");
+ * - it becomes plain JSON, copied: a builder is unwrapped at any depth, and any other non-JSON
+ *   value (a RegExp, a function, a class instance, a getter, a cycle) is REFUSED, not converted;
+ * - a `pattern` or `patternProperties` keyword is refused if PRESENT, whatever its value: tosijs-
+ *   schema compiles it on the HOST's regex engine and runs it on strings the guest chose, outside
+ *   fuel. Guest schemas already refuse it; an atom checks a pattern in its body (the JSON Schema
+ *   direction is Pattern: `docs/pattern.md`).
+ *
+ * Round 32 inspected the host's schema in place, recognised `pattern` only as a STRING, and then
+ * validated against the same live object: a `pattern: /re/` passed, and a later mutation would
+ * have been validated as well (cumulative review 7). Own a copy; screen the copy; use the copy.
+ *
+ * `format` stays allowed: tosijs-schema's format validators are linear (fixed anchored regexes;
+ * `email` is a hand-written scan, `uri` the URL parser) and run over input already paid for.
  */
-function admitIoInputSchema(op: string, inputSchema: unknown): void {
+function admitIoInputSchema(op: string, inputSchema: unknown): unknown {
+  const refuse = (why: string): never => {
+    throw new Error(`Atom '${op}' is an IO atom whose input schema ${why}.`)
+  }
   if (inputSchema == null)
     throw new Error(
       `Atom '${op}' is an IO atom and declares no input schema. Every call is checked against ` +
         `it at the capability boundary: declare what it takes, or s.object({}) for nothing.`
     )
-  const root = isBuilder(inputSchema)
-    ? (inputSchema as any).schema
-    : inputSchema
-  const seen = new Set<object>()
-  const stack: unknown[] = [root]
-  while (stack.length) {
-    const node = stack.pop()
-    if (node === null || typeof node !== 'object' || seen.has(node)) continue
-    seen.add(node)
-    if (Array.isArray(node)) {
-      stack.push(...node)
-      continue
-    }
-    const n = node as Record<string, unknown>
-    if (typeof n.pattern === 'string' || n.patternProperties !== undefined)
-      throw new Error(
-        `Atom '${op}' is an IO atom whose input schema uses a regex ('pattern'/'patternProperties'). ` +
-          `It would run on the host's regex engine over guest-chosen strings: check the pattern ` +
-          `in the atom's body instead.`
+  const onPath = new Set<object>()
+  // `asSchema`: is this value in a SCHEMA position (keywords apply) or a DATA position (enum,
+  // const, default, examples: copied as JSON, never read as keywords)?
+  const copy = (v: unknown, asSchema: boolean, depth: number): unknown => {
+    if (depth > 200) refuse('is nested too deeply')
+    if (v === null || typeof v === 'string' || typeof v === 'boolean') return v
+    if (typeof v === 'number')
+      return Number.isFinite(v) ? v : refuse('contains a non-finite number')
+    if (typeof v !== 'object')
+      return refuse(`contains a ${typeof v}, which is not JSON`)
+    if (isBuilder(v)) return copy((v as any).schema, asSchema, depth + 1)
+    if (onPath.has(v)) return refuse('is cyclic')
+    onPath.add(v)
+    try {
+      if (Array.isArray(v)) return v.map((x) => copy(x, asSchema, depth + 1))
+      const proto = Object.getPrototypeOf(v)
+      if (proto !== Object.prototype && proto !== null)
+        refuse(
+          `contains an instance of ${
+            proto?.constructor?.name || 'a class'
+          }, which is not JSON`
+        )
+      if (
+        asSchema &&
+        (Object.prototype.hasOwnProperty.call(v, 'pattern') ||
+          Object.prototype.hasOwnProperty.call(v, 'patternProperties'))
       )
-    for (const [key, value] of Object.entries(n)) {
-      if (SCHEMA_DATA_KEYWORDS.has(key)) continue
-      if (SCHEMA_MAP_KEYWORDS.has(key) && value && typeof value === 'object')
-        stack.push(...Object.values(value as object))
-      else stack.push(value)
+        refuse(
+          "uses a regex ('pattern'/'patternProperties'): it would run on the host's regex " +
+            "engine over guest-chosen strings; check the pattern in the atom's body instead"
+        )
+      const out: Record<string, unknown> = Object.create(null)
+      for (const key of Object.keys(v)) {
+        const d = Object.getOwnPropertyDescriptor(v, key)!
+        if (d.get || d.set)
+          refuse(`has an accessor '${key}', which is not JSON`)
+        if (d.value === undefined) continue
+        if (!asSchema || SCHEMA_DATA_KEYWORDS.has(key))
+          setGuestKey(out, key, copy(d.value, false, depth + 1))
+        else if (
+          SCHEMA_MAP_KEYWORDS.has(key) &&
+          d.value &&
+          typeof d.value === 'object'
+        ) {
+          // a map of NAMES to schemas: the names are not keywords, the values are schemas
+          const map: Record<string, unknown> = Object.create(null)
+          for (const name of Object.keys(d.value)) {
+            const nd = Object.getOwnPropertyDescriptor(d.value, name)!
+            if (nd.get || nd.set)
+              refuse(`has an accessor '${name}', which is not JSON`)
+            setGuestKey(map, name, copy(nd.value, true, depth + 2))
+          }
+          setGuestKey(out, key, map)
+        } else setGuestKey(out, key, copy(d.value, true, depth + 1))
+      }
+      return out
+    } finally {
+      onPath.delete(v)
     }
   }
+  return deepFreeze(copy(inputSchema, true, 0))
+}
+
+/** The admitted input schema of each IO atom: the only one its calls are validated against. */
+const IO_SCHEMAS = new WeakMap<object, unknown>()
+
+/**
+ * The schema an IO atom's calls are validated against. Admitted at `defineAtom`; an atom tagged
+ * `io` AFTER it was defined (a documented mechanism) is admitted at its first call, and a refusal
+ * refuses the call. Never read from `atom.inputSchema`, which the host can still change.
+ */
+function ioSchemaOf(atom: AtomDef, op: string): unknown {
+  let schema = IO_SCHEMAS.get(atom)
+  if (schema === undefined) {
+    schema = admitIoInputSchema(op, atom.inputSchema)
+    IO_SCHEMAS.set(atom, schema)
+  }
+  return schema
 }
 
 export function defineAtom<I extends Record<string, any>, O = any>(
@@ -4927,7 +5026,8 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     timeoutMs,
     1000
   ) as number
-  if (effects === 'io') admitIoInputSchema(op, inputSchema)
+  const admittedSchema =
+    effects === 'io' ? admitIoInputSchema(op, inputSchema) : undefined
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
     if (ctx.inputsResolved) {
@@ -5170,6 +5270,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     resolveInputs,
     create: (input: I) => ({ op, ...input }),
   }
+  if (admittedSchema !== undefined) IO_SCHEMAS.set(atom, admittedSchema)
   return atom
 }
 
