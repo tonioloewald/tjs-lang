@@ -131,11 +131,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > - then the allowlist, or without one, nothing.
 >
 > Redirects are followed by the VM, not the host's `fetch`, and each hop is admitted again, so a
-> redirect to `169.254.169.254` or to a host outside the allowlist is refused. The body is read
-> under `membraneMaxBytes` and the read is aborted when the cap is exceeded, not buffered whole
-> first. Separately, `vm.run` used to write its default in-memory store INTO the capabilities object
-> you passed, so two runs sharing that object shared the store, and a frozen object made the run
-> throw. Each run now gets its own copy. In AJS, an atom input named `op`, `result`,
+> redirect to `169.254.169.254` or to a host outside the allowlist is refused. The guest's headers
+> go to the first origin only; a hop to another origin carries none of them. **In a browser every
+> redirect is refused**: the browser does not let the VM see where it leads. Fetch the final URL,
+> or provide a custom `fetch`. A guest may not set `Host`, the framing headers (`Content-Length`,
+> `Transfer-Encoding`, `Connection`, …), `Proxy-*`, `Sec-*` or `X-Agent-Depth`, in any letter case.
+> These are refused, not dropped. A guest `Host` was sent as given, and on Bun behind a
+> Host-routing proxy it reached virtual hosts outside the allowlist. The body is read under
+> `membraneMaxBytes` (a larger declared `Content-Length` is refused before reading) and aborted
+> when the cap is exceeded, not buffered whole first. Separately, `vm.run` used to write its
+> default in-memory store INTO the capabilities object you passed, so two runs sharing that
+> object shared the store, and a frozen object made the run throw. Each run now gets its own
+> shadow of your object: reads fall through to it, including prototype members and getters (a
+> class-instance `store` works as before), and the default store is written to the shadow only. In AJS, an atom input named `op`, `result`,
 > `resultConst` or `resultAssign` is refused at transpile time: it was silently read as a step
 > control field.
 >

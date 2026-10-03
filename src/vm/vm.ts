@@ -325,9 +325,12 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // used to be written INTO the host's object, so two runs sharing it shared the store (and a
     // frozen object made `vm.run` throw) — rc.2 pre-tag review M1. The VM never writes to a
     // host object.
-    const capabilities: Capabilities = Object.assign(
-      Object.create(null),
-      admitted.capabilities ?? {}
+    // SHADOWS the host's object rather than flattening it: a flat copy dropped capabilities on a
+    // prototype or behind a getter (a class-instance `store` became the in-memory default, silently;
+    // rc.2 pre-tag re-review). Reads fall through to the host object as before rc.2; the one write
+    // below lands on the shadow.
+    const capabilities: Capabilities = Object.create(
+      admitted.capabilities ?? null
     )
 
     // Track warnings
@@ -337,7 +340,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     if (!capabilities.store) {
       const memoryStore = new Map<string, any>()
       let warned = false
-      capabilities.store = {
+      const defaultStore: Capabilities['store'] = {
         get: async (key) => {
           if (!warned) {
             warned = true
@@ -357,6 +360,12 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
           memoryStore.set(key, value)
         },
       }
+      // defined on the SHADOW: an assignment would fail against a frozen host object that has a
+      // `store` key (inherited non-writable), and must never reach the host object at all
+      Object.defineProperty(capabilities, 'store', {
+        value: defaultStore,
+        enumerable: true,
+      })
     }
 
     // REJECT BEFORE ACQUIRING ANYTHING.

@@ -141,3 +141,169 @@ describe("M1: the VM never writes to the host's capabilities object", () => {
     expect(r.result).toEqual({ r: { v: 7 } })
   })
 })
+
+// Round 21 (pre-tag re-review): guest headers are ADMITTED, they never follow a redirect to another
+// origin, and the capabilities object is shadowed, not flattened.
+const seen: Array<{
+  path: string
+  host: string | null
+  auth: string | null
+  method: string
+}> = []
+let loops = 0
+const other = Bun.serve({
+  port: 0,
+  fetch(req) {
+    const u = new URL(req.url)
+    seen.push({
+      path: `B${u.pathname}`,
+      host: req.headers.get('host'),
+      auth: req.headers.get('authorization'),
+      method: req.method,
+    })
+    return new Response('from-b', { headers: { 'content-type': 'text/plain' } })
+  },
+})
+const origin = Bun.serve({
+  port: 0,
+  fetch(req) {
+    const u = new URL(req.url)
+    seen.push({
+      path: `A${u.pathname}`,
+      host: req.headers.get('host'),
+      auth: req.headers.get('authorization'),
+      method: req.method,
+    })
+    if (u.pathname === '/to-b')
+      return Response.redirect(`http://127.0.0.1:${other.port}/echo`, 302)
+    if (u.pathname === '/rel')
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'landed' },
+      })
+    if (u.pathname === '/see-other')
+      return new Response(null, {
+        status: 303,
+        headers: { location: '/landed' },
+      })
+    if (u.pathname === '/loop') {
+      loops++
+      return new Response(null, { status: 302, headers: { location: '/loop' } })
+    }
+    if (u.pathname === '/declared-big')
+      return new Response('x'.repeat(2 * 1024 * 1024), {
+        headers: { 'content-type': 'text/plain' },
+      })
+    return new Response(`landed:${req.method}`, {
+      headers: { 'content-type': 'text/plain' },
+    })
+  },
+})
+afterAll(() => {
+  other.stop(true)
+  origin.stop(true)
+})
+const A = `http://127.0.0.1:${origin.port}`
+const fetchWith = (url: string, extra: string) =>
+  `function f() { const v = httpFetch({ url: ${JSON.stringify(
+    url
+  )}, responseType: 'text'${extra} })\n return { v } }`
+
+describe('guest headers are admitted (pre-tag re-review)', () => {
+  for (const name of [
+    'Host',
+    'host',
+    'Content-Length',
+    'Transfer-Encoding',
+    'Proxy-Authorization',
+    'Sec-Fetch-Site',
+    'X-Agent-Depth',
+    'x-agent-depth',
+    'X-AGENT-DEPTH',
+  ])
+    it(`refused: a guest '${name}' header`, async () => {
+      seen.length = 0
+      const r = await run(
+        fetchWith(
+          `${A}/landed`,
+          `, headers: { ${JSON.stringify(name)}: 'admin.internal' }`
+        ),
+        allow
+      )
+      expect(r.error?.message ?? 'admitted').toMatch(
+        /header cannot be set by an agent/
+      )
+      expect(seen.length).toBe(0) // refused before any request
+    })
+
+  it("a cross-origin hop carries none of the guest's headers", async () => {
+    seen.length = 0
+    const r = await run(
+      fetchWith(`${A}/to-b`, `, headers: { Authorization: 'Bearer secret' }`),
+      allow
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 'from-b' })
+    expect(seen.find((x) => x.path === 'A/to-b')?.auth).toBe('Bearer secret')
+    expect(seen.find((x) => x.path === 'B/echo')?.auth).toBeNull()
+  })
+})
+
+describe('allowed redirects still work', () => {
+  it('a relative Location, same origin', async () => {
+    const r = await run(fetchWith(`${A}/rel`, ''), allow)
+    expect(r.result).toEqual({ v: 'landed:GET' })
+  })
+  it('303 turns a POST into a GET', async () => {
+    const r = await run(
+      fetchWith(`${A}/see-other`, `, method: 'POST', body: { a: 1 }`),
+      allow
+    )
+    expect(r.result).toEqual({ v: 'landed:GET' })
+  })
+  it('the redirect cap stops a loop', async () => {
+    loops = 0
+    const r = await run(fetchWith(`${A}/loop`, ''), allow)
+    expect(r.error?.message ?? 'admitted').toMatch(/more than 5 redirects/)
+    expect(loops).toBeLessThanOrEqual(6)
+  })
+  it('a declared content-length over the cap is refused before the body is read', async () => {
+    const r = await run(fetchWith(`${A}/declared-big`, ''), {
+      ...allow,
+      membraneMaxBytes: 1024 * 1024,
+    })
+    expect(r.error?.message ?? 'admitted').toMatch(/\(2097152 bytes exceeds/)
+  })
+})
+
+describe('capabilities are shadowed, not flattened (pre-tag re-review)', () => {
+  it('a class-instance store (a prototype getter) is the store the run uses', async () => {
+    const real = new Map<string, unknown>()
+    class Caps {
+      get store() {
+        return {
+          get: async (k: string) => real.get(k),
+          set: async (k: string, v: unknown) => void real.set(k, v),
+        }
+      }
+    }
+    const caps = new Caps()
+    const r = await run(
+      "function f() { storeSet({ key: 'k', value: 'v' })\n return { ok: true } }",
+      { capabilities: caps }
+    )
+    expect(r.error).toBeUndefined()
+    expect(real.get('k')).toBe('v')
+    expect(Object.keys(caps)).toEqual([])
+  })
+
+  it('a frozen object with an undefined store gets the default store on the shadow', async () => {
+    const caps = Object.freeze({ store: undefined })
+    const r = await run(
+      "function f() { storeSet({ key: 'k', value: 'v' })\n const v = storeGet({ key: 'k' })\n return { v } }",
+      { capabilities: caps }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ v: 'v' })
+  })
+})

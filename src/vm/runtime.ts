@@ -6170,6 +6170,42 @@ function isDomainAllowed(urlString: string, allowedDomains: string[]): boolean {
   }
 }
 
+/**
+ * Request headers a guest may not set, matched case-insensitively. The Fetch spec's forbidden
+ * request headers: a guest `Host` reached the wire on Bun and routed past the hostname allowlist
+ * behind a Host-routing proxy, and the framing headers are a smuggling surface (rc.2 pre-tag
+ * re-review). Plus the VM's own depth header, whose case variants were merged with the VM's value
+ * and read back as the guest's (`'0, 1'` parsed as 0).
+ */
+const FORBIDDEN_REQUEST_HEADERS: ReadonlySet<string> = new Set([
+  'host',
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'keep-alive',
+  'upgrade',
+  'te',
+  'trailer',
+  'expect',
+  'via',
+  AGENT_DEPTH_HEADER.toLowerCase(),
+])
+
+/** Refuse (never silently drop) a guest header the VM must own. */
+function admitHeaders(headers: Record<string, string>): void {
+  for (const name of Object.keys(headers)) {
+    const n = name.toLowerCase()
+    if (
+      FORBIDDEN_REQUEST_HEADERS.has(n) ||
+      n.startsWith('proxy-') ||
+      n.startsWith('sec-')
+    )
+      throw new Error(
+        `httpFetch: the '${name}' header cannot be set by an agent`
+      )
+  }
+}
+
 /** Redirect hops `httpFetch` follows, each admitted again. */
 const MAX_FETCH_REDIRECTS = 5
 
@@ -6286,6 +6322,7 @@ export const fetch = defineAtom(
       )
     )
       throw new Error("httpFetch's headers must be an object of strings")
+    admitHeaders(headers as Record<string, string>)
 
     // Get current depth from context (set by receiving endpoint)
     const currentDepth: number = ctx.context?.requestDepth ?? 0
@@ -6298,7 +6335,8 @@ export const fetch = defineAtom(
     }
 
     if (ctx.capabilities.fetch) {
-      // Custom fetch capability handles its own validation
+      // Custom fetch capability handles its own validation (the guest's headers were admitted
+      // above, so the depth header below cannot be shadowed by a case variant)
       // Pass depth info so it can add the header
       return ctx.capabilities.fetch(url, {
         method,
@@ -6325,42 +6363,56 @@ export const fetch = defineAtom(
       let currentMethod = method
       let currentBody = body ? jsonOf(ctx, body, 'httpFetch') : undefined
       let res: Response | undefined
+      const firstOrigin = new URL(url).origin
       for (let hop = 0; ; hop++) {
         res = await globalThis.fetch(target, {
           method: currentMethod,
+          // The guest's headers go to the FIRST origin only: a hop to another origin carries
+          // nothing the guest chose (its Authorization, cookies, …), only the VM's depth header.
+          // Stricter than the spec's Authorization-only strip, and nothing to enumerate (rc.2
+          // pre-tag re-review).
           headers: {
-            ...(headers as Record<string, string>),
+            ...(new URL(target).origin === firstOrigin
+              ? (headers as Record<string, string>)
+              : {}),
             ...depthHeaderFor(target, currentDepth + 1),
           },
           body: currentBody,
           redirect: 'manual',
           signal: ctx.signal, // Pass abort signal for cancellation
         })
+        const hopRes = res
+        // every exit from a redirect hop releases its body
+        const refuse = async (
+          message: string,
+          cause?: unknown
+        ): Promise<never> => {
+          await hopRes.body?.cancel().catch(() => undefined)
+          throw new Error(message, cause ? { cause } : undefined)
+        }
+        if (res.type === 'opaqueredirect')
+          await refuse(
+            'httpFetch: redirect refused — this runtime (a browser) does not let the VM see where a ' +
+              'redirect leads, so it cannot admit the next hop. Fetch the final URL, or provide a ' +
+              'custom fetch capability.'
+          )
         const location =
           res.status >= 300 && res.status < 400
             ? res.headers.get('location')
             : null
-        if (res.type === 'opaqueredirect')
-          throw new Error(
-            'httpFetch: redirect refused (this host cannot inspect where it leads)'
-          )
         if (location === null) break
         if (hop >= MAX_FETCH_REDIRECTS)
-          throw new Error(
-            `httpFetch: more than ${MAX_FETCH_REDIRECTS} redirects`
-          )
-        let next: string
+          await refuse(`httpFetch: more than ${MAX_FETCH_REDIRECTS} redirects`)
+        let next = ''
         try {
           next = new URL(location, target).href
-        } catch {
-          throw new Error(`httpFetch: redirect to an invalid URL`)
+        } catch (e) {
+          await refuse(`httpFetch: redirect to an invalid URL`, e)
         }
         try {
           admitFetchUrl(next, allowedDomains)
         } catch (e: any) {
-          throw new Error(`httpFetch: redirect refused: ${e.message}`, {
-            cause: e,
-          })
+          await refuse(`httpFetch: redirect refused: ${e.message}`, e)
         }
         await res.body?.cancel()
         // 303 (and a POST answered with 301/302) becomes a GET without a body, as browsers do
