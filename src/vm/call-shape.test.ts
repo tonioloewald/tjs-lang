@@ -19,6 +19,7 @@ import { AgentVM as AstVM } from './ast'
 import { defineAtom } from './runtime'
 import { AgentVM as FullVM } from './index'
 import { createAgent } from '../lang/core'
+import * as langIndex from '../lang/index'
 
 const greet = defineAtom(
   'greet',
@@ -243,6 +244,21 @@ describe('every entry point that holds a VM checks against THAT VM’s atoms (tw
     ).toThrow(/'greet' has no input 'nam'/)
   })
 
+  it('there is ONE createAgent: the main entry re-exports the core one', () => {
+    expect(langIndex.createAgent).toBe(createAgent)
+  })
+
+  it('a partial atoms map: the hint says the name was checked as the core atom', () => {
+    expect(() =>
+      transpile(
+        "function f() { const v = httpFetch({ url: 'x', cache: 5 })\n return { v } }",
+        {
+          atoms: { greet } as any,
+        }
+      )
+    ).toThrow(/Your atoms do not include 'httpFetch'/)
+  })
+
   it('an OPEN schema still requires what it requires', () => {
     expect(() =>
       transpile('function f() { const v = rawj({})\n return { v } }', {
@@ -265,6 +281,6 @@ describe('every entry point that holds a VM checks against THAT VM’s atoms (tw
       transpile(
         "function f() { const v = httpFetch({ url: 'x', cache: 5 })\n return { v } }"
       )
-    ).toThrow(/transpile with \{ atoms: vm\.atoms \}/)
+    ).toThrow(/pass its atoms: transpile\(src, \{ atoms: vm\.atoms \}\)/)
   })
 })

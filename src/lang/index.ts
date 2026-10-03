@@ -409,57 +409,9 @@ export async function tjsWithCache(
   return result
 }
 
-/**
- * Create a function with attached signature for introspection
- *
- * This wraps the transpiled AST in a callable that includes
- * the .signature property for self-documentation.
- *
- * @example
- * ```typescript
- * const search = createAgent(`
- *   function search(query: 'string', limit = 10) {
- *     let results = storeSearch({ query, limit })
- *     return { results }
- *   }
- * `, vm)
- *
- * // Introspect
- * console.log(search.signature.parameters)
- *
- * // Execute
- * const result = await search({ query: 'hello' })
- * ```
- *
- * TRUSTED source only (your own): no size cap applies. For untrusted source, use
- * `transpile(source, { maxSourceBytes })` OUTSIDE the VM host, and run the AST with
- * `tjs-lang/vm-ast` — see the Security Model in CLAUDE.md and the 0.14.0 CHANGELOG.
- */
-export function createAgent(
-  source: string,
-  vm: {
-    run: (ast: any, args: any, options?: any) => Promise<any>
-    atoms?: Record<string, { op: string; inputSchema?: unknown }>
-  },
-  runOptions?: { fuel?: number; capabilities?: any }
-): ((args: Record<string, any>) => Promise<any>) & {
-  signature: FunctionSignature
-  ast: SeqNode
-} {
-  // checked against the atoms of the VM it will run on (twenty-third re-review)
-  const { ast, signature } = transpile(source, { atoms: vm.atoms })
-
-  const agent = async (args: Record<string, any>) => {
-    const result = await vm.run(ast, args, runOptions)
-    return result.result
-  }
-
-  // Attach metadata
-  ;(agent as any).signature = signature
-  ;(agent as any).ast = ast
-
-  return agent as any
-}
+// ONE createAgent, from ./core: two copies had to be edited in lockstep (rc.2 twenty-fourth
+// re-review), and the `transpile` copies already drifted that way once.
+export { createAgent } from './core'
 
 /**
  * Get tool definitions from a set of agent functions

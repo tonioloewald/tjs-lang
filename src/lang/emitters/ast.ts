@@ -2350,9 +2350,12 @@ function checkAtomInputs(
     : ''
   // Checked against the CORE contract because no atoms were passed: say how to check against
   // the host's own, in case it defines an atom of this name with other inputs.
-  const hint = fromCore
-    ? ` (If your host defines its own '${name}', transpile with { atoms: vm.atoms }.)`
-    : ''
+  const passed = (ctx.options as any)?.atoms !== undefined
+  const hint = !fromCore
+    ? ''
+    : passed
+    ? ` (Your atoms do not include '${name}', so it was checked as the core atom.)`
+    : ` (If your host defines its own '${name}', pass its atoms: transpile(src, { atoms: vm.atoms }), or give createAgent a VM that has .atoms.)`
   const fail = (message: string) => {
     throw new TranspileError(
       message,
