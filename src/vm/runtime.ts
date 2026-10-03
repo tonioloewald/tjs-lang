@@ -6309,67 +6309,52 @@ function admitsMethod(verb: string, hostAllowed: unknown): boolean {
  * B1). Then the allowlist when one is set, otherwise the private-range block plus localhost only.
  * Throws with the reason; returns nothing.
  */
-/** A base no real request can have, to tell a path-relative URL (resolves here) from one that
- * names a host. */
-const RELATIVE_BASE = 'https://relative.invalid/'
-
 export function admitFetchUrl(
   url: string,
   allowedDomains: string[] | undefined,
   destinationRequired = true
-): void {
+): string {
+  // Returns the URL that was ADMITTED, and that is the URL the caller sends. Admission and
+  // forwarding used to act on different strings: a relative URL was checked after resolving it
+  // against a made-up base, then the RAW input went to the host fetch, which resolved
+  // `/\\api.example.com/x` against its real origin (a same-origin read, or `file:`/`capacitor:` on
+  // an app shell) — rc.2 cumulative review 2. One string, decided once.
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch (e) {
-    // A RELATIVE URL reaches only a host's own fetch, which resolves it against its own origin
-    // (the playground fetches '/texts/…'): a path-relative one names no other destination, so it
-    // passes. A protocol-relative one (`//evil.example/x`) NAMES a host, and is admitted like an
-    // absolute URL. The built-in client has no origin to resolve against, so it refuses both.
-    //
-    // UNLESS an allowlist is set: a relative URL names no host, so it cannot be checked against
-    // one, and "a configured allowlist never silently stops applying" means it is refused. A
-    // returned-early relative URL used to reach the host page's own origin past
-    // `fetchPolicy.domains` (rc.2 cumulative review B1). Without an allowlist the host owns the
-    // destination; the scheme check cannot see what a relative URL resolves to.
-    if (!destinationRequired) {
-      let resolved: URL | undefined
-      try {
-        resolved = new URL(url, RELATIVE_BASE)
-      } catch {
-        resolved = undefined
-      }
-      if (resolved && resolved.host === new URL(RELATIVE_BASE).host) {
-        if (allowedDomains)
-          throw new Error(
-            `Fetch blocked: '${url}' is relative, and an allowlist needs an absolute URL to check`,
-            { cause: e }
-          )
-        return
-      }
-      if (resolved) return admitFetchUrl(resolved.href, allowedDomains, false)
-    }
-    throw new Error(`Invalid URL: ${url}`, { cause: e })
+    // Not absolute. The built-in client has no origin to resolve against: refused. With an
+    // allowlist set it names no host to check: refused ("a configured allowlist never silently
+    // stops applying"). Otherwise it reaches only a host's own fetch, which owns the destination
+    // and resolves it against its own origin (the scheme check cannot see what it resolves to).
+    if (destinationRequired)
+      throw new Error(`Invalid URL: ${url}`, { cause: e })
+    if (allowedDomains)
+      throw new Error(
+        `Fetch blocked: '${url}' is not an absolute URL, and an allowlist needs one to check`,
+        { cause: e }
+      )
+    return url
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
     throw new Error(
       `Blocked URL: only http: or https: URLs may be fetched (got ${parsed.protocol})`
     )
   if (allowedDomains) {
-    if (!isDomainAllowed(url, allowedDomains))
+    if (!isDomainAllowed(parsed.href, allowedDomains))
       throw new Error(
         `Fetch blocked: domain not in allowlist. Allowed: ${allowedDomains.join(
           ', '
         )}`
       )
-    return
+    return parsed.href
   }
   // A host's own fetch without an allowlist owns its destination policy; only the shape (above)
   // is the VM's to admit.
-  if (!destinationRequired) return
+  if (!destinationRequired) return parsed.href
   // No allowlist: nothing may be fetched. A private address gets the more specific message. (A
   // "localhost only" branch used to follow, unreachable: BLOCKED_HOSTS refuses localhost first.)
-  if (isBlockedUrl(url))
+  if (isBlockedUrl(parsed.href))
     throw new Error(
       `Blocked URL: private/internal addresses not allowed in default fetch`
     )
@@ -6459,7 +6444,8 @@ export const fetch = defineAtom(
     // the host path, so the documented safeFetch read `file://` on Bun (re-review 6).
     const allowedDomains: string[] | undefined =
       ctx.context?.allowedFetchDomains
-    admitFetchUrl(url, allowedDomains, !ctx.capabilities.fetch)
+    // the ADMITTED url is the one sent, on both paths
+    const target = admitFetchUrl(url, allowedDomains, !ctx.capabilities.fetch)
     admitHeaders(
       headers as Record<string, string>,
       ctx.context?.allowedRequestHeaders
@@ -6490,7 +6476,7 @@ export const fetch = defineAtom(
     if (ctx.capabilities.fetch) {
       // A host's own fetch receives the ADMITTED request (above) plus the depth header, and owns
       // what remains: redirects, credentials, and the destination when no allowlist is set.
-      return ctx.capabilities.fetch(url, {
+      return ctx.capabilities.fetch(target, {
         method: verb,
         headers: {
           ...headers,
@@ -6509,11 +6495,11 @@ export const fetch = defineAtom(
     // had re-implemented wrong (credentials re-sent, the body re-sent on 307/308, then on 301/302
     // for PUT/PATCH/DELETE). A host that wants redirects followed supplies a `fetch` capability.
     if (typeof globalThis.fetch === 'function') {
-      const res = await globalThis.fetch(url, {
+      const res = await globalThis.fetch(target, {
         method: verb,
         headers: {
           ...(headers as Record<string, string>),
-          ...depthHeaderFor(url, currentDepth + 1),
+          ...depthHeaderFor(target, currentDepth + 1),
         },
         body: body ? jsonOf(ctx, body, 'httpFetch') : undefined,
         redirect: 'manual',
@@ -6534,7 +6520,7 @@ export const fetch = defineAtom(
         let absolute: string | null = location
         if (location !== null)
           try {
-            absolute = new URL(location, url).href
+            absolute = new URL(location, target).href
           } catch {
             absolute = location
           }

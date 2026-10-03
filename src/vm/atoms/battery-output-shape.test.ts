@@ -261,3 +261,76 @@ describe('llmVision image URLs get the fetch rule (rc.2 cumulative review M2)', 
     expect(bad.calls.length).toBe(0)
   })
 })
+
+describe('llmPredictBattery cannot route images around the image rule (cumulative review 2 M1)', () => {
+  const run = (user: unknown, context?: Record<string, unknown>) => {
+    const { capabilities, calls } = mockBattery()
+    const vm = new AgentVM({ llmPredictBattery } as any)
+    return vm
+      .run(
+        {
+          op: 'seq',
+          steps: [
+            {
+              op: 'varSet',
+              key: 'u',
+              value: { $expr: 'literal', value: user },
+            },
+            { op: 'llmPredictBattery', user: 'u', result: 'out' },
+          ],
+        } as any,
+        {} as any,
+        { fuel: 1e5, capabilities, context }
+      )
+      .then((r) => ({ r, calls }))
+  }
+
+  it('a { text, images } user is refused (the vision form belongs to llmVision)', async () => {
+    const { r, calls } = await run({
+      text: 'hi',
+      images: ['http://169.254.169.254/y'],
+    })
+    expect(r.error?.message ?? 'admitted').toMatch(
+      /user must be a string or a message array/
+    )
+    expect(calls.length).toBe(0)
+  })
+
+  it('an image_url part inside a message array gets the fetch rule', async () => {
+    const msgs = (url: string) => [
+      { role: 'user', content: [{ type: 'image_url', image_url: { url } }] },
+    ]
+    const bad = await run(msgs('http://169.254.169.254/y'))
+    expect(bad.r.error).toBeDefined()
+    expect(bad.calls.length).toBe(0)
+    const ok = await run(msgs('data:image/png;base64,iVBORw0KGgo='))
+    expect(ok.r.error).toBeUndefined()
+    expect(ok.calls.length).toBe(1)
+  })
+
+  it('a plain string user is unchanged', async () => {
+    const { r, calls } = await run('hello')
+    expect(r.error).toBeUndefined()
+    expect(calls.length).toBe(1)
+  })
+})
+
+describe("llmVision accepts httpFetch's own dataUrl output", () => {
+  for (const img of [
+    'data:image/png; charset=binary;base64,iVBORw0KGgo=',
+    'data:application/octet-stream;base64,iVBORw0KGgo=',
+  ])
+    it(`passes: ${img.slice(0, 40)}`, async () => {
+      const { capabilities, calls } = mockBattery()
+      const r = await new AgentVM({ llmVision } as any).run(
+        {
+          op: 'seq',
+          steps: [{ op: 'llmVision', prompt: 'p', images: [img], result: 'o' }],
+        } as any,
+        {} as any,
+        { fuel: 1e5, capabilities }
+      )
+      expect(r.error).toBeUndefined()
+      expect(calls.length).toBe(1)
+    })
+})

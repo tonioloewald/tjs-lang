@@ -106,7 +106,10 @@ describe('Use Case: Caching Proxy', () => {
     )
 
     results.forEach((res, i) => {
-      expect(res.result.result).toEqual({ data: `fresh for ${urls[i]}` })
+      // the host fetch receives the ADMITTED, normalised URL (rc.2): 'http://site-0.com/'
+      expect(res.result.result).toEqual({
+        data: `fresh for ${new URL(urls[i]).href}`,
+      })
     })
     expect(store.set).toHaveBeenCalledTimes(10)
   })

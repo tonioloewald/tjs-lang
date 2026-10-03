@@ -195,6 +195,7 @@ export const llmPredictBattery = defineAtom(
     const resolvedSystem =
       resolveValue(system, ctx) ?? 'You are a helpful agent.'
     const resolvedUser = resolveValue(user, ctx)
+    admitLlmUser(resolvedUser, ctx)
     const resolvedTools = admitTools(
       resolveValue(tools, ctx),
       'llmPredictBattery'
@@ -217,6 +218,75 @@ export const llmPredictBattery = defineAtom(
     timeoutMs: 120000,
   }
 )
+
+/**
+ * An image URL is a request the BACKEND may make on the agent's behalf (vLLM and mlx-vlm fetch
+ * http(s) `image_url` server-side), so it gets the fetch rule. Inline data passes:
+ * `data:image/…` or `data:application/octet-stream`, with parameters, base64, which is what
+ * `httpFetch`'s `dataUrl` produces. http(s) passes only against the run's allowlist, and never
+ * without one (rc.2 cumulative review M2). ONE helper for every atom that forwards images:
+ * `llmPredictBattery` bypassed it with a `{ text, images }` user (cumulative review 2 M1).
+ */
+function admitImageUrls(images: unknown, ctx: any, op: string): void {
+  if (!Array.isArray(images))
+    throw new Error(`${op}: images must be an array of strings`)
+  for (const img of images) {
+    if (typeof img !== 'string')
+      throw new Error(`${op}: images must be an array of strings`)
+    if (img.toLowerCase().startsWith('data:')) {
+      // parsed by splitting, not a regex: `data:<type>[;params];base64,` (no nested quantifier for
+      // our own ReDoS guardrail to flag)
+      const comma = img.indexOf(',')
+      const params = (comma < 0 ? '' : img.slice(5, comma)).split(';')
+      const type = params[0].trim().toLowerCase()
+      if (
+        params[params.length - 1].trim().toLowerCase() === 'base64' &&
+        (type === 'application/octet-stream' ||
+          /^image\/[a-z0-9.+-]+$/.test(type))
+      )
+        continue
+      throw new Error(
+        `${op}: an inline image must be base64 image data (data:image/...;base64,...)`
+      )
+    }
+    try {
+      admitFetchUrl(img, ctx.context?.allowedFetchDomains, true)
+    } catch (e: any) {
+      // the fetch message suggests a custom fetch capability, which a model server never uses
+      throw new Error(
+        `${op}: image URL refused (${
+          e.message.split('.')[0]
+        }). Pass inline image data, or ` +
+          `list the image host in allowedFetchDomains.`,
+        { cause: e }
+      )
+    }
+  }
+}
+
+/**
+ * `llmPredictBattery`'s user: a string, or a message array whose `image_url` parts are admitted
+ * like any image. The `{ text, images }` object (the vision form) is refused here: it reached the
+ * backend's multimodal path with no image admission. Use `llmVision` for images.
+ */
+function admitLlmUser(user: unknown, ctx: any): void {
+  if (typeof user === 'string') return
+  if (!Array.isArray(user))
+    throw new Error(
+      'llmPredictBattery: user must be a string or a message array (use llmVision for images)'
+    )
+  const urls: string[] = []
+  for (const message of user) {
+    const content = (message as any)?.content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      if ((part as any)?.type !== 'image_url') continue
+      const ref = (part as any).image_url
+      urls.push(typeof ref === 'string' ? ref : ref?.url)
+    }
+  }
+  if (urls.length) admitImageUrls(urls, ctx, 'llmPredictBattery')
+}
 
 // Vision battery interface (multimodal)
 interface VisionBattery {
@@ -261,18 +331,7 @@ export const llmVision = defineAtom(
       'You analyze images accurately and concisely.'
     const resolvedPrompt = resolveValue(prompt, ctx)
     const resolvedImages = resolveValue(images, ctx) ?? []
-    // An image URL is a request the BACKEND may make on the agent's behalf (vLLM and mlx-vlm fetch
-    // http(s) image_url server-side), so it gets the fetch rule: an inline `data:image/…;base64,`
-    // passes; http(s) only against the run's allowlist, and never without one (rc.2 cumulative
-    // review M2: a guest could otherwise reach 169.254.169.254 through the model server).
-    if (!Array.isArray(resolvedImages))
-      throw new Error('llmVision: images must be an array of strings')
-    for (const img of resolvedImages) {
-      if (typeof img !== 'string')
-        throw new Error('llmVision: images must be an array of strings')
-      if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(img)) continue
-      admitFetchUrl(img, ctx.context?.allowedFetchDomains, true)
-    }
+    admitImageUrls(resolvedImages, ctx, 'llmVision')
     const resolvedFormat = admitResponseFormat(
       resolveValue(responseFormat, ctx),
       'llmVision'

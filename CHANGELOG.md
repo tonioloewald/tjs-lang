@@ -185,10 +185,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > In AJS, an atom input named `op`, `result`, `resultConst` or `resultAssign` is refused at
 > transpile time: it was silently read as a step control field.
 >
-> `llmVision` image URLs follow the same rule as a fetch: the model server may fetch an http(s)
-> `image_url` itself, so inline `data:image/…;base64,` passes, and http(s) passes only against the
-> run's `allowedFetchDomains` (refused without one). With an allowlist set, a RELATIVE fetch URL is
-> refused: it names no host, so it cannot be checked. Rebinding a value already in scope (a
+> Image URLs follow the same rule as a fetch, in `llmVision` and in `llmPredictBattery` message
+> arrays: the model server may fetch an http(s) `image_url` itself. Inline base64 image data passes
+> (`data:image/…` or `data:application/octet-stream`, parameters allowed, which is what
+> `httpFetch`'s `dataUrl` returns). http(s) passes only against the run's `allowedFetchDomains`,
+> and is refused without one. `llmPredictBattery` takes a string or a message array; the
+> `{ text, images }` vision form is refused there (use `llmVision`). With an allowlist set, a fetch
+> URL that is not absolute is refused, because it names no host to check (`/x`, `//host/x` and the
+> backslash forms), and a host's `fetch` always receives the ADMITTED, normalised URL, never the
+> raw input. Rebinding a value already in scope (a
 > per-iteration `let p = o`) costs one pointer again: in rc.2's heap accounting it re-measured
 > the whole value, so a loop was quadratic in fuel where rc.1 was linear.
 >

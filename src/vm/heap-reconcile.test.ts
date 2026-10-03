@@ -303,3 +303,21 @@ describe('rebinding an already-measured value is O(1) (rc.2 cumulative review M1
     expect(r.error?.message ?? 'admitted').toMatch(/Heap limit/)
   })
 })
+
+describe('a reconcile forgets which values were measured (cumulative review 2)', () => {
+  it('a value taken out of every root, then rebound after a reconcile, is counted again', async () => {
+    // `arr.pop()` leaves V with no root while it is in flight; the second `repeat` in the same
+    // array literal forces a reconcile, which drops V from the estimate; then `w` binds V. Without
+    // the reset in `reconcileHeap`, the value fast path charged one pointer, and m1 + m2 fit under
+    // the cap on top of a 400KB value the estimate no longer held: the run returned normally while
+    // holding ~1.2MB under a 1MB ceiling.
+    const r = await new AgentVM().run(
+      transpile(
+        `function f() { let arr = []\n let v = { s: 'x'.repeat(200000) }\n arr.push(v)\n v = null\n let w = [arr.pop(), 'y'.repeat(200000)][0]\n let m1 = 'z'.repeat(200000)\n let m2 = 'q'.repeat(200000)\n return { a: 1, b: 1 } }`
+      ).ast,
+      {},
+      { fuel: 1e7, maxHeapBytes: 1_000_000 }
+    )
+    expect(r.error?.message ?? 'escaped the ceiling').toMatch(/Heap limit/)
+  })
+})
