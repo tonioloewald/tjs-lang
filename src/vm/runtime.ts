@@ -125,7 +125,10 @@ export class AgentError {
       source: 'vm',
       severity: 'error',
       message,
-      data: { op, cause: cause?.message },
+      data: {
+        op,
+        cause: cause === undefined ? undefined : reduceThrown(cause),
+      },
     })
   }
 
@@ -710,162 +713,194 @@ export function membraneValue(
   let bytes = 0
   const seen = new WeakSet<object>()
   const stack: Array<{ v: any; depth: number }> = [{ v: value, depth: 0 }]
-  while (stack.length) {
-    const { v, depth } = stack.pop()!
-    if (v === null || v === undefined) {
-      bytes += 8
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      continue
-    }
-    const vt = typeof v
-    if (vt === 'function' || vt === 'symbol' || vt === 'bigint') {
-      return {
-        ok: false,
-        kind: 'shape',
-        walked: bytes,
-        reason: `capability return contains a ${vt}, which cannot cross into guest state`,
+  try {
+    while (stack.length) {
+      const { v, depth } = stack.pop()!
+      if (v === null || v === undefined) {
+        bytes += 8
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        continue
       }
-    }
-    if (vt === 'string') {
-      bytes += (v as string).length * 2 + 8
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      continue
-    }
-    if (vt !== 'object') {
-      // number / boolean — a large array/Map/Set of primitives must still be
-      // budgeted, so check here too (this branch used to `continue` unchecked).
-      bytes += 8
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      continue
-    }
-    if (depth > MEMBRANE_MAX_DEPTH) {
-      return {
-        ok: false,
-        kind: 'limit', // JSON nests: '['.repeat(10050) is 10KB of valid JSON
-        walked: bytes,
-        reason: 'the value exceeds the membrane depth limit',
-      }
-    }
-    // A cycle or shared reference: structuredClone preserves it, so the value is not counted
-    // again, but the SLOT costs a pointer, as in the heap model ("every slot costs a pointer,
-    // repeat references included"). That makes the walk's early bails ("every queued value costs
-    // at least 8") true: round 34's Map/Set bail refused a Map of shared values that fitted by
-    // its real cost (cumulative review 9).
-    if (seen.has(v)) {
-      bytes += 8
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      continue
-    }
-    seen.add(v)
-    bytes += 16
-    if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-    if (Array.isArray(v)) {
-      // `Object.keys` on an array yields its indices AND any non-index own enumerable
-      // property. Both are needed: the index branch was hardened separately and the
-      // non-index one was never visited at all, so `arr.meta = { get(){…} }` ran host
-      // code, leaked its return into guest state, leaked a thrown host message into
-      // `result.error`, and carried an unbudgeted 5MB string past a 4MB cap —
-      // `structuredClone` serialises those properties even though the walk skipped them.
-      //
-      // Read INCREMENTALLY, with the running budget, so an oversized array is refused
-      // without first being enumerated. `Object.keys` on a 2,000,000-element array costs
-      // 371ms and 52MB by itself — so rejecting a payload that exceeds a 1,024-byte
-      // budget by four orders of magnitude cost 549ms and 103MB, all of it spent to say
-      // no. The module docstring promises rejection "BEFORE the clone allocates (the OOM
-      // guard)", and it did avoid the clone while allocating the same order of memory
-      // itself. See `membrane-budget.test.ts`.
-      const own = readArrayData(v, bytes, maxBytes, stack, depth)
-      if (!own.ok) return own
-      bytes = own.bytes
-    } else if (v instanceof Date) {
-      bytes += 32 // fixed-size builtin
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-    } else if (ArrayBuffer.isView(v)) {
-      // TypedArray / DataView — charge the REAL backing size, not a flat
-      // estimate: a 500MB Uint8Array must not cross a small budget.
-      bytes += (v as ArrayBufferView).byteLength
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-    } else if (v instanceof ArrayBuffer) {
-      bytes += v.byteLength
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-    } else if (v instanceof Map || v instanceof Set) {
-      // Walk entries so a large collection is both budgeted and kind-checked (a value
-      // could itself be a function / host ref). structuredClone clones keys and values,
-      // so both cross the boundary.
-      //
-      // Read through the INTRINSIC iterator, and refuse a subclass outright. `for (const
-      // x of v)` dispatches to `Symbol.iterator`, which a guest-supplied object controls,
-      // while `structuredClone` reads the internal slots — so the two disagreed, and a
-      // `class extends Map` with a lying iterator presented itself as EMPTY to this walk
-      // while 20,000 real entries crossed a 1024-byte `membraneMaxBytes` intact. Verified
-      // in both JSC and V8. Three guarantees failed at once: the documented OOM guard
-      // ("rejects oversized payloads BEFORE the clone allocates") was simply not enforced
-      // for Map/Set, MEMBRANE_MAX_DEPTH was evadable by nesting, and host code ran during
-      // the walk.
-      const proto = Object.getPrototypeOf(v)
-      const isMap = v instanceof Map
-      if (proto !== (isMap ? Map.prototype : Set.prototype)) {
+      const vt = typeof v
+      if (vt === 'function' || vt === 'symbol' || vt === 'bigint') {
         return {
           ok: false,
           kind: 'shape',
           walked: bytes,
-          reason: `capability return contains a ${
-            isMap ? 'Map' : 'Set'
-          } subclass; the boundary takes plain data only, because a subclass can override how it is read`,
+          reason: `capability return contains a ${vt}, which cannot cross into guest state`,
         }
       }
+      if (vt === 'string') {
+        bytes += (v as string).length * 2 + 8
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        continue
+      }
+      if (vt !== 'object') {
+        // number / boolean — a large array/Map/Set of primitives must still be
+        // budgeted, so check here too (this branch used to `continue` unchecked).
+        bytes += 8
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        continue
+      }
+      if (depth > MEMBRANE_MAX_DEPTH) {
+        return {
+          ok: false,
+          kind: 'limit', // JSON nests: '['.repeat(10050) is 10KB of valid JSON
+          walked: bytes,
+          reason: 'the value exceeds the membrane depth limit',
+        }
+      }
+      // A cycle or shared reference: structuredClone preserves it, so the value is not counted
+      // again, but the SLOT costs a pointer, as in the heap model ("every slot costs a pointer,
+      // repeat references included"). That makes the walk's early bails ("every queued value costs
+      // at least 8") true: round 34's Map/Set bail refused a Map of shared values that fitted by
+      // its real cost (cumulative review 9).
+      if (seen.has(v)) {
+        bytes += 8
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        continue
+      }
+      seen.add(v)
       bytes += 16
       if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      // `.call` on the intrinsic method, driven by hand — never `for…of`, which would
-      // consult the object's own `Symbol.iterator` again.
-      const it = isMap
-        ? Map.prototype.entries.call(v as Map<any, any>)
-        : Set.prototype.values.call(v as Set<any>)
-      const next = it.next.bind(it)
-      // Checked PER ENTRY: every queued value costs at least 8, so the walk stops at its budget
-      // instead of queueing a million entries first (cumulative review 8). The iterator is lazy,
-      // so stopping here stops the work.
-      let queued = 0
-      for (let step = next(); !step.done; step = next()) {
-        queued += isMap ? 2 : 1
-        if (bytes + queued * 8 > maxBytes)
-          return overBudget(maxBytes, bytes + queued * 8)
-        if (isMap) {
-          const [mk, mv] = step.value as [any, any]
-          stack.push({ v: mk, depth: depth + 1 })
-          stack.push({ v: mv, depth: depth + 1 })
-        } else {
-          stack.push({ v: step.value, depth: depth + 1 })
+      if (Array.isArray(v)) {
+        // `Object.keys` on an array yields its indices AND any non-index own enumerable
+        // property. Both are needed: the index branch was hardened separately and the
+        // non-index one was never visited at all, so `arr.meta = { get(){…} }` ran host
+        // code, leaked its return into guest state, leaked a thrown host message into
+        // `result.error`, and carried an unbudgeted 5MB string past a 4MB cap —
+        // `structuredClone` serialises those properties even though the walk skipped them.
+        //
+        // Read INCREMENTALLY, with the running budget, so an oversized array is refused
+        // without first being enumerated. `Object.keys` on a 2,000,000-element array costs
+        // 371ms and 52MB by itself — so rejecting a payload that exceeds a 1,024-byte
+        // budget by four orders of magnitude cost 549ms and 103MB, all of it spent to say
+        // no. The module docstring promises rejection "BEFORE the clone allocates (the OOM
+        // guard)", and it did avoid the clone while allocating the same order of memory
+        // itself. See `membrane-budget.test.ts`.
+        const own = readArrayData(v, bytes, maxBytes, stack, depth)
+        if (!own.ok) return own
+        bytes = own.bytes
+      } else if (v instanceof Date) {
+        if (Object.getPrototypeOf(v) !== Date.prototype)
+          return nonIntrinsic(bytes, 'a Date subclass')
+        bytes += 32 // fixed-size builtin
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+      } else if (ArrayBuffer.isView(v)) {
+        // An intrinsic view over an ordinary ArrayBuffer only. `structuredClone` SHARES a
+        // SharedArrayBuffer instead of copying it, so a capability could hand the guest live shared
+        // memory and change it afterwards (cumulative review 12, B2). JSON cannot express shared
+        // memory: 'shape'. A subclass can override how it is read, as with Map/Set.
+        if (!INTRINSIC_VIEW_PROTOTYPES.has(Object.getPrototypeOf(v)))
+          return nonIntrinsic(bytes, 'a typed-array or DataView subclass')
+        if (
+          Object.getPrototypeOf((v as ArrayBufferView).buffer) !==
+          ArrayBuffer.prototype
+        )
+          return nonIntrinsic(
+            bytes,
+            'a view over shared or non-standard memory (structuredClone would share it, not copy it)'
+          )
+        // charge the REAL backing size, not a flat estimate: a 500MB Uint8Array must not cross a
+        // small budget.
+        bytes += (v as ArrayBufferView).byteLength
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+      } else if (
+        v instanceof ArrayBuffer &&
+        Object.getPrototypeOf(v) === ArrayBuffer.prototype
+      ) {
+        bytes += v.byteLength
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+      } else if (v instanceof Map || v instanceof Set) {
+        // Walk entries so a large collection is both budgeted and kind-checked (a value
+        // could itself be a function / host ref). structuredClone clones keys and values,
+        // so both cross the boundary.
+        //
+        // Read through the INTRINSIC iterator, and refuse a subclass outright. `for (const
+        // x of v)` dispatches to `Symbol.iterator`, which a guest-supplied object controls,
+        // while `structuredClone` reads the internal slots — so the two disagreed, and a
+        // `class extends Map` with a lying iterator presented itself as EMPTY to this walk
+        // while 20,000 real entries crossed a 1024-byte `membraneMaxBytes` intact. Verified
+        // in both JSC and V8. Three guarantees failed at once: the documented OOM guard
+        // ("rejects oversized payloads BEFORE the clone allocates") was simply not enforced
+        // for Map/Set, MEMBRANE_MAX_DEPTH was evadable by nesting, and host code ran during
+        // the walk.
+        const proto = Object.getPrototypeOf(v)
+        const isMap = v instanceof Map
+        if (proto !== (isMap ? Map.prototype : Set.prototype)) {
+          return {
+            ok: false,
+            kind: 'shape',
+            walked: bytes,
+            reason: `capability return contains a ${
+              isMap ? 'Map' : 'Set'
+            } subclass; the boundary takes plain data only, because a subclass can override how it is read`,
+          }
         }
-      }
-    } else {
-      // Read DESCRIPTORS, not values. `v[k]` invokes a getter — so the walk that
-      // exists to keep host code out of guest state would itself run host code,
-      // before structuredClone is even reached and regardless of the verdict. A
-      // getter can throw, mutate, or stall, so that is a side-effect vector on the
-      // boundary, not merely a data-leak one.
-      //
-      // Accessors are rejected rather than evaluated: there is no way to learn what
-      // one returns without running it, and structuredClone would run it again
-      // anyway. A capability must hand over plain data.
-      const proto = Object.getPrototypeOf(v)
-      if (!PLAIN_PROTOTYPES.has(proto)) {
-        const name = proto?.constructor?.name || 'an unnamed class'
-        return {
-          ok: false,
-          kind: 'shape',
-          walked: bytes,
-          reason: `capability return contains an instance of ${name}; only plain data crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
+        bytes += 16
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        // `.call` on the intrinsic method, driven by hand — never `for…of`, which would
+        // consult the object's own `Symbol.iterator` again.
+        const it = isMap
+          ? Map.prototype.entries.call(v as Map<any, any>)
+          : Set.prototype.values.call(v as Set<any>)
+        const next = it.next.bind(it)
+        // Checked PER ENTRY: every queued value costs at least 8, so the walk stops at its budget
+        // instead of queueing a million entries first (cumulative review 8). The iterator is lazy,
+        // so stopping here stops the work.
+        let queued = 0
+        for (let step = next(); !step.done; step = next()) {
+          queued += isMap ? 2 : 1
+          if (bytes + queued * 8 > maxBytes)
+            return overBudget(maxBytes, bytes + queued * 8)
+          if (isMap) {
+            const [mk, mv] = step.value as [any, any]
+            stack.push({ v: mk, depth: depth + 1 })
+            stack.push({ v: mv, depth: depth + 1 })
+          } else {
+            stack.push({ v: step.value, depth: depth + 1 })
+          }
         }
+      } else {
+        // Read DESCRIPTORS, not values. `v[k]` invokes a getter — so the walk that
+        // exists to keep host code out of guest state would itself run host code,
+        // before structuredClone is even reached and regardless of the verdict. A
+        // getter can throw, mutate, or stall, so that is a side-effect vector on the
+        // boundary, not merely a data-leak one.
+        //
+        // Accessors are rejected rather than evaluated: there is no way to learn what
+        // one returns without running it, and structuredClone would run it again
+        // anyway. A capability must hand over plain data.
+        const proto = Object.getPrototypeOf(v)
+        if (!PLAIN_PROTOTYPES.has(proto)) {
+          const name = proto?.constructor?.name || 'an unnamed class'
+          return {
+            ok: false,
+            kind: 'shape',
+            walked: bytes,
+            reason: `capability return contains an instance of ${name}; only plain data crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
+          }
+        }
+        const own = readOwnData(v, bytes, maxBytes)
+        if (!own.ok) return own
+        bytes += own.bytes
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        for (const value of own.values)
+          stack.push({ v: value, depth: depth + 1 })
       }
-      const own = readOwnData(v, bytes, maxBytes)
-      if (!own.ok) return own
-      bytes += own.bytes
-      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      for (const value of own.values) stack.push({ v: value, depth: depth + 1 })
+    }
+  } catch (e) {
+    // Host code ran during the walk and threw (a Proxy trap, an exotic object): the walk cannot
+    // vouch for this value, and JSON cannot make a walk throw, so it is the HOST's ('shape'), billed
+    // for what was walked. It used to escape as an exception: catchable and unbilled (cumulative
+    // review 12).
+    return {
+      ok: false,
+      kind: 'shape',
+      walked: bytes,
+      reason: `capability return could not be read as data: ${reduceThrown(e)}`,
     }
   }
-
   admit?.(bytes)
   try {
     return { ok: true, value: structuredClone(value), bytes }
@@ -912,6 +947,36 @@ export function membraneValue(
  * the highest-stakes file in the repo is review burden for nothing, and the kind of pair
  * that drifts the moment someone improves the wording of one.
  */
+/** The intrinsic typed-array and DataView prototypes: anything else is a subclass. */
+const INTRINSIC_VIEW_PROTOTYPES: ReadonlySet<unknown> = new Set(
+  [
+    Int8Array,
+    Uint8Array,
+    Uint8ClampedArray,
+    Int16Array,
+    Uint16Array,
+    Int32Array,
+    Uint32Array,
+    Float32Array,
+    Float64Array,
+    BigInt64Array,
+    BigUint64Array,
+    DataView,
+  ].map((C) => C.prototype)
+)
+
+function nonIntrinsic(
+  walked: number,
+  what: string
+): { ok: false; reason: string; walked: number; kind: 'shape' } {
+  return {
+    ok: false,
+    kind: 'shape',
+    walked,
+    reason: `capability return contains ${what}; only plain data crosses`,
+  }
+}
+
 function overBudget(
   maxBytes: number,
   walked: number
@@ -4897,7 +4962,7 @@ export function egressValue(
       ctx,
       error instanceof AgentError
         ? error
-        : new AgentError(String((error as any)?.message ?? error), op)
+        : new AgentError(reduceThrown(error), op)
     )
   }
   let crossed: MembraneResult
@@ -4990,37 +5055,46 @@ function chargeWalkFuel(ctx: RuntimeContext, bytes: number): boolean {
 const MAX_THROWN_MESSAGE = 8192
 
 /**
- * An error, reduced to what a guest may see: its OWN DATA `message` if that is a string (or the
- * value itself if it is a string), capped. Never a getter, never `String()`/`toString` (host code),
- * never throws. Applied where an error ENTERS GUEST SCOPE (the `try` bind, a sub-agent's
- * failure), because anything can construct, forge or replace an error before that point: round
- * 36 reduced at the producer and a thrown `AgentError` passed through with an object `op`, a 1MB
- * message, or a forged getter (cumulative review 11). `membrane-doors.test.ts` parses for raw
- * reads of an error's `message`/`op`.
+ * An error, reduced to what a guest (or the host's RunResult, the recorder, a parent agent) may
+ * see: a capped STRING, never a live object.
+ * - `message` is read ONCE, by ordinary access, so a native accessor works (a DOMException's
+ *   message is a prototype getter; round 37 read own data only and erased it: cumulative review
+ *   12). Reading it runs code the HOST wrote (every thrown value comes from an atom body: a guest
+ *   cannot throw an object), and it is read once and kept as a string, so there is no checked
+ *   value for a getter to diverge from. What must never happen is a live object, or an unbounded
+ *   value, reaching the guest (cumulative reviews 10 and 11).
+ * - a thrown PRIMITIVE is `String(value)` (`throw 42` gives `'42'`);
+ * - anything else is a fixed text: an object is never `String()`ed.
+ * Never throws. `membrane-doors.test.ts` parses for raw reads of an error's `message`/`op`.
+ * @internal
  */
 export function reduceThrown(e: unknown): string {
-  return capThrown(
-    ownString(e, 'message') ??
-      (typeof e === 'string' ? e : undefined) ??
-      'an atom failed with a value that is not a message'
+  const message = readOnce(e, 'message')
+  if (typeof message === 'string') return capThrown(message)
+  if (
+    e !== null &&
+    e !== undefined &&
+    typeof e !== 'object' &&
+    typeof e !== 'function'
   )
+    return capThrown(String(e))
+  return 'an atom failed with a value that is not a message'
 }
 
-/** An error's `op`, reduced the same way (own data, a string, capped short). */
-function reduceOp(e: unknown): string {
-  const op = ownString(e, 'op')
-  return op === undefined ? 'unknown' : op.slice(0, 256)
+/** An error's `op`, reduced the same way: a string (capped short), else undefined. @internal */
+function reduceOp(e: unknown): string | undefined {
+  const op = readOnce(e, 'op')
+  return typeof op === 'string' ? op.slice(0, 256) : undefined
 }
 
-function ownString(e: unknown, key: string): string | undefined {
-  if (e === null || typeof e !== 'object') return undefined
+/** One ordinary read of `key`, which may run a getter the host wrote; a throw reads as nothing. */
+function readOnce(e: unknown, key: string): unknown {
+  if (e === null || (typeof e !== 'object' && typeof e !== 'function'))
+    return undefined
   try {
-    const d = Object.getOwnPropertyDescriptor(e, key)
-    return d && 'value' in d && typeof d.value === 'string'
-      ? d.value
-      : undefined
+    return (e as any)[key]
   } catch {
-    return undefined // a Proxy whose descriptor trap throws
+    return undefined
   }
 }
 

@@ -209,6 +209,18 @@ rule about the boundary in the functions that cross it, held by a parse (`membra
 Round 34 stated it about the boundary and implemented it at the outbound sites, so the inbound
 refusal stayed catchable (cumulative review 9).
 
+**A ratchet that matches by SPELLING needs an apparatus row and a stale check.** The parse-based
+guards of this cycle (regex doors, guest key writes, egress doors, membrane doors) matched names,
+and review 12 found the error-field one missing `(error as any)?.message` and `cause?.message`,
+with deduplicated keys that let one allowance cover any future read in the same function. A guard
+earns trust only if (a) a planted instance of every shape it is meant to catch fails it, (b) an
+allowance with nothing behind it fails it, and (c) an allowance covers a COUNT, not a name.
+
+**State the threat a rule answers before applying it somewhere new.** Round 37 reduced errors
+with "never run a getter", a rule written against TOCTOU in the capability-return walk. An error
+message is read once and kept, so that threat does not exist there, and the rule erased every
+native error message instead (cumulative review 12).
+
 ## Why "anything you'd like to double-check?" works
 
 Recorded because it has been repeatedly productive, and it is not obvious why.

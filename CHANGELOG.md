@@ -266,8 +266,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > host's contract broken) can no longer be caught
 > by `try`/`catch`. A return that is merely too large or too deep (things JSON can do), or does not
 > match the atom's declared output, is the world's doing and stays catchable (Tonio), and every inbound copy is billed in fuel so a
-> retry loop pays. A value an atom THROWS reaches a guest `catch` as a capped string (a thrown
-> `{ message: obj }` used to hand over a live host object). Refusals that end the run: no catch block, later step or parent-agent step runs, and the
+> retry loop pays. A value an atom THROWS reaches a guest `catch` as a capped string: its
+> `message` (read once, so a `DOMException`'s works), or `String(value)` for a thrown primitive;
+> never an object (a thrown `{ message: obj }` used to hand over a live host object). A typed
+> array over a `SharedArrayBuffer`, or any subclass of a typed array, `DataView` or `Date`, is
+> refused at the boundary: `structuredClone` would SHARE that memory with the guest, not copy it. Refusals that end the run: no catch block, later step or parent-agent step runs, and the
 > run reports the refusal. This includes a `cache` entry or key that cannot cross, and persisted
 > ASTs or builder programs that wrapped such a call in `try`. Ordinary failures (a fetch that fails, a store that throws) are caught as before. Four
 > review rounds in a row (cumulative reviews 5 to 8) each found a refusal path billed short of the

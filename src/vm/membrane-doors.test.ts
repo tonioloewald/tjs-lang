@@ -147,61 +147,133 @@ describe('a thrown value is reduced before it can reach a guest', () => {
  * 11). So every read of an ERROR's `message` or `op` in `src/vm/**` must be an argument of a
  * reducer, or listed with the reason its value never reaches a guest.
  */
-const ERROR_FIELD_READS_ALLOWED: Record<string, string> = {
-  'runtime.ts › membraneValue › e?.message':
-    "structuredClone's own DOMException: an engine-built string, placed in a refusal REASON that is reduced again at the try bind",
-  'vm.ts › run › ctx.error?.message':
+/** `file › function › expression` → [how many such reads, why they never reach a guest]. */
+const ERROR_FIELD_READS_ALLOWED: Record<string, [number, string]> = {
+  'runtime.ts › membraneValue › e?.message': [
+    1,
+    "structuredClone's own DOMException: an engine-built string, placed in a refusal REASON that is reduced again where it enters guest scope",
+  ],
+  'vm.ts › run › ctx.error?.message': [
+    2,
     'host side, after the run: compared against a fixed string to rename the error the host receives',
-  'vm.ts › run › e.message':
-    'host side: tests whether a thrown error was the deadline, never bound into guest scope',
+  ],
+  'vm.ts › run › e.message': [
+    3,
+    "host side: two test whether a thrown error was the deadline, one re-throws the transpiler's own error to the HOST from vm.run (source input, before any run exists); none is bound into guest scope",
+  ],
 }
 
+/** Unwrap `x as T`, `x!`, `(x)` to the expression they wrap. */
+function unwrap(e: ts.Expression): ts.Expression {
+  while (
+    ts.isAsExpression(e) ||
+    ts.isNonNullExpression(e) ||
+    ts.isParenthesizedExpression(e) ||
+    ts.isTypeAssertionExpression(e)
+  )
+    e = e.expression
+  return e
+}
+
+/** An ERROR-valued receiver, by role: names a reader would recognise as an error or its cause. */
 function isErrorish(expr: ts.Expression): boolean {
-  const t = expr.getText()
-  return /(^|\.)(error|err|e)$/.test(t) || /Error$/.test(t)
+  const t = unwrap(expr).getText()
+  return (
+    /(^|[.?])(error|err|e|ex|exc|cause|reason|failure|err\d*)$/i.test(t) ||
+    /Error$/.test(t)
+  )
+}
+
+const FIELDS = new Set(['message', 'op'])
+
+/** Raw reads of an error's `message`/`op` in `source`, outside the reducers. */
+export function rawErrorFieldReadsIn(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  const out: string[] = []
+  const reduced = (n: ts.Node) => {
+    for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
+      if (
+        ts.isCallExpression(p) &&
+        ['reduceThrown', 'reduceOp'].includes(p.expression.getText())
+      )
+        return true
+      if (ts.isFunctionLike(p)) return false
+    }
+    return false
+  }
+  const record = (n: ts.Node, text: string) => {
+    if (!reduced(n)) out.push(`${file} › ${enclosingName(n)} › ${text}`)
+  }
+  const visit = (n: ts.Node) => {
+    // x.message, x?.message, (x as any).message
+    if (
+      ts.isPropertyAccessExpression(n) &&
+      FIELDS.has(n.name.text) &&
+      isErrorish(n.expression)
+    )
+      record(n, n.getText())
+    // x['message']
+    if (
+      ts.isElementAccessExpression(n) &&
+      ts.isStringLiteral(n.argumentExpression) &&
+      FIELDS.has(n.argumentExpression.text) &&
+      isErrorish(n.expression)
+    )
+      record(n, n.getText())
+    // const { message } = err
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isObjectBindingPattern(n.name) &&
+      n.initializer &&
+      isErrorish(n.initializer) &&
+      n.name.elements.some((el) =>
+        FIELDS.has((el.propertyName ?? el.name).getText())
+      )
+    )
+      record(n, n.getText())
+    ts.forEachChild(n, visit)
+  }
+  visit(sf)
+  return out
 }
 
 function rawErrorFieldReads(): string[] {
-  const out: string[] = []
-  for (const file of files(VM)) {
-    const sf = ts.createSourceFile(
-      file,
-      readFileSync(file, 'utf8'),
-      ts.ScriptTarget.Latest,
-      true
-    )
-    const visit = (n: ts.Node) => {
-      if (
-        ts.isPropertyAccessExpression(n) &&
-        (n.name.text === 'message' || n.name.text === 'op') &&
-        isErrorish(n.expression)
-      ) {
-        let reduced = false
-        for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
-          if (
-            ts.isCallExpression(p) &&
-            ['reduceThrown', 'reduceOp'].includes(p.expression.getText())
-          )
-            reduced = true
-          if (ts.isFunctionLike(p)) break
-        }
-        if (!reduced)
-          out.push(
-            `${relative(VM, file)} › ${enclosingName(n)} › ${n.getText()}`
-          )
-      }
-      ts.forEachChild(n, visit)
-    }
-    visit(sf)
-  }
-  return [...new Set(out)].sort()
+  return files(VM).flatMap((file) =>
+    rawErrorFieldReadsIn(relative(VM, file), readFileSync(file, 'utf8'))
+  )
 }
 
 describe('an error is reduced where it enters guest scope', () => {
+  const counts = () => {
+    const c: Record<string, number> = {}
+    for (const r of rawErrorFieldReads()) c[r] = (c[r] ?? 0) + 1
+    return c
+  }
+
+  it('the apparatus catches every shape it is meant to (a guard that cannot fail is not a guard)', () => {
+    const planted = `function f(err, e2) {
+      const a = err.message
+      const b = (err as any)?.op
+      const c = err['message']
+      const { message } = err
+      const d = reduceThrown(err)
+    }`
+    expect(rawErrorFieldReadsIn('planted.ts', planted)).toHaveLength(4)
+  })
+
   it('every read of an error message or op is reduced, or listed with why it never reaches a guest', () => {
-    expect(
-      rawErrorFieldReads().filter((r) => !(r in ERROR_FIELD_READS_ALLOWED))
-    ).toEqual([])
+    const over = Object.entries(counts()).filter(
+      ([k, n]) => n > (ERROR_FIELD_READS_ALLOWED[k]?.[0] ?? 0)
+    )
+    expect(over).toEqual([])
+  })
+
+  it('no stale entries (an allowance with no read behind it is slack a regression can occupy)', () => {
+    const c = counts()
+    const stale = Object.entries(ERROR_FIELD_READS_ALLOWED).filter(
+      ([k, [n]]) => c[k] !== n
+    )
+    expect(stale).toEqual([])
   })
 })
 

@@ -519,11 +519,11 @@ describe('an error is reduced where it ENTERS guest scope (cumulative review 11,
       { fuel: 1000 }
     )
 
-  it('an AgentError whose op is a host object: the guest gets a string', async () => {
+  it('an AgentError whose op is a host object: the guest never gets the object', async () => {
     const shared = { list: [1] }
     const r = await runWith(thrower(() => new AgentError('m', shared as any)))
-    expect(typeof (r.result as any).op).toBe('string')
     expect((r.result as any).op).not.toBe(shared)
+    expect((r.result as any).op).toBeUndefined()
   })
 
   it('an AgentError with a 1M-char message is capped', async () => {
@@ -533,19 +533,139 @@ describe('an error is reduced where it ENTERS guest scope (cumulative review 11,
     expect(((r.result as any).e as string).length).toBeLessThan(10_000)
   })
 
-  it('a FORGED AgentError with a message getter: the getter never runs', async () => {
-    let ran = 0
+  it('a FORGED AgentError whose message getter returns an object: no object reaches the guest', async () => {
+    const live = { live: true }
     const forged = Object.create(AgentError.prototype, {
       message: {
         get() {
-          ran++
-          return { live: true }
+          return live
         },
       },
       op: { value: 'boom' },
     })
     const r = await runWith(thrower(() => forged))
-    expect(ran).toBe(0)
     expect(typeof (r.result as any).e).toBe('string')
+    expect((r.result as any).e).not.toBe(live)
+  })
+})
+
+describe('native errors keep their messages, for the guest and the host (cumulative review 12, B1)', () => {
+  // Round 37 read own data properties only, so a DOMException (a prototype getter), new Error()
+  // and throw 42 all became a generic text, for the guest AND the host.
+  const thrower = (make: () => unknown) =>
+    defineAtom('boom', s.object({}), s.any, async () => {
+      throw make()
+    })
+  const caughtBy = async (make: () => unknown) => {
+    const boom = thrower(make)
+    const r = await new AgentVM({ boom }).run(
+      transpile(
+        `function f() {
+          try { boom({}) } catch (e) { return { e } }
+          return { done: true }
+        }`,
+        { atoms: { boom } } as any
+      ).ast,
+      {},
+      { fuel: 1000 }
+    )
+    return (r.result as any).e
+  }
+  const hostSees = async (make: () => unknown) => {
+    const boom = thrower(make)
+    const r = await new AgentVM({ boom }).run(
+      transpile(
+        `function f() { boom({})
+        return { done: true } }`,
+        { atoms: { boom } } as any
+      ).ast,
+      {},
+      { fuel: 1000 }
+    )
+    return r.error?.message
+  }
+  const cases: Array<[string, () => unknown, string]> = [
+    [
+      'a DOMException TimeoutError',
+      () => new DOMException('The operation timed out.', 'TimeoutError'),
+      'The operation timed out.',
+    ],
+    [
+      'a DOMException AbortError',
+      () => new DOMException('aborted here', 'AbortError'),
+      'aborted here',
+    ],
+    ['new Error() with no message', () => new Error(), ''],
+    ['throw 42', () => 42, '42'],
+    [
+      'an Error subclass with a message getter',
+      () =>
+        new (class extends Error {
+          get message() {
+            return 'from a getter'
+          }
+        })(),
+      'from a getter',
+    ],
+  ]
+  for (const [label, make, expected] of cases) {
+    it(label, async () => {
+      expect(await caughtBy(make)).toBe(expected)
+      expect(await hostSees(make)).toBe(expected)
+    })
+  }
+})
+
+describe('shared memory and unreadable values (cumulative review 12, B2 and follow-ups)', () => {
+  it('a SharedArrayBuffer view from a capability ends the run, and later host writes are unseen', async () => {
+    const view = new Uint8Array(new SharedArrayBuffer(8))
+    const store = { get: async () => ({ v: view }), set: async () => {} }
+    const r = await run(
+      `function f() {
+        try { const x = storeGet({ key: 'k' }) } catch (e) { return { caught: true } }
+        return { done: true }
+      }`,
+      {},
+      { fuel: 1000, capabilities: { store } }
+    )
+    view[0] = 99
+    expect(r.error?.message).toMatch(/shared or non-standard memory/)
+  })
+
+  it("a Proxy whose trap throws during the walk is the host's: the run ends", async () => {
+    const trap = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('trap')
+        },
+      }
+    )
+    const store = { get: async () => ({ p: trap }), set: async () => {} }
+    const r = await run(
+      `function f() {
+        try { const x = storeGet({ key: 'k' }) } catch (e) { return { caught: true } }
+        return { done: true }
+      }`,
+      {},
+      { fuel: 1000, capabilities: { store } }
+    )
+    expect(r.error?.message).toMatch(/could not be read as data/)
+  })
+
+  it('a clone that overflows the stack is a limit; any other clone failure is shape', () => {
+    const real = globalThis.structuredClone
+    try {
+      ;(globalThis as any).structuredClone = () => {
+        throw new RangeError('Maximum call stack size exceeded')
+      }
+      expect((membraneValue({ a: 1 }, 1e6) as any).kind).toBe('limit')
+      ;(globalThis as any).structuredClone = () => {
+        throw new DOMException('could not be cloned', 'DataCloneError')
+      }
+      expect((membraneValue({ a: 1 }, 1e6) as any).kind).toBe('shape')
+    } finally {
+      ;(globalThis as any).structuredClone = real
+    }
   })
 })
