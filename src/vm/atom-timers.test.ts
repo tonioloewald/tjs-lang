@@ -62,6 +62,36 @@ describe('per-atom timers are armed only for pending calls', () => {
     expect(r.error?.message).toMatch(/Atom 'slow' timed out/)
   })
 
+  it('the deadline counts from the CALL, not from the first microtask (review 20)', async () => {
+    // 100ms of synchronous work, then a 30ms await, under an 80ms timeout: counted from the call
+    // the deadline has passed before the await; counted from the first microtask (round 46) the
+    // atom would have finished.
+    const late = defineAtom(
+      'late',
+      s.object({}),
+      s.any,
+      async () => {
+        const end = Date.now() + 100
+        while (Date.now() < end) {
+          // busy
+        }
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        return 1
+      },
+      { timeoutMs: 80 }
+    )
+    const r = await new AgentVM({ late }).run(
+      transpile(
+        `function f() { const x = late({})
+        return { x } }`,
+        { atoms: { late } } as any
+      ).ast,
+      {},
+      { fuel: 1000 }
+    )
+    expect(r.error?.message).toMatch(/Atom 'late' timed out/)
+  })
+
   it('a synchronous atom that throws, or returns a rejected promise, still fails its step', async () => {
     const throws = defineAtom('throws', s.object({}), s.any, (() => {
       throw new Error('sync boom')

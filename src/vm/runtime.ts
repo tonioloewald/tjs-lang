@@ -927,7 +927,8 @@ function dateTime(v: object): number | undefined {
 
 /**
  * What kind of object the membrane admits, decided ONCE per object, before any branch builds:
- * - an array whose prototype is exactly the intrinsic `Array.prototype`;
+ * - an array by BRAND (`Array.isArray`) whose prototype is `Array.prototype`, `Object.prototype` or
+ *   null, copied with `Array.prototype`; an array is never admitted as plain (review 19, F1);
  * - a `Date` by BRAND (the captured intrinsic `getTime`) whose prototype is exactly the captured
  *   `Date.prototype`, with no own properties (a subclass or extra fields would be thinned);
  * - a plain object: `Object.prototype` or a null prototype.
@@ -993,18 +994,21 @@ function admitKind(
   return {
     kind: 'refused',
     reason: `capability return contains an instance of ${name}${
-      Array.isArray(v)
-        ? ' (an Array subclass, or an array from another realm)'
-        : ''
+      IS_ARRAY(v) ? ' (an Array subclass, or an array from another realm)' : ''
     }; only plain data (and Date) crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
   }
 }
 
 /**
- * The intrinsics the membrane decides and builds with, captured at load and used ONLY (as
- * `Date`'s are), so a host replacing `globalThis.Array`, `Array.isArray` or
- * `Object.defineProperty` cannot change what the membrane admits or how it writes a copy
- * (cumulative review 19, S1: the policy was half applied).
+ * Intrinsics captured at load: the prototypes the membrane admits against, `Array.isArray`, and
+ * `Object.defineProperty` (with `Date`'s, above). Replacing those globals cannot change what the
+ * membrane admits or how it writes a copy (cumulative review 19, S1).
+ *
+ * The THREAT MODEL BOUNDARY, stated rather than implied (review 20): the reflective functions the
+ * walk reads through (`Object.getPrototypeOf`, `Object.getOwnPropertyDescriptor`, `Object.keys`,
+ * `Reflect.ownKeys`, `Object.setPrototypeOf`, `Object.create`) are used live. A host that replaces
+ * THOSE already controls its own process, and the membrane does not defend a host against itself.
+ * What it defends against is data: capability returns, run arguments and guest values.
  */
 const ARRAY_PROTOTYPE = Array.prototype
 const OBJECT_PROTOTYPE = Object.prototype
@@ -5544,23 +5548,25 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // `{ $expr: 'ident', name: 'secret' }` (or, in a v1 AST, a string naming a variable) was
         // evaluated as code (rc.2 review B5). Harmless by construction, not by a CHANGELOG note.
         const atomCtx = atom.resolveInputs ? inputsResolvedContext(ctx) : ctx
-        const execute = async () => fn(callInput as I, atomCtx)
+        // ONE call site, for timed and untimed atoms alike (review 20: there were two). The atom's
+        // OWN promise: wrapping it (`async () => fn()`) adds microtasks of adoption, and the call
+        // would never look settled. A synchronous throw becomes a rejection.
+        const startedAt = Date.now()
+        let running: Promise<unknown>
+        try {
+          running = Promise.resolve(fn(callInput as I, atomCtx))
+        } catch (e) {
+          running = Promise.reject(e)
+        }
 
-        if (armedTimeout === undefined) result = await execute()
+        if (armedTimeout === undefined) result = await running
         else {
-          // The atom's OWN promise: wrapping it (`async () => fn()`) adds microtasks of adoption, and
-          // the call would never look settled.
-          let running: Promise<unknown>
-          try {
-            running = Promise.resolve(fn(callInput as I, atomCtx))
-          } catch (e) {
-            running = Promise.reject(e)
-          }
           // A timer is armed only for a call that is still PENDING after one microtask. A call
           // whose body completed synchronously (most pure atoms) has already settled, so a timer
           // armed for it could never fire first: it was ~20–35% of a hot loop's wall time, one
           // setTimeout and one Promise.race per step (cumulative reviews 9 and 13; #2849). A call
-          // that awaits real work is still pending here and is timed exactly as before.
+          // that awaits real work is still pending here and is timed as before, FROM THE CALL: the
+          // deadline counts the time already spent before the check (review 20, nit 4).
           if (await settledNow(running)) result = await running
           else
             result = await Promise.race([
@@ -5568,7 +5574,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
               new Promise<never>((_, reject) => {
                 timer = setTimeout(
                   () => reject(new Error(`Atom '${op}' timed out`)),
-                  armedTimeout
+                  Math.max(0, armedTimeout - (Date.now() - startedAt))
                 )
               }),
             ]).finally(() => clearTimeout(timer))
