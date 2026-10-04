@@ -309,6 +309,21 @@ describe('the early bails never refuse what fits (review 9)', () => {
   }
 })
 
+describe('a top-level string is refused like a nested one (review 10, minor)', () => {
+  it('same kind, same reason, same bill', () => {
+    const str = 'x'.repeat(10_000)
+    const top = membraneValue(str, 1_000) as any
+    const nested = membraneValue({ s: str }, 1_000) as any
+    expect(top.ok).toBe(false)
+    expect(nested.ok).toBe(false)
+    expect(top.kind).toBe('size')
+    expect(nested.kind).toBe('size')
+    expect(top.reason).toBe(nested.reason)
+    expect(top.walked).toBeGreaterThanOrEqual(20_000)
+    expect(nested.walked).toBeGreaterThanOrEqual(20_000)
+  })
+})
+
 describe('egress copies are transient heap, released when the step ends (review 6, gap 6)', () => {
   it('many large copies under a small heap ceiling do not accumulate', async () => {
     const LOOP = `function f(v: [{ i: 0 }], n: 0) {

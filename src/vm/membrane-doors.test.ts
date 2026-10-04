@@ -74,6 +74,73 @@ function crossingSites(): string[] {
   return [...new Set(sites)].sort()
 }
 
+/**
+ * The crossing that is NOT a walk: a value an atom THROWS reaches the guest's `catch` parameter.
+ * It is reduced to a capped string by `reduceThrown` (cumulative review 10, B2: `{ message: obj }`
+ * handed the guest a live host object). Held here by parsing: every `catch` clause in the VM that
+ * builds an `AgentError` from a caught value must call `reduceThrown`.
+ */
+/** Does `node` contain the IDENTIFIER `name` (not merely the text)? */
+function mentions(node: ts.Node, name: string): boolean {
+  let found = false
+  const walk = (n: ts.Node) => {
+    if (ts.isIdentifier(n) && n.text === name) found = true
+    else ts.forEachChild(n, walk)
+  }
+  walk(node)
+  return found
+}
+
+function catchClausesBuildingFromCaught(): string[] {
+  const bad: string[] = []
+  for (const file of files(VM)) {
+    const sf = ts.createSourceFile(
+      file,
+      readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true
+    )
+    const visit = (n: ts.Node) => {
+      if (ts.isCatchClause(n) && n.variableDeclaration) {
+        const param = n.variableDeclaration.name.getText()
+        let buildsFromCaught = false
+        let reduces = false
+        const walk = (m: ts.Node) => {
+          if (
+            ts.isNewExpression(m) &&
+            m.expression.getText() === 'AgentError' &&
+            m.arguments?.[0] &&
+            mentions(m.arguments[0], param)
+          )
+            buildsFromCaught = true
+          if (
+            ts.isCallExpression(m) &&
+            m.expression.getText() === 'reduceThrown'
+          )
+            reduces = true
+          ts.forEachChild(m, walk)
+        }
+        walk(n.block)
+        if (buildsFromCaught && !reduces)
+          bad.push(
+            `${relative(VM, file)}:${
+              sf.getLineAndCharacterOfPosition(n.getStart()).line + 1
+            }`
+          )
+      }
+      ts.forEachChild(n, visit)
+    }
+    visit(sf)
+  }
+  return bad
+}
+
+describe('a thrown value is reduced before it can reach a guest', () => {
+  it('every catch that builds an AgentError from the caught value reduces it first', () => {
+    expect(catchClausesBuildingFromCaught()).toEqual([])
+  })
+})
+
 describe('the capability boundary is a closed set of crossings', () => {
   const sites = crossingSites()
 

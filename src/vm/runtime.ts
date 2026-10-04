@@ -112,7 +112,8 @@ export class AgentError {
   readonly cause?: Error
 
   constructor(message: string, op: string, cause?: Error) {
-    this.message = message
+    // A string, always: the message is what a guest `catch` binds (see `reduceThrown`).
+    this.message = typeof message === 'string' ? message : reduceThrown(message)
     this.op = op
     this.cause = cause
 
@@ -619,6 +620,13 @@ export type MembraneResult =
        * work does not compile. The outbound membrane bills exactly this (cumulative review 7).
        */
       walked: number
+      /**
+       * WHY it refused, as a type rather than a message (round 31 parsed the message): `'size'`
+       * is the value being too large, which inbound is the WORLD's doing (a catchable failure);
+       * `'shape'` is the value not being plain data, which inbound is the HOST's contract broken
+       * (the run ends). REQUIRED, like `walked` (Tonio, 2026-10-04; cumulative review 10).
+       */
+      kind: 'size' | 'shape'
     }
 
 /**
@@ -662,6 +670,7 @@ export function membraneValueFrom(
         ok: false,
         reason: r.reason.replace(/capability return/g, subject),
         walked: r.walked,
+        kind: r.kind,
       }
 }
 
@@ -682,11 +691,12 @@ export function membraneValue(
     // the same refusal and bill as the same string nested in a value
     if ((value as string).length * 2 > maxBytes)
       return overBudget(maxBytes, (value as string).length * 2)
-    return { ok: true, value }
+    return { ok: true, value, bytes: (value as string).length * 2 }
   }
   if (t === 'function' || t === 'symbol' || t === 'bigint') {
     return {
       ok: false,
+      kind: 'shape',
       walked: 0,
       reason: `a ${t} cannot cross the capability boundary into guest state`,
     }
@@ -707,6 +717,7 @@ export function membraneValue(
     if (vt === 'function' || vt === 'symbol' || vt === 'bigint') {
       return {
         ok: false,
+        kind: 'shape',
         walked: bytes,
         reason: `capability return contains a ${vt}, which cannot cross into guest state`,
       }
@@ -726,6 +737,7 @@ export function membraneValue(
     if (depth > MEMBRANE_MAX_DEPTH) {
       return {
         ok: false,
+        kind: 'shape',
         walked: bytes,
         reason: 'the value exceeds the membrane depth limit',
       }
@@ -791,6 +803,7 @@ export function membraneValue(
       if (proto !== (isMap ? Map.prototype : Set.prototype)) {
         return {
           ok: false,
+          kind: 'shape',
           walked: bytes,
           reason: `capability return contains a ${
             isMap ? 'Map' : 'Set'
@@ -836,6 +849,7 @@ export function membraneValue(
         const name = proto?.constructor?.name || 'an unnamed class'
         return {
           ok: false,
+          kind: 'shape',
           walked: bytes,
           reason: `capability return contains an instance of ${name}; only plain data crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
         }
@@ -854,6 +868,7 @@ export function membraneValue(
   } catch (e: any) {
     return {
       ok: false,
+      kind: 'shape',
       walked: bytes,
       reason: `capability return is not structured-cloneable: ${
         e?.message || e
@@ -898,9 +913,11 @@ function overBudget(
   ok: false
   reason: string
   walked: number
+  kind: 'size'
 } {
   return {
     ok: false,
+    kind: 'size',
     // the bytes actually tallied when it stopped: one definition of `walked` on every path
     walked,
     reason: `the value exceeds the ${maxBytes}-byte membrane budget`,
@@ -913,7 +930,9 @@ function readArrayData(
   maxBytes: number,
   stack: Array<{ v: any; depth: number }>,
   depth: number
-): { ok: true; bytes: number } | { ok: false; reason: string; walked: number } {
+):
+  | { ok: true; bytes: number }
+  | { ok: false; reason: string; walked: number; kind: 'size' | 'shape' } {
   let bytes = startBytes
   /** Values queued for the walk. Each will cost at least 8 — the early-bail lower bound. */
   let pushed = 0
@@ -933,6 +952,7 @@ function readArrayData(
     if (d.get || d.set) {
       return {
         ok: false,
+        kind: 'shape',
         walked: bytes + pushed * 8,
         reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
@@ -959,6 +979,7 @@ function readArrayData(
     if (d && (d.get || d.set)) {
       return {
         ok: false,
+        kind: 'shape',
         walked: bytes + pushed * 8,
         reason: `capability return has an accessor ${
           asIndex >= 0 ? `at index ${k}` : `property '${k}'`
@@ -1039,7 +1060,7 @@ function readOwnData(
   maxBytes: number
 ):
   | { ok: true; values: unknown[]; bytes: number }
-  | { ok: false; reason: string; walked: number } {
+  | { ok: false; reason: string; walked: number; kind: 'size' | 'shape' } {
   const values: unknown[] = []
   let bytes = 0
   // `Object.keys` is the one step that cannot stop early: its work is billed if the walk refuses
@@ -1066,6 +1087,7 @@ function readOwnData(
     if (d && (d.get || d.set)) {
       return {
         ok: false,
+        kind: 'shape',
         walked: startBytes + Math.max(bytes, enumerated),
         reason: `capability return has an accessor property '${k}'; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
@@ -3543,7 +3565,7 @@ function vmStringMethod(
     }
   } catch (e: any) {
     if (e instanceof RegexError || e instanceof TypeError)
-      throw new AgentError(e.message, op)
+      throw new AgentError(reduceThrown(e), op)
     throw e
   }
   throw new AgentError(`'${method}' is not a VM string method`, op)
@@ -4628,7 +4650,7 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
         )
       } catch (e: any) {
         if (e instanceof AgentError) throw e
-        throw new AgentError(e.message, 'expr.regex')
+        throw new AgentError(reduceThrown(e), 'expr.regex')
       }
       return re
     }
@@ -4893,15 +4915,21 @@ export function egressValue(
 
 /**
  * The INBOUND crossing: what a capability returns, into guest state. The counterpart of
- * `egressValue`, and held to the same rule: a refusal ENDS THE RUN (`haltRun`). Round 34 made the
- * outbound refusals halt and left this one a catchable error, so a guest could catch an oversized
- * return and ask again, a walk per retry at ~2.5× the time its fuel allowed (cumulative review 9).
- * The rule is about the BOUNDARY, so it lives in the closed set of functions that cross it
- * (`egressValue`, this, and `vm.run`'s argument admission, which refuses before the run exists),
- * and `membrane-doors.test.ts` parses for any other caller of the walk.
+ * `egressValue`; with it and `vm.run`'s argument admission, the closed set of crossings that
+ * `membrane-doors.test.ts` holds by parsing.
  *
- * A capability's output that does not match the atom's declared output schema is the same kind
- * of refusal: the host's contract, broken at the boundary, never a failure of the world.
+ * Refusals split by WHO got it wrong (Tonio, 2026-10-04; cumulative review 10):
+ * - `'shape'` (a function, a getter, a class instance, nesting past the limit): the HOST's
+ *   contract is broken, and the run ENDS (`haltRun`). Round 34 left this catchable and a guest
+ *   looped on it (cumulative review 9).
+ * - `'size'` (over `membraneMaxBytes`) and an output that does not match the atom's declared
+ *   schema: the WORLD's doing (a server, a model), and an ordinary, catchable failure. Round 35
+ *   halted on size too, so a remote server could kill any agent with a response between about
+ *   half and all of the budget (raw bytes pass `readBounded`, then grow when decoded).
+ *
+ * Because a world failure is catchable, a guest can retry it in a loop, so EVERY inbound walk is
+ * billed, accepted or refused: the bytes walked, as fuel at the allocation rate. (Fuel only: the
+ * copy IS the value that will be bound, and the bind does the heap accounting.)
  */
 function ingressValue(
   ctx: RuntimeContext,
@@ -4913,24 +4941,48 @@ function ingressValue(
     result,
     ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
   )
-  if (!crossed.ok)
-    throw haltRun(
-      ctx,
-      new AgentError(
-        `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
-        op
-      )
+  const walked = crossed.ok ? crossed.bytes ?? 0 : crossed.walked
+  if (ctx.fuel && Number.isFinite(ctx.fuel.current)) {
+    ctx.fuel.current = Math.max(
+      0,
+      ctx.fuel.current - walked * FUEL_PER_ALLOCATED_BYTE
     )
+    if (ctx.fuel.current <= 0) throw new AgentError('Out of Fuel', op)
+  }
+  if (!crossed.ok) {
+    const error = new AgentError(
+      `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
+      op
+    )
+    throw crossed.kind === 'shape' ? haltRun(ctx, error) : error
+  }
   if (
     crossed.value !== undefined &&
     outputSchema &&
     !validate(crossed.value, outputSchema as any)
   )
-    throw haltRun(
-      ctx,
-      new AgentError(`Output validation failed for '${op}'`, op)
-    )
+    throw new AgentError(`Output validation failed for '${op}'`, op)
   return crossed.value
+}
+
+/** How much of a thrown value's message a guest may see. */
+const MAX_THROWN_MESSAGE = 8192
+
+/**
+ * A thrown value, reduced to what a guest may see: its `message` if that is a string, else
+ * `String(value)` (which never reads a nested object's getters), capped. Never throws.
+ */
+function reduceThrown(e: unknown): string {
+  let m: string
+  try {
+    const message = (e as any)?.message
+    m = typeof message === 'string' ? message : String(e)
+  } catch {
+    m = 'an atom threw a value that could not be read'
+  }
+  return m.length > MAX_THROWN_MESSAGE
+    ? m.slice(0, MAX_THROWN_MESSAGE) + '…'
+    : m
 }
 
 /** Ends the run with `error` (the first halt wins) and returns it to be thrown. */
@@ -5348,10 +5400,14 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           if (step.resultConst) markConst(ctx, step.result)
         }
       } catch (e: any) {
-        error = e.message || String(e)
+        // A thrown value is a CROSSING too (cumulative review 10, B2): it reaches the guest's
+        // `catch` parameter. It used to be bound as `e.message` whatever that was, so a capability
+        // throwing `{ message: obj }` handed the guest a live host object (mutable, its getters
+        // runnable), past every budget. Reduced to a capped STRING here, before anything is built.
+        error = reduceThrown(e)
         // Convert exception to monadic error. An AgentError thrown from inside the step (the
         // allocation gate) already names the operation that failed — keep it.
-        ctx.error = e instanceof AgentError ? e : new AgentError(error!, op, e)
+        ctx.error = e instanceof AgentError ? e : new AgentError(error, op, e)
       } finally {
         // --- Tracing End ---
         if (ctx.trace && stateBefore) {

@@ -183,66 +183,69 @@ describe('a refusal at the capability boundary ends the run', () => {
   })
 })
 
-describe('the INBOUND crossing ends the run too (cumulative review 9)', () => {
-  const big = Array.from({ length: 600_000 }, () => 0) // ~4.8MB against the 4MB default
-  const bigStore = (calls: { n: number }) => ({
+describe('INBOUND refusals split by who got it wrong (Tonio, 2026-10-04; review 10)', () => {
+  // A capability returning non-data broke the HOST's contract: the run ends. A return that is too
+  // big, or does not match the atom's declared output, is the WORLD's doing: catchable, and every
+  // inbound walk is billed so a retry loop pays.
+  const stringStore = (chars: number, calls = { n: 0 }) => ({
     get: async () => {
       calls.n++
-      return big
+      return 'x'.repeat(chars)
     },
     set: async () => {},
   })
-
-  it('an over-budget capability return inside try: no catch, nothing after', async () => {
-    const calls = { n: 0 }
-    const sets: string[] = []
-    const store = {
-      ...bigStore(calls),
-      set: async (k: string) => void sets.push(k),
+  const CAUGHT = `function f() {
+    try {
+      const x = storeGet({ key: 'k' })
+      return { caught: false }
+    } catch (e) {
+      return { caught: true }
     }
-    const r = await run(
-      `function f() {
-        try {
-          const x = storeGet({ key: 'k' })
-        } catch (e) {
-          storeSet({ key: 'caught', value: 1 })
-        }
-        storeSet({ key: 'after', value: 1 })
-        return { done: true }
-      }`,
-      {},
-      { fuel: 1000, capabilities: { store } }
-    )
-    expect(r.error?.message).toMatch(
-      /Capability boundary rejected the return of 'storeGet'/
-    )
-    expect(sets).toEqual([])
-  })
+  }`
 
-  it("the review's catch-and-retry loop ends after ONE walk", async () => {
+  // Round 35 halted on size, so a response between about half and all of the budget KILLED the
+  // run while a bigger one was caught (raw bytes pass the read limit, then grow when decoded).
+  // Every size refusal is now the same catchable failure.
+  for (const [label, chars] of [
+    ['1M chars (2MB, fits)', 1_000_000],
+    ['3M chars (6MB, refused)', 3_000_000],
+    ['5M chars (10MB, refused)', 5_000_000],
+  ] as const) {
+    it(`a ${label} return in try behaves like any world failure`, async () => {
+      const r = await run(
+        CAUGHT,
+        {},
+        {
+          fuel: 1e4,
+          capabilities: { store: stringStore(chars) },
+        }
+      )
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ caught: chars * 2 > 4 * 1024 * 1024 })
+    })
+  }
+
+  it('a catch-and-retry loop on an oversized return pays for every walk and ends by fuel', async () => {
     const calls = { n: 0 }
     const t0 = performance.now()
     const r = await run(
       `function f() {
         let n = 0
         while (true) {
-          try {
-            const x = storeGet({ key: 'k' })
-          } catch (e) {
-            n = n + 1
-          }
+          try { const x = storeGet({ key: 'k' }) } catch (e) { n = n + 1 }
         }
         return { n }
       }`,
       {},
-      { fuel: 1000, capabilities: { store: bigStore(calls) } }
+      { fuel: 1000, capabilities: { store: stringStore(3_000_000, calls) } }
     )
-    expect(r.error?.message).toMatch(/Capability boundary rejected/)
-    expect(calls.n).toBe(1)
-    expect(performance.now() - t0).toBeLessThan(2_000)
+    expect(r.error?.message).toBe('Out of Fuel')
+    // each refused walk reads the 4MB budget: 200 fuel at 20,000 bytes per fuel
+    expect(calls.n).toBeLessThanOrEqual(6)
+    expect(performance.now() - t0).toBeLessThan(3_000)
   })
 
-  it('a capability returning a function ends the run', async () => {
+  it('a capability returning a FUNCTION (the host contract) still ends the run', async () => {
     const store = { get: async () => ({ f: () => 1 }), set: async () => {} }
     const r = await run(
       `function f() {
@@ -255,7 +258,32 @@ describe('the INBOUND crossing ends the run too (cumulative review 9)', () => {
     expect(r.error?.message).toMatch(/Capability boundary rejected/)
   })
 
-  it("an IO atom's output that breaks its declared schema ends the run", async () => {
+  it('a capability returning a GETTER (the host contract) ends the run without running it', async () => {
+    let ran = 0
+    const store = {
+      get: async () =>
+        Object.defineProperty({}, 'g', {
+          get: () => {
+            ran++
+            return 1
+          },
+          enumerable: true,
+        }),
+      set: async () => {},
+    }
+    const r = await run(
+      `function f() {
+        try { const x = storeGet({ key: 'k' }) } catch (e) { return { caught: true } }
+        return { done: true }
+      }`,
+      {},
+      { fuel: 1000, capabilities: { store } }
+    )
+    expect(r.error?.message).toMatch(/Capability boundary rejected/)
+    expect(ran).toBe(0)
+  })
+
+  it("an IO atom's output that breaks its declared schema is catchable (protocol drift)", async () => {
     const liar = defineAtom(
       'liar',
       s.object({}),
@@ -273,7 +301,25 @@ describe('the INBOUND crossing ends the run too (cumulative review 9)', () => {
       {},
       { fuel: 1000 }
     )
-    expect(r.error?.message).toMatch(/Output validation failed for 'liar'/)
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ caught: true })
+  })
+
+  it('an ACCEPTED inbound walk is billed too (a mismatch-and-retry loop pays)', async () => {
+    const small = await run(
+      `function f() { const x = storeGet({ key: 'k' })
+        return { ok: true } }`,
+      {},
+      { fuel: 1e4, capabilities: { store: stringStore(10) } }
+    )
+    const big = await run(
+      `function f() { const x = storeGet({ key: 'k' })
+        return { ok: true } }`,
+      {},
+      { fuel: 1e4, capabilities: { store: stringStore(1_000_000) } }
+    )
+    // 2MB walked at 20,000 bytes per fuel
+    expect(big.fuelUsed - small.fuelUsed).toBeGreaterThan(90)
   })
 })
 
@@ -328,4 +374,52 @@ describe('constructs that loop end promptly after a halt (review 9, gap 4)', () 
       expect(r.fuelUsed).toBeLessThan(50)
     })
   }
+})
+
+describe('a THROWN value crosses as a capped string (cumulative review 10, B2)', () => {
+  const throwing = (thrown: () => unknown) =>
+    defineAtom('boom', s.object({}), s.any, async () => {
+      throw thrown()
+    })
+  const CATCH = `function f() {
+    try { boom({}) } catch (e) { return { e } }
+    return { done: true }
+  }`
+  const runWith = (boom: any) =>
+    new AgentVM({ boom }).run(
+      transpile(CATCH, { atoms: { boom } } as any).ast,
+      {},
+      { fuel: 1000 }
+    )
+
+  it("the review's case: { message: objWithGetter } — no host mutation, getter never runs", async () => {
+    const shared = { list: [1, 2, 3] }
+    let ran = 0
+    const obj = Object.defineProperty({ list: shared.list }, 'x', {
+      get: () => {
+        ran++
+        return 'ran host getter'
+      },
+      enumerable: true,
+    })
+    const r = await runWith(throwing(() => ({ message: obj })))
+    expect(r.error).toBeUndefined()
+    expect(typeof (r.result as any).e).toBe('string')
+    expect(shared.list).toEqual([1, 2, 3])
+    expect(ran).toBe(0)
+  })
+
+  it('a huge string message is capped', async () => {
+    const r = await runWith(throwing(() => new Error('y'.repeat(1_000_000))))
+    expect(((r.result as any).e as string).length).toBeLessThan(10_000)
+  })
+
+  it('an Error whose message is not a string reaches the guest as a string', async () => {
+    const r = await runWith(
+      throwing(() =>
+        Object.assign(new Error('x'), { message: { nested: [1] } })
+      )
+    )
+    expect(typeof (r.result as any).e).toBe('string')
+  })
 })
