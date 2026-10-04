@@ -836,3 +836,136 @@ describe('round 40: heap-bounded egress, key order, conversion advice (review 14
       expect((membraneValue({ v }, 1e6) as any).reason).toMatch(why)
   })
 })
+
+describe('the copy is built with null prototypes: no inherited setter runs (review 15, M1)', () => {
+  it('an accessor on Object.prototype is never called, and the key survives (both directions)', () => {
+    let calls = 0
+    Object.defineProperty(Object.prototype, 'hook', {
+      configurable: true,
+      get() {
+        return undefined
+      },
+      set() {
+        calls++
+      },
+    })
+    try {
+      const input = { hook: { secret: 1 }, a: 1 }
+      const r = membraneValue(input, 1e6) as any
+      expect(r.ok).toBe(true)
+      expect(Object.keys(r.value)).toEqual(['hook', 'a'])
+      expect(Object.getOwnPropertyDescriptor(r.value, 'hook')?.value).toEqual({
+        secret: 1,
+      })
+      const ctx: any = {
+        fuel: { current: 1e6 },
+        heapAccount: { bytes: 0, transient: 0 },
+        heapRoots: new Set(),
+      }
+      const out = egressValue(ctx, 'op', input)
+      expect(Object.getOwnPropertyDescriptor(out, 'hook')?.value).toEqual({
+        secret: 1,
+      })
+      expect(calls).toBe(0)
+    } finally {
+      delete (Object.prototype as any).hook
+    }
+  })
+
+  it('an index accessor on Array.prototype is never called', () => {
+    let calls = 0
+    Object.defineProperty(Array.prototype, '1', {
+      configurable: true,
+      get() {
+        return undefined
+      },
+      set() {
+        calls++
+      },
+    })
+    try {
+      const r = membraneValue([1, 2, 3], 1e6) as any
+      expect(r.ok).toBe(true)
+      expect(Object.getOwnPropertyDescriptor(r.value, '1')?.value).toBe(2)
+      expect(Object.getPrototypeOf(r.value)).toBe(Array.prototype)
+      expect(calls).toBe(0)
+    } finally {
+      delete (Array.prototype as any)['1']
+    }
+  })
+
+  it('under FROZEN intrinsics, ordinary JSON such as { toString: "x" } crosses (subprocess)', () => {
+    const script = `
+      const { membraneValue } = await import(${JSON.stringify(
+        import.meta.dir + '/runtime.ts'
+      )})
+      Object.freeze(Object.prototype); Object.freeze(Array.prototype)
+      const r = membraneValue({ toString: 'x', valueOf: 1, list: [1, 2], nested: { constructor: 'c' } }, 1e6)
+      console.log(JSON.stringify({ ok: r.ok, value: r.value }))
+    `
+    const out = Bun.spawnSync(['bun', '-e', script]).stdout.toString().trim()
+    expect(JSON.parse(out)).toEqual({
+      ok: true,
+      value: {
+        toString: 'x',
+        valueOf: 1,
+        list: [1, 2],
+        nested: { constructor: 'c' },
+      },
+    })
+  })
+})
+
+describe('one crossing budget, against the LIVE heap, in both directions (review 15, m1 + m2)', () => {
+  it('a stale grow-only estimate does not refuse a crossing that fits (it reconciles first)', () => {
+    const ctx: any = {
+      fuel: { current: 1e9 },
+      maxHeapBytes: 1_000_000,
+      heapAccount: { bytes: 990_000, transient: 0 }, // stale: nothing is actually live
+      heapRoots: new Set(),
+    }
+    const out = egressValue(
+      ctx,
+      'op',
+      Array.from({ length: 20_000 }, (_, i) => i)
+    )
+    expect(out.length).toBe(20_000)
+  })
+
+  it('a live heap near the ceiling bounds the outbound copy, and the refusal says so', () => {
+    const held = Array.from({ length: 100_000 }, (_, i) => i) // ~800KB live
+    const ctx: any = {
+      fuel: { current: 1e9 },
+      maxHeapBytes: 1_000_000,
+      heapAccount: { bytes: 0, transient: 0 },
+      heapRoots: new Set([held]),
+    }
+    ctx.heapAccount.bytes = 900_000
+    let message = ''
+    try {
+      egressValue(
+        ctx,
+        'op',
+        Array.from({ length: 50_000 }, (_, i) => i)
+      )
+    } catch (e: any) {
+      message = e.message
+    }
+    expect(message).toMatch(/set by the heap ceiling/)
+  })
+
+  it('an INBOUND return larger than the heap ceiling is a catchable limit, named', async () => {
+    const big = Array.from({ length: 300_000 }, (_, i) => i) // ~2.4MB
+    const store = { get: async () => big, set: async () => {} }
+    const r = await run(
+      `function f() {
+        try { const x = storeGet({ key: 'k' }) } catch (e) { return { caught: e } }
+        return { caught: false }
+      }`,
+      {},
+      { fuel: 1e6, maxHeapBytes: 1_000_000, capabilities: { store } }
+    )
+    expect(r.error).toBeUndefined()
+    expect((r.result as any).caught).toMatch(/set by the heap ceiling/)
+  })
+})

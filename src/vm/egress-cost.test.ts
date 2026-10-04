@@ -135,7 +135,9 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
       { v: big(20_000) },
       opts(1e7, 1_200_000)
     )
-    expect(refused.error?.message).toMatch(/Heap limit/)
+    // Since round 41 the copy stops AT the live heap headroom (I1), so the refusal is the walk's,
+    // naming the limit that bound it, rather than `allocate`'s after a full copy.
+    expect(refused.error?.message).toMatch(/set by the heap ceiling/)
     // with little fuel to spare it keeps its own error and does not overdraw
     const tight = refused.fuelUsed + 5
     const r = await new AgentVM().run(
@@ -143,7 +145,7 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
       { v: big(20_000) },
       opts(tight, 1_200_000)
     )
-    expect(r.error?.message).toMatch(/Heap limit/)
+    expect(r.error?.message).toMatch(/set by the heap ceiling/)
     expect(r.fuelUsed).toBeLessThanOrEqual(tight)
     // billed ONCE: against the same copy accepted, refusing adds the reconcile walk (measured
     // +40), not the copy a second time (+74 when round 32 billed the walk again)

@@ -25,7 +25,11 @@ built. It is therefore built INSIDE a budget fixed beforehand: outbound, the sma
 `membraneMaxBytes`, what the remaining fuel can pay, and the heap ceiling less the transient
 bytes already held. It is charged (fuel and heap) when complete, and a copy that would exceed the
 budget is abandoned at that point. So the most a crossing can allocate before its charge is the
-budget the run could already pay and hold.
+budget the run could already pay and hold. One function sets that budget for both directions
+(`crossingBudget`: the cap, payable fuel outbound, and the LIVE heap headroom, reconciled when the
+grow-only estimate would bind). *Run arguments* are the other exception: they are admitted before
+the run exists, so they are capped by `argsMaxBytes` and by the run's fuel, not by the heap
+ceiling, which applies when they are bound.
 
 **I2. Every byte that outlives the step that allocated it is charged where it becomes
 reachable.** That covers a bind, an in-place insertion (`push`, `fill`, a Set's `add`), a

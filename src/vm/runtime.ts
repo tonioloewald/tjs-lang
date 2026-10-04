@@ -696,7 +696,14 @@ export function membraneValue(
   // preserved them; a repeat costs one slot.
   let bytes = 0
   const copies = new WeakMap<object, unknown>()
-  const root: { value?: unknown } = {}
+  const root: { value?: unknown } = Object.create(null)
+  // Every copy is BUILT with a null prototype, where assignment can only create an own data
+  // property: there is no prototype to consult, so no inherited setter runs and no read-only
+  // inherited property refuses the write. Each gets its real prototype when the walk completes.
+  // (Round 40 assigned onto `{}`/`[]` copies, so a polluted Object.prototype setter ran on capability
+  // data and dropped the key, and frozen intrinsics refused `{ toString: 'x' }`: cumulative review
+  // 15.)
+  const prototypes: Array<[object, object]> = []
   const stack: Slot[] = [{ v: value, depth: 0, parent: root, key: 'value' }]
   // where a value's copy goes: its parent copy, under its key (no closure per value: review 14)
   const put = (slot: Slot, c: unknown) => putSlot(slot.parent, slot.key, c)
@@ -704,33 +711,23 @@ export function membraneValue(
     while (stack.length) {
       const slot = stack.pop()!
       const { v, depth } = slot
-      if (v === null || v === undefined) {
-        bytes += 8
+      // a primitive: the one cost table (`inlineCost`), shared with the inline writes
+      const cost = inlineCost(v)
+      if (cost >= 0) {
+        bytes += cost
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
         put(slot, v)
         continue
       }
       const vt = typeof v
-      if (vt === 'function' || vt === 'symbol' || vt === 'bigint') {
+      if (vt !== 'object') {
+        // function, symbol, bigint: JSON cannot express them
         return {
           ok: false,
           kind: 'shape',
           walked: bytes,
           reason: `capability return contains a ${vt}, which cannot cross into guest state`,
         }
-      }
-      if (vt === 'string') {
-        bytes += (v as string).length * 2 + 8
-        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        put(slot, v)
-        continue
-      }
-      if (vt !== 'object') {
-        // number / boolean
-        bytes += 8
-        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        put(slot, v)
-        continue
       }
       if (depth > MEMBRANE_MAX_DEPTH) {
         return {
@@ -751,7 +748,15 @@ export function membraneValue(
       bytes += 16
       if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       if (Array.isArray(v)) {
-        const own = readArrayData(v, bytes, maxBytes, stack, depth, copies)
+        const own = readArrayData(
+          v,
+          bytes,
+          maxBytes,
+          stack,
+          depth,
+          copies,
+          prototypes
+        )
         if (!own.ok) return own
         bytes = own.bytes
         put(slot, own.copy)
@@ -776,7 +781,7 @@ export function membraneValue(
           }
         bytes += 32
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        const copy = new globalThis.Date(time)
+        const copy = new MembraneDate(time)
         copies.set(v, copy)
         put(slot, copy)
         continue
@@ -804,8 +809,8 @@ export function membraneValue(
       if (!own.ok) return own
       bytes += own.bytes
       if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      const copy: Record<string, unknown> =
-        proto === null ? Object.create(null) : {}
+      const copy: Record<string, unknown> = Object.create(null)
+      if (proto !== null) prototypes.push([copy, Object.prototype])
       copies.set(v, copy)
       // Primitives are charged and written now, in source order; an object-valued key gets a
       // placeholder now (keeping its position) and its copy when it pops. Queued children are
@@ -837,6 +842,7 @@ export function membraneValue(
     }
   }
   admit?.(bytes)
+  for (const [copy, proto] of prototypes) Object.setPrototypeOf(copy, proto)
   return { ok: true, value: root.value, bytes }
 }
 
@@ -857,14 +863,16 @@ function inlineCost(x: unknown): number {
 type Slot = { v: any; depth: number; parent: object; key: string | number }
 
 /**
- * Writes a copy into its slot. The target is always a fresh object or array the membrane built,
- * so an ordinary assignment is safe except for the key `__proto__` on an `Object.prototype` copy,
- * where it would run the prototype setter: that one is DEFINED, so it stays data.
+ * Writes a copy into its slot. The target is always a fresh NULL-PROTOTYPE object or array the
+ * membrane built (its real prototype is set when the walk completes), so an assignment can only
+ * create an own data property: no setter, no read-only check, and `__proto__` is just a key.
  */
 function putSlot(parent: object, key: string | number, c: unknown): void {
-  if (key === '__proto__') defineData(parent, key, c)
-  else (parent as any)[key] = c
+  ;(parent as any)[key] = c
 }
+
+/** The intrinsic Date, captured at load: a host replacing `globalThis.Date` cannot change it. */
+const MembraneDate = globalThis.Date
 
 /** Built-ins JSON cannot express, with how to convert them (the refusal says so). */
 const BUILTIN_ADVICE = new Map<unknown, [string, string]>([
@@ -873,10 +881,6 @@ const BUILTIN_ADVICE = new Map<unknown, [string, string]>([
   [
     ArrayBuffer.prototype,
     ['ArrayBuffer', 'use an array of numbers, or base64 text'],
-  ],
-  [
-    SharedArrayBuffer.prototype,
-    ['SharedArrayBuffer', 'use an array of numbers'],
   ],
   [DataView.prototype, ['DataView', 'use an array of numbers']],
   [RegExp.prototype, ['RegExp', 'pass its source text and flags as strings']],
@@ -900,17 +904,18 @@ const BUILTIN_ADVICE = new Map<unknown, [string, string]>([
         [string, string]
       ]
   ),
+  // OPTIONAL in browsers: undefined unless the page is cross-origin isolated (COOP/COEP). Read at
+  // module scope unguarded, it made the VM fail to LOAD in an ordinary page (cumulative review
+  // 15). `module-globals.test.ts` loads the source and the bundles with it deleted.
+  ...(typeof SharedArrayBuffer === 'undefined'
+    ? []
+    : [
+        [
+          SharedArrayBuffer.prototype,
+          ['SharedArrayBuffer', 'use an array of numbers'],
+        ] as [unknown, [string, string]],
+      ]),
 ])
-
-/** An own data property on a copy the membrane built: `defineProperty`, so `__proto__` is data. */
-function defineData(target: object, key: string, value: unknown): void {
-  Object.defineProperty(target, key, {
-    value,
-    writable: true,
-    enumerable: true,
-    configurable: true,
-  })
-}
 
 /** A Date's time by BRAND (the intrinsic getter on the internal slot), else undefined. */
 function dateTime(v: object): number | undefined {
@@ -963,7 +968,8 @@ function readArrayData(
   maxBytes: number,
   stack: Slot[],
   depth: number,
-  copies: WeakMap<object, unknown>
+  copies: WeakMap<object, unknown>,
+  prototypes: Array<[object, object]>
 ):
   | { ok: true; bytes: number; copy: unknown[] }
   | { ok: false; reason: string; walked: number; kind: 'limit' | 'shape' } {
@@ -973,7 +979,10 @@ function readArrayData(
   /** Own index properties actually found; `len - this` is the number of HOLES. */
   let indexCount = 0
   const len = v.length
-  const copy: unknown[] = new Array(len)
+  // built with a null prototype (see `membraneValue`): its index writes cannot reach an inherited
+  // setter on Array.prototype
+  const copy: unknown[] = Object.setPrototypeOf(new Array(len), null)
+  prototypes.push([copy, Array.prototype])
   copies.set(v, copy)
   const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4)
   const scanned = Math.min(len, probeCap)
@@ -4865,15 +4874,7 @@ export function egressValue(
   const payable = ctx.fuel
     ? Math.max(0, ctx.fuel.current) / FUEL_PER_ALLOCATED_BYTE
     : Infinity
-  // ...and by the heap ceiling, so the copy is never BUILT larger than the heap gate (`allocate`,
-  // in `admit`) would let it be: the membrane builds its copy as it walks, so the gate after the
-  // walk alone left I1 (nothing allocates before it is charged) broken for this door
-  // (cumulative review 14). What remains is bounded: the copy is built inside a budget the run
-  // can pay and hold, and charged when complete.
-  const headroom = ctx.heapAccount
-    ? (ctx.maxHeapBytes ?? MAX_HEAP_BYTES) - ctx.heapAccount.transient
-    : Infinity
-  const budget = Math.min(cap, payable, Math.max(0, headroom))
+  const { budget, boundBy } = crossingBudget(ctx, cap, op, payable)
   // A refused crossing is billed the WORK IT DID, reported on every exit of the walk (`walked` is
   // a required field of a refusal, so a path that does not report cannot compile), less what
   // the crossing has already spent (`allocate` charges the copy, and a reconcile it triggers, even
@@ -4914,7 +4915,7 @@ export function egressValue(
   }
   if (!crossed.ok) {
     walked = crossed.walked
-    return bill(new AgentError(`'${op}': ${crossed.reason}`, op))
+    return bill(new AgentError(`'${op}': ${boundReason(crossed, boundBy)}`, op))
   }
   return crossed.value
 }
@@ -4944,17 +4945,22 @@ function ingressValue(
   result: unknown,
   outputSchema: unknown
 ): unknown {
-  const crossed = membraneValue(
-    result,
-    ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
+  const { budget, boundBy } = crossingBudget(
+    ctx,
+    ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES,
+    op
   )
+  const crossed = membraneValue(result, budget)
   const exhausted = chargeWalkFuel(
     ctx,
     crossed.ok ? crossed.bytes ?? 0 : crossed.walked
   )
   if (!crossed.ok) {
     const error = new AgentError(
-      `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
+      `Capability boundary rejected the return of '${op}': ${boundReason(
+        crossed,
+        boundBy
+      )}`,
       op
     )
     // The host's contract broken ends the run with ITS reason, however much fuel was left: a
@@ -5039,6 +5045,55 @@ function capThrown(m: string): string {
   return m.length > MAX_THROWN_MESSAGE
     ? m.slice(0, MAX_THROWN_MESSAGE) + '…'
     : m
+}
+
+/**
+ * The budget a crossing's copy is BUILT within: the smallest of the cap, what the remaining fuel
+ * can pay (outbound), and the heap headroom. The membrane builds its copy as it walks, so a gate
+ * after the walk alone would let it build past the heap ceiling first (I1; cumulative reviews 14
+ * and 15). One function for every crossing: round 40 bounded egress only, and counted transient
+ * bytes but not the LIVE heap.
+ *
+ * The live heap is the estimate (`heapAccount.bytes`, which only grows), unless that would make
+ * the headroom bind: then it is reconciled first (charged), so a stale over-estimate cannot refuse
+ * a crossing that fits.
+ */
+function crossingBudget(
+  ctx: RuntimeContext,
+  cap: number,
+  op: string,
+  payable = Infinity
+): { budget: number; boundBy: string } {
+  let budget = cap
+  let boundBy = 'membraneMaxBytes'
+  if (payable < budget) {
+    budget = payable
+    boundBy = 'the remaining fuel'
+  }
+  const account = ctx.heapAccount
+  if (!account) return { budget, boundBy }
+  const max = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  if (max - account.bytes - account.transient < budget && ctx.heapRoots) {
+    const live = reconcileHeap(ctx, [], op)
+    if (live === undefined) throw new AgentError('Out of Fuel', op)
+    account.bytes = live
+  }
+  const headroom = Math.max(0, max - account.bytes - account.transient)
+  if (headroom < budget) {
+    budget = headroom
+    boundBy = 'the heap ceiling (maxHeapBytes)'
+  }
+  return { budget, boundBy }
+}
+
+/** A size refusal names the limit that bound it (round 40 always said "membrane budget"). */
+function boundReason(
+  crossed: { kind: 'limit' | 'shape'; reason: string },
+  boundBy: string
+): string {
+  return crossed.kind === 'limit' && boundBy !== 'membraneMaxBytes'
+    ? `${crossed.reason}, set by ${boundBy}`
+    : crossed.reason
 }
 
 /** Ends the run with `error` (the first halt wins) and returns it to be thrown. */

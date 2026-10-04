@@ -34,11 +34,13 @@ const ALLOWED: Record<string, string> = {
   'admission.ts › admitRunOptions › out[name]':
     '`name` iterates RUN_OPTION_KINDS (host), and `out` is null-prototype',
   'runtime.ts › readArrayData › copy[i]':
-    "the membrane's own array copy, at a numeric index from the scan loop (a number cannot name __proto__)",
+    "the membrane's own array copy, built with a NULL prototype until the walk completes, at a numeric index from the scan loop",
+  'runtime.ts › membraneValue › Object.setPrototypeOf':
+    "gives each copy the membrane built its REAL prototype (Object.prototype/Array.prototype) once the walk completes; the target is the VM's own fresh object, the prototype a VM constant",
+  'runtime.ts › readArrayData › Object.setPrototypeOf':
+    "builds the membrane's own array copy with a NULL prototype (a VM constant), so its writes cannot reach an inherited setter",
   'runtime.ts › putSlot › (parent as any)[key]':
-    "the membrane's own copy: the target is a fresh object or array it built, and the key __proto__ is routed to defineData first, so no prototype setter runs",
-  'runtime.ts › defineData › Object.defineProperty':
-    "the membrane's own copy: an own DATA property defined (not assigned), so a key named __proto__ is an ordinary property and never reaches a prototype setter",
+    "the membrane's own copy, built with a NULL prototype until the walk completes: an assignment there can only create an own data property (no prototype, so no setter and no __proto__ accessor)",
   'runtime.ts › createChildScope › Object.defineProperty':
     "the literal key 'error' on a VM context",
   'runtime.ts › sigTable › out[name]':

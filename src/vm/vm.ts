@@ -404,6 +404,9 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // everything else.
     const argsCap = admitted.argsMaxBytes ?? DEFAULT_ARGS_MAX_BYTES
     const fuelBytes = startFuel * ARG_BYTES_PER_FUEL
+    // NOT bounded by the heap ceiling, deliberately: the arguments are admitted before the run
+    // exists, capped by `argsMaxBytes` and by the fuel, and the ceiling applies when they are bound
+    // (cumulative review 15, m2: documented in vm-budgets.md as I1's argument exception).
     const argsBudget = Math.min(argsCap, fuelBytes)
     const crossed = membraneValueFrom('run argument', args, argsBudget)
     if (!crossed.ok) {
