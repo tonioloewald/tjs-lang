@@ -769,7 +769,7 @@ export function membraneValue(
       const time = dateTime(v)
       if (time !== undefined) {
         if (
-          Object.getPrototypeOf(v) !== Date.prototype ||
+          Object.getPrototypeOf(v) !== DATE_PROTOTYPE ||
           Reflect.ownKeys(v).length > 0
         )
           return {
@@ -809,8 +809,13 @@ export function membraneValue(
       if (!own.ok) return own
       bytes += own.bytes
       if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      const copy: Record<string, unknown> = Object.create(null)
-      if (proto !== null) prototypes.push([copy, Object.prototype])
+      // An object copy is built on its REAL prototype and written with `defineProperty` (an own
+      // data property: no inherited setter runs, a read-only inherited property does not
+      // refuse it). Building it on a null prototype and switching later left V8 copies in
+      // dictionary mode, slow for every host that reads them (cumulative review 17, M2). Arrays
+      // keep the null-prototype build: their elements are written by index.
+      const copy: Record<string, unknown> =
+        proto === null ? Object.create(null) : {}
       copies.set(v, copy)
       // Primitives are charged and written now, in source order; an object-valued key gets a
       // placeholder now (keeping its position) and its copy when it pops. Queued children are
@@ -863,16 +868,31 @@ function inlineCost(x: unknown): number {
 type Slot = { v: any; depth: number; parent: object; key: string | number }
 
 /**
- * Writes a copy into its slot. The target is always a fresh NULL-PROTOTYPE object or array the
- * membrane built (its real prototype is set when the walk completes), so an assignment can only
- * create an own data property: no setter, no read-only check, and `__proto__` is just a key.
+ * Writes a copy into its slot, as an own DATA property, never through `[[Set]]`. An array copy is
+ * built with a null prototype until the walk completes, so assigning an index there is safe; an
+ * object copy has its real prototype, so its keys are DEFINED (no inherited setter runs, a
+ * read-only inherited property does not refuse it, and `__proto__` is just a key).
  */
 function putSlot(parent: object, key: string | number, c: unknown): void {
-  ;(parent as any)[key] = c
+  if (Array.isArray(parent)) (parent as any)[key] = c
+  else
+    Object.defineProperty(parent, key, {
+      value: c,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    })
 }
 
-/** The intrinsic Date, captured at load: a host replacing `globalThis.Date` cannot change it. */
+/**
+ * The intrinsic Date, its prototype and its `getTime`, captured at load and used ONLY: a host
+ * replacing `globalThis.Date` (or `Date.prototype.getTime`) cannot change what the membrane
+ * recognises or builds. Round 41 captured the constructor but read the live prototype, so a
+ * swapped global refused real Dates and let a fake through (cumulative review 17, M1).
+ */
 const MembraneDate = globalThis.Date
+const DATE_PROTOTYPE = MembraneDate.prototype
+const DATE_GET_TIME = MembraneDate.prototype.getTime
 
 /** Built-ins JSON cannot express, with how to convert them (the refusal says so). */
 const BUILTIN_ADVICE = new Map<unknown, [string, string]>([
@@ -920,7 +940,7 @@ const BUILTIN_ADVICE = new Map<unknown, [string, string]>([
 /** A Date's time by BRAND (the intrinsic getter on the internal slot), else undefined. */
 function dateTime(v: object): number | undefined {
   try {
-    return Date.prototype.getTime.call(v)
+    return DATE_GET_TIME.call(v)
   } catch {
     return undefined
   }
@@ -978,10 +998,30 @@ function readArrayData(
   let pushed = 0
   /** Own index properties actually found; `len - this` is the number of HOLES. */
   let indexCount = 0
-  const len = v.length
+  // `length` from its own data DESCRIPTOR, validated: an ordinary read runs a Proxy `get` trap,
+  // and `new Array(x)` with a non-number x makes `[x]`, so a lying `length` put an unwalked live
+  // host object into the copy (cumulative review 17, B1). No host-derived value reaches a
+  // constructor.
+  const lengthDesc = Object.getOwnPropertyDescriptor(v, 'length')
+  const len: unknown =
+    lengthDesc && 'value' in lengthDesc ? lengthDesc.value : undefined
+  if (
+    typeof len !== 'number' ||
+    !Number.isInteger(len) ||
+    len < 0 ||
+    len > 4294967295
+  )
+    return {
+      ok: false,
+      kind: 'shape',
+      walked: startBytes,
+      reason:
+        'capability return has an array whose length is not a valid array length',
+    }
   // built with a null prototype (see `membraneValue`): its index writes cannot reach an inherited
   // setter on Array.prototype
-  const copy: unknown[] = Object.setPrototypeOf(new Array(len), null)
+  const copy: unknown[] = Object.setPrototypeOf([], null)
+  copy.length = len
   prototypes.push([copy, Array.prototype])
   copies.set(v, copy)
   const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4)
@@ -4854,11 +4894,13 @@ const STEP_CONTROL_KEYS = new Set([
  * and mutated by a guest that caught a timeout, raw URLs).
  *
  * The copy is work proportional to guest data, so it is a DOOR in the `docs/vm-budgets.md` sense
- * and is paid for like one: the walk is budgeted by what the run's remaining fuel can pay (and by
- * `membraneMaxBytes`, and the heap ceiling), and the copy, which the walk builds as it reads, is
- * charged through `allocate()`, as fuel and transient heap, when complete. A walk that stops at its budget is charged for what it read; when
- * fuel was the binding limit that is `Out of Fuel`, as it is for run arguments. Round 30 copied
- * first and charged nothing, so a refused call cost no fuel at all (cumulative review 5, B-1).
+ * and is paid for like one. The walk is budgeted by `membraneMaxBytes` and by what the run's
+ * remaining fuel can pay (`crossingBudget`; not the heap ceiling, which applies at `allocate` when
+ * the copy is charged: I1's documented exception). The copy, which the walk builds as it reads, is
+ * charged through `allocate()` as fuel and transient heap when complete. A walk that stops at its
+ * budget is charged for what it read, and when the fuel was the binding limit that is
+ * `Out of Fuel`, as for run arguments. Round 30 copied first and charged nothing, so a refused
+ * call cost no fuel at all (cumulative review 5, B-1).
  *
  * Every IO atom reaches a capability through this function: the VM-resolved ones via
  * `egressInput`, the rest by calling it themselves. `egress-doors.test.ts` parses the atom

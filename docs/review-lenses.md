@@ -216,6 +216,18 @@ with deduplicated keys that let one allowance cover any future read in the same 
 earns trust only if (a) a planted instance of every shape it is meant to catch fails it, (b) an
 allowance with nothing behind it fails it, and (c) an allowance covers a COUNT, not a name.
 
+**A module must load in every host it ships to.** Round 40 read `SharedArrayBuffer.prototype` at
+module scope; browsers leave it undefined unless the page is cross-origin isolated, so the VM
+threw on import in an ordinary page, and no lane noticed because Bun and Node always define it.
+Every package that ships to browsers needs a load test with the optional globals deleted
+(`src/module-globals.test.ts`). This lesson belongs in the shared practices too (tosijs-ui ships
+to browsers on the same toolchain).
+
+**A walk that copies must read only through descriptors, and nothing it reads may reach a
+constructor unchecked.** Review 17 found `v.length`, an ordinary read in a helper, handed to
+`new Array(...)`, which turns a non-number into `[x]`: a live host object in the copy. The guard
+now scans the walk's helpers too, casts included.
+
 **State the threat a rule answers before applying it somewhere new.** Round 37 reduced errors
 with "never run a getter", a rule written against TOCTOU in the capability-return walk. An error
 message is read once and kept, so that threat does not exist there, and the rule erased every

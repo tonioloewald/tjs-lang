@@ -975,3 +975,97 @@ describe('the crossing is bounded by membraneMaxBytes and fuel; the heap applies
     expect((many.fuelUsed - few.fuelUsed) / 180).toBeLessThan(20)
   })
 })
+
+describe('a lying Proxy length never puts an unwalked host value in the copy (review 17, B1)', () => {
+  // `new Array(v.length)` with a length trap returning an object made `[hostObj]`, and the walk
+  // never saw it: a live host reference reached the guest, and the guest mutated a host array.
+  const hostObj = { secret: 'live' }
+  const hostArr: unknown[] = ['host']
+  const liar = (length: unknown) =>
+    new Proxy([] as unknown[], {
+      get: (t, k) => (k === 'length' ? length : Reflect.get(t, k)),
+      getOwnPropertyDescriptor: (t, k) =>
+        k === 'length'
+          ? {
+              value: length,
+              writable: true,
+              enumerable: false,
+              configurable: false,
+            }
+          : Reflect.getOwnPropertyDescriptor(t, k),
+      ownKeys: () => ['length'],
+    })
+  const lies: Array<[string, unknown]> = [
+    ['an object', hostObj],
+    ['an array', hostArr],
+    ['a function', () => 1],
+    ['a string', '5'],
+    ['NaN', NaN],
+    ['2^32', 2 ** 32],
+  ]
+  for (const [label, length] of lies) {
+    it(`a length that is ${label} is refused, never copied (capability return)`, async () => {
+      const store = {
+        get: async () => ({ list: liar(length) }),
+        set: async () => {},
+      }
+      const r = await run(
+        `function f() {
+          const x = storeGet({ key: 'k' })
+          return { h: x.list[0] }
+        }`,
+        {},
+        { fuel: 1000, capabilities: { store } }
+      )
+      expect(r.error?.message).toMatch(/Capability boundary rejected/)
+      expect((r.result as any)?.h).not.toBe(hostObj)
+      expect(hostArr).toEqual(['host'])
+    })
+    it(`a length that is ${label} is refused (run argument)`, async () => {
+      const r = await run(
+        `function f(list: [0]) { return { h: list[0] } }`,
+        { list: liar(length) },
+        { fuel: 1000 }
+      )
+      expect(r.error).toBeDefined()
+      expect((r.result as any)?.h).not.toBe(hostObj)
+    })
+  }
+
+  it('a descriptor of 0 with a get trap returning a host object: nothing leaks into the copy', () => {
+    const p = new Proxy([] as unknown[], {
+      get: (t, k) => (k === 'length' ? hostObj : Reflect.get(t, k)),
+    })
+    const r = membraneValue({ list: p }, 1e6) as any
+    expect(r.ok).toBe(true)
+    expect(r.value.list).toEqual([])
+    expect(r.value.list.length).toBe(0)
+  })
+
+  it('a descriptor that disagrees with get: only what the descriptor says is copied', () => {
+    const p = new Proxy([1, 2], {
+      get: (t, k) => (k === 'length' ? hostObj : Reflect.get(t, k)),
+    })
+    const r = membraneValue(p, 1e6) as any
+    expect(r.ok).toBe(true)
+    expect(r.value).toEqual([1, 2])
+  })
+})
+
+describe('the Date intrinsics are captured at load (review 17, M1)', () => {
+  it('replacing globalThis.Date changes nothing the membrane recognises or builds', () => {
+    const RealDate = globalThis.Date
+    const real = new RealDate(42)
+    class Fake extends RealDate {}
+    ;(globalThis as any).Date = Fake
+    try {
+      const ok = membraneValue({ d: real }, 1e6) as any
+      expect(ok.ok).toBe(true)
+      expect(Object.getPrototypeOf(ok.value.d)).toBe(RealDate.prototype)
+      const fake = membraneValue({ d: new Fake(1) }, 1e6) as any
+      expect(fake.ok).toBe(false)
+    } finally {
+      ;(globalThis as any).Date = RealDate
+    }
+  })
+})

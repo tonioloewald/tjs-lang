@@ -32,14 +32,47 @@ describe('membrane invariant — no direct reads of host values', () => {
     readFileSync(join(import.meta.dir, 'runtime.ts'), 'utf-8')
   )
 
-  /** The body of `membraneValue`, where the pre-walk lives. */
-  const membraneBody = (() => {
-    const start = source.indexOf('function membraneValue')
-    expect(start, 'membraneValue must exist').toBeGreaterThan(-1)
-    // Up to the next top-level `function ` declaration.
+  /**
+   * The body of `membraneValue` AND the helpers the walk runs: the walked value is read in all of
+   * them. (This used to scan `membraneValue` only, so `readArrayData`'s `v.length`, an ordinary
+   * read whose result reached the Array constructor, went unseen: cumulative review 17.)
+   */
+  const bodyOf = (name: string) => {
+    const start = source.indexOf(`function ${name}(`)
+    expect(start, `${name} must exist`).toBeGreaterThan(-1)
     const next = source.indexOf('\nfunction ', start + 1)
     return source.slice(start, next === -1 ? source.length : next)
-  })()
+  }
+  const membraneBody = bodyOf('membraneValue')
+  const walkBodies = [
+    'membraneValue',
+    'readArrayData',
+    'readOwnData',
+    'dateTime',
+  ]
+    .map(bodyOf)
+    .join('\n')
+
+  /** Ordinary reads of the walked value `v`: `v.x`, `v?.x`, `v[k]`, and the same through a cast. */
+  const ordinaryReads = (text: string) =>
+    text.match(
+      /(\bv|\(v as [^)]*\))(\?\.|\.)[A-Za-z_$][\w$]*|(\bv|\(v as [^)]*\))\[[^\]]+\]/g
+    ) ?? []
+
+  it('the scan catches every shape of ordinary read (apparatus)', () => {
+    expect(
+      ordinaryReads(
+        'const a = v.length; const b = v?.x; const c = v[k]; f(v); g((v as any).length); h((v as T)[i])'
+      )
+    ).toEqual(['v.length', 'v?.x', 'v[k]', '(v as any).length', '(v as T)[i]'])
+  })
+
+  it('never reads the walked value by ordinary access, in the walk or its helpers', () => {
+    expect(
+      ordinaryReads(walkBodies),
+      'read through Object.getOwnPropertyDescriptor and the intrinsics: an ordinary read runs a getter or a Proxy trap, and its result was not walked'
+    ).toEqual([])
+  })
 
   it('never indexes the walked value directly', () => {
     // `v[k]`, `v[i]`, `v[key]` — any computed read of the value under inspection.
@@ -68,7 +101,7 @@ describe('membrane invariant — no direct reads of host values', () => {
     expect(membraneBody).toMatch(/readOwnData\(/)
     expect(membraneBody).toMatch(/readArrayData\(/)
     expect(source).toMatch(/Object\.getOwnPropertyDescriptor/)
-    expect(source).toMatch(/Date\.prototype\.getTime\.call/)
+    expect(source).toMatch(/DATE_GET_TIME\.call/)
   })
 
   it('builds its own copy: no structuredClone (round 39)', () => {

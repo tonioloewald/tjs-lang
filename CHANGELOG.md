@@ -299,7 +299,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > applies where the value lands. A refusal for size names the limit that set it. Fixed in the
 > same rounds: rc.2 builds briefly read `SharedArrayBuffer` at module scope, which threw on
 > import in any browser page that is not cross-origin isolated (every bundle is now load-tested
-> without optional globals).
+> without optional globals). An array's `length` is read from its own descriptor and validated:
+> a Proxy whose `length` trap returned an object could put an unwalked host object into the copy
+> (cumulative review 17). Object copies are built on their real prototype with each key defined,
+> so they stay in V8's fast mode.
 >
 > **Persisted ASTs:** a stored AST (`procedureStore`, a saved builder program) containing a
 > key-less `memoize` or `cache` now fails when it runs, with "a key is required". Add a key.
