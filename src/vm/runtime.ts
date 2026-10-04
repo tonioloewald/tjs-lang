@@ -5188,6 +5188,22 @@ function boundReason(
     : crossed.reason
 }
 
+/**
+ * Whether `p` has settled within one microtask: true for the promise of an async function whose
+ * body ran to completion synchronously. Handles a rejection, so a rejected `p` is no unhandled
+ * rejection here; the caller awaits `p` itself for its value or its error.
+ */
+const PENDING = Symbol('pending')
+const NOT_YET: Promise<typeof PENDING> = Promise.resolve(PENDING)
+function settledNow(p: Promise<unknown>): Promise<boolean> {
+  // `p` is subscribed FIRST: if it has already settled it wins the race; if it is pending, the
+  // pre-resolved sentinel does. (Racing a derived `p.then(...)` adds a tick and always loses.)
+  return Promise.race([p, NOT_YET]).then(
+    (v) => v !== PENDING,
+    () => true
+  )
+}
+
 /** Ends the run with `error` (the first halt wins) and returns it to be thrown. */
 function haltRun(ctx: RuntimeContext, error: AgentError): AgentError {
   if (ctx.halt && !ctx.halt.error) ctx.halt.error = error
@@ -5530,18 +5546,33 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         const atomCtx = atom.resolveInputs ? inputsResolvedContext(ctx) : ctx
         const execute = async () => fn(callInput as I, atomCtx)
 
-        result =
-          armedTimeout !== undefined
-            ? await Promise.race([
-                execute(),
-                new Promise<never>((_, reject) => {
-                  timer = setTimeout(
-                    () => reject(new Error(`Atom '${op}' timed out`)),
-                    armedTimeout
-                  )
-                }),
-              ]).finally(() => clearTimeout(timer))
-            : await execute()
+        if (armedTimeout === undefined) result = await execute()
+        else {
+          // The atom's OWN promise: wrapping it (`async () => fn()`) adds microtasks of adoption, and
+          // the call would never look settled.
+          let running: Promise<unknown>
+          try {
+            running = Promise.resolve(fn(callInput as I, atomCtx))
+          } catch (e) {
+            running = Promise.reject(e)
+          }
+          // A timer is armed only for a call that is still PENDING after one microtask. A call
+          // whose body completed synchronously (most pure atoms) has already settled, so a timer
+          // armed for it could never fire first: it was ~20–35% of a hot loop's wall time, one
+          // setTimeout and one Promise.race per step (cumulative reviews 9 and 13; #2849). A call
+          // that awaits real work is still pending here and is timed exactly as before.
+          if (await settledNow(running)) result = await running
+          else
+            result = await Promise.race([
+              running,
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                  () => reject(new Error(`Atom '${op}' timed out`)),
+                  armedTimeout
+                )
+              }),
+            ]).finally(() => clearTimeout(timer))
+        }
 
         // 4. Result - always set if step.result is specified (even for undefined values)
         if (step.result) {

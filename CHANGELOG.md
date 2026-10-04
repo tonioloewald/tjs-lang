@@ -307,6 +307,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > from another realm (an iframe, a `node:vm` context): pass plain data, e.g. through a JSON
 > round-trip.
 >
+> **Faster hot loops: a per-atom timer is armed only for a call still pending.** Every atom step
+> used to arm a `setTimeout` and a `Promise.race`, though a call whose body completes synchronously
+> can never be overtaken by its timer. A 20,000-iteration loop went from 54ms to 32ms, and from
+> 40,004 timers to 1 (the run's deadline), at the same fuel. An atom that awaits real work is timed
+> exactly as before.
+>
 > **Persisted ASTs:** a stored AST (`procedureStore`, a saved builder program) containing a
 > key-less `memoize` or `cache` now fails when it runs, with "a key is required". Add a key.
 >
