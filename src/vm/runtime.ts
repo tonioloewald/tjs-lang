@@ -853,9 +853,9 @@ type Slot = { v: any; depth: number; parent: object; key: string | number }
  * read-only inherited property does not refuse it, and `__proto__` is just a key).
  */
 function putSlot(parent: object, key: string | number, c: unknown): void {
-  if (Array.isArray(parent)) (parent as any)[key] = c
+  if (IS_ARRAY(parent)) (parent as any)[key] = c
   else
-    Object.defineProperty(parent, key, {
+    DEFINE_PROPERTY(parent, key, {
       value: c,
       writable: true,
       enumerable: true,
@@ -944,18 +944,32 @@ function admitKind(
   | { kind: 'plain'; proto: object | null }
   | { kind: 'refused'; reason: string } {
   const proto = Object.getPrototypeOf(v)
-  const time = dateTime(v)
-  if (time !== undefined)
-    return proto === DATE_PROTOTYPE && Reflect.ownKeys(v).length === 0
-      ? { kind: 'date', time }
-      : {
-          kind: 'refused',
-          reason:
-            'capability return contains a Date subclass or a Date with its own properties; only an exact Date crosses',
-        }
-  if (Array.isArray(v) && proto === ARRAY_PROTOTYPE) return { kind: 'array' }
-  if (proto === OBJECT_PROTOTYPE || proto === null)
-    return { kind: 'plain', proto }
+  // An ARRAY (by brand) is decided first, and is never admitted as plain: round 44 checked arrays
+  // only against `Array.prototype`, so a real array whose prototype was swapped to null or
+  // `Object.prototype` fell through to `plain`, lost its `length`, and a `length > 0` deny check
+  // failed open (cumulative review 19, F1). With an intrinsic or plain prototype it is copied as
+  // an array (nothing on such a prototype is lost); a subclass or another realm's array is refused.
+  // Deciding arrays first also spares them the throwing Date probe below (review 19, E1).
+  if (IS_ARRAY(v)) {
+    if (
+      proto === ARRAY_PROTOTYPE ||
+      proto === OBJECT_PROTOTYPE ||
+      proto === null
+    )
+      return { kind: 'array' }
+  } else {
+    const time = dateTime(v)
+    if (time !== undefined)
+      return proto === DATE_PROTOTYPE && Reflect.ownKeys(v).length === 0
+        ? { kind: 'date', time }
+        : {
+            kind: 'refused',
+            reason:
+              'capability return contains a Date subclass or a Date with its own properties; only an exact Date crosses',
+          }
+    if (proto === OBJECT_PROTOTYPE || proto === null)
+      return { kind: 'plain', proto }
+  }
   const builtin = BUILTIN_ADVICE.get(proto)
   if (builtin)
     return {
@@ -986,9 +1000,16 @@ function admitKind(
   }
 }
 
-/** The intrinsic prototypes the membrane admits, captured at load (as `Date`'s are). */
+/**
+ * The intrinsics the membrane decides and builds with, captured at load and used ONLY (as
+ * `Date`'s are), so a host replacing `globalThis.Array`, `Array.isArray` or
+ * `Object.defineProperty` cannot change what the membrane admits or how it writes a copy
+ * (cumulative review 19, S1: the policy was half applied).
+ */
 const ARRAY_PROTOTYPE = Array.prototype
 const OBJECT_PROTOTYPE = Object.prototype
+const IS_ARRAY = Array.isArray
+const DEFINE_PROPERTY = Object.defineProperty
 
 function overBudget(
   maxBytes: number,
@@ -1066,7 +1087,7 @@ function readArrayData(
   // setter on Array.prototype
   const copy: unknown[] = Object.setPrototypeOf([], null)
   copy.length = len
-  prototypes.push([copy, Array.prototype])
+  prototypes.push([copy, ARRAY_PROTOTYPE])
   copies.set(v, copy)
   const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4)
   const scanned = Math.min(len, probeCap)

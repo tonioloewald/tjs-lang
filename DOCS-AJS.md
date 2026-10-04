@@ -110,7 +110,10 @@ time, so a disguised one cannot lie). Anything else is **rejected** at the bound
 run: functions, `Map`, `Set`, typed arrays, `ArrayBuffer`, `RegExp`, `Error`, class instances. A
 `fetch` capability returning a live `Response` (with `.json()`/`.text()`) is rejected; return the
 fields the guest reads as a plain object (`{ ok, status, body }`), and convert a `Map` to an object
-or an array of pairs. Oversized returns are also rejected before the
+or an array of pairs. Objects and arrays must be plain values from the VM's own realm: an `Array` or
+`Date` subclass, and an array or object from another realm (an iframe, a `node:vm` context), are
+refused rather than thinned; a JSON round-trip (`JSON.parse(JSON.stringify(v))`) makes any of them
+plain. Oversized returns are also rejected before the
 copy allocates; the cap is the `membraneMaxBytes` run option (default 4 MB), which you may
 need to raise for large-JSON or base64 `dataUrl` payloads.
 

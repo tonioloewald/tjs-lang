@@ -1130,3 +1130,56 @@ describe('one admission step: an Array subclass is refused, never thinned (revie
     expect(r.reason).toMatch(/past its length/)
   })
 })
+
+describe('an array is never admitted as a plain object (review 19, F1)', () => {
+  // Round 44 admitted arrays only with Array.prototype, so a real array with its prototype
+  // swapped to null or Object.prototype fell through to "plain", lost `length`, and the review's
+  // deny check (`if (x.blocked.length > 0) allowed = false`) failed OPEN.
+  const DENY = `function f() {
+    const x = storeGet({ key: 'k' })
+    let allowed = true
+    if (x.blocked.length > 0) { allowed = false }
+    return { allowed, n: x.blocked.length }
+  }`
+  for (const [label, proto] of [
+    ['a null prototype', null],
+    ['Object.prototype', Object.prototype],
+  ] as const) {
+    it(`an array with ${label} crosses as an array (capability return): the deny check holds`, async () => {
+      const blocked = Object.setPrototypeOf(['mallory'], proto)
+      const store = { get: async () => ({ blocked }), set: async () => {} }
+      const r = await run(DENY, {}, { fuel: 1000, capabilities: { store } })
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ allowed: false, n: 1 })
+    })
+    it(`an array with ${label} crosses as an array (run argument)`, async () => {
+      const r = await run(
+        `function f(list: ['']) { return { n: list.length } }`,
+        { list: Object.setPrototypeOf(['a', 'b'], proto) },
+        { fuel: 1000 }
+      )
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ n: 2 })
+    })
+  }
+})
+
+describe('the membrane uses captured intrinsics only (review 19, S1)', () => {
+  it('replacing Array.isArray and Object.defineProperty changes nothing it admits or builds', () => {
+    const realIsArray = Array.isArray
+    const realDefine = Object.defineProperty
+    ;(Array as any).isArray = () => false
+    ;(Object as any).defineProperty = () => {
+      throw new Error('hijacked')
+    }
+    try {
+      const r = membraneValue({ a: [1, 2], b: { c: 3 } }, 1e6) as any
+      expect(r.ok).toBe(true)
+      expect(realIsArray(r.value.a)).toBe(true)
+      expect(r.value.b.c).toBe(3)
+    } finally {
+      ;(Array as any).isArray = realIsArray
+      ;(Object as any).defineProperty = realDefine
+    }
+  })
+})

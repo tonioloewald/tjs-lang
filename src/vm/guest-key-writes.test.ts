@@ -39,7 +39,7 @@ const ALLOWED: Record<string, string> = {
     "gives each ARRAY copy the membrane built its real prototype (Array.prototype) once the walk completes; the target is the VM's own fresh array, the prototype a VM constant (object copies are built on theirs)",
   'runtime.ts › readArrayData › Object.setPrototypeOf':
     "builds the membrane's own array copy with a NULL prototype (a VM constant), so its writes cannot reach an inherited setter",
-  'runtime.ts › putSlot › Object.defineProperty':
+  'runtime.ts › putSlot › DEFINE_PROPERTY':
     "the membrane's own OBJECT copy: an own data property DEFINED (not assigned), so no inherited setter runs and __proto__ is just a key",
   'runtime.ts › putSlot › (parent as any)[key]':
     "the membrane's own copy, built with a NULL prototype until the walk completes: an assignment there can only create an own data property (no prototype, so no setter and no __proto__ accessor)",
@@ -128,6 +128,20 @@ function computedWrites(file: string): string[] {
   const src = readFileSync(join(VM_DIR, file), 'utf8')
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true)
   const found: string[] = []
+  // First pass: an ALIAS of a setting call is one too (`const DEFINE_PROPERTY =
+  // Object.defineProperty`; runtime.ts captures intrinsics at load, cumulative review 19 S1). A
+  // separate pass, because an alias may be declared after the function that calls it.
+  const collectAliases = (node: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      SETTING_CALLS.has(node.initializer.getText(sf))
+    )
+      SETTING_CALLS.add(node.name.text)
+    ts.forEachChild(node, collectAliases)
+  }
+  collectAliases(sf)
   const visit = (node: ts.Node) => {
     if (
       ts.isBinaryExpression(node) &&
