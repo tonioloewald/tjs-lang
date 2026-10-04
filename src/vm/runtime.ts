@@ -5551,7 +5551,8 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // ONE call site, for timed and untimed atoms alike (review 20: there were two). The atom's
         // OWN promise: wrapping it (`async () => fn()`) adds microtasks of adoption, and the call
         // would never look settled. A synchronous throw becomes a rejection.
-        const startedAt = Date.now()
+        // MONOTONIC: a wall-clock step (NTP) between the call and arming must not time it out
+        const startedAt = performance.now()
         let running: Promise<unknown>
         try {
           running = Promise.resolve(fn(callInput as I, atomCtx))
@@ -5574,7 +5575,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
               new Promise<never>((_, reject) => {
                 timer = setTimeout(
                   () => reject(new Error(`Atom '${op}' timed out`)),
-                  Math.max(0, armedTimeout - (Date.now() - startedAt))
+                  Math.max(0, armedTimeout - (performance.now() - startedAt))
                 )
               }),
             ]).finally(() => clearTimeout(timer))

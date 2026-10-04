@@ -92,6 +92,35 @@ describe('per-atom timers are armed only for pending calls', () => {
     expect(r.error?.message).toMatch(/Atom 'late' timed out/)
   })
 
+  it('the deadline uses a MONOTONIC clock: a wall-clock jump does not time an atom out (review of round 47)', async () => {
+    const wait = defineAtom(
+      'wait',
+      s.object({}),
+      s.any,
+      () => new Promise((resolve) => setTimeout(() => resolve(1), 20)),
+      { timeoutMs: 1000 }
+    )
+    const realNow = Date.now
+    let jump = 0
+    // every read of the wall clock is 100 seconds later than the last (an NTP step, repeatedly)
+    Date.now = () => realNow() + (jump += 100_000)
+    try {
+      const r = await new AgentVM({ wait }).run(
+        transpile(
+          `function f() { const x = wait({})
+          return { x } }`,
+          { atoms: { wait } } as any
+        ).ast,
+        {},
+        { fuel: 1000, timeoutMs: 5000 }
+      )
+      expect(r.error).toBeUndefined()
+      expect(r.result).toEqual({ x: 1 })
+    } finally {
+      Date.now = realNow
+    }
+  })
+
   it('a synchronous atom that throws, or returns a rejected promise, still fails its step', async () => {
     const throws = defineAtom('throws', s.object({}), s.any, (() => {
       throw new Error('sync boom')
