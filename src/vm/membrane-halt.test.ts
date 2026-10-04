@@ -13,7 +13,7 @@ import { describe, it, expect } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { s } from 'tosijs-schema'
-import { defineAtom, AgentError, membraneValue } from './runtime'
+import { defineAtom, AgentError, membraneValue, egressValue } from './runtime'
 
 function spyStore() {
   const sets: string[] = []
@@ -485,9 +485,10 @@ describe('could plain JSON have done this? (cumulative review 11)', () => {
   it('a SHAPE refusal under low fuel still ends the run with its own reason', async () => {
     const store = {
       get: async () => ({
-        // `f` first: the walk pops LIFO, so it is reached after the 800KB pad exhausts the fuel
-        f: () => 1,
+        // `f` LAST: the walk visits in source order, so it is reached after the 800KB pad
+        // exhausts the fuel
         pad: 'z'.repeat(400_000),
+        f: () => 1,
       }),
       set: async () => {},
     }
@@ -720,19 +721,19 @@ describe('the membrane builds its copy: checked = forwarded (cumulative review 1
       expect(crossed({ v }).kind).toBe('shape')
   })
 
-  it('Dates cross BY BRAND, as fresh Dates (a subclass and a prototype-swapped Date included)', () => {
+  it('an EXACT Date crosses by brand as a fresh Date; a subclass, a swapped one or own fields are refused (review 14)', () => {
+    const r = crossed({ a: new Date(1) })
+    expect(r.ok).toBe(true)
+    expect(Object.getPrototypeOf(r.value.a)).toBe(Date.prototype)
+    expect(r.value.a.getTime()).toBe(1)
     class D extends Date {}
     const swapped = new Date(7)
     Object.setPrototypeOf(swapped, Object.prototype)
-    const r = crossed({ a: new Date(1), b: new D(2), c: swapped })
-    expect(r.ok).toBe(true)
-    for (const [k, t] of [
-      ['a', 1],
-      ['b', 2],
-      ['c', 7],
-    ] as const) {
-      expect(Object.getPrototypeOf(r.value[k])).toBe(Date.prototype)
-      expect(r.value[k].getTime()).toBe(t)
+    const fields = Object.assign(new Date(3), { tz: 'UTC' })
+    for (const d of [new D(2), swapped, fields]) {
+      const refused = crossed({ d })
+      expect(refused.ok).toBe(false)
+      expect(refused.kind).toBe('shape')
     }
   })
 
@@ -766,5 +767,72 @@ describe('the membrane builds its copy: checked = forwarded (cumulative review 1
     expect(Object.keys(r.value)).toEqual(['z', 'a', 'arr'])
     expect(1 in r.value.arr).toBe(false)
     expect(r.value.arr.length).toBe(3)
+  })
+})
+
+describe('round 40: heap-bounded egress, key order, conversion advice (review 14)', () => {
+  it('the outbound copy is never built past the heap ceiling (I1 for this door)', () => {
+    // 200k numbers is ~1.6MB: inside membraneMaxBytes, outside a 100KB heap ceiling. The walk
+    // must stop at the ceiling, not build the whole copy and let the heap gate refuse it after.
+    const ctx: any = {
+      fuel: { current: 1e9 },
+      maxHeapBytes: 100_000,
+      heapAccount: { bytes: 0, transient: 0 },
+    }
+    let thrown: any
+    try {
+      egressValue(
+        ctx,
+        'op',
+        Array.from({ length: 200_000 }, (_, i) => i)
+      )
+    } catch (e) {
+      thrown = e
+    }
+    expect(thrown?.message).toMatch(/100000-byte membrane budget/)
+  })
+
+  it('key order holds when object-valued keys sit between primitives', () => {
+    const r = membraneValue(
+      { z: 1, o: { p: 1 }, a: 2, n: [3], m: 'x' },
+      1e6
+    ) as any
+    expect(Object.keys(r.value)).toEqual(['z', 'o', 'a', 'n', 'm'])
+    const arr: any = [0]
+    arr.q = { x: 1 }
+    arr.r = 2
+    arr.s = { y: 2 }
+    expect(Object.keys((membraneValue(arr, 1e6) as any).value)).toEqual([
+      '0',
+      'q',
+      'r',
+      's',
+    ])
+  })
+
+  it("an array's non-index properties keep their source order", () => {
+    const arr: any = [1, 2]
+    arr.z = 1
+    arr.a = 2
+    arr.m = 3
+    const r = membraneValue(arr, 1e6) as any
+    expect(Object.keys(r.value)).toEqual(['0', '1', 'z', 'a', 'm'])
+  })
+
+  it('a refused built-in says how to convert it', () => {
+    const cases: Array<[unknown, RegExp]> = [
+      [
+        new Map(),
+        /JSON cannot express a Map: use an object, or an array of \[key, value\] pairs/,
+      ],
+      [new Set(), /JSON cannot express a Set: use an array/],
+      [
+        new Float32Array(2),
+        /JSON cannot express a Float32Array: use Array\.from\(it\)/,
+      ],
+      [/re/, /JSON cannot express a RegExp/],
+    ]
+    for (const [v, why] of cases)
+      expect((membraneValue({ v }, 1e6) as any).reason).toMatch(why)
   })
 })

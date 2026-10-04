@@ -117,10 +117,10 @@ Be precise here: a security claim you cannot cash is worse than none.
 - **No ambient authority.** The VM has no IO by default; the only way out is a capability you
   inject, and every atom that touches one is tagged as IO — a tagging that is itself tested, so
   the list of ways out can be enumerated.
-- **The guest holds data, not references.** Capability returns cross a `structuredClone`
-  boundary, so guest code cannot reach a host object or mutate one you still hold. A value that
-  cannot be copied — a `Response`, a function, an object with getters — is rejected rather
-  than passed through.
+- **The guest holds data, not references.** Capability returns cross a membrane that builds a
+  fresh copy of JSON data plus `Date`, so guest code cannot reach a host object or mutate one you
+  still hold. Anything else (a `Response`, a function, an object with getters, a `Map`, a typed
+  array) is rejected rather than passed through.
 - **Layered and tested — not formally proven.** These properties are structural and could in
   principle be proven; today they are enforced by construction and covered by an adversarial
   test suite.

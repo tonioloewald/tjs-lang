@@ -286,7 +286,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > strings, numbers, booleans, null/undefined, and `Date` (by its internal time). **`Map`, `Set`,
 > typed arrays, `ArrayBuffer`, `RegExp` and `Error` no longer cross**: a capability returning one,
 > or a run argument containing one, is refused. Convert them to JSON first (a Map to an object or
-> an array of pairs). Shared references and cycles are preserved, as before.
+> an array of pairs). Shared references and cycles are preserved, as before. A `Date` crosses only
+> when it is exactly an intrinsic `Date` (a subclass, or one with own fields, would arrive thinned).
+> Cost, measured: a 300-document RAG return copies in ~1.9ms (3.5ms before); a 400k-number array
+> in ~143ms (~127ms before), where the per-element descriptor read that keeps getters from
+> running dominates, as it did.
 >
 > **Persisted ASTs:** a stored AST (`procedureStore`, a saved builder program) containing a
 > key-less `memoize` or `cache` now fails when it runs, with "a key is required". Add a key.

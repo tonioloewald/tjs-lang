@@ -19,6 +19,14 @@ to allocate 1GB and only then charge fuel. `Array.from({ length: 3e8 })` charged
 The heap ceiling cannot help with either, because a budget checked after the allocation has
 already lost.
 
+*The one bounded exception is the capability membrane's copy* (round 40). It is built as the walk
+reads, because what is checked must be what is forwarded, so its size is not known before it is
+built. It is therefore built INSIDE a budget fixed beforehand: outbound, the smallest of
+`membraneMaxBytes`, what the remaining fuel can pay, and the heap ceiling less the transient
+bytes already held. It is charged (fuel and heap) when complete, and a copy that would exceed the
+budget is abandoned at that point. So the most a crossing can allocate before its charge is the
+budget the run could already pay and hold.
+
 **I2. Every byte that outlives the step that allocated it is charged where it becomes
 reachable.** That covers a bind, an in-place insertion (`push`, `fill`, a Set's `add`), a
 `memoize` store, and a holder's push (`map`'s results).
@@ -179,7 +187,7 @@ the same engine, through a RegExp-protocol adapter (`src/lang/predicate-regex.ts
 | Implicit coercion (operators, computed keys, primitive-taking methods) | the string form of an object | **refused** (above) |
 | Atoms | data atoms (v1 ops only; see below), VM services | data atoms delegate to the same gated primitives; every atom is listed in a ratchet table with its allocation story |
 | Capability returns | io atoms | the membrane (`membraneMaxBytes`), then I2 at the bind |
-| Capability inputs (the outbound membrane) | the deep copy of what an io atom hands a capability | `egressValue`: walk budgeted by remaining fuel and `membraneMaxBytes`, copy BUILT by the walk itself from what it read (JSON plus Date; no `structuredClone`, so what is checked is what is forwarded) inside a budget the remaining fuel can pay, then charged through `allocate()`; a REFUSED walk is billed the bytes it walked (a required field of every refusal) less what the crossing already spent, never more than the fuel present. Every io atom is on it, per call site (`egress-doors.test.ts`); its input schema is a frozen JSON copy admitted at definition (`io-atom-schema.test.ts`). A refusal ENDS THE RUN (`membrane-halt.test.ts`), so it can cost at most one walk per run |
+| Capability inputs (the outbound membrane) | the deep copy of what an io atom hands a capability | `egressValue`: walk budgeted by remaining fuel and `membraneMaxBytes`, copy BUILT by the walk itself from what it read (JSON plus Date; no `structuredClone`, so what is checked is what is forwarded) inside a budget the remaining fuel can pay AND the heap ceiling can hold (I1's bounded exception, above), then charged through `allocate()`; a REFUSED walk is billed the bytes it walked (a required field of every refusal) less what the crossing already spent, never more than the fuel present. Every io atom is on it, per call site (`egress-doors.test.ts`); its input schema is a frozen JSON copy admitted at definition (`io-atom-schema.test.ts`). A refusal ENDS THE RUN (`membrane-halt.test.ts`), so it can cost at most one walk per run |
 | Binds and insertions | `setStateVar`, `accountMutation`, memo stores, holder pushes | I2 |
 | Literals (`[...]`, `{...}`) | O(AST size), bounded by admission | none needed: the AST is already budgeted |
 

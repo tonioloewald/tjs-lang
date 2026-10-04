@@ -156,23 +156,25 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
     expect(refused.fuelUsed - accepted.fuelUsed).toBeLessThan(55)
   })
 
-  it('a copy larger than the whole heap ceiling is billed for the walk before it', () => {
-    // `allocate` refuses a copy over the ceiling BEFORE charging anything, so without the
-    // billing around it the walk that measured the copy was free.
+  it('a copy larger than the whole heap ceiling stops AT the ceiling, billed for what it walked', () => {
+    // Since round 40 the egress budget includes the heap ceiling, so the copy is never built past
+    // it for `allocate` to refuse afterwards (I1); the refusal is the walk's, at the ceiling.
     const ctx: any = {
       fuel: { current: 1e6 },
       maxHeapBytes: 1_000,
       heapAccount: { bytes: 0, transient: 0 },
     }
-    expect(() => egressValue(ctx, 'op', big(5_000))).toThrow(/Heap limit/)
-    // 5,000 objects of ~34 bytes: ~8.5 fuel walked
-    expect(1e6 - ctx.fuel.current).toBeGreaterThan(5)
+    expect(() => egressValue(ctx, 'op', big(5_000))).toThrow(
+      /1000-byte membrane budget/
+    )
+    // it walked to the 1,000-byte ceiling: 0.05 fuel at 20,000 bytes per fuel
+    expect(1e6 - ctx.fuel.current).toBeGreaterThanOrEqual(0.05)
   })
 
   // Refusals a guest cannot build (its values are a closed domain), billed the same way: the
-  // backstop for a value built some way nobody has thought of. The offender comes FIRST in key
-  // order because the walk pops LIFO: it is reached after the wide part has been read.
-  const wideThen = (last: unknown) => ({ z: last, wide: big(5_000) })
+  // backstop for a value built some way nobody has thought of. The offender comes LAST in key
+  // order: since round 40 the walk visits in SOURCE order, so it is reached after the wide part.
+  const wideThen = (last: unknown) => ({ wide: big(5_000), z: last })
   class Thing {
     x = 1
   }

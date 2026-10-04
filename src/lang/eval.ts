@@ -66,8 +66,9 @@ const CALLBACK_OPS = new Set(['map', 'reduce', 'memoize', 'cache'])
 export interface SafeCapabilities {
   /**
    * HTTP access for the `httpFetch` atom. **Return the response BODY as plain data** — parsed
-   * JSON, or text — **not a `Response`**: every capability return crosses a `structuredClone`
-   * membrane before it reaches guest code, and a `Response` cannot be cloned, so it is rejected.
+   * JSON, or text — **not a `Response`**: every capability return crosses a membrane that builds
+   * a fresh copy of JSON data plus `Date` before it reaches guest code, and a `Response` is
+   * neither, so it is rejected (as are `Map`, `Set`, typed arrays, `RegExp` and `Error`).
    * So `capabilities: { fetch: globalThis.fetch }` never works; wrap it:
    *
    * ```ts

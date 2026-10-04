@@ -70,3 +70,39 @@ describe('abolished directives are not taught anywhere', () => {
     })
   }
 })
+
+/**
+ * The capability membrane no longer uses `structuredClone` (0.14.0-rc.2 round 39): it builds its
+ * own copy of JSON data plus Date, and refuses Map, Set, typed arrays, ArrayBuffer, RegExp and
+ * Error. Docs that still promised "a structuredClone membrane" or "structured-cloneable" returns
+ * told consumers those types were fine (cumulative review 14). History is exempt.
+ */
+describe('the structuredClone membrane is not taught anywhere', () => {
+  const pattern =
+    /structured-?clone(able)?\s+(membrane|boundary)|cross(es)?\s+(a\s+)?`?structuredClone|structured-cloneable/i
+  const docs = [
+    ...globSync('*.md', { cwd: ROOT }),
+    ...globSync('docs/**/*.md', { cwd: ROOT }),
+    ...globSync('guides/**/*.md', { cwd: ROOT }),
+    'llms.txt',
+    'src/lang/eval.ts',
+  ]
+    .map((p) => p.replaceAll('\\', '/'))
+    .filter((p) => !HISTORICAL[p] && !p.startsWith('docs/reviews/'))
+
+  it('the pattern catches the retired phrasing (apparatus)', () => {
+    for (const old of [
+      'every capability return crosses a `structuredClone` membrane',
+      'Return structured-cloneable data only',
+      'the capability-boundary structured-clone membrane',
+    ])
+      expect(old).toMatch(pattern)
+  })
+
+  for (const doc of docs) {
+    it(`${doc} does not teach the structuredClone membrane`, () => {
+      const hit = readFileSync(join(ROOT, doc), 'utf8').match(pattern)
+      expect(hit?.[0] ?? '').toBe('')
+    })
+  }
+})

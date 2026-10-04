@@ -377,7 +377,7 @@ export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
  *   effects — safe inside a synchronous predicate (see the predicate verifier).
  * - `'io'`: touches `ctx.capabilities` (fetch/store/llm/agent/code), or is
  *   nondeterministic (random/uuid), or has side effects (console). Not allowed
- *   in a predicate. Its return crosses the structuredClone membrane.
+ *   in a predicate. Its return crosses the capability membrane (a copy it builds: JSON + Date).
  *
  * ## `defineAtom` defaults to `'io'` (BREAKING, shipped as a PATCH in 0.13.6)
  *
@@ -440,7 +440,7 @@ export interface AtomOptions {
   /**
    * Effect class — defaults to **`'io'`** (0.13.6; was `'pure'`). Set `'pure'` only for an
    * atom that touches no capability, is deterministic, and has no side effects; doing so
-   * opts its return OUT of the structuredClone membrane and makes it callable from a
+   * opts its return OUT of the capability membrane and makes it callable from a
    * verified predicate. See {@link AtomEffects}.
    */
   effects?: AtomEffects
@@ -591,20 +591,17 @@ const scopeHas = (obj: unknown, key: string): boolean => {
  * guest receives the *live host reference*: it can then invoke methods on it
  * (see `methodCall`), read prototype chains, or mutate an object the host still
  * holds — a sandbox escape and a mutation-aliasing hazard. The value model
- * inside the VM is JSON-ish (plain objects/arrays/primitives + structured-clone
- * builtins), so the correct crossing is a deep copy of *pure data only*.
+ * inside the VM is JSON data plus `Date`, so the correct crossing is a deep copy of
+ * *that data only*.
  *
- * `membraneValue` does two things at the single choke point where an io-atom's
- * return lands in guest state:
- *   1. A budgeted, cycle-safe pre-walk that rejects anything non-data (function,
- *      symbol, bigint) with a precise reason BEFORE allocating a copy, and caps
- *      the estimated serialized size so a hostile/broken capability can't OOM
- *      the VM by returning a giant payload. (`structuredClone` alone would
- *      allocate the whole copy first, then maybe reject — the pre-walk fails
- *      cheap and fails closed.)
- *   2. `structuredClone`, which produces a de-prototyped deep copy (throwing on
- *      anything the pre-walk missed — defense in depth) with fresh identity, so
- *      the guest can neither reach the host object nor mutate a shared one.
+ * `membraneValue` is the single choke point (with `egressValue`, `ingressValue` and
+ * run-argument admission as its callers). In ONE budgeted, cycle-safe pass it reads every
+ * value once from an own data descriptor and BUILDS the copy from exactly that read, so
+ * what was checked is what is forwarded (rc.2 round 39: `structuredClone` copied internal
+ * slots the walk never saw). It refuses anything JSON cannot express ('shape') and stops at
+ * the budget ('limit') before building past it, so a hostile or broken capability cannot
+ * OOM the VM with a giant payload. The copy has fresh identity, so the guest can neither
+ * reach the host object nor mutate a shared one.
  *
  * Primitives carry no reference and need no copy — fast path, zero allocation.
  * Only `effects: 'io'` atoms are membraned (pure atoms operate on data already
@@ -699,23 +696,18 @@ export function membraneValue(
   // preserved them; a repeat costs one slot.
   let bytes = 0
   const copies = new WeakMap<object, unknown>()
-  let result: unknown
-  const stack: Slot[] = [
-    {
-      v: value,
-      depth: 0,
-      put: (c) => {
-        result = c
-      },
-    },
-  ]
+  const root: { value?: unknown } = {}
+  const stack: Slot[] = [{ v: value, depth: 0, parent: root, key: 'value' }]
+  // where a value's copy goes: its parent copy, under its key (no closure per value: review 14)
+  const put = (slot: Slot, c: unknown) => putSlot(slot.parent, slot.key, c)
   try {
     while (stack.length) {
-      const { v, depth, put } = stack.pop()!
+      const slot = stack.pop()!
+      const { v, depth } = slot
       if (v === null || v === undefined) {
         bytes += 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        put(v)
+        put(slot, v)
         continue
       }
       const vt = typeof v
@@ -730,14 +722,14 @@ export function membraneValue(
       if (vt === 'string') {
         bytes += (v as string).length * 2 + 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        put(v)
+        put(slot, v)
         continue
       }
       if (vt !== 'object') {
         // number / boolean
         bytes += 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        put(v)
+        put(slot, v)
         continue
       }
       if (depth > MEMBRANE_MAX_DEPTH) {
@@ -753,7 +745,7 @@ export function membraneValue(
       if (copies.has(v)) {
         bytes += 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        put(copies.get(v))
+        put(slot, copies.get(v))
         continue
       }
       bytes += 16
@@ -762,18 +754,31 @@ export function membraneValue(
         const own = readArrayData(v, bytes, maxBytes, stack, depth, copies)
         if (!own.ok) return own
         bytes = own.bytes
-        put(own.copy)
+        put(slot, own.copy)
         continue
       }
       // A Date by BRAND: the intrinsic `getTime` reads the internal slot and cannot be shadowed
-      // (a Proxy or a disguised object throws). Copied as a fresh Date.
+      // (a Proxy or a disguised object throws). Copied as a fresh Date, but only an EXACT Date: a
+      // subclass, or a Date carrying own fields, would arrive thinned to a bare Date (its getters
+      // and fields reading as undefined: the M-2 class), so it is refused (cumulative review 14).
       const time = dateTime(v)
       if (time !== undefined) {
+        if (
+          Object.getPrototypeOf(v) !== Date.prototype ||
+          Reflect.ownKeys(v).length > 0
+        )
+          return {
+            ok: false,
+            kind: 'shape',
+            walked: bytes,
+            reason:
+              'capability return contains a Date subclass or a Date with its own properties; only an exact Date crosses',
+          }
         bytes += 32
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
         const copy = new globalThis.Date(time)
         copies.set(v, copy)
-        put(copy)
+        put(slot, copy)
         continue
       }
       // Plain data only: `Object.prototype` or a null prototype. A class instance's prototype
@@ -784,12 +789,15 @@ export function membraneValue(
       // is read as the plain object it presents and copied as that: its slots never cross.)
       const proto = Object.getPrototypeOf(v)
       if (proto !== Object.prototype && proto !== null) {
+        const builtin = BUILTIN_ADVICE.get(proto)
         const name = proto?.constructor?.name || 'an unnamed class'
         return {
           ok: false,
           kind: 'shape',
           walked: bytes,
-          reason: `capability return contains an instance of ${name}; only plain data (and Date) crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
+          reason: builtin
+            ? `capability return contains a ${builtin[0]}; only plain data (and Date) crosses, and JSON cannot express a ${builtin[0]}: ${builtin[1]}`
+            : `capability return contains an instance of ${name}; only plain data (and Date) crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
         }
       }
       const own = readOwnData(v, bytes, maxBytes)
@@ -799,16 +807,23 @@ export function membraneValue(
       const copy: Record<string, unknown> =
         proto === null ? Object.create(null) : {}
       copies.set(v, copy)
-      // Keys are defined in the original order NOW, so the copy's key order matches although
-      // the walk fills values last-in-first-out.
-      for (const [key] of own.entries) defineData(copy, key, undefined)
-      for (const [key, child] of own.entries)
-        stack.push({
-          v: child,
-          depth: depth + 1,
-          put: (c) => defineData(copy, key, c),
-        })
-      put(copy)
+      // Primitives are charged and written now, in source order; an object-valued key gets a
+      // placeholder now (keeping its position) and its copy when it pops. Queued children are
+      // pushed in REVERSE, so they pop in source order.
+      const queued: Slot[] = []
+      for (const [key, child] of own.entries) {
+        const cost = inlineCost(child)
+        if (cost >= 0) {
+          bytes += cost
+          if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+          putSlot(copy, key, child)
+        } else {
+          putSlot(copy, key, undefined)
+          queued.push({ v: child, depth: depth + 1, parent: copy, key })
+        }
+      }
+      for (let q = queued.length - 1; q >= 0; q--) stack.push(queued[q])
+      put(slot, copy)
     }
   } catch (e) {
     // Host code ran during the walk and threw (a Proxy trap): the walk cannot vouch for this
@@ -822,11 +837,70 @@ export function membraneValue(
     }
   }
   admit?.(bytes)
-  return { ok: true, value: result, bytes }
+  return { ok: true, value: root.value, bytes }
 }
 
-/** A queued value and where its copy goes. */
-type Slot = { v: any; depth: number; put: (copy: unknown) => void }
+/**
+ * The cost of a primitive copied inline (it is its own copy), or -1 for a value the walk must
+ * queue: an object, or a kind the pop refuses (function, symbol, bigint), so that refusal keeps
+ * one definition.
+ */
+function inlineCost(x: unknown): number {
+  if (x === null || x === undefined) return 8
+  const t = typeof x
+  if (t === 'number' || t === 'boolean') return 8
+  if (t === 'string') return (x as string).length * 2 + 8
+  return -1
+}
+
+/** A queued value, and where its copy goes: `parent[key]` on a copy the membrane built. */
+type Slot = { v: any; depth: number; parent: object; key: string | number }
+
+/**
+ * Writes a copy into its slot. The target is always a fresh object or array the membrane built,
+ * so an ordinary assignment is safe except for the key `__proto__` on an `Object.prototype` copy,
+ * where it would run the prototype setter: that one is DEFINED, so it stays data.
+ */
+function putSlot(parent: object, key: string | number, c: unknown): void {
+  if (key === '__proto__') defineData(parent, key, c)
+  else (parent as any)[key] = c
+}
+
+/** Built-ins JSON cannot express, with how to convert them (the refusal says so). */
+const BUILTIN_ADVICE = new Map<unknown, [string, string]>([
+  [Map.prototype, ['Map', 'use an object, or an array of [key, value] pairs']],
+  [Set.prototype, ['Set', 'use an array']],
+  [
+    ArrayBuffer.prototype,
+    ['ArrayBuffer', 'use an array of numbers, or base64 text'],
+  ],
+  [
+    SharedArrayBuffer.prototype,
+    ['SharedArrayBuffer', 'use an array of numbers'],
+  ],
+  [DataView.prototype, ['DataView', 'use an array of numbers']],
+  [RegExp.prototype, ['RegExp', 'pass its source text and flags as strings']],
+  [Error.prototype, ['Error', 'pass { name, message }']],
+  ...[
+    Int8Array,
+    Uint8Array,
+    Uint8ClampedArray,
+    Int16Array,
+    Uint16Array,
+    Int32Array,
+    Uint32Array,
+    Float32Array,
+    Float64Array,
+    BigInt64Array,
+    BigUint64Array,
+  ].map(
+    (C) =>
+      [C.prototype, [C.name, 'use Array.from(it)']] as [
+        unknown,
+        [string, string]
+      ]
+  ),
+])
 
 /** An own data property on a copy the membrane built: `defineProperty`, so `__proto__` is data. */
 function defineData(target: object, key: string, value: unknown): void {
@@ -903,12 +977,11 @@ function readArrayData(
   copies.set(v, copy)
   const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4)
   const scanned = Math.min(len, probeCap)
+  // Collected here and pushed REVERSED at the end, so they pop in source order: non-index own
+  // properties keep their order in the copy (review 14).
+  const queued: Slot[] = []
   const queue = (value: unknown, key: string | number) =>
-    stack.push({
-      v: value,
-      depth: depth + 1,
-      put: (c) => defineData(copy, String(key), c),
-    })
+    queued.push({ v: value, depth: depth + 1, parent: copy, key })
 
   let i = 0
   for (; i < scanned; i++) {
@@ -922,9 +995,20 @@ function readArrayData(
         reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
+    indexCount++
+    // A primitive is charged and written now: queueing every element made a 400k-number array
+    // ~500× slower than structuredClone (review 14). Only objects (and kinds the pop refuses)
+    // are queued.
+    const cost = inlineCost(d.value)
+    if (cost >= 0) {
+      bytes += cost
+      if (bytes + pushed * 8 > maxBytes)
+        return overBudget(maxBytes, bytes + pushed * 8)
+      copy[i] = d.value
+      continue
+    }
     queue(d.value, i)
     pushed++
-    indexCount++
     if (bytes + pushed * 8 > maxBytes)
       return overBudget(maxBytes, bytes + pushed * 8)
   }
@@ -943,10 +1027,21 @@ function readArrayData(
         }; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
-    queue(d ? d.value : undefined, k)
-    pushed++
     if (asIndex < 0) bytes += k.length * 2 + 8
     else indexCount++
+    const value = d ? d.value : undefined
+    const cost = inlineCost(value)
+    if (cost >= 0) {
+      bytes += cost
+      if (bytes + pushed * 8 > maxBytes)
+        return overBudget(maxBytes, bytes + pushed * 8)
+      putSlot(copy, asIndex >= 0 ? asIndex : k, value)
+      continue
+    }
+    // a placeholder now, so the key keeps its source position when the queued copy lands
+    if (asIndex < 0) putSlot(copy, k, undefined)
+    queue(value, asIndex >= 0 ? asIndex : k)
+    pushed++
     if (bytes + pushed * 8 > maxBytes)
       return overBudget(maxBytes, bytes + pushed * 8)
   }
@@ -957,6 +1052,7 @@ function readArrayData(
     if (bytes > maxBytes) return overBudget(maxBytes, bytes)
   }
 
+  for (let q = queued.length - 1; q >= 0; q--) stack.push(queued[q])
   return { ok: true, bytes, copy }
 }
 
@@ -1605,8 +1701,8 @@ function convertExampleToSchema(example: any): any {
  * - a guest Date is a FROZEN plain object of its fields, recognised through `DATE_VALUES`.
  *
  * Their methods are implemented here, by receiver kind (`SET_METHODS`, `DATE_METHODS`), like
- * Schema's. Guest state is JSON-like data by construction: JSON, `structuredClone` and the run
- * result see exactly what the guest sees.
+ * Schema's. Guest state is JSON-like data by construction: JSON, the capability membrane and the
+ * run result see exactly what the guest sees.
  */
 const SET_INDEX = new WeakMap<unknown[], globalThis.Set<unknown>>()
 
@@ -2105,8 +2201,8 @@ export const builtins: Record<string, any> = Object.assign(
 /**
  * Allowlist of method names `methodCall` may invoke — defense in depth behind
  * the capability membrane. Two facts make this safe *and* non-breaking:
- *   - The membrane guarantees guest values are plain data (de-prototyped by
- *     structuredClone), so `obj[method]` can only ever resolve to a standard
+ *   - The membrane guarantees guest values are plain data (a copy it builds:
+ *     JSON + Date), so `obj[method]` can only ever resolve to a standard
  *     built-in prototype method — never a custom/host method.
  *   - Builtin objects (Math/JSON/Object/Array/…) are curated proxies that
  *     already reject unknown statics at their `get` trap.
@@ -4750,8 +4846,8 @@ const STEP_CONTROL_KEYS = new Set([
  *
  * The copy is work proportional to guest data, so it is a DOOR in the `docs/vm-budgets.md` sense
  * and is paid for like one: the walk is budgeted by what the run's remaining fuel can pay (and by
- * `membraneMaxBytes`), and the copy is charged through `allocate()`, as fuel and transient heap,
- * BEFORE `structuredClone` runs. A walk that stops at its budget is charged for what it read; when
+ * `membraneMaxBytes`, and the heap ceiling), and the copy, which the walk builds as it reads, is
+ * charged through `allocate()`, as fuel and transient heap, when complete. A walk that stops at its budget is charged for what it read; when
  * fuel was the binding limit that is `Out of Fuel`, as it is for run arguments. Round 30 copied
  * first and charged nothing, so a refused call cost no fuel at all (cumulative review 5, B-1).
  *
@@ -4769,7 +4865,15 @@ export function egressValue(
   const payable = ctx.fuel
     ? Math.max(0, ctx.fuel.current) / FUEL_PER_ALLOCATED_BYTE
     : Infinity
-  const budget = Math.min(cap, payable)
+  // ...and by the heap ceiling, so the copy is never BUILT larger than the heap gate (`allocate`,
+  // in `admit`) would let it be: the membrane builds its copy as it walks, so the gate after the
+  // walk alone left I1 (nothing allocates before it is charged) broken for this door
+  // (cumulative review 14). What remains is bounded: the copy is built inside a budget the run
+  // can pay and hold, and charged when complete.
+  const headroom = ctx.heapAccount
+    ? (ctx.maxHeapBytes ?? MAX_HEAP_BYTES) - ctx.heapAccount.transient
+    : Infinity
+  const budget = Math.min(cap, payable, Math.max(0, headroom))
   // A refused crossing is billed the WORK IT DID, reported on every exit of the walk (`walked` is
   // a required field of a refusal, so a path that does not report cannot compile), less what
   // the crossing has already spent (`allocate` charges the copy, and a reconcile it triggers, even
@@ -8119,7 +8223,7 @@ export const EFFECTFUL_CORE_OPS = [
   'cache',
   'memoize',
   // Calls `ctx.capabilities.xml.parse(...)` and was tagged PURE — for two releases. The
-  // consequences are not cosmetic: an untagged return skips the structuredClone membrane,
+  // consequences are not cosmetic: an untagged return skips the capability membrane,
   // so a `DOMParser` result reached guest state as a LIVE HOST `Document`, prototype chain
   // and all, with `methodCall` standing right there. The predicate verifier reads the same
   // tag, so any cluster calling it was certified pure and compiled to native JS.

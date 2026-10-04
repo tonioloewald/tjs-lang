@@ -913,7 +913,8 @@ export function compileRegex(
     } satisfies Compiled,
   })
   // DATA: no function lives on a guest regex; `re.toString()` is the VM's intrinsic
-  // (REGEX_METHODS in runtime.ts), so the value crosses JSON/structuredClone as what it is
+  // (REGEX_METHODS in runtime.ts), so the value is plain data: JSON and the membrane copy it as
+  // what it is
   return Object.freeze(re) as GuestRegex
 }
 

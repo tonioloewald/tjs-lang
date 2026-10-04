@@ -33,6 +33,10 @@ const ALLOWED: Record<string, string> = {
     "`op` is this atom's registered name, fixed when the HOST defined it",
   'admission.ts › admitRunOptions › out[name]':
     '`name` iterates RUN_OPTION_KINDS (host), and `out` is null-prototype',
+  'runtime.ts › readArrayData › copy[i]':
+    "the membrane's own array copy, at a numeric index from the scan loop (a number cannot name __proto__)",
+  'runtime.ts › putSlot › (parent as any)[key]':
+    "the membrane's own copy: the target is a fresh object or array it built, and the key __proto__ is routed to defineData first, so no prototype setter runs",
   'runtime.ts › defineData › Object.defineProperty':
     "the membrane's own copy: an own DATA property defined (not assigned), so a key named __proto__ is an ordinary property and never reaches a prototype setter",
   'runtime.ts › createChildScope › Object.defineProperty':
