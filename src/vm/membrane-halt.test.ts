@@ -836,7 +836,7 @@ describe('round 40: heap-bounded egress, key order, conversion advice (review 14
   })
 })
 
-describe('the copy is built with null prototypes: no inherited setter runs (review 15, M1)', () => {
+describe('no copy is written through an inherited setter (review 15, M1; arrays built null-prototype, objects defined)', () => {
   it('an accessor on Object.prototype is never called, and the key survives (both directions)', () => {
     let calls = 0
     Object.defineProperty(Object.prototype, 'hook', {
@@ -1067,5 +1067,66 @@ describe('the Date intrinsics are captured at load (review 17, M1)', () => {
     } finally {
       ;(globalThis as any).Date = RealDate
     }
+  })
+})
+
+describe('one admission step: an Array subclass is refused, never thinned (review 18, M1 + C1)', () => {
+  // The array branch never checked the prototype, so a class with a deny getter on its prototype
+  // arrived as a plain array and the getter read as undefined (the M-2 class).
+  class Rule extends Array {
+    get denied() {
+      return true
+    }
+  }
+  const lyingProto = new Proxy([1, 2], {
+    getPrototypeOf: () => Rule.prototype,
+  })
+  const cases: Array<[string, () => unknown]> = [
+    ['an Array subclass with a prototype getter', () => new Rule()],
+    ['a Proxy over an array reporting a subclass prototype', () => lyingProto],
+  ]
+  for (const [label, make] of cases) {
+    it(`${label} is refused (capability return)`, async () => {
+      const store = { get: async () => ({ rule: make() }), set: async () => {} }
+      const r = await run(
+        `function f() {
+          const x = storeGet({ key: 'k' })
+          return { denied: x.rule.denied }
+        }`,
+        {},
+        { fuel: 1000, capabilities: { store } }
+      )
+      expect(r.error?.message).toMatch(/an Array subclass/)
+    })
+    it(`${label} is refused (run argument)`, async () => {
+      const r = await run(
+        `function f(rule: [0]) { return { n: 1 } }`,
+        { rule: make() },
+        {
+          fuel: 1000,
+        }
+      )
+      expect(r.error?.message).toMatch(/an Array subclass/)
+    })
+  }
+
+  it('an array from another realm is refused like a cross-realm object (node:vm)', async () => {
+    const { runInNewContext } = await import('node:vm')
+    const foreign = runInNewContext('[1, 2, 3]')
+    expect((membraneValue({ a: foreign }, 1e6) as any).kind).toBe('shape')
+  })
+
+  it('a Proxy reporting an index past its length is refused, and no copy outgrows its length', () => {
+    const p = new Proxy([] as unknown[], {
+      ownKeys: () => ['length', '4294967294'],
+      getOwnPropertyDescriptor: (t, k) =>
+        k === '4294967294'
+          ? { value: 1, writable: true, enumerable: true, configurable: true }
+          : Reflect.getOwnPropertyDescriptor(t, k),
+    })
+    const r = membraneValue({ p }, 1e6) as any
+    expect(r.ok).toBe(false)
+    expect(r.kind).toBe('shape')
+    expect(r.reason).toMatch(/past its length/)
   })
 })

@@ -46,6 +46,7 @@ describe('membrane invariant — no direct reads of host values', () => {
   const membraneBody = bodyOf('membraneValue')
   const walkBodies = [
     'membraneValue',
+    'admitKind',
     'readArrayData',
     'readOwnData',
     'dateTime',

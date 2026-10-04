@@ -697,12 +697,12 @@ export function membraneValue(
   let bytes = 0
   const copies = new WeakMap<object, unknown>()
   const root: { value?: unknown } = Object.create(null)
-  // Every copy is BUILT with a null prototype, where assignment can only create an own data
-  // property: there is no prototype to consult, so no inherited setter runs and no read-only
-  // inherited property refuses the write. Each gets its real prototype when the walk completes.
-  // (Round 40 assigned onto `{}`/`[]` copies, so a polluted Object.prototype setter ran on capability
-  // data and dropped the key, and frozen intrinsics refused `{ toString: 'x' }`: cumulative review
-  // 15.)
+  // No copy is ever written through `[[Set]]` on an object with a prototype, so no inherited
+  // setter runs and no read-only inherited property refuses a write (round 40 assigned onto
+  // `{}`/`[]` copies and did both: cumulative review 15). ARRAY copies are built with a null
+  // prototype, written by index, and given `Array.prototype` when the walk completes (this list);
+  // OBJECT copies are built on their real prototype and written only with `defineProperty`
+  // (`putSlot`), which keeps them in V8's fast mode (cumulative review 17).
   const prototypes: Array<[object, object]> = []
   const stack: Slot[] = [{ v: value, depth: 0, parent: root, key: 'value' }]
   // where a value's copy goes: its parent copy, under its key (no closure per value: review 14)
@@ -747,7 +747,20 @@ export function membraneValue(
       }
       bytes += 16
       if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      if (Array.isArray(v)) {
+      // ONE admission step for every object, before any branch builds anything: the prototype is
+      // read once, and only an EXACT array, an exact Date or a plain object is admitted. Each
+      // branch used to apply its own rule, and the array branch applied none, so an Array subclass
+      // (a deny getter on its prototype) was THINNED to a plain array, not refused: the M-2 class
+      // (cumulative review 18).
+      const admitted = admitKind(v)
+      if (admitted.kind === 'refused')
+        return {
+          ok: false,
+          kind: 'shape',
+          walked: bytes,
+          reason: admitted.reason,
+        }
+      if (admitted.kind === 'array') {
         const own = readArrayData(
           v,
           bytes,
@@ -762,49 +775,15 @@ export function membraneValue(
         put(slot, own.copy)
         continue
       }
-      // A Date by BRAND: the intrinsic `getTime` reads the internal slot and cannot be shadowed
-      // (a Proxy or a disguised object throws). Copied as a fresh Date, but only an EXACT Date: a
-      // subclass, or a Date carrying own fields, would arrive thinned to a bare Date (its getters
-      // and fields reading as undefined: the M-2 class), so it is refused (cumulative review 14).
-      const time = dateTime(v)
-      if (time !== undefined) {
-        if (
-          Object.getPrototypeOf(v) !== DATE_PROTOTYPE ||
-          Reflect.ownKeys(v).length > 0
-        )
-          return {
-            ok: false,
-            kind: 'shape',
-            walked: bytes,
-            reason:
-              'capability return contains a Date subclass or a Date with its own properties; only an exact Date crosses',
-          }
+      if (admitted.kind === 'date') {
         bytes += 32
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        const copy = new MembraneDate(time)
+        const copy = new MembraneDate(admitted.time)
         copies.set(v, copy)
         put(slot, copy)
         continue
       }
-      // Plain data only: `Object.prototype` or a null prototype. A class instance's prototype
-      // getters and private fields would silently read as undefined on the other side (a
-      // Firestore Timestamp's `seconds`, and a negated rule over it flipped deny to ALLOW: 0.14.0
-      // final re-review 2, M-2). Everything else is refused, not converted: JSON cannot express a Map, a Set, a typed array, an ArrayBuffer, a RegExp, an
-      // Error or a class instance. (A disguised one, with its prototype swapped to a plain one,
-      // is read as the plain object it presents and copied as that: its slots never cross.)
-      const proto = Object.getPrototypeOf(v)
-      if (proto !== Object.prototype && proto !== null) {
-        const builtin = BUILTIN_ADVICE.get(proto)
-        const name = proto?.constructor?.name || 'an unnamed class'
-        return {
-          ok: false,
-          kind: 'shape',
-          walked: bytes,
-          reason: builtin
-            ? `capability return contains a ${builtin[0]}; only plain data (and Date) crosses, and JSON cannot express a ${builtin[0]}: ${builtin[1]}`
-            : `capability return contains an instance of ${name}; only plain data (and Date) crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
-        }
-      }
+      const proto = admitted.proto
       const own = readOwnData(v, bytes, maxBytes)
       if (!own.ok) return own
       bytes += own.bytes
@@ -946,6 +925,71 @@ function dateTime(v: object): number | undefined {
   }
 }
 
+/**
+ * What kind of object the membrane admits, decided ONCE per object, before any branch builds:
+ * - an array whose prototype is exactly the intrinsic `Array.prototype`;
+ * - a `Date` by BRAND (the captured intrinsic `getTime`) whose prototype is exactly the captured
+ *   `Date.prototype`, with no own properties (a subclass or extra fields would be thinned);
+ * - a plain object: `Object.prototype` or a null prototype.
+ * Everything else is refused, naming what it is: a class instance (subclasses of Array and Date
+ * included), a built-in JSON cannot express, a lying Proxy, an object from another realm.
+ * (A built-in DISGUISED behind a plain prototype is read as the plain object it presents: Tonio,
+ * 2026-10-04.)
+ */
+function admitKind(
+  v: object
+):
+  | { kind: 'array' }
+  | { kind: 'date'; time: number }
+  | { kind: 'plain'; proto: object | null }
+  | { kind: 'refused'; reason: string } {
+  const proto = Object.getPrototypeOf(v)
+  const time = dateTime(v)
+  if (time !== undefined)
+    return proto === DATE_PROTOTYPE && Reflect.ownKeys(v).length === 0
+      ? { kind: 'date', time }
+      : {
+          kind: 'refused',
+          reason:
+            'capability return contains a Date subclass or a Date with its own properties; only an exact Date crosses',
+        }
+  if (Array.isArray(v) && proto === ARRAY_PROTOTYPE) return { kind: 'array' }
+  if (proto === OBJECT_PROTOTYPE || proto === null)
+    return { kind: 'plain', proto }
+  const builtin = BUILTIN_ADVICE.get(proto)
+  if (builtin)
+    return {
+      kind: 'refused',
+      reason: `capability return contains a ${builtin[0]}; only plain data (and Date) crosses, and JSON cannot express a ${builtin[0]}: ${builtin[1]}`,
+    }
+  let name = 'an unnamed class'
+  try {
+    const ctorDesc =
+      proto && Object.getOwnPropertyDescriptor(proto, 'constructor')
+    const ctor = ctorDesc && 'value' in ctorDesc ? ctorDesc.value : undefined
+    const nameDesc =
+      typeof ctor === 'function'
+        ? Object.getOwnPropertyDescriptor(ctor, 'name')
+        : undefined
+    if (nameDesc && typeof nameDesc.value === 'string' && nameDesc.value)
+      name = nameDesc.value.slice(0, 100)
+  } catch {
+    // a Proxy prototype whose traps throw: keep the generic name
+  }
+  return {
+    kind: 'refused',
+    reason: `capability return contains an instance of ${name}${
+      Array.isArray(v)
+        ? ' (an Array subclass, or an array from another realm)'
+        : ''
+    }; only plain data (and Date) crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
+  }
+}
+
+/** The intrinsic prototypes the membrane admits, captured at load (as `Date`'s are). */
+const ARRAY_PROTOTYPE = Array.prototype
+const OBJECT_PROTOTYPE = Object.prototype
+
 function overBudget(
   maxBytes: number,
   walked: number
@@ -1065,6 +1109,15 @@ function readArrayData(
   for (const k of Object.keys(v)) {
     const asIndex = isArrayIndex(k) ? Number(k) : -1
     if (asIndex >= 0 && asIndex < i) continue // already handled above
+    // A genuine array has no index at or past its length; a Proxy can report one, which grew the
+    // copy to length 2^32-1 with a negative hole bill (cumulative review 18, C1).
+    if (asIndex >= len)
+      return {
+        ok: false,
+        kind: 'shape',
+        walked: bytes + pushed * 8,
+        reason: `capability return has an array reporting index ${k} past its length ${len}`,
+      }
     const d = Object.getOwnPropertyDescriptor(v, k)
     if (d && (d.get || d.set)) {
       return {

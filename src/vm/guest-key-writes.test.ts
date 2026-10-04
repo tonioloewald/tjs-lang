@@ -36,7 +36,7 @@ const ALLOWED: Record<string, string> = {
   'runtime.ts › readArrayData › copy[i]':
     "the membrane's own array copy, built with a NULL prototype until the walk completes, at a numeric index from the scan loop",
   'runtime.ts › membraneValue › Object.setPrototypeOf':
-    "gives each copy the membrane built its REAL prototype (Object.prototype/Array.prototype) once the walk completes; the target is the VM's own fresh object, the prototype a VM constant",
+    "gives each ARRAY copy the membrane built its real prototype (Array.prototype) once the walk completes; the target is the VM's own fresh array, the prototype a VM constant (object copies are built on theirs)",
   'runtime.ts › readArrayData › Object.setPrototypeOf':
     "builds the membrane's own array copy with a NULL prototype (a VM constant), so its writes cannot reach an inherited setter",
   'runtime.ts › putSlot › Object.defineProperty':
