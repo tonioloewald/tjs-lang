@@ -399,8 +399,7 @@ Structural (deep) comparison is an explicit operation, never `==`. In TJS that o
 catchable. On the way out that is every refusal, since the program built the value: an atom call
 whose input does not match what the atom declares, or a value that cannot be copied out to a
 capability (too large, too deep, not plain data). On the way in it is the host's contract broken:
-a capability returning something that is not plain data (a function, a getter, a class
-instance). Nothing after it runs: no `catch`
+a capability returning something JSON cannot express (a function, a getter, a class instance). Nothing after it runs: no `catch`
 block, no later step, no step of a parent agent. These are bugs in the program rather than
 failures of the world, and the transpiler reports the ones it can see before the program runs.
 Failures of the world (a fetch that fails, a model that is down, a store that throws) are caught

@@ -621,12 +621,16 @@ export type MembraneResult =
        */
       walked: number
       /**
-       * WHY it refused, as a type rather than a message (round 31 parsed the message): `'size'`
-       * is the value being too large, which inbound is the WORLD's doing (a catchable failure);
-       * `'shape'` is the value not being plain data, which inbound is the HOST's contract broken
-       * (the run ends). REQUIRED, like `walked` (Tonio, 2026-10-04; cumulative review 10).
+       * WHY it refused, as a type rather than a message (round 31 parsed the message). The
+       * criterion is one question: COULD PLAIN JSON HAVE DONE THIS?
+       * - `'limit'`: yes. Too large, too deep, or so deep the clone overflowed the stack. Inbound,
+       *   that is the WORLD's doing (a server, a model): a catchable failure.
+       * - `'shape'`: no. A function, symbol, bigint, accessor, class instance or exotic Map/Set,
+       *   which JSON cannot express. Inbound, that is the HOST's contract broken: the run ends.
+       * REQUIRED, like `walked` (Tonio, 2026-10-04; cumulative reviews 10 and 11: round 36 sent
+       * depth to the host's side, and 20KB of nested JSON from a server halted any agent).
        */
-      kind: 'size' | 'shape'
+      kind: 'limit' | 'shape'
     }
 
 /**
@@ -737,7 +741,7 @@ export function membraneValue(
     if (depth > MEMBRANE_MAX_DEPTH) {
       return {
         ok: false,
-        kind: 'shape',
+        kind: 'limit', // JSON nests: '['.repeat(10050) is 10KB of valid JSON
         walked: bytes,
         reason: 'the value exceeds the membrane depth limit',
       }
@@ -868,7 +872,9 @@ export function membraneValue(
   } catch (e: any) {
     return {
       ok: false,
-      kind: 'shape',
+      // the walk admitted every node as plain data, so a clone failure is either the stack (deep
+      // JSON can do that: a limit) or something the walk could not see (the host's)
+      kind: e instanceof RangeError ? 'limit' : 'shape',
       walked: bytes,
       reason: `capability return is not structured-cloneable: ${
         e?.message || e
@@ -913,11 +919,11 @@ function overBudget(
   ok: false
   reason: string
   walked: number
-  kind: 'size'
+  kind: 'limit'
 } {
   return {
     ok: false,
-    kind: 'size',
+    kind: 'limit',
     // the bytes actually tallied when it stopped: one definition of `walked` on every path
     walked,
     reason: `the value exceeds the ${maxBytes}-byte membrane budget`,
@@ -932,7 +938,7 @@ function readArrayData(
   depth: number
 ):
   | { ok: true; bytes: number }
-  | { ok: false; reason: string; walked: number; kind: 'size' | 'shape' } {
+  | { ok: false; reason: string; walked: number; kind: 'limit' | 'shape' } {
   let bytes = startBytes
   /** Values queued for the walk. Each will cost at least 8 — the early-bail lower bound. */
   let pushed = 0
@@ -1060,7 +1066,7 @@ function readOwnData(
   maxBytes: number
 ):
   | { ok: true; values: unknown[]; bytes: number }
-  | { ok: false; reason: string; walked: number; kind: 'size' | 'shape' } {
+  | { ok: false; reason: string; walked: number; kind: 'limit' | 'shape' } {
   const values: unknown[] = []
   let bytes = 0
   // `Object.keys` is the one step that cannot stop early: its work is billed if the walk refuses
@@ -4882,13 +4888,11 @@ export function egressValue(
   const bill = (error: unknown): never => {
     // Unlimited fuel (`fuel: Infinity`) has nothing to bill: Infinity − Infinity is NaN, and a
     // NaN meter read as exhausted (cumulative review 8).
-    if (ctx.fuel && Number.isFinite(ctx.fuel.current)) {
-      const spent = fuelAtEntry - ctx.fuel.current
-      const owed = Math.max(0, walked * FUEL_PER_ALLOCATED_BYTE - spent)
-      ctx.fuel.current = Math.max(0, ctx.fuel.current - owed)
-      if (ctx.fuel.current <= 0)
-        throw haltRun(ctx, new AgentError('Out of Fuel', op))
-    }
+    // Owed: the walk, less what the crossing already spent (allocate charges the copy).
+    const spent = ctx.fuel ? fuelAtEntry - ctx.fuel.current : 0
+    const owedBytes = Math.max(0, walked - spent / FUEL_PER_ALLOCATED_BYTE)
+    if (chargeWalkFuel(ctx, owedBytes))
+      throw haltRun(ctx, new AgentError('Out of Fuel', op))
     throw haltRun(
       ctx,
       error instanceof AgentError
@@ -4918,14 +4922,15 @@ export function egressValue(
  * `egressValue`; with it and `vm.run`'s argument admission, the closed set of crossings that
  * `membrane-doors.test.ts` holds by parsing.
  *
- * Refusals split by WHO got it wrong (Tonio, 2026-10-04; cumulative review 10):
- * - `'shape'` (a function, a getter, a class instance, nesting past the limit): the HOST's
- *   contract is broken, and the run ENDS (`haltRun`). Round 34 left this catchable and a guest
- *   looped on it (cumulative review 9).
- * - `'size'` (over `membraneMaxBytes`) and an output that does not match the atom's declared
- *   schema: the WORLD's doing (a server, a model), and an ordinary, catchable failure. Round 35
- *   halted on size too, so a remote server could kill any agent with a response between about
- *   half and all of the budget (raw bytes pass `readBounded`, then grow when decoded).
+ * Refusals split by WHO got it wrong (Tonio, 2026-10-04), decided by one question: COULD PLAIN
+ * JSON HAVE DONE THIS? (the refusal's typed `kind`)
+ * - `'shape'` (a function, a getter, a class instance, an exotic Map/Set: things JSON cannot
+ *   express): the HOST's contract is broken, and the run ENDS (`haltRun`), whatever the fuel.
+ * - `'limit'` (too large, too deep: things JSON can do) and an output that does not match the
+ *   atom's declared schema: the WORLD's doing (a server, a model), and an ordinary, catchable
+ *   failure. Round 35 halted on size, so a response between about half and all of the budget
+ *   killed any agent (cumulative review 10); round 36 still counted DEPTH as the host's, so 20KB
+ *   of nested JSON did (cumulative review 11).
  *
  * Because a world failure is catchable, a guest can retry it in a loop, so EVERY inbound walk is
  * billed, accepted or refused: the bytes walked, as fuel at the allocation rate. (Fuel only: the
@@ -4941,21 +4946,21 @@ function ingressValue(
     result,
     ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
   )
-  const walked = crossed.ok ? crossed.bytes ?? 0 : crossed.walked
-  if (ctx.fuel && Number.isFinite(ctx.fuel.current)) {
-    ctx.fuel.current = Math.max(
-      0,
-      ctx.fuel.current - walked * FUEL_PER_ALLOCATED_BYTE
-    )
-    if (ctx.fuel.current <= 0) throw new AgentError('Out of Fuel', op)
-  }
+  const exhausted = chargeWalkFuel(
+    ctx,
+    crossed.ok ? crossed.bytes ?? 0 : crossed.walked
+  )
   if (!crossed.ok) {
     const error = new AgentError(
       `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
       op
     )
-    throw crossed.kind === 'shape' ? haltRun(ctx, error) : error
+    // The host's contract broken ends the run with ITS reason, however much fuel was left: a
+    // halt that depended on the fuel would lose the diagnosis (cumulative review 11).
+    if (crossed.kind === 'shape') throw haltRun(ctx, error)
+    throw exhausted ? new AgentError('Out of Fuel', op) : error
   }
+  if (exhausted) throw new AgentError('Out of Fuel', op)
   if (
     crossed.value !== undefined &&
     outputSchema &&
@@ -4965,21 +4970,61 @@ function ingressValue(
   return crossed.value
 }
 
+/**
+ * Charges a membrane walk of `bytes` as fuel, at the allocation rate. The ONE charge for both
+ * crossings (it was written out twice, and the copies disagreed about the Infinity guard and the
+ * floor: cumulative review 11). Unlimited fuel has nothing to charge (Infinity − x is fine, but a
+ * spent-since-entry of Infinity − Infinity is NaN). Floored at zero, so fuel used never exceeds
+ * fuel granted. Returns whether fuel is exhausted; the caller decides what that means.
+ */
+function chargeWalkFuel(ctx: RuntimeContext, bytes: number): boolean {
+  if (!ctx.fuel || !Number.isFinite(ctx.fuel.current)) return false
+  ctx.fuel.current = Math.max(
+    0,
+    ctx.fuel.current - bytes * FUEL_PER_ALLOCATED_BYTE
+  )
+  return ctx.fuel.current <= 0
+}
+
 /** How much of a thrown value's message a guest may see. */
 const MAX_THROWN_MESSAGE = 8192
 
 /**
- * A thrown value, reduced to what a guest may see: its `message` if that is a string, else
- * `String(value)` (which never reads a nested object's getters), capped. Never throws.
+ * An error, reduced to what a guest may see: its OWN DATA `message` if that is a string (or the
+ * value itself if it is a string), capped. Never a getter, never `String()`/`toString` (host code),
+ * never throws. Applied where an error ENTERS GUEST SCOPE (the `try` bind, a sub-agent's
+ * failure), because anything can construct, forge or replace an error before that point: round
+ * 36 reduced at the producer and a thrown `AgentError` passed through with an object `op`, a 1MB
+ * message, or a forged getter (cumulative review 11). `membrane-doors.test.ts` parses for raw
+ * reads of an error's `message`/`op`.
  */
-function reduceThrown(e: unknown): string {
-  let m: string
+export function reduceThrown(e: unknown): string {
+  return capThrown(
+    ownString(e, 'message') ??
+      (typeof e === 'string' ? e : undefined) ??
+      'an atom failed with a value that is not a message'
+  )
+}
+
+/** An error's `op`, reduced the same way (own data, a string, capped short). */
+function reduceOp(e: unknown): string {
+  const op = ownString(e, 'op')
+  return op === undefined ? 'unknown' : op.slice(0, 256)
+}
+
+function ownString(e: unknown, key: string): string | undefined {
+  if (e === null || typeof e !== 'object') return undefined
   try {
-    const message = (e as any)?.message
-    m = typeof message === 'string' ? message : String(e)
+    const d = Object.getOwnPropertyDescriptor(e, key)
+    return d && 'value' in d && typeof d.value === 'string'
+      ? d.value
+      : undefined
   } catch {
-    m = 'an atom threw a value that could not be read'
+    return undefined // a Proxy whose descriptor trap throws
   }
+}
+
+function capThrown(m: string): string {
   return m.length > MAX_THROWN_MESSAGE
     ? m.slice(0, MAX_THROWN_MESSAGE) + '…'
     : m
@@ -5708,7 +5753,11 @@ export const tryCatch = defineAtom(
       // Store error message in state for catch block to access
       // Use the catch parameter name if provided, otherwise 'error'
       const paramName = step.catchParam || 'error'
-      const bind = { [paramName]: ctx.error.message, errorOp: ctx.error.op }
+      // reduced HERE, where the error enters guest scope (see `reduceThrown`)
+      const bind = {
+        [paramName]: reduceThrown(ctx.error),
+        errorOp: reduceOp(ctx.error),
+      }
       // Clear the error - catch block handles it
       ctx.error = undefined
       // Execute the catch block, its parameter (and `errorOp`) bound IN it: a v2 catch block
@@ -7300,7 +7349,7 @@ export const agentRun = defineAtom(
         await seqAtom.exec(ast, childCtx)
 
         if (childCtx.error) {
-          throw new Error(childCtx.error.message || 'Sub-agent failed')
+          throw new Error(reduceThrown(childCtx.error) || 'Sub-agent failed')
         }
 
         return childCtx.output
@@ -7343,7 +7392,7 @@ export const agentRun = defineAtom(
         await seqAtom.exec(resolvedId, childCtx)
 
         if (childCtx.error) {
-          throw new Error(childCtx.error.message || 'Sub-agent failed')
+          throw new Error(reduceThrown(childCtx.error) || 'Sub-agent failed')
         }
 
         return childCtx.output
@@ -7372,7 +7421,7 @@ export const agentRun = defineAtom(
     ) {
       // It's a RunResult - check for error and propagate
       if (result.error) {
-        throw new Error(result.error.message || 'Sub-agent failed')
+        throw new Error(reduceThrown(result.error) || 'Sub-agent failed')
       }
       return result.result
     }
@@ -7450,7 +7499,9 @@ export const transpileCode = defineAtom(
     try {
       return ctx.capabilities.code.transpile(resolvedCode)
     } catch (e: any) {
-      throw new Error(`Code transpilation failed: ${e.message}`, { cause: e })
+      throw new Error(`Code transpilation failed: ${reduceThrown(e)}`, {
+        cause: e,
+      })
     }
   },
   { docs: 'Transpile AsyncJS code to AST', cost: 1 }
@@ -7514,7 +7565,9 @@ export const runCode = defineAtom(
     try {
       ast = ctx.capabilities.code.transpile(resolvedCode)
     } catch (e: any) {
-      throw new Error(`Code transpilation failed: ${e.message}`, { cause: e })
+      throw new Error(`Code transpilation failed: ${reduceThrown(e)}`, {
+        cause: e,
+      })
     }
 
     // Version BEFORE shape, as in AgentVM.run: a newer format should report its version, not

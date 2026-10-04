@@ -141,6 +141,70 @@ describe('a thrown value is reduced before it can reach a guest', () => {
   })
 })
 
+/**
+ * Where an error ENTERS GUEST SCOPE it is reduced (`reduceThrown`/`reduceOp`): round 36 reduced
+ * at the producer, and a thrown or forged `AgentError` passed straight through (cumulative review
+ * 11). So every read of an ERROR's `message` or `op` in `src/vm/**` must be an argument of a
+ * reducer, or listed with the reason its value never reaches a guest.
+ */
+const ERROR_FIELD_READS_ALLOWED: Record<string, string> = {
+  'runtime.ts › membraneValue › e?.message':
+    "structuredClone's own DOMException: an engine-built string, placed in a refusal REASON that is reduced again at the try bind",
+  'vm.ts › run › ctx.error?.message':
+    'host side, after the run: compared against a fixed string to rename the error the host receives',
+  'vm.ts › run › e.message':
+    'host side: tests whether a thrown error was the deadline, never bound into guest scope',
+}
+
+function isErrorish(expr: ts.Expression): boolean {
+  const t = expr.getText()
+  return /(^|\.)(error|err|e)$/.test(t) || /Error$/.test(t)
+}
+
+function rawErrorFieldReads(): string[] {
+  const out: string[] = []
+  for (const file of files(VM)) {
+    const sf = ts.createSourceFile(
+      file,
+      readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true
+    )
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isPropertyAccessExpression(n) &&
+        (n.name.text === 'message' || n.name.text === 'op') &&
+        isErrorish(n.expression)
+      ) {
+        let reduced = false
+        for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
+          if (
+            ts.isCallExpression(p) &&
+            ['reduceThrown', 'reduceOp'].includes(p.expression.getText())
+          )
+            reduced = true
+          if (ts.isFunctionLike(p)) break
+        }
+        if (!reduced)
+          out.push(
+            `${relative(VM, file)} › ${enclosingName(n)} › ${n.getText()}`
+          )
+      }
+      ts.forEachChild(n, visit)
+    }
+    visit(sf)
+  }
+  return [...new Set(out)].sort()
+}
+
+describe('an error is reduced where it enters guest scope', () => {
+  it('every read of an error message or op is reduced, or listed with why it never reaches a guest', () => {
+    expect(
+      rawErrorFieldReads().filter((r) => !(r in ERROR_FIELD_READS_ALLOWED))
+    ).toEqual([])
+  })
+})
+
 describe('the capability boundary is a closed set of crossings', () => {
   const sites = crossingSites()
 

@@ -7,6 +7,7 @@ import {
   storeOf,
   admitFetchUrl,
   policyList,
+  reduceThrown,
 } from '../runtime'
 
 // --- Interfaces ---
@@ -269,7 +270,7 @@ function admitImageUrls(images: unknown, ctx: any, op: string): string[] {
       // the fetch message suggests a custom fetch capability, which a model server never uses
       throw new Error(
         `${op}: image URL refused (${
-          e.message.split('.')[0]
+          reduceThrown(e).split('.')[0]
         }). Pass inline image data, or ` +
           `list the image host in allowedFetchDomains.`,
         { cause: e }

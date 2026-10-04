@@ -316,8 +316,8 @@ describe('a top-level string is refused like a nested one (review 10, minor)', (
     const nested = membraneValue({ s: str }, 1_000) as any
     expect(top.ok).toBe(false)
     expect(nested.ok).toBe(false)
-    expect(top.kind).toBe('size')
-    expect(nested.kind).toBe('size')
+    expect(top.kind).toBe('limit')
+    expect(nested.kind).toBe('limit')
     expect(top.reason).toBe(nested.reason)
     expect(top.walked).toBeGreaterThanOrEqual(20_000)
     expect(nested.walked).toBeGreaterThanOrEqual(20_000)

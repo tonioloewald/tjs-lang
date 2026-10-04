@@ -13,7 +13,7 @@ import { describe, it, expect } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { s } from 'tosijs-schema'
-import { defineAtom } from './runtime'
+import { defineAtom, AgentError, membraneValue } from './runtime'
 
 function spyStore() {
   const sets: string[] = []
@@ -420,6 +420,132 @@ describe('a THROWN value crosses as a capped string (cumulative review 10, B2)',
         Object.assign(new Error('x'), { message: { nested: [1] } })
       )
     )
+    expect(typeof (r.result as any).e).toBe('string')
+  })
+})
+
+describe('could plain JSON have done this? (cumulative review 11)', () => {
+  // The criterion behind `kind`: a refusal JSON can trigger is the WORLD's ('limit', catchable); a
+  // refusal JSON cannot express is the HOST's ('shape', ends the run). Round 36 put depth on the
+  // host's side, and 20KB of nested JSON from a server halted any agent.
+  it("the review's deep body: nested JSON from a capability is caught, and billed", async () => {
+    const deep = JSON.parse('['.repeat(10_050) + ']'.repeat(10_050))
+    const store = { get: async () => deep, set: async () => {} }
+    const r = await run(
+      `function f() {
+        try { const x = storeGet({ key: 'k' }) } catch (e) { return { caught: true } }
+        return { caught: false }
+      }`,
+      {},
+      { fuel: 1e4, capabilities: { store } }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ caught: true })
+  })
+
+  it('no JSON value is ever refused as shape (generated)', () => {
+    let seed = 7
+    const rand = () =>
+      (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    // bounded by a NODE budget, not just depth: fan-out at every level is exponential
+    let nodes = 0
+    const gen = (d: number): unknown => {
+      nodes++
+      const r = rand()
+      if (d > 12 || nodes > 3_000 || r < 0.2)
+        return [null, true, 1.5, 'x'.repeat(Math.floor(rand() * 5000))][
+          Math.floor(rand() * 4)
+        ]
+      if (r < 0.5)
+        return Array.from({ length: Math.floor(rand() * 40) }, () => gen(d + 1))
+      return Object.fromEntries(
+        Array.from({ length: Math.floor(rand() * 20) }, (_, i) => [
+          'k' + i,
+          gen(d + 1),
+        ])
+      )
+    }
+    const fresh = () => {
+      nodes = 0
+      return gen(0)
+    }
+    const deepChain = (n: number) => JSON.parse('['.repeat(n) + ']'.repeat(n))
+    const values = [
+      ...Array.from({ length: 200 }, () => JSON.parse(JSON.stringify(fresh()))),
+      deepChain(10_050),
+      deepChain(50_000),
+    ]
+    for (const v of values)
+      for (const budget of [64, 4096, 1e6]) {
+        const r = membraneValue(v, budget) as any
+        if (!r.ok) expect(r.kind).toBe('limit')
+      }
+  })
+
+  it('a SHAPE refusal under low fuel still ends the run with its own reason', async () => {
+    const store = {
+      get: async () => ({
+        // `f` first: the walk pops LIFO, so it is reached after the 800KB pad exhausts the fuel
+        f: () => 1,
+        pad: 'z'.repeat(400_000),
+      }),
+      set: async () => {},
+    }
+    const r = await run(
+      `function f() {
+        try { const x = storeGet({ key: 'k' }) } catch (e) { return { caught: true } }
+        return { done: true }
+      }`,
+      {},
+      { fuel: 10, capabilities: { store } }
+    )
+    expect(r.error?.message).toMatch(/Capability boundary rejected/)
+  })
+})
+
+describe('an error is reduced where it ENTERS guest scope (cumulative review 11, B2)', () => {
+  const thrower = (make: () => unknown) =>
+    defineAtom('boom', s.object({}), s.any, async () => {
+      throw make()
+    })
+  const CATCH = `function f() {
+    try { boom({}) } catch (e) { return { e, op: errorOp } }
+    return { done: true }
+  }`
+  const runWith = (boom: any) =>
+    new AgentVM({ boom }).run(
+      transpile(CATCH, { atoms: { boom } } as any).ast,
+      {},
+      { fuel: 1000 }
+    )
+
+  it('an AgentError whose op is a host object: the guest gets a string', async () => {
+    const shared = { list: [1] }
+    const r = await runWith(thrower(() => new AgentError('m', shared as any)))
+    expect(typeof (r.result as any).op).toBe('string')
+    expect((r.result as any).op).not.toBe(shared)
+  })
+
+  it('an AgentError with a 1M-char message is capped', async () => {
+    const r = await runWith(
+      thrower(() => new AgentError('z'.repeat(1_000_000), 'boom'))
+    )
+    expect(((r.result as any).e as string).length).toBeLessThan(10_000)
+  })
+
+  it('a FORGED AgentError with a message getter: the getter never runs', async () => {
+    let ran = 0
+    const forged = Object.create(AgentError.prototype, {
+      message: {
+        get() {
+          ran++
+          return { live: true }
+        },
+      },
+      op: { value: 'boom' },
+    })
+    const r = await runWith(thrower(() => forged))
+    expect(ran).toBe(0)
     expect(typeof (r.result as any).e).toBe('string')
   })
 })

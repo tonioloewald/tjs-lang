@@ -262,9 +262,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > **A refusal at the capability boundary that is a bug ends the run (breaking).** An atom call
 > whose input does not match the atom's declared schema, a value refused on its way out to a
 > capability (too large, too deep, not plain data, over the heap ceiling or the fuel), and a
-> capability's RETURN that is not plain data (the host's contract broken) can no longer be caught
-> by `try`/`catch`. A return that is merely too large, or does not match the atom's declared output,
-> is the world's doing and stays catchable (Tonio), and every inbound copy is billed in fuel so a
+> capability's RETURN that JSON could not express (a function, a getter, a class instance: the
+> host's contract broken) can no longer be caught
+> by `try`/`catch`. A return that is merely too large or too deep (things JSON can do), or does not
+> match the atom's declared output, is the world's doing and stays catchable (Tonio), and every inbound copy is billed in fuel so a
 > retry loop pays. A value an atom THROWS reaches a guest `catch` as a capped string (a thrown
 > `{ message: obj }` used to hand over a live host object). Refusals that end the run: no catch block, later step or parent-agent step runs, and the
 > run reports the refusal. This includes a `cache` entry or key that cannot cross, and persisted
