@@ -21,11 +21,20 @@ const OPTIONAL_GLOBALS: Record<string, string> = {
   FinalizationRegistry: 'older engines',
 }
 
+/** Every package entry's SOURCE that can load in a browser (bun-plugin and the CLI cannot). */
 const SOURCES = [
   'src/index.ts',
   'src/vm/index.ts',
+  'src/vm/ast.ts',
   'src/vm/runtime.ts',
   'src/lang/eval.ts',
+  'src/lang/transpiler.ts',
+  'src/lang/browser.ts',
+  'src/css/index.ts',
+  'src/schema/index.ts',
+  'src/linalg/index.tjs',
+  'src/import-resolver/index.ts',
+  'src/lang/runtime.ts',
 ]
 
 function loadsWithout(path: string): { ok: boolean; out: string } {

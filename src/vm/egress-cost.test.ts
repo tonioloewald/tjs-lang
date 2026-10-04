@@ -135,9 +135,9 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
       { v: big(20_000) },
       opts(1e7, 1_200_000)
     )
-    // Since round 41 the copy stops AT the live heap headroom (I1), so the refusal is the walk's,
-    // naming the limit that bound it, rather than `allocate`'s after a full copy.
-    expect(refused.error?.message).toMatch(/set by the heap ceiling/)
+    // The heap gate (`allocate`, in `admit`) refuses the copy where it lands (round 42: the crossing
+    // itself is bounded by membraneMaxBytes and fuel, not the heap; vm-budgets.md, I1).
+    expect(refused.error?.message).toMatch(/Heap limit/)
     // with little fuel to spare it keeps its own error and does not overdraw
     const tight = refused.fuelUsed + 5
     const r = await new AgentVM().run(
@@ -145,7 +145,7 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
       { v: big(20_000) },
       opts(tight, 1_200_000)
     )
-    expect(r.error?.message).toMatch(/set by the heap ceiling/)
+    expect(r.error?.message).toMatch(/Heap limit/)
     expect(r.fuelUsed).toBeLessThanOrEqual(tight)
     // billed ONCE: against the same copy accepted, refusing adds the reconcile walk (measured
     // +40), not the copy a second time (+74 when round 32 billed the walk again)
@@ -158,19 +158,17 @@ describe('a refused walk is billed whatever refused it (cumulative review 6, B-1
     expect(refused.fuelUsed - accepted.fuelUsed).toBeLessThan(55)
   })
 
-  it('a copy larger than the whole heap ceiling stops AT the ceiling, billed for what it walked', () => {
-    // Since round 40 the egress budget includes the heap ceiling, so the copy is never built past
-    // it for `allocate` to refuse afterwards (I1); the refusal is the walk's, at the ceiling.
+  it('a copy larger than the whole heap ceiling is refused by the heap gate, billed for its walk', () => {
+    // The crossing is bounded by membraneMaxBytes and fuel; `allocate` refuses a copy over the
+    // ceiling where it lands, BEFORE charging anything, so the bill around it pays for the walk.
     const ctx: any = {
       fuel: { current: 1e6 },
       maxHeapBytes: 1_000,
       heapAccount: { bytes: 0, transient: 0 },
     }
-    expect(() => egressValue(ctx, 'op', big(5_000))).toThrow(
-      /1000-byte membrane budget/
-    )
-    // it walked to the 1,000-byte ceiling: 0.05 fuel at 20,000 bytes per fuel
-    expect(1e6 - ctx.fuel.current).toBeGreaterThanOrEqual(0.05)
+    expect(() => egressValue(ctx, 'op', big(5_000))).toThrow(/Heap limit/)
+    // 5,000 objects of ~34 bytes: ~8.5 fuel walked
+    expect(1e6 - ctx.fuel.current).toBeGreaterThan(5)
   })
 
   // Refusals a guest cannot build (its values are a closed domain), billed the same way: the

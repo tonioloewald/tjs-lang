@@ -771,13 +771,12 @@ describe('the membrane builds its copy: checked = forwarded (cumulative review 1
 })
 
 describe('round 40: heap-bounded egress, key order, conversion advice (review 14)', () => {
-  it('the outbound copy is never built past the heap ceiling (I1 for this door)', () => {
-    // 200k numbers is ~1.6MB: inside membraneMaxBytes, outside a 100KB heap ceiling. The walk
-    // must stop at the ceiling, not build the whole copy and let the heap gate refuse it after.
+  it('an outbound copy over the heap ceiling is refused by the heap gate where it lands (round 42)', () => {
     const ctx: any = {
       fuel: { current: 1e9 },
       maxHeapBytes: 100_000,
       heapAccount: { bytes: 0, transient: 0 },
+      heapRoots: new Set(),
     }
     let thrown: any
     try {
@@ -789,7 +788,7 @@ describe('round 40: heap-bounded egress, key order, conversion advice (review 14
     } catch (e) {
       thrown = e
     }
-    expect(thrown?.message).toMatch(/100000-byte membrane budget/)
+    expect(thrown?.message).toMatch(/Heap limit/)
   })
 
   it('key order holds when object-valued keys sit between primitives', () => {
@@ -916,45 +915,29 @@ describe('the copy is built with null prototypes: no inherited setter runs (revi
   })
 })
 
-describe('one crossing budget, against the LIVE heap, in both directions (review 15, m1 + m2)', () => {
-  it('a stale grow-only estimate does not refuse a crossing that fits (it reconciles first)', () => {
-    const ctx: any = {
-      fuel: { current: 1e9 },
-      maxHeapBytes: 1_000_000,
-      heapAccount: { bytes: 990_000, transient: 0 }, // stale: nothing is actually live
-      heapRoots: new Set(),
-    }
-    const out = egressValue(
-      ctx,
-      'op',
-      Array.from({ length: 20_000 }, (_, i) => i)
+describe('the crossing is bounded by membraneMaxBytes and fuel; the heap applies where values land (round 42)', () => {
+  // Rounds 40–41 bounded the crossing by the heap ceiling too, in the membrane's byte scale (not
+  // the heap's), so it refused values that fit, and it reconciled the whole heap on every crossing
+  // (cumulative review 16). Removed (Tonio); vm-budgets.md I1 states the exception.
+  it("review 16's false refusal: a value that fits the heap crosses and binds", async () => {
+    const obj = Object.fromEntries(
+      Array.from({ length: 2000 }, (_, i) => ['k' + i, i])
     )
-    expect(out.length).toBe(20_000)
+    const r = await run(
+      `function f() { const x = storeGet({ key: 'k' })
+        return { n: 1 } }`,
+      {},
+      {
+        fuel: 1e6,
+        maxHeapBytes: 45_000,
+        capabilities: { store: { get: async () => obj, set: async () => {} } },
+      }
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ n: 1 })
   })
 
-  it('a live heap near the ceiling bounds the outbound copy, and the refusal says so', () => {
-    const held = Array.from({ length: 100_000 }, (_, i) => i) // ~800KB live
-    const ctx: any = {
-      fuel: { current: 1e9 },
-      maxHeapBytes: 1_000_000,
-      heapAccount: { bytes: 0, transient: 0 },
-      heapRoots: new Set([held]),
-    }
-    ctx.heapAccount.bytes = 900_000
-    let message = ''
-    try {
-      egressValue(
-        ctx,
-        'op',
-        Array.from({ length: 50_000 }, (_, i) => i)
-      )
-    } catch (e: any) {
-      message = e.message
-    }
-    expect(message).toMatch(/set by the heap ceiling/)
-  })
-
-  it('an INBOUND return larger than the heap ceiling is a catchable limit, named', async () => {
+  it('an INBOUND return over the heap ceiling is refused at its bind, catchably', async () => {
     const big = Array.from({ length: 300_000 }, (_, i) => i) // ~2.4MB
     const store = { get: async () => big, set: async () => {} }
     const r = await run(
@@ -966,6 +949,29 @@ describe('one crossing budget, against the LIVE heap, in both directions (review
       { fuel: 1e6, maxHeapBytes: 1_000_000, capabilities: { store } }
     )
     expect(r.error).toBeUndefined()
-    expect((r.result as any).caught).toMatch(/set by the heap ceiling/)
+    expect((r.result as any).caught).toMatch(/Heap limit exceeded/)
+  })
+
+  it("review 16's cost case: crossings near the ceiling do not reconcile the heap each time", async () => {
+    // K small crossings while ~half the heap is held: fuel grows linearly in K (no per-crossing
+    // whole-heap walk). Measured against K/10 crossings of the same program.
+    const SRC = (k: number) => `function f(held: [0]) {
+      let i = 0
+      while (i < ${k}) { const x = storeGet({ key: 'k' }); i = i + 1 }
+      return { n: held.length }
+    }`
+    const held = Array.from({ length: 50_000 }, (_, i) => i)
+    const opts = {
+      fuel: 1e7,
+      maxHeapBytes: 1_000_000,
+      capabilities: { store: { get: async () => 1, set: async () => {} } },
+    }
+    const few = await run(SRC(20), { held }, opts)
+    const many = await run(SRC(200), { held }, opts)
+    expect(few.error).toBeUndefined()
+    expect(many.error).toBeUndefined()
+    // ~5 fuel per iteration is the loop itself; a whole-heap reconcile per crossing (round 41)
+    // adds ~50 fuel per walk for 50k nodes
+    expect((many.fuelUsed - few.fuelUsed) / 180).toBeLessThan(20)
   })
 })

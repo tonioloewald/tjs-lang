@@ -292,6 +292,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > in ~143ms (~127ms before), where the per-element descriptor read that keeps getters from
 > running dominates, as it did.
 >
+> **The membrane's copy is built safely, and the VM loads in any page.** Copies are built with a
+> null prototype and given their real one when complete, so a polluted `Object.prototype` setter
+> never runs on capability data and frozen intrinsics (SES) do not refuse ordinary JSON. A
+> crossing is bounded by `membraneMaxBytes` and (outbound) the remaining fuel; the heap ceiling
+> applies where the value lands. A refusal for size names the limit that set it. Fixed in the
+> same rounds: rc.2 builds briefly read `SharedArrayBuffer` at module scope, which threw on
+> import in any browser page that is not cross-origin isolated (every bundle is now load-tested
+> without optional globals).
+>
 > **Persisted ASTs:** a stored AST (`procedureStore`, a saved builder program) containing a
 > key-less `memoize` or `cache` now fails when it runs, with "a key is required". Add a key.
 >

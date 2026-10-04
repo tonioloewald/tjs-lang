@@ -4874,7 +4874,7 @@ export function egressValue(
   const payable = ctx.fuel
     ? Math.max(0, ctx.fuel.current) / FUEL_PER_ALLOCATED_BYTE
     : Infinity
-  const { budget, boundBy } = crossingBudget(ctx, cap, op, payable)
+  const { budget, boundBy } = crossingBudget(cap, payable)
   // A refused crossing is billed the WORK IT DID, reported on every exit of the walk (`walked` is
   // a required field of a refusal, so a path that does not report cannot compile), less what
   // the crossing has already spent (`allocate` charges the copy, and a reconcile it triggers, even
@@ -4946,9 +4946,7 @@ function ingressValue(
   outputSchema: unknown
 ): unknown {
   const { budget, boundBy } = crossingBudget(
-    ctx,
-    ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES,
-    op
+    ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
   )
   const crossed = membraneValue(result, budget)
   const exhausted = chargeWalkFuel(
@@ -5048,42 +5046,20 @@ function capThrown(m: string): string {
 }
 
 /**
- * The budget a crossing's copy is BUILT within: the smallest of the cap, what the remaining fuel
- * can pay (outbound), and the heap headroom. The membrane builds its copy as it walks, so a gate
- * after the walk alone would let it build past the heap ceiling first (I1; cumulative reviews 14
- * and 15). One function for every crossing: round 40 bounded egress only, and counted transient
- * bytes but not the LIVE heap.
- *
- * The live heap is the estimate (`heapAccount.bytes`, which only grows), unless that would make
- * the headroom bind: then it is reconciled first (charged), so a stale over-estimate cannot refuse
- * a crossing that fits.
+ * The budget a crossing's copy is BUILT within: the cap (`membraneMaxBytes`) and, outbound, what
+ * the remaining fuel can pay. NOT the heap ceiling (Tonio, 2026-10-04): rounds 40–41 added a heap
+ * term, measured in the membrane's byte scale while the heap is measured by `estimateBytes`, so it
+ * refused values that fit the heap, and it reconciled the whole heap on every crossing
+ * (cumulative review 16). The heap ceiling applies where the value LANDS (outbound at `allocate`
+ * in `admit`, inbound at the bind), and I1 in docs/vm-budgets.md states this bounded exception.
  */
 function crossingBudget(
-  ctx: RuntimeContext,
   cap: number,
-  op: string,
   payable = Infinity
 ): { budget: number; boundBy: string } {
-  let budget = cap
-  let boundBy = 'membraneMaxBytes'
-  if (payable < budget) {
-    budget = payable
-    boundBy = 'the remaining fuel'
-  }
-  const account = ctx.heapAccount
-  if (!account) return { budget, boundBy }
-  const max = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
-  if (max - account.bytes - account.transient < budget && ctx.heapRoots) {
-    const live = reconcileHeap(ctx, [], op)
-    if (live === undefined) throw new AgentError('Out of Fuel', op)
-    account.bytes = live
-  }
-  const headroom = Math.max(0, max - account.bytes - account.transient)
-  if (headroom < budget) {
-    budget = headroom
-    boundBy = 'the heap ceiling (maxHeapBytes)'
-  }
-  return { budget, boundBy }
+  return payable < cap
+    ? { budget: payable, boundBy: 'the remaining fuel' }
+    : { budget: cap, boundBy: 'membraneMaxBytes' }
 }
 
 /** A size refusal names the limit that bound it (round 40 always said "membrane budget"). */
