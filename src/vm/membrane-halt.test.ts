@@ -629,7 +629,7 @@ describe('shared memory and unreadable values (cumulative review 12, B2 and foll
       { fuel: 1000, capabilities: { store } }
     )
     view[0] = 99
-    expect(r.error?.message).toMatch(/shared or non-standard memory/)
+    expect(r.error?.message).toMatch(/Capability boundary rejected/)
   })
 
   it("a Proxy whose trap throws during the walk is the host's: the run ends", async () => {
@@ -653,19 +653,118 @@ describe('shared memory and unreadable values (cumulative review 12, B2 and foll
     expect(r.error?.message).toMatch(/could not be read as data/)
   })
 
-  it('a clone that overflows the stack is a limit; any other clone failure is shape', () => {
+  it('the membrane never calls structuredClone: a stub that throws changes nothing (round 39)', () => {
     const real = globalThis.structuredClone
     try {
       ;(globalThis as any).structuredClone = () => {
-        throw new RangeError('Maximum call stack size exceeded')
+        throw new Error('structuredClone must not be called')
       }
-      expect((membraneValue({ a: 1 }, 1e6) as any).kind).toBe('limit')
-      ;(globalThis as any).structuredClone = () => {
-        throw new DOMException('could not be cloned', 'DataCloneError')
-      }
-      expect((membraneValue({ a: 1 }, 1e6) as any).kind).toBe('shape')
+      const r = membraneValue(
+        { a: [1, { b: 'c' }], d: new Date(5) },
+        1e6
+      ) as any
+      expect(r.ok).toBe(true)
+      expect(r.value).toEqual({ a: [1, { b: 'c' }], d: new Date(5) })
     } finally {
       ;(globalThis as any).structuredClone = real
     }
+  })
+})
+
+describe('the membrane builds its copy: checked = forwarded (cumulative review 13, round 39)', () => {
+  const crossed = (v: unknown) => membraneValue(v, 1e8) as any
+
+  // Every disguise from review 13: refused, or read as the plain object it presents (whose slots
+  // then never cross). Never a live or mis-sized copy.
+  it('a SAB view with an own `buffer` shadow is refused', () => {
+    const view = new Uint8Array(new SharedArrayBuffer(8))
+    Object.defineProperty(view, 'buffer', { value: new ArrayBuffer(8) })
+    expect(crossed({ v: view }).kind).toBe('shape')
+  })
+
+  it('a prototype-swapped SharedArrayBuffer crosses as an empty plain object, never shared', () => {
+    const sab = new SharedArrayBuffer(8)
+    Object.setPrototypeOf(sab, Object.prototype)
+    const r = crossed({ v: sab })
+    expect(r.ok).toBe(true)
+    expect(r.value.v).toEqual({})
+    expect(r.value.v).not.toBe(sab)
+    expect(Object.getPrototypeOf(r.value.v)).toBe(Object.prototype)
+  })
+
+  it('a small view over 50MB is refused (it was charged 43 bytes and cloned 50MB)', () => {
+    const view = new Uint8Array(new ArrayBuffer(50_000_000), 0, 1)
+    expect(crossed({ v: view }).kind).toBe('shape')
+  })
+
+  it('an own byteLength shadow and prototype-swapped ArrayBuffer and Map carry nothing', () => {
+    const ab = new ArrayBuffer(10_000_000)
+    Object.setPrototypeOf(ab, Object.prototype)
+    const m = new Map(Array.from({ length: 20_000 }, (_, i) => [i, i]))
+    Object.setPrototypeOf(m, Object.prototype)
+    const r = membraneValue({ ab, m }, 1024) as any
+    expect(r.ok).toBe(true)
+    expect(r.value).toEqual({ ab: {}, m: {} })
+    expect(r.bytes).toBeLessThan(1024)
+  })
+
+  it('a Blob, RegExp, Error, typed array, Map and Set are refused', () => {
+    for (const v of [
+      new Blob(['x']),
+      /r/,
+      new Error('e'),
+      new Float32Array(2),
+      new Map(),
+      new Set(),
+    ])
+      expect(crossed({ v }).kind).toBe('shape')
+  })
+
+  it('Dates cross BY BRAND, as fresh Dates (a subclass and a prototype-swapped Date included)', () => {
+    class D extends Date {}
+    const swapped = new Date(7)
+    Object.setPrototypeOf(swapped, Object.prototype)
+    const r = crossed({ a: new Date(1), b: new D(2), c: swapped })
+    expect(r.ok).toBe(true)
+    for (const [k, t] of [
+      ['a', 1],
+      ['b', 2],
+      ['c', 7],
+    ] as const) {
+      expect(Object.getPrototypeOf(r.value[k])).toBe(Date.prototype)
+      expect(r.value[k].getTime()).toBe(t)
+    }
+  })
+
+  it('the copy is never the input, at any depth; cycles and sharing are preserved', () => {
+    const shared = { s: 1 }
+    const input: any = { a: [shared, shared], n: Object.create(null) }
+    input.self = input
+    const r = crossed(input)
+    expect(r.ok).toBe(true)
+    expect(r.value).not.toBe(input)
+    expect(r.value.a[0]).not.toBe(shared)
+    expect(r.value.a[0]).toBe(r.value.a[1])
+    expect(r.value.self).toBe(r.value)
+    expect(Object.getPrototypeOf(r.value.n)).toBe(null)
+  })
+
+  it('a key named __proto__ stays DATA in the copy', () => {
+    const input = JSON.parse('{"__proto__": {"polluted": true}, "x": 1}')
+    const r = crossed(input)
+    expect(r.ok).toBe(true)
+    expect(Object.getPrototypeOf(r.value)).toBe(Object.prototype)
+    expect(Object.prototype.hasOwnProperty.call(r.value, '__proto__')).toBe(
+      true
+    )
+    expect(({} as any).polluted).toBeUndefined()
+  })
+
+  it('sparse arrays keep their holes, and key order is preserved', () => {
+    const arr = [1, , 3] // eslint-disable-line no-sparse-arrays
+    const r = crossed({ z: 1, a: 2, arr })
+    expect(Object.keys(r.value)).toEqual(['z', 'a', 'arr'])
+    expect(1 in r.value.arr).toBe(false)
+    expect(r.value.arr.length).toBe(3)
   })
 })

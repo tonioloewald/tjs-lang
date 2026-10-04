@@ -60,12 +60,21 @@ describe('membrane invariant — no direct reads of host values', () => {
     ).toEqual([])
   })
 
-  it('still reaches for descriptors and the intrinsic iterators', () => {
+  it('still reaches for descriptors and brand checks', () => {
     // The positive control: a pass that deleted the walk entirely would satisfy both
-    // checks above. Assert the safe machinery is actually present.
+    // checks above. Assert the safe machinery is actually present. (Since round 39 Map and Set
+    // are REFUSED rather than walked, so the intrinsic-iterator assertions became a Date brand
+    // assertion: Tonio, 2026-10-04.)
     expect(membraneBody).toMatch(/readOwnData\(/)
+    expect(membraneBody).toMatch(/readArrayData\(/)
     expect(source).toMatch(/Object\.getOwnPropertyDescriptor/)
-    expect(membraneBody).toMatch(/Map\.prototype\.entries\.call/)
-    expect(membraneBody).toMatch(/Set\.prototype\.values\.call/)
+    expect(source).toMatch(/Date\.prototype\.getTime\.call/)
+  })
+
+  it('builds its own copy: no structuredClone (round 39)', () => {
+    // structuredClone copies internal SLOTS the walk never sees, so what was checked and what
+    // was forwarded were two representations (cumulative review 13). The membrane builds the
+    // copy from exactly what it read.
+    expect(membraneBody).not.toMatch(/structuredClone/)
   })
 })

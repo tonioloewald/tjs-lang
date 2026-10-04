@@ -277,6 +277,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > work it did, and each mattered only because a guest could catch the refusal and retry it in a
 > loop. A refusal that ends the run costs at most one bounded walk (Tonio).
 >
+> **The membrane builds its copy: JSON plus Date (breaking).** Every value crossing the capability
+> boundary (capability returns, IO-atom inputs, run arguments) is now a copy the membrane builds
+> from exactly what it read, instead of a `structuredClone` of the original. `structuredClone`
+> copies internal slots the check never saw, so a typed array over a `SharedArrayBuffer` with a
+> shadowed `buffer`, a prototype-swapped buffer, or a 1-byte view over 50MB was checked as one
+> thing and forwarded as another (cumulative review 13). What crosses is plain objects, arrays,
+> strings, numbers, booleans, null/undefined, and `Date` (by its internal time). **`Map`, `Set`,
+> typed arrays, `ArrayBuffer`, `RegExp` and `Error` no longer cross**: a capability returning one,
+> or a run argument containing one, is refused. Convert them to JSON first (a Map to an object or
+> an array of pairs). Shared references and cycles are preserved, as before.
+>
 > **Persisted ASTs:** a stored AST (`procedureStore`, a saved builder program) containing a
 > key-less `memoize` or `cache` now fails when it runs, with "a key is required". Add a key.
 >

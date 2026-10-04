@@ -103,11 +103,14 @@ const capabilities = {
 await vm.run(agent, args, { capabilities })
 ```
 
-**Capabilities must return structured-cloneable plain data.** Every value a capability
-returns crosses a `structuredClone` membrane before it reaches guest state, so it must not
-carry functions or live host references — a `fetch` capability returning a live `Response`
-(with `.json()`/`.text()`) is **rejected** at the boundary; return the fields the guest reads
-as a plain object (`{ ok, status, body }`). Oversized returns are also rejected before the
+**Capabilities must return JSON data, plus `Date`.** Every value a capability returns crosses a
+membrane that BUILDS a fresh copy of it (0.14.0): plain objects (prototype `Object.prototype` or
+`null`), arrays, strings, numbers, booleans, `null`/`undefined`, and `Date` (copied by its internal
+time, so a disguised one cannot lie). Anything else is **rejected** at the boundary and ends the
+run: functions, `Map`, `Set`, typed arrays, `ArrayBuffer`, `RegExp`, `Error`, class instances. A
+`fetch` capability returning a live `Response` (with `.json()`/`.text()`) is rejected; return the
+fields the guest reads as a plain object (`{ ok, status, body }`), and convert a `Map` to an object
+or an array of pairs. Oversized returns are also rejected before the
 copy allocates; the cap is the `membraneMaxBytes` run option (default 4 MB), which you may
 need to raise for large-JSON or base64 `dataUrl` payloads.
 
@@ -791,7 +794,7 @@ Number.parseFloat('3.14') // 3.14
 ### Set
 
 `Set(items)` makes a set of unique items. A set **is an array** of its items (0.14.0) — data that
-JSON and `structuredClone` keep as it is — whose methods the VM supplies. `size` is its length.
+JSON and the capability boundary keep as it is — whose methods the VM supplies. `size` is its length.
 Change it with its own methods: `push` and `Object.assign` are refused on a set.
 
 ```javascript

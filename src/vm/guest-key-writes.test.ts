@@ -33,6 +33,8 @@ const ALLOWED: Record<string, string> = {
     "`op` is this atom's registered name, fixed when the HOST defined it",
   'admission.ts › admitRunOptions › out[name]':
     '`name` iterates RUN_OPTION_KINDS (host), and `out` is null-prototype',
+  'runtime.ts › defineData › Object.defineProperty':
+    "the membrane's own copy: an own DATA property defined (not assigned), so a key named __proto__ is an ordinary property and never reaches a prototype setter",
   'runtime.ts › createChildScope › Object.defineProperty':
     "the literal key 'error' on a VM context",
   'runtime.ts › sigTable › out[name]':

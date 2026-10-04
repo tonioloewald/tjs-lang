@@ -244,33 +244,24 @@ describe('wide values: the walk stops at its budget, and a refusal reports what 
     expect(reads).toBeLessThan(100_000 + 1_000)
   })
 
-  it('a refused Map or Set stops reading entries at the budget', () => {
+  it('a Map or Set is refused by KIND, without reading a single entry (round 39)', () => {
     let read = 0
     const big = new Map<number, number>()
     for (let i = 0; i < 200_000; i++) big.set(i, i)
-    const realNext = Map.prototype.entries
-    // count entries actually pulled from the intrinsic iterator
+    const realEntries = Map.prototype.entries
     Map.prototype.entries = function (this: Map<any, any>) {
-      const it = realNext.call(this)
-      return {
-        next: () => {
-          read++
-          return it.next()
-        },
-        [Symbol.iterator]() {
-          return this
-        },
-      } as any
+      read++
+      return realEntries.call(this)
     }
     try {
       const ctx: any = { fuel: { current: 1e6 }, membraneMaxBytes: 1024 }
       expect(() => egressValue(ctx, 'op', { m: big })).toThrow(
-        /membrane budget/
+        /only plain data \(and Date\) crosses/
       )
     } finally {
-      Map.prototype.entries = realNext
+      Map.prototype.entries = realEntries
     }
-    expect(read).toBeLessThan(1_000)
+    expect(read).toBe(0)
   })
 })
 
@@ -278,16 +269,9 @@ describe('the early bails never refuse what fits (review 9)', () => {
   // A value is accepted EXACTLY when its full-walk cost fits the budget. Round 34's Map/Set bail
   // assumed every queued value costs at least 8, while a repeated reference cost 0, so a Map of
   // shared values that fitted was refused. A repeat now costs one slot, as in the heap model.
+  // (Maps and Sets no longer cross at all since round 39; the arrays and objects remain.)
   const shared = { a: 1 }
   const shapes: Array<[string, unknown]> = [
-    [
-      'a Map of shared values',
-      new Map(Array.from({ length: 1000 }, (_, i) => [i, shared])),
-    ],
-    [
-      'a Set of shared arrays',
-      new Set(Array.from({ length: 500 }, () => [shared, shared])),
-    ],
     ['an array of shared objects', Array.from({ length: 1000 }, () => shared)],
     [
       'an object of shared values',

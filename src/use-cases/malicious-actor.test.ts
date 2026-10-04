@@ -560,7 +560,11 @@ describe('Use Case: Malicious Actor', () => {
         })
       }
 
-      it('an ordinary Map still crosses — the fix must not ban plain data', async () => {
+      // Since 0.14.0-rc.2 round 39 (Tonio, 2026-10-04) the membrane BUILDS its copy, and only
+      // JSON data plus Date crosses: a Map is refused, whatever its contents. (This row used to
+      // assert an ordinary Map crossed; that relied on structuredClone copying slots the walk
+      // never saw, which is how a disguised SharedArrayBuffer crossed live: cumulative review 13.)
+      it('an ordinary Map is refused: JSON cannot express it', async () => {
         const VM = new AgentVM()
         const store = {
           get: async () => new Map([['a', 1]]),
@@ -571,8 +575,9 @@ describe('Use Case: Malicious Actor', () => {
           {},
           { capabilities: { store } }
         )
-        expect(result.error).toBeUndefined()
-        expect(result.result?.data).toBeInstanceOf(Map)
+        expect(result.error?.message).toMatch(
+          /only plain data \(and Date\) crosses/
+        )
       })
 
       it('an oversized PLAIN Map is still rejected on budget', async () => {
@@ -655,7 +660,13 @@ describe('Use Case: Malicious Actor', () => {
           { capabilities: { store }, membraneMaxBytes: 1000 }
         )
         expect(result.error, `${name} should be rejected`).toBeDefined()
-        expect(result.error?.message).toMatch(/membrane budget/)
+        // Binary and collection types are refused by KIND since round 39 (JSON cannot express
+        // them), before their size matters; the plain array is still refused by budget.
+        expect(result.error?.message).toMatch(
+          name === 'array of primitives'
+            ? /membrane budget/
+            : /only plain data \(and Date\) crosses/
+        )
       }
     })
 
@@ -670,17 +681,26 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.error?.message).toMatch(/Capability boundary/)
     })
 
-    it('small binary/collection payloads pass through, cloned', async () => {
+    it('small binary and collection payloads are refused too (round 39: JSON + Date only)', async () => {
       const VM = new AgentVM()
-      const store = {
-        get: async () => new Map([['a', 1]]),
-        set: async () => {},
+      for (const val of [
+        new Map([['a', 1]]),
+        new Set([1]),
+        new Uint8Array(4),
+        new ArrayBuffer(4),
+        /re/,
+        new Error('e'),
+      ]) {
+        const store = { get: async () => val, set: async () => {} }
+        const result = await VM.run(
+          readAgent(),
+          {},
+          { capabilities: { store } }
+        )
+        expect(result.error?.message).toMatch(
+          /only plain data \(and Date\) crosses/
+        )
       }
-      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
-      expect(result.error).toBeUndefined()
-      expect([...(result.result.data as Map<string, number>)]).toEqual([
-        ['a', 1],
-      ])
     })
 
     it('terminates on a cyclic capability return (clone once, no infinite walk)', async () => {

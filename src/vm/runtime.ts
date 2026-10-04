@@ -637,27 +637,6 @@ export type MembraneResult =
     }
 
 /**
- * The prototypes plain data may have. Anything else is a CLASS INSTANCE, and the copy keeps
- * only its own data properties: a getter on the prototype, or a `#private` field, silently
- * reads as `undefined` on the other side. A Firestore Timestamp's `seconds` is exactly that,
- * and a negated rule over it flipped deny to ALLOW (0.14.0 final re-review 2, M-2). Refused
- * loudly instead, as an own getter already is. (Arrays, Date, Map, Set and typed arrays have
- * their own branches.)
- */
-const PLAIN_PROTOTYPES = new Set<unknown>([
-  Object.prototype,
-  null,
-  RegExp.prototype,
-  Error.prototype,
-  TypeError.prototype,
-  RangeError.prototype,
-  SyntaxError.prototype,
-  ReferenceError.prototype,
-  EvalError.prototype,
-  URIError.prototype,
-])
-
-/**
  * `membraneValue` with the refusal naming WHO handed the value over — the party to go and
  * fix. Every reason is phrased for a capability return, so run arguments said "capability
  * return contains …" and pointed the host at the wrong code. A wrapper rather than a
@@ -685,8 +664,10 @@ export function membraneValue(
   value: unknown,
   maxBytes: number,
   /**
-   * Called with the walked size BETWEEN the walk and the copy, so a caller can charge for the
-   * copy before it exists (the outbound membrane passes `allocate`). It may throw.
+   * Called with the size of the copy once it is built, so a caller can charge for it (the outbound
+   * membrane passes `allocate`). The copy is built INSIDE `maxBytes`, which the outbound caller
+   * derives from the fuel the run can pay, so what it allocates is bounded by what it can pay.
+   * It may throw, and the copy is then garbage.
    */
   admit?: (bytes: number) => void
 ): MembraneResult {
@@ -709,16 +690,32 @@ export function membraneValue(
     }
   }
 
-  // Objects/arrays: iterative, cycle-safe pre-walk for kind + budget.
+  // Objects/arrays: one iterative, cycle-safe pass that CHECKS and COPIES together. Every value is
+  // read once, from an own data descriptor, and the copy is built from exactly that read: what is
+  // checked is what is forwarded, by construction (Tonio, 2026-10-04; cumulative review 13: the walk
+  // checked the SURFACE while `structuredClone` copied the internal SLOTS, so a shadowed `buffer`, a
+  // swapped prototype or a small view over a large buffer was checked as one thing and forwarded as
+  // another). Shared references and cycles are preserved through `copies`, as `structuredClone`
+  // preserved them; a repeat costs one slot.
   let bytes = 0
-  const seen = new WeakSet<object>()
-  const stack: Array<{ v: any; depth: number }> = [{ v: value, depth: 0 }]
+  const copies = new WeakMap<object, unknown>()
+  let result: unknown
+  const stack: Slot[] = [
+    {
+      v: value,
+      depth: 0,
+      put: (c) => {
+        result = c
+      },
+    },
+  ]
   try {
     while (stack.length) {
-      const { v, depth } = stack.pop()!
+      const { v, depth, put } = stack.pop()!
       if (v === null || v === undefined) {
         bytes += 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        put(v)
         continue
       }
       const vt = typeof v
@@ -733,13 +730,14 @@ export function membraneValue(
       if (vt === 'string') {
         bytes += (v as string).length * 2 + 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        put(v)
         continue
       }
       if (vt !== 'object') {
-        // number / boolean — a large array/Map/Set of primitives must still be
-        // budgeted, so check here too (this branch used to `continue` unchecked).
+        // number / boolean
         bytes += 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        put(v)
         continue
       }
       if (depth > MEMBRANE_MAX_DEPTH) {
@@ -750,150 +748,72 @@ export function membraneValue(
           reason: 'the value exceeds the membrane depth limit',
         }
       }
-      // A cycle or shared reference: structuredClone preserves it, so the value is not counted
-      // again, but the SLOT costs a pointer, as in the heap model ("every slot costs a pointer,
-      // repeat references included"). That makes the walk's early bails ("every queued value costs
-      // at least 8") true: round 34's Map/Set bail refused a Map of shared values that fitted by
-      // its real cost (cumulative review 9).
-      if (seen.has(v)) {
+      // A cycle or shared reference: the SLOT costs a pointer, as in the heap model, and the copy
+      // shares its target as the original did.
+      if (copies.has(v)) {
         bytes += 8
         if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        put(copies.get(v))
         continue
       }
-      seen.add(v)
       bytes += 16
       if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       if (Array.isArray(v)) {
-        // `Object.keys` on an array yields its indices AND any non-index own enumerable
-        // property. Both are needed: the index branch was hardened separately and the
-        // non-index one was never visited at all, so `arr.meta = { get(){…} }` ran host
-        // code, leaked its return into guest state, leaked a thrown host message into
-        // `result.error`, and carried an unbudgeted 5MB string past a 4MB cap —
-        // `structuredClone` serialises those properties even though the walk skipped them.
-        //
-        // Read INCREMENTALLY, with the running budget, so an oversized array is refused
-        // without first being enumerated. `Object.keys` on a 2,000,000-element array costs
-        // 371ms and 52MB by itself — so rejecting a payload that exceeds a 1,024-byte
-        // budget by four orders of magnitude cost 549ms and 103MB, all of it spent to say
-        // no. The module docstring promises rejection "BEFORE the clone allocates (the OOM
-        // guard)", and it did avoid the clone while allocating the same order of memory
-        // itself. See `membrane-budget.test.ts`.
-        const own = readArrayData(v, bytes, maxBytes, stack, depth)
+        const own = readArrayData(v, bytes, maxBytes, stack, depth, copies)
         if (!own.ok) return own
         bytes = own.bytes
-      } else if (v instanceof Date) {
-        if (Object.getPrototypeOf(v) !== Date.prototype)
-          return nonIntrinsic(bytes, 'a Date subclass')
-        bytes += 32 // fixed-size builtin
-        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      } else if (ArrayBuffer.isView(v)) {
-        // An intrinsic view over an ordinary ArrayBuffer only. `structuredClone` SHARES a
-        // SharedArrayBuffer instead of copying it, so a capability could hand the guest live shared
-        // memory and change it afterwards (cumulative review 12, B2). JSON cannot express shared
-        // memory: 'shape'. A subclass can override how it is read, as with Map/Set.
-        if (!INTRINSIC_VIEW_PROTOTYPES.has(Object.getPrototypeOf(v)))
-          return nonIntrinsic(bytes, 'a typed-array or DataView subclass')
-        if (
-          Object.getPrototypeOf((v as ArrayBufferView).buffer) !==
-          ArrayBuffer.prototype
-        )
-          return nonIntrinsic(
-            bytes,
-            'a view over shared or non-standard memory (structuredClone would share it, not copy it)'
-          )
-        // charge the REAL backing size, not a flat estimate: a 500MB Uint8Array must not cross a
-        // small budget.
-        bytes += (v as ArrayBufferView).byteLength
-        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      } else if (
-        v instanceof ArrayBuffer &&
-        Object.getPrototypeOf(v) === ArrayBuffer.prototype
-      ) {
-        bytes += v.byteLength
-        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-      } else if (v instanceof Map || v instanceof Set) {
-        // Walk entries so a large collection is both budgeted and kind-checked (a value
-        // could itself be a function / host ref). structuredClone clones keys and values,
-        // so both cross the boundary.
-        //
-        // Read through the INTRINSIC iterator, and refuse a subclass outright. `for (const
-        // x of v)` dispatches to `Symbol.iterator`, which a guest-supplied object controls,
-        // while `structuredClone` reads the internal slots — so the two disagreed, and a
-        // `class extends Map` with a lying iterator presented itself as EMPTY to this walk
-        // while 20,000 real entries crossed a 1024-byte `membraneMaxBytes` intact. Verified
-        // in both JSC and V8. Three guarantees failed at once: the documented OOM guard
-        // ("rejects oversized payloads BEFORE the clone allocates") was simply not enforced
-        // for Map/Set, MEMBRANE_MAX_DEPTH was evadable by nesting, and host code ran during
-        // the walk.
-        const proto = Object.getPrototypeOf(v)
-        const isMap = v instanceof Map
-        if (proto !== (isMap ? Map.prototype : Set.prototype)) {
-          return {
-            ok: false,
-            kind: 'shape',
-            walked: bytes,
-            reason: `capability return contains a ${
-              isMap ? 'Map' : 'Set'
-            } subclass; the boundary takes plain data only, because a subclass can override how it is read`,
-          }
-        }
-        bytes += 16
-        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        // `.call` on the intrinsic method, driven by hand — never `for…of`, which would
-        // consult the object's own `Symbol.iterator` again.
-        const it = isMap
-          ? Map.prototype.entries.call(v as Map<any, any>)
-          : Set.prototype.values.call(v as Set<any>)
-        const next = it.next.bind(it)
-        // Checked PER ENTRY: every queued value costs at least 8, so the walk stops at its budget
-        // instead of queueing a million entries first (cumulative review 8). The iterator is lazy,
-        // so stopping here stops the work.
-        let queued = 0
-        for (let step = next(); !step.done; step = next()) {
-          queued += isMap ? 2 : 1
-          if (bytes + queued * 8 > maxBytes)
-            return overBudget(maxBytes, bytes + queued * 8)
-          if (isMap) {
-            const [mk, mv] = step.value as [any, any]
-            stack.push({ v: mk, depth: depth + 1 })
-            stack.push({ v: mv, depth: depth + 1 })
-          } else {
-            stack.push({ v: step.value, depth: depth + 1 })
-          }
-        }
-      } else {
-        // Read DESCRIPTORS, not values. `v[k]` invokes a getter — so the walk that
-        // exists to keep host code out of guest state would itself run host code,
-        // before structuredClone is even reached and regardless of the verdict. A
-        // getter can throw, mutate, or stall, so that is a side-effect vector on the
-        // boundary, not merely a data-leak one.
-        //
-        // Accessors are rejected rather than evaluated: there is no way to learn what
-        // one returns without running it, and structuredClone would run it again
-        // anyway. A capability must hand over plain data.
-        const proto = Object.getPrototypeOf(v)
-        if (!PLAIN_PROTOTYPES.has(proto)) {
-          const name = proto?.constructor?.name || 'an unnamed class'
-          return {
-            ok: false,
-            kind: 'shape',
-            walked: bytes,
-            reason: `capability return contains an instance of ${name}; only plain data crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
-          }
-        }
-        const own = readOwnData(v, bytes, maxBytes)
-        if (!own.ok) return own
-        bytes += own.bytes
-        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
-        for (const value of own.values)
-          stack.push({ v: value, depth: depth + 1 })
+        put(own.copy)
+        continue
       }
+      // A Date by BRAND: the intrinsic `getTime` reads the internal slot and cannot be shadowed
+      // (a Proxy or a disguised object throws). Copied as a fresh Date.
+      const time = dateTime(v)
+      if (time !== undefined) {
+        bytes += 32
+        if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+        const copy = new globalThis.Date(time)
+        copies.set(v, copy)
+        put(copy)
+        continue
+      }
+      // Plain data only: `Object.prototype` or a null prototype. A class instance's prototype
+      // getters and private fields would silently read as undefined on the other side (a
+      // Firestore Timestamp's `seconds`, and a negated rule over it flipped deny to ALLOW: 0.14.0
+      // final re-review 2, M-2). Everything else is refused, not converted: JSON cannot express a Map, a Set, a typed array, an ArrayBuffer, a RegExp, an
+      // Error or a class instance. (A disguised one, with its prototype swapped to a plain one,
+      // is read as the plain object it presents and copied as that: its slots never cross.)
+      const proto = Object.getPrototypeOf(v)
+      if (proto !== Object.prototype && proto !== null) {
+        const name = proto?.constructor?.name || 'an unnamed class'
+        return {
+          ok: false,
+          kind: 'shape',
+          walked: bytes,
+          reason: `capability return contains an instance of ${name}; only plain data (and Date) crosses, and a class instance's prototype getters and private fields would silently read as undefined — convert it to a plain object first`,
+        }
+      }
+      const own = readOwnData(v, bytes, maxBytes)
+      if (!own.ok) return own
+      bytes += own.bytes
+      if (bytes > maxBytes) return overBudget(maxBytes, bytes)
+      const copy: Record<string, unknown> =
+        proto === null ? Object.create(null) : {}
+      copies.set(v, copy)
+      // Keys are defined in the original order NOW, so the copy's key order matches although
+      // the walk fills values last-in-first-out.
+      for (const [key] of own.entries) defineData(copy, key, undefined)
+      for (const [key, child] of own.entries)
+        stack.push({
+          v: child,
+          depth: depth + 1,
+          put: (c) => defineData(copy, key, c),
+        })
+      put(copy)
     }
   } catch (e) {
-    // Host code ran during the walk and threw (a Proxy trap, an exotic object): the walk cannot
-    // vouch for this value, and JSON cannot make a walk throw, so it is the HOST's ('shape'), billed
-    // for what was walked. It used to escape as an exception: catchable and unbilled (cumulative
-    // review 12).
+    // Host code ran during the walk and threw (a Proxy trap): the walk cannot vouch for this
+    // value, and JSON cannot make a walk throw, so it is the HOST's ('shape'), billed for what
+    // was walked (cumulative review 12).
     return {
       ok: false,
       kind: 'shape',
@@ -902,78 +822,28 @@ export function membraneValue(
     }
   }
   admit?.(bytes)
-  try {
-    return { ok: true, value: structuredClone(value), bytes }
-  } catch (e: any) {
-    return {
-      ok: false,
-      // the walk admitted every node as plain data, so a clone failure is either the stack (deep
-      // JSON can do that: a limit) or something the walk could not see (the host's)
-      kind: e instanceof RangeError ? 'limit' : 'shape',
-      walked: bytes,
-      reason: `capability return is not structured-cloneable: ${
-        e?.message || e
-      }`,
-    }
-  }
+  return { ok: true, value: result, bytes }
 }
 
-/**
- * An array's own data, read against the running budget and abandoned the moment it blows.
- *
- * Two scans, because the two failure modes want opposite strategies:
- *
- * 1. **By index, up to `v.length`.** A dense array is refused after roughly
- *    `remaining / 8` elements — nothing is materialised, so a 2,000,000-element payload
- *    against a small budget stops almost immediately instead of allocating 52MB of index
- *    strings to reach the same verdict.
- *
- * 2. **`Object.keys` for the rest**, reached only when the index scan finished inside the
- *    budget. That is the sparse case, and it is exactly where `Object.keys` is CHEAP —
- *    it enumerates own properties, not the length range, so a length-1e9 array holding
- *    three values yields three keys. Without the `PROBE_CAP` handoff, scanning such an
- *    array by index would be a billion iterations: the naive fix for the dense DoS is a
- *    new sparse one.
- *
- * `Object.keys` also finds NON-INDEX own properties (`arr.meta = …`), which
- * `structuredClone` serialises and which therefore must be walked and charged for their
- * names. Those are the second scan's real job; the sparse handoff comes along for free.
- */
-/**
- * THE over-budget refusal.
- *
- * There were two, with an identical message — `overBudget` and `membraneOverBudget` — left
- * behind when the array walk split out of `readOwnData`. Two spellings of one sentence on
- * the highest-stakes file in the repo is review burden for nothing, and the kind of pair
- * that drifts the moment someone improves the wording of one.
- */
-/** The intrinsic typed-array and DataView prototypes: anything else is a subclass. */
-const INTRINSIC_VIEW_PROTOTYPES: ReadonlySet<unknown> = new Set(
-  [
-    Int8Array,
-    Uint8Array,
-    Uint8ClampedArray,
-    Int16Array,
-    Uint16Array,
-    Int32Array,
-    Uint32Array,
-    Float32Array,
-    Float64Array,
-    BigInt64Array,
-    BigUint64Array,
-    DataView,
-  ].map((C) => C.prototype)
-)
+/** A queued value and where its copy goes. */
+type Slot = { v: any; depth: number; put: (copy: unknown) => void }
 
-function nonIntrinsic(
-  walked: number,
-  what: string
-): { ok: false; reason: string; walked: number; kind: 'shape' } {
-  return {
-    ok: false,
-    kind: 'shape',
-    walked,
-    reason: `capability return contains ${what}; only plain data crosses`,
+/** An own data property on a copy the membrane built: `defineProperty`, so `__proto__` is data. */
+function defineData(target: object, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  })
+}
+
+/** A Date's time by BRAND (the intrinsic getter on the internal slot), else undefined. */
+function dateTime(v: object): number | undefined {
+  try {
+    return Date.prototype.getTime.call(v)
+  } catch {
+    return undefined
   }
 }
 
@@ -995,31 +865,55 @@ function overBudget(
   }
 }
 
+/**
+ * An array's own data, read against the running budget and abandoned the moment it blows, and
+ * COPIED from what was read: elements and holes by index, plus any non-index own property (as
+ * `structuredClone` kept them), each queued with the slot its copy goes into.
+ *
+ * Two scans, because the two failure modes want opposite strategies:
+ *
+ * 1. **By index, up to `v.length`.** A dense array is refused after roughly `remaining / 8`
+ *    elements; nothing is materialised, so a 2,000,000-element payload against a small budget
+ *    stops almost immediately.
+ * 2. **`Object.keys` for the rest**, reached only when the index scan finished inside the budget.
+ *    That is the sparse case, and it is where `Object.keys` is CHEAP: a length-1e9 array holding
+ *    three values yields three keys. Without the `probeCap` handoff, scanning such an array by
+ *    index would be a billion iterations: the naive fix for the dense DoS is a new sparse one.
+ *
+ * Read DESCRIPTORS, never `v[i]`: an indexed accessor is host code. A hole costs 8 (a slot) and
+ * stays a hole in the copy.
+ */
 function readArrayData(
   v: unknown[],
   startBytes: number,
   maxBytes: number,
-  stack: Array<{ v: any; depth: number }>,
-  depth: number
+  stack: Slot[],
+  depth: number,
+  copies: WeakMap<object, unknown>
 ):
-  | { ok: true; bytes: number }
+  | { ok: true; bytes: number; copy: unknown[] }
   | { ok: false; reason: string; walked: number; kind: 'limit' | 'shape' } {
   let bytes = startBytes
-  /** Values queued for the walk. Each will cost at least 8 — the early-bail lower bound. */
+  /** Values queued for the walk. Each will cost at least 8: the early-bail lower bound. */
   let pushed = 0
   /** Own index properties actually found; `len - this` is the number of HOLES. */
   let indexCount = 0
   const len = v.length
-  // How far to scan by index before concluding the array is sparse enough that
-  // `Object.keys` is the cheaper instrument. Generous, because the index scan is doing
-  // real work up to this point and only holes are wasted.
+  const copy: unknown[] = new Array(len)
+  copies.set(v, copy)
   const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4)
   const scanned = Math.min(len, probeCap)
+  const queue = (value: unknown, key: string | number) =>
+    stack.push({
+      v: value,
+      depth: depth + 1,
+      put: (c) => defineData(copy, String(key), c),
+    })
 
   let i = 0
   for (; i < scanned; i++) {
     const d = Object.getOwnPropertyDescriptor(v, i)
-    if (!d) continue // a hole: `structuredClone` preserves it and it carries nothing
+    if (!d) continue // a hole: it stays a hole, and carries nothing
     if (d.get || d.set) {
       return {
         ok: false,
@@ -1028,21 +922,13 @@ function readArrayData(
         reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
-    // An index is a SLOT, not a stored name — see readOwnData — so nothing is charged
-    // here. The bail uses a LOWER BOUND on what is already queued instead: every pushed
-    // value costs at least 8 when the walk pops it (8 for null/undefined and primitives,
-    // 8+ for a string, 16 for an object). Charging 8 here as well would double-count and
-    // halve every array's capacity — the same phantom this branch was just fixed for,
-    // reintroduced in the name of bailing early.
-    stack.push({ v: d.value, depth: depth + 1 })
+    queue(d.value, i)
     pushed++
     indexCount++
     if (bytes + pushed * 8 > maxBytes)
       return overBudget(maxBytes, bytes + pushed * 8)
   }
 
-  // Everything the index scan did not reach, plus every non-index own property. When the
-  // index scan covered the whole array this is only the non-index ones.
   for (const k of Object.keys(v)) {
     const asIndex = isArrayIndex(k) ? Number(k) : -1
     if (asIndex >= 0 && asIndex < i) continue // already handled above
@@ -1057,104 +943,51 @@ function readArrayData(
         }; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
-    stack.push({ v: d ? d.value : undefined, depth: depth + 1 })
+    queue(d ? d.value : undefined, k)
     pushed++
-    // A non-index key really is stored by name and really is serialised, so its name is
-    // charged. An index is a slot and is not.
     if (asIndex < 0) bytes += k.length * 2 + 8
     else indexCount++
     if (bytes + pushed * 8 > maxBytes)
       return overBudget(maxBytes, bytes + pushed * 8)
   }
 
-  // HOLES ARE NOT FREE, because `structuredClone` reproduces `length`.
-  //
-  // Charging purely by content let an array's LENGTH cross unbudgeted, and the guard
-  // exists precisely to stop the clone allocating: a capability returning an array with
-  // `length = 1e9` and two values passed this walk on ~40 bytes, and `structuredClone`
-  // then spent **6.5 seconds** materialising a billion-slot array (measured under Bun/JSC,
-  // which densifies rather than preserving a sparse representation). Six seconds of
-  // synchronous host work that no fuel budget, no atom timeout and no `membraneMaxBytes`
-  // could see.
-  //
-  // A hole is priced at the same 8 bytes as a slot holding a primitive, since that is what
-  // the clone allocates for it. A DENSE array is unaffected — it has no holes — so this
-  // adds nothing to the ordinary case and does not re-introduce the capacity halving that
-  // billing indices by name once caused.
   const holes = len - indexCount
   if (holes > 0) {
     bytes += holes * 8
     if (bytes > maxBytes) return overBudget(maxBytes, bytes)
   }
 
-  return { ok: true, bytes }
+  return { ok: true, bytes, copy }
 }
 
-/**
- * Read an object's own enumerable data properties WITHOUT evaluating a single accessor.
- *
- * The one place the membrane is allowed to look at a host object's contents, so it is the
- * one place this rule has to hold — and it has now been got wrong three times, in three
- * branches, one at a time:
- *
- *   - the object branch read `v[k]` directly (fixed e803f4b)
- *   - the array branch read `v[i]` directly (fixed c7959f4, the same defect one morning
- *     later, in the twin nobody looked at)
- *   - the array branch never visited non-index own properties at all, which
- *     `structuredClone` serialises regardless
- *
- * Reading `v[k]` invokes a getter, so the walk that exists to keep host code OUT of guest
- * state would itself execute host code — before `structuredClone` is reached and whatever
- * the eventual verdict. A getter can throw (leaking host exception text into the guest's
- * error), mutate, or stall, so this is a side-effect vector on the boundary, not only a
- * data-leak one.
- *
- * Accessors are REJECTED rather than evaluated: there is no way to learn what one returns
- * without running it, and `structuredClone` would run it a second time anyway. A capability
- * hands over plain data or it hands over nothing.
- */
-/**
- * A canonical array index — the exact spec definition, not "looks numeric".
- *
- * `'01'`, `'1.0'`, `' 1'` and `'4294967295'` are ordinary property names even on an array:
- * they occupy a real named slot that `structuredClone` serialises by name, so they must
- * keep their name charge. Only a key that round-trips through `ToUint32` is an element.
- */
+/** `"0"`..`"4294967294"` in canonical form: the keys an array treats as indices. */
 function isArrayIndex(k: string): boolean {
   const n = Number(k)
   return Number.isInteger(n) && n >= 0 && n < 0xffffffff && String(n) === k
 }
 
+/**
+ * A plain object's own data, read from DESCRIPTORS (`v[k]` would run a getter: host code the
+ * membrane exists to keep out). An accessor is refused rather than evaluated. Keys are billed by
+ * name; values when the walk pops them.
+ *
+ * `Object.keys` is the one step that cannot stop early: its work is billed if the walk refuses
+ * (each key at least 8), so a refusal of a 300k-key object reports what enumerating it cost
+ * (cumulative review 8). The walk's own reads stop at the budget, per key.
+ */
 function readOwnData(
   v: object,
   startBytes: number,
   maxBytes: number
 ):
-  | { ok: true; values: unknown[]; bytes: number }
+  | { ok: true; entries: Array<[string, unknown]>; bytes: number }
   | { ok: false; reason: string; walked: number; kind: 'limit' | 'shape' } {
-  const values: unknown[] = []
+  const entries: Array<[string, unknown]> = []
   let bytes = 0
-  // `Object.keys` is the one step that cannot stop early: its work is billed if the walk refuses
-  // (each key at least 8), so a refusal of a 300k-key object reports what enumerating it cost
-  // (cumulative review 8). Accepted values are priced as before: keys by name, values when popped.
   const keys = Object.keys(v)
   const enumerated = keys.length * 8
   for (const k of keys) {
     const d = Object.getOwnPropertyDescriptor(v, k)
-    // An array's key list is its INDICES plus any non-index own property, and only the
-    // latter is a name that crosses. `structuredClone` copies an element as a slot; the
-    // string `"199999"` is never materialised, so billing it is billing for a thing that
-    // does not exist. It compounds with length — 500k floats are 3.81MB of data and were
-    // charged 13.14MB — which cut effective array capacity ~3.4× under the documented 4MB
-    // default and made an ordinary RAG return look like an attack. See
-    // `membrane-budget.test.ts`.
-    //
-    // A slot costs NOTHING here, rather than a token 8: every value is charged when the
-    // walk pops it, and the floor is already 8 (null/undefined, primitive) or 16 (object).
-    // Adding a surcharge on top would be a flat 2× on numeric arrays — the same phantom
-    // in smaller print. Map/Set entries are priced the same way, by value only. The OOM
-    // guard is untouched: 1M floats are still 8MB and still refused.
-
     if (d && (d.get || d.set)) {
       return {
         ok: false,
@@ -1168,9 +1001,9 @@ function readOwnData(
     // a huge object first. Only the KEY bytes are counted here, so what is accepted is unchanged.
     if (startBytes + bytes > maxBytes)
       return overBudget(maxBytes, startBytes + Math.max(bytes, enumerated))
-    values.push(d ? d.value : undefined)
+    entries.push([k, d ? d.value : undefined])
   }
-  return { ok: true, values, bytes }
+  return { ok: true, entries, bytes }
 }
 
 /**

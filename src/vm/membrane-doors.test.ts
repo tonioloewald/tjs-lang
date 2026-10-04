@@ -149,10 +149,6 @@ describe('a thrown value is reduced before it can reach a guest', () => {
  */
 /** `file › function › expression` → [how many such reads, why they never reach a guest]. */
 const ERROR_FIELD_READS_ALLOWED: Record<string, [number, string]> = {
-  'runtime.ts › membraneValue › e?.message': [
-    1,
-    "structuredClone's own DOMException: an engine-built string, placed in a refusal REASON that is reduced again where it enters guest scope",
-  ],
   'vm.ts › run › ctx.error?.message': [
     2,
     'host side, after the run: compared against a fixed string to rename the error the host receives',

@@ -180,16 +180,20 @@ describe('a class instance is refused LOUDLY, not silently thinned (M-2)', () =>
     expect(r.error?.message).toMatch(/instance of Acct/)
   })
 
-  it('plain data, Date, Map, arrays and null-prototype objects still cross', async () => {
+  it('plain data, Date, arrays and null-prototype objects still cross', async () => {
     const r = await run({
       doc: {
         createdAt: new Date(0),
-        m: new Map([[1, 2]]),
         a: [1],
         n: Object.assign(Object.create(null), { x: 1 }),
       },
     })
     expect(r.error).toBeUndefined()
+  })
+
+  it('a Map argument is refused: only JSON data and Date cross (round 39)', async () => {
+    const r = await run({ doc: { m: new Map([[1, 2]]) } })
+    expect(r.error?.message).toMatch(/only plain data \(and Date\) crosses/)
   })
 })
 
