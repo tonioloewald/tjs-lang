@@ -39,7 +39,19 @@ const CHROME =
 
 /** Example output that means the example FAILED, not that it ran. */
 const FAILURE =
-  /\b(Error|TypeError|ReferenceError|SyntaxError)\b|is not defined|is not a function|Cannot read|✗|✘|\bFAIL(ED)?\b|\d+ failed/
+  /\b(Error|TypeError|ReferenceError|SyntaxError)\b|"error":|is not defined|is not a function|Cannot read|✗|✘|\bFAIL(ED)?\b|\d+ failed/
+
+/**
+ * Pages whose example DEMONSTRATES a failure, and the text that demonstration produces. Keyed
+ * by page and text, so a different failure on the same page is still reported.
+ */
+const DEMONSTRATES: Record<string, RegExp> = {
+  'fuel-limits': /Out of Fuel/,
+  'ajs-error-handling': /Division by zero/,
+  'the-universal-endpoint': /Out of Fuel/,
+}
+/** Examples that need a model say so instead of running (site/entry.ts). */
+const NEEDS_LLM = /needs an LLM, which the static site does not provide/
 
 function pagesFromBuild(): string[] {
   if (ONLY) return ONLY.split(',')
@@ -241,7 +253,11 @@ async function main() {
         if (!shown) {
           lines.push(`  #${i} EMPTY`)
           problems.push(`${slug}#${i}: empty`)
-        } else if (FAILURE.test(shown)) {
+        } else if (
+          FAILURE.test(shown) &&
+          !NEEDS_LLM.test(shown) &&
+          !DEMONSTRATES[slug]?.test(shown)
+        ) {
           lines.push(`  #${i} FAIL? ${flat}`)
           problems.push(`${slug}#${i}: ${flat}`)
         } else lines.push(`  #${i} ok   ${flat}`)

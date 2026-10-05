@@ -50,4 +50,9 @@ function createEvent(input: {
     formatted: `${input.title}: ${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}`
   }
 }
+
+// Try them
+console.log(formatDate('2024-01-15', 'MMMM d, yyyy'))
+console.log(addWorkdays('2024-01-15', 5))
+console.log(createEvent({ title: 'Launch', startDate: '2024-03-01', durationDays: 2 }).formatted)
 ```

@@ -12,7 +12,8 @@ function searchMusic({ query = 'Beatles', limit = 5 }) {
     '&limit=' +
     limit +
     '&media=music'
-  let response = httpFetch({ url })
+  // iTunes serves JSON as `text/javascript`, so ask for JSON explicitly.
+  let response = httpFetch({ url, responseType: 'json' })
   let tracks = response.results.map((x) => ({
     artist: x.artistName,
     track: x.trackName,

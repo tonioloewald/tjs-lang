@@ -78,6 +78,10 @@ const ALLOWED_FETCH_DOMAINS = [
 
 const vm = new AgentVM()
 
+const NEEDS_LLM =
+  'This example needs an LLM, which the static site does not provide. ' +
+  'Run it locally with tjs-lang and LM Studio (see the AJS guide).'
+
 /** Fuel is fractional (expression nodes cost 0.01); two places reads as a measure, not noise. */
 const roundFuel = (fuel: number) => Math.round(fuel * 100) / 100
 
@@ -92,6 +96,14 @@ registerDialect('ajs', {
       maxSourceBytes: 64 * 1024,
       atoms: vm.atoms as any,
     })
+    // An example that calls a model cannot finish here, and running it until it fails first on
+    // something else (a vision example's relative image URL) reports a misleading error. Read
+    // the AST, not the source: in serialized JSON a string literal cannot produce an
+    // unescaped `"op":"llm`, so an example that merely MENTIONS an LLM call still runs.
+    if (JSON.stringify(ast).includes('"op":"llm')) {
+      report({ error: NEEDS_LLM })
+      return undefined
+    }
     const fuel = typeof options.fuel === 'number' ? options.fuel : 10_000
     const args =
       options.args && typeof options.args === 'object' ? options.args : {}
@@ -104,8 +116,7 @@ registerDialect('ajs', {
       const message = run.error.message ?? String(run.error)
       report({
         error: /Capability 'llm/.test(message)
-          ? `${message} — this example needs an LLM, which the static site does not provide. ` +
-            `Run it locally with tjs-lang and LM Studio (see the AJS guide).`
+          ? `${message} — ${NEEDS_LLM}`
           : message,
         fuelUsed: roundFuel(run.fuelUsed),
       })
