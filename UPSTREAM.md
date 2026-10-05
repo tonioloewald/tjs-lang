@@ -12,65 +12,24 @@ Convention: file the issue on the upstream repo, add a row here with the URL, an
 leave a comment at the workaround site pointing back. **Never fix it by editing the
 upstream repo from here** — file, don't fix.
 
+Every open entry also has a card on the [Virta board](https://virta.tosijs.net/host/#?virta.scope=tjs-lang)
+(`virta ls "project:tjs-lang kind:upstream"`), named on the entry. When upstream resolves one, close
+the card, remove the workaround, and reduce the entry here to one line under **Resolved**; the full
+history stays in git.
+
 | Upstream issue                                                                             | What                                                                                                                                                                                                                                                                                                                                                     | Local workaround                                                                                                                                                                                                                                                            | Remove when                                                                                                                                                                                                |
 | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [tonioloewald/tosijs-schema#12](https://github.com/tonioloewald/tosijs-schema/issues/12) | `validate()` compiles a schema's `pattern` with the host's backtracking `RegExp` and runs it on the value; with an untrusted value and a catastrophic pattern it hangs, and the caller cannot interrupt it. Requested: `setPatternEngine((source, flags) => matcher)`, the same shape as `setPredicateEvaluator`, allowed to throw to refuse a pattern. | `admitIoInputSchema` (`src/vm/runtime.ts`) REFUSES `pattern`/`patternProperties` in an IO atom's input schema at `defineAtom`, since the outbound membrane validates every call against it on guest-chosen strings. | The slot ships: fill it with the VM's linear engine (`src/vm/regex.ts`, charged to the run), lift the ban, and later fill it with Pattern (`docs/pattern.md`). |
-| [oven-sh/bun#34397](https://github.com/oven-sh/bun/issues/34397)                           | `fetch()` connection-refused error shape differs from Node: Bun uses top-level `e.code === 'ConnectionRefused'`, Node uses `e.cause.code === 'ECONNREFUSED'`. Code checking only the Node shape silently never matches under Bun.                                                                                                                        | `isConnectionRefused()` in `src/batteries/llm.ts` checks **both** shapes, so the friendly "start LM Studio" message fires under either runtime.                                                                                                                             | Bun aligns its fetch error shape with Node/undici (or documents the divergence and we standardize on checking both permanently).                                                                           |
-| [acornjs/acorn#1461](https://github.com/acornjs/acorn/issues/1461)                         | `currentVarScope`/`currentThisScope` walk the scope stack from the top on every statement, so N nested blocks that each hold a statement parse in O(N²) (8.18.0, Node 22: 3.5 → 13.7 → 31.2 ms at depth 1K/2K/3K; nested _empty_ blocks stay ~0.2 ms). Filed as a performance note, not a security report — the maintainer closed #1457 on that framing. | The 8KB default source cap on every AJS entry (`src/vm/admission.ts`, `DEFAULT_MAX_SOURCE_BYTES`) bounds how deep a caller can nest; the structural answer is not parsing untrusted source in the VM host at all (`tjs-lang/vm-ast`).                                       | acorn keeps a stack of var/this-scope indices (O(1) lookup). The cap stays regardless — it bounds the other super-linear shapes too.                                                                       |
-| [madroidmaq/mlx-omni-server#130](https://github.com/madroidmaq/mlx-omni-server/issues/130) | `/v1/models` returns `{"data": []}` — the server loads on demand, so it has nothing resident to enumerate. Model discovery finds nothing and every call fails with "No LLM available" **while the server works perfectly**.                                                                                                                              | `TJS_LLM_MODEL` / `TJS_EMBEDDING_MODEL` name the models explicitly and skip the audit (`src/batteries/config.ts`). A declared model is trusted, not probed — so its embedding `dimension` is unknown until first use, which is expected. Documented in `docs/mlx-setup.md`. | `/v1/models` enumerates servable (cached) models, or returns something a client can distinguish from "no models". The env-var override stays useful regardless; what goes away is its being **mandatory**. |
-| [madroidmaq/mlx-omni-server#128](https://github.com/madroidmaq/mlx-omni-server/issues/128) | `/v1/chat/completions` types `content` as `list[dict[str, str]]`, so it **rejects the standard OpenAI image block** (`image_url` is a nested object) before any model is consulted. A flattened `{type:'image_url', image_url:'<data-uri>'}` does get through.                                                                                           | **None — deliberately not worked around.** Emitting a server-specific request shape from portable battery code is the wrong trade; vision on this backend is documented as blocked instead (`docs/mlx-setup.md`). Vision tests self-skip.                                   | The content-part union is typed structurally (or the flattened form is documented as a supported alias). Then `llmVision` can target this backend.                                                         |
-| [madroidmaq/mlx-omni-server#129](https://github.com/madroidmaq/mlx-omni-server/issues/129) | `MLX_VLM_ONLY_MODELS = {"gemma4"}` gates vision to **one architecture**; every other VLM falls through to `mlx_lm` and fails with `Model type <arch> not supported` — naming the model, not the routing decision that caused it.                                                                                                                         | None. Recorded in `docs/mlx-setup.md` as gate 2 of 3, with the full 4-combination matrix so nobody re-runs the investigation.                                                                                                                                               | Routing derives from `mlx_vlm`'s own registry, or the error names the gate. Until then, VLM choice on this backend is not free.                                                                            |
-| [cubist38/mlx-openai-server#320](https://github.com/cubist38/mlx-openai-server/issues/320) | `--model-type multimodal` starts, lists the model, then fails at generation with `BatchGenerator.__init__() got an unexpected keyword argument 'kv_bits'` — dependency skew, surfacing only after everything says the setup is correct.                                                                                                                  | None. This server otherwise got **furthest**: it accepts the standard OpenAI image block and its `/v1/models` actually lists the model, so it is the one to re-test first when this lands.                                                                                  | `kv_bits` skew resolved upstream. Then re-evaluate it as the vision backend ahead of mlx-omni-server.                                                                                                      |
-
-## tosijs-schema — no way to declare an OPEN object — ✅ RESOLVED 2026-09-28 (adopted `.open` with `^1.12.0`; the `s.record(s.any)` workaround is gone)
-
-**Filed:** [tosijs-schema#5](https://github.com/tonioloewald/tosijs-schema/issues/5) —
-**CLOSED 2026-08-19.** The seam shipped; this section described it as unavailable long after
-that was true, which is the worse direction for a file like this to be wrong in: it teaches
-the next reader that a workaround is still necessary and stops them looking.
-
-**We have not adopted it yet, deliberately.** `package.json` pins `^1.5.1` and
-`node_modules` has 1.5.1; upstream latest is 1.7.0. Bumping is a dependency change with a
-real blast radius (the battery atoms' output validation is what broke on the 1.5.0 tightening
-in the first place), so it wants its own change and its own verification pass rather than
-riding along with a documentation sweep. Tracked in `TODO.md`.
-
-**What adopting it buys:** the local `additionalProperties` workarounds in the battery
-output schemas can be replaced by a declared-open object, which is what they were emulating.
-
-`s.object()` always emits `additionalProperties: false`, and there is no `.open` /
-`.passthrough` / options argument. That is the right default, but it leaves no spelling
-for "these fields, plus whatever the other side adds" — which is what you need whenever
-the shape belongs to a protocol you do not control.
-
-**How it bit us (2026-08-11):** the `llmPredictBattery` and `llmVision` atoms declared an
-OpenAI-compatible chat message with `s.object({ role, content, tool_calls })`. That was
-silently open until tosijs-schema 1.5.0 started enforcing `additionalProperties`
-correctly; from then on gemma-4's `reasoning_content` field failed output validation and
-every vision call errored.
-
-**Worked around locally** with `s.record(s.any)`, which is open but drops the field
-documentation. The named-fields-plus-open combination is not expressible today.
-
-**Suggested:** `s.object(props, { additionalProperties: true })`, or an `.open` modifier
-on the returned builder, so the JSON Schema keeps `properties`/`required` and relaxes only
-the closure.
-
-**Companion issue** — [tosijs-schema#4](https://github.com/tonioloewald/tosijs-schema/issues/4):
-1.5.0 shipped that validation-tightening as a MINOR, so `^1.4.0` ranges pick it up on the
-next install and already-published consumers break with no change on their side. Verified in
-clean installs of each version: the exact schema `tjs-lang@0.12.0` ships validates an
-OpenAI message carrying `reasoning_content` as **true on 1.4.0 and false on 1.5.1**. Under
-0.x semver `^0.12.0` does not float to `0.13.0`, so an affected consumer cannot get the fix
-by updating either. The two compound: the correct spelling did not exist, so the accidental
-one was load-bearing.
-
-**Still to do at publish time (user action — npm auth):** `npm deprecate 'tjs-lang@<0.13.0'`
-with a message naming that exact symptom and 0.13.0 as the fix. Neither published version
-carries a `deprecated` field today, and a changelog paragraph is not a delivery mechanism
-for a break that fires on install.
+| [tonioloewald/tosijs-schema#12](https://github.com/tonioloewald/tosijs-schema/issues/12) · Virta #3065 | `validate()` compiles a schema's `pattern` with the host's backtracking `RegExp` and runs it on the value; with an untrusted value and a catastrophic pattern it hangs, and the caller cannot interrupt it. Requested: `setPatternEngine((source, flags) => matcher)`, the same shape as `setPredicateEvaluator`, allowed to throw to refuse a pattern. | `admitIoInputSchema` (`src/vm/runtime.ts`) REFUSES `pattern`/`patternProperties` in an IO atom's input schema at `defineAtom`, since the outbound membrane validates every call against it on guest-chosen strings. | The slot ships: fill it with the VM's linear engine (`src/vm/regex.ts`, charged to the run), lift the ban, and later fill it with Pattern (`docs/pattern.md`). |
+| [oven-sh/bun#34397](https://github.com/oven-sh/bun/issues/34397) · Virta #2390                           | `fetch()` connection-refused error shape differs from Node: Bun uses top-level `e.code === 'ConnectionRefused'`, Node uses `e.cause.code === 'ECONNREFUSED'`. Code checking only the Node shape silently never matches under Bun.                                                                                                                        | `isConnectionRefused()` in `src/batteries/llm.ts` checks **both** shapes, so the friendly "start LM Studio" message fires under either runtime.                                                                                                                             | Bun aligns its fetch error shape with Node/undici (or documents the divergence and we standardize on checking both permanently).                                                                           |
+| [acornjs/acorn#1461](https://github.com/acornjs/acorn/issues/1461) · Virta #2391                         | `currentVarScope`/`currentThisScope` walk the scope stack from the top on every statement, so N nested blocks that each hold a statement parse in O(N²) (8.18.0, Node 22: 3.5 → 13.7 → 31.2 ms at depth 1K/2K/3K; nested _empty_ blocks stay ~0.2 ms). Filed as a performance note, not a security report — the maintainer closed #1457 on that framing. | The 8KB default source cap on every AJS entry (`src/vm/admission.ts`, `DEFAULT_MAX_SOURCE_BYTES`) bounds how deep a caller can nest; the structural answer is not parsing untrusted source in the VM host at all (`tjs-lang/vm-ast`).                                       | acorn keeps a stack of var/this-scope indices (O(1) lookup). The cap stays regardless — it bounds the other super-linear shapes too.                                                                       |
+| [madroidmaq/mlx-omni-server#130](https://github.com/madroidmaq/mlx-omni-server/issues/130) · Virta #2392 | `/v1/models` returns `{"data": []}` — the server loads on demand, so it has nothing resident to enumerate. Model discovery finds nothing and every call fails with "No LLM available" **while the server works perfectly**.                                                                                                                              | `TJS_LLM_MODEL` / `TJS_EMBEDDING_MODEL` name the models explicitly and skip the audit (`src/batteries/config.ts`). A declared model is trusted, not probed — so its embedding `dimension` is unknown until first use, which is expected. Documented in `docs/mlx-setup.md`. | `/v1/models` enumerates servable (cached) models, or returns something a client can distinguish from "no models". The env-var override stays useful regardless; what goes away is its being **mandatory**. |
+| [madroidmaq/mlx-omni-server#128](https://github.com/madroidmaq/mlx-omni-server/issues/128) · Virta #2393 | `/v1/chat/completions` types `content` as `list[dict[str, str]]`, so it **rejects the standard OpenAI image block** (`image_url` is a nested object) before any model is consulted. A flattened `{type:'image_url', image_url:'<data-uri>'}` does get through.                                                                                           | **None — deliberately not worked around.** Emitting a server-specific request shape from portable battery code is the wrong trade; vision on this backend is documented as blocked instead (`docs/mlx-setup.md`). Vision tests self-skip.                                   | The content-part union is typed structurally (or the flattened form is documented as a supported alias). Then `llmVision` can target this backend.                                                         |
+| [madroidmaq/mlx-omni-server#129](https://github.com/madroidmaq/mlx-omni-server/issues/129) · Virta #2394 | `MLX_VLM_ONLY_MODELS = {"gemma4"}` gates vision to **one architecture**; every other VLM falls through to `mlx_lm` and fails with `Model type <arch> not supported` — naming the model, not the routing decision that caused it.                                                                                                                         | None. Recorded in `docs/mlx-setup.md` as gate 2 of 3, with the full 4-combination matrix so nobody re-runs the investigation.                                                                                                                                               | Routing derives from `mlx_vlm`'s own registry, or the error names the gate. Until then, VLM choice on this backend is not free.                                                                            |
+| [cubist38/mlx-openai-server#320](https://github.com/cubist38/mlx-openai-server/issues/320) · Virta #2395 | `--model-type multimodal` starts, lists the model, then fails at generation with `BatchGenerator.__init__() got an unexpected keyword argument 'kv_bits'` — dependency skew, surfacing only after everything says the setup is correct.                                                                                                                  | None. This server otherwise got **furthest**: it accepts the standard OpenAI image block and its `/v1/models` actually lists the model, so it is the one to re-test first when this lands.                                                                                  | `kv_bits` skew resolved upstream. Then re-evaluate it as the vision backend ahead of mlx-omni-server.                                                                                                      |
 
 ## tosijs-coding-practices — one canonical safe-port-reclaim
+
+**Virta:** #2397
 
 **Filed:** [tosijs-coding-practices#5](https://github.com/tonioloewald/tosijs-coding-practices/issues/5)
 (the rule) · [tosijs-ui#77](https://github.com/tonioloewald/tosijs-ui/issues/77) (a real bug
@@ -137,6 +96,8 @@ Both are implemented in `src/cli/port.ts`. Neither is upstream. **Owed to
 
 ## Bun — `bun build --define:` silently does not substitute
 
+**Virta:** #2398
+
 **Filed:** [oven-sh/bun#40558](https://github.com/oven-sh/bun/issues/40558) (2026-08-26).
 Reproduced on 1.4.0 with a two-line file, with and without `--target=node`, and with the
 value quoted both ways.
@@ -163,64 +124,9 @@ normally. Boring, and it bundles correctly everywhere.
 warning — the issue argues for the latter regardless, since a build flag that quietly does
 nothing is worse than one that is unsupported.
 
-## Bun — a directory's listing is cached on first module resolution — ✅ RESOLVED 2026-09-26 (oven-sh/bun#40105 closed; no workaround here)
-
-**Filed:** [oven-sh/bun#40105](https://github.com/oven-sh/bun/issues/40105) (2026-08-22).
-**Not a 1.4 regression** — reproduced identically on 1.3.14, so it is longstanding, and
-labelling it as new would send someone bisecting for nothing.
-
-After a directory has been resolved once for a module load, a file created in that
-directory afterwards is invisible to `import()` — while `existsSync` and `realpathSync`
-both confirm it is there. The error names a path that was never passed (the realpath, not
-the URL) and an importer of `''`:
-
-    Cannot find module '/private/var/.../m1.mjs' from ''
-
-Three cases, run under both 1.3.14 and 1.4.0, identical results:
-
-| Setup                                                                   | Result       |
-| ----------------------------------------------------------------------- | ------------ |
-| All files written up front, then imported                               | all succeed  |
-| Each file in its own fresh directory, created just before import        | all succeed  |
-| Files created in a directory **after** that directory was resolved once | **all fail** |
-
-Reproduces under plain `bun run` as well as `bun test`, so it is the resolver, not the test
-runner. (A first characterisation blamed `bun:test`; a minimal repro there passes.)
-
-**Workaround:** none needed here. `src/lang/emitted-module-scope.test.ts` runs emitted code
-via `new Function` and uses a real `node` subprocess for the cases that must prove genuine
-ESM loading — a better test than the dynamic-import version anyway.
-
-**What we're waiting for:** the resolver re-stats a directory, or at least reports the
-specifier it was given.
-
-## tosijs-ui — `live-example` pins tjs-lang 0.13.4 (deprecated) — ✅ RESOLVED 2026-09-26 (tosijs-ui#135 closed)
-
-**Filed:** [tosijs-ui#135](https://github.com/tonioloewald/tosijs-ui/issues/135) (2026-09-04).
-**Blocks:** nothing of ours. **Ours to fix:** no — but it is OUR package they are pinning.
-
-`src/live-example/code-transform.ts` has `const TJS_VERSION = '0.13.4'` and `package.json`
-pins the same as an exact devDependency, so the version lives in two places and one is a
-string constant in source. 0.13.4 is deprecated with a SECURITY string.
-
-**The deprecation's threat model does NOT apply to live-example, and the issue says so.** It
-describes a _server_ transpiling submitted source — our Cloud Functions were the real victim.
-In live-example the source is the user's own or the site's own, and `remote-sync` is
-same-origin by construction. Overstating this would have been easy and wrong.
-
-The reachable consequence is correctness. `transform()` runs in the HOST page and its output
-is then injected into the iframe, so anything tjs-lang executes at transpile time runs outside
-the sandbox. On ≤0.13.11 a `test '…' { … }` quoted inside a template literal or double-quoted
-string was taken for a real test block — executed, and deleted from the output. For a doc site
-that is the bad case: documentation about a language quotes the language.
-
-Also asked, for the eventual playground port: whether a dialect selector (TJS/TS/AJS) belongs
-in the component, and whether `tjs-lang/import-resolver` is worth merging with the existing
-module-cache service worker. Offered implementation for both.
-
-**When this lands:** nothing to remove here; re-check the pin before starting Phase B2.
-
 ## tosijs-ui — an existing `firebase.json` is never checked against `outputDir`
+
+**Virta:** #3066
 
 **Filed:** [tosijs-ui#134](https://github.com/tonioloewald/tosijs-ui/issues/134) (2026-09-04).
 **Blocks:** nothing. **Workaround:** verify by hand, once, at migration time.
@@ -246,26 +152,9 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
-## tosijs-ui — peer range `tjs-lang: ^0.12.0` cannot reach 0.13.x — ✅ RESOLVED 2026-09-26 (tosijs-ui#98 closed)
-
-**Filed:** [tosijs-ui#98](https://github.com/tonioloewald/tosijs-ui/issues/98) (2026-08-22).
-
-Under 0.x semver `^0.12.0` cannot resolve to any `0.13.x`, so our largest first-party
-downstream points consumers at 0.12.0 — which we deprecated on 2026-08-21 for an
-install-time break (`tosijs-schema >= 1.5.0` tightening `additionalProperties`, which the
-battery atoms' output schemas did not account for). Affected users cannot reach the fix by
-updating, because the range will not float past it.
-
-**Not fixed here** — different repo, file don't fix. The issue also flags honestly that
-nobody has verified `tosijs-ui` against 0.13.x yet, so widening the range without testing
-would move the problem rather than solve it.
-
-**What we're waiting for:** a peer range that can reach a supported version, ideally after
-someone checks compatibility.
-
----
-
 ## tosijs-ui — docs are identified by bare filename (tosijs-ui#190)
+
+**Virta:** #2403
 
 **Filed 2026-09-25.** Two docs with the same basename in different directories collide as
 identities in the nav tree: one is shown twice, the other not at all, silently (reproduced
@@ -274,6 +163,8 @@ basename, guarded by `src/doc-site-structure.test.ts`. **Waiting for:** the path
 or at least a failing build. When it lands, the guard can relax to "unique within a directory".
 
 ## tosijs-ui — what retiring the playground needs from it (tosijs-ui#184, #185, #186)
+
+**Virta:** #2404
 
 **Update 2026-09-29:** #184 parts 1 and 2 **shipped in tosijs-ui 1.16.1** (`registerDialect`, fence
 options) and are ADOPTED: `site/entry.ts` runs every ```` ```ajs ```` example on tjs.tosijs.net. Still
@@ -302,43 +193,9 @@ and SHOWS ITS OUTPUT; the rest waits for an IDE.
 **Not fixed here** — file don't fix. **What we're waiting for:** #184's AJS item decides whether
 the AJS examples keep the JS-host wrapper; the rest is post-0.14.
 
-## tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182) — ✅ RESOLVED 2026-09-26 (1.15.4 declares `^0.13.1 || ^0.14.0`; nothing to remove here)
-
-**Resolved 2026-09-25: tosijs-ui 1.15.2** (npm `latest`) publishes `^0.13.1 || ^0.14.0`, verified on
-the per-version registry document: admits 0.13.13 and 0.14.x, excludes 0.14.0-rc.0 (semver
-skips prereleases, as expected) and 0.15.0. Their dev pin and `TJS_VERSION` CDN pin move once
-0.14.0 is final. **The structural fix is now on our side too**: `scripts/prepublish-check.ts`
-reads tosijs-ui's published peer range and refuses a final release it excludes, so the
-0.15.0 instance of this fails before publishing instead of being filed after.
-
-**Filed:** [tosijs-ui#182](https://github.com/tonioloewald/tosijs-ui/issues/182) (2026-09-24).
-The same defect as tosijs-ui#98 above, one minor later — found by the 0.14.0 pre-release
-review, which is the second time this shape has needed a review to surface it.
-
-`tosijs-ui@1.15.0` declares `peerDependencies['tjs-lang']: '^0.13.1'` (checked against the
-registry 2026-09-24). Under 0.x semver that admits patches only, so once `tjs-lang@0.14.0`
-publishes, any npm 7+ consumer with both installed gets a hard `ERESOLVE`: an optional peer is
-only optional when ABSENT. **`bun install` resolves it cleanly**, which is why neither repo's
-own workflow shows it. tjs-lang is pinned in three places there — the peer range, the
-`devDependencies` pin `0.13.13`, and a hardcoded `TJS_VERSION = '0.13.13'` CDN pin in the
-shipped `dist/` — and the issue names all three.
-
-**Not fixed here** — different repo, file don't fix.
-
-**Verification path offered** (comment, 2026-09-24): tosijs-ui may test against a
-`0.14.0-rc.N` if we publish one first, under a non-`latest` tag. Semver catch recorded
-there: `^0.14.0` does NOT admit `0.14.0-rc.0`, so the rc must be pinned exactly (devDependency
-and the `TJS_VERSION` CDN pin) and then moved to `0.14.0` when final. No rc is published yet.
-
-**What we're waiting for:** `^0.13.1 || ^0.14.0` (or wider), all three pins moved. Until
-then the 0.14.0 release notes should carry the `--legacy-peer-deps` remedy for npm users.
-
-**The recurring lesson:** a 0.x caret peer range expires at every minor of the dependency.
-Twice now the fix has been a reactive issue after the fact; the structural fix is a check
-on OUR side that, before publishing a minor, reads each first-party downstream's declared
-range and fails if the new version falls outside it.
-
 ## `@codemirror/state` duplicates when adopting `tosijs-ui/site` (tosijs-ui#131) — ✅ FIXED UPSTREAM, workaround still in place
+
+**Virta:** #3067
 
 **Filed:** [tosijs-ui#131](https://github.com/tonioloewald/tosijs-ui/issues/131) — reported by
 tosijs, reproduced here 2026-09-06 while attempting the B1 site migration.
@@ -375,6 +232,8 @@ built artifact — and that guard was itself blind until 2026-09-06, because it 
 ---
 
 ## `tosijs-ui/site` — three findings from the B1 adoption (tosijs-ui#153, #154, #155) — ✅ FIXED UPSTREAM, workarounds still in place
+
+**Virta:** #2407
 
 **Filed 2026-09-09** while adopting the doc system. All three are theirs to fix; worked around
 here so B1 can proceed.
@@ -424,3 +283,13 @@ _Delete the workaround when:_ the match is anchored to the first non-blank line.
 > dangerous, since the page then loses its `section`/`group`/`order` silently and lands in
 > the wrong nav with the build reporting success. A false alarm and a real failure that look
 > identical train you to ignore both; now only one of them can reach you.
+
+## Resolved
+
+Kept as one line each; the full write-ups are in git history.
+
+- tosijs-schema — no way to declare an OPEN object — ✅ RESOLVED 2026-09-28 (adopted `.open` with `^1.12.0`; the `s.record(s.any)` workaround is gone)
+- Bun — a directory's listing is cached on first module resolution — ✅ RESOLVED 2026-09-26 (oven-sh/bun#40105 closed; no workaround here)
+- tosijs-ui — `live-example` pins tjs-lang 0.13.4 (deprecated) — ✅ RESOLVED 2026-09-26 (tosijs-ui#135 closed)
+- tosijs-ui — peer range `tjs-lang: ^0.12.0` cannot reach 0.13.x — ✅ RESOLVED 2026-09-26 (tosijs-ui#98 closed)
+- tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182) — ✅ RESOLVED 2026-09-26 (1.15.4 declares `^0.13.1 || ^0.14.0`; nothing to remove here)

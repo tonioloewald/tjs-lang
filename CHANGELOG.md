@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.14.0] — unreleased
 
+> **Release candidate: `0.14.0-rc.2`** (2026-10-05), on the `rc` dist-tag (`npm i tjs-lang@rc`).
+> It carries everything since rc.1 below: the membrane rebuilt to construct its own copy (JSON
+> data plus `Date`, no `structuredClone`), capability-boundary refusals that end the run, IO
+> atoms that must declare an input schema, the method table, the linear regex engine, and the
+> per-atom timer changes. Pin `0.14.0-rc.2` exactly to test it.
+>
 > **Release candidate: `0.14.0-rc.1`** (2026-09-26), on the `rc` dist-tag (`npm i tjs-lang@rc`);
 > `latest` stays on 0.13 until 0.14.0 is final. It carries everything below, including the
 > admission work from the final re-reviews (the 8KB source cap, the deprecation of
