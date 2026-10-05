@@ -4,7 +4,11 @@
 
 Import from modules you save in the playground
 
-```tjs
+> **Needs a second module.** This example imports a module you save in the playground (`mymath`), which a single example on this
+> page cannot load. Run it in the [playground](https://tjs-platform.web.app) after saving that
+> module, or locally with `tjs run` beside it.
+
+```tjs:static
 /#
 # Local Module Imports
 

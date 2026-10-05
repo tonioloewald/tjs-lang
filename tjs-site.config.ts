@@ -102,6 +102,22 @@ export default defineSiteConfig({
   // registry (tosijs-ui#184, 1.16.1) and the doc system itself. See site/entry.ts.
   bundleEntry: 'site/entry.ts',
 
+  // Prose pages ILLUSTRATE with fences (CHANGELOG, footguns, tjs-vs-typescript, TJS-SYNTAX…):
+  // fragments with `export`, a bare `return`, a `new Date(ts)` with no `ts`. Under tosijs-ui's
+  // default ('auto') every js/ts/tjs fence ran, and the first full sweep of the site found ~80
+  // of them failing in red under the prose. Only the playground examples opt in
+  // (```tjs:inline, ```ajs:inline, ```ts:inline); `src/example-fences.test.ts` keeps it so.
+  liveExamples: 'opt-in',
+
+  // The dialects site/entry.ts registers: `ajs` (ours) and `tjs` (replacing the built-in).
+  // Declared so the build treats their fences as live and leaves the built-in's build-time
+  // check and pre-transpile to our transform.
+  dialects: ['ajs', 'tjs'],
+
+  // Examples import real npm packages (`date-fns`, `lodash-es`, `unpkg/lit`) through tjs-lang's
+  // import-resolver service worker (prebuild builds it; tosijs-ui copies it to the root).
+  importResolver: true,
+
   // THIS version's transpiler for ```tjs / ```ts fences. tosijs-ui copies `tjs-lang/browser`
   // (and `/from-ts`) into the site so examples load it same-origin, but it resolves them to
   // `dist/`, which a fresh worktree does not have. It then SKIPS the copy without a word, and
@@ -110,7 +126,12 @@ export default defineSiteConfig({
   // build if they still did not land.
   prebuild() {
     const r = Bun.spawnSync(
-      ['bun', 'scripts/build.ts', '--only', 'tjs-browser,tjs-browser-from-ts'],
+      [
+        'bun',
+        'scripts/build.ts',
+        '--only',
+        'tjs-browser,tjs-browser-from-ts,import-resolver-worker',
+      ],
       { stdout: 'inherit', stderr: 'inherit' }
     )
     if (r.exitCode !== 0) throw new Error('browser bundles failed to build')

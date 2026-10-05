@@ -4,7 +4,7 @@
 
 Unbundled todo app - runs directly in browser, no build step.
 
-```tjs
+```tjs:inline
 import { elements, tosi } from 'tosijs'
 
 const { todoApp } = tosi({
@@ -22,7 +22,10 @@ const { todoApp } = tosi({
 
 const { h1, ul, template, li, label, input, button } = elements
 
-document.body.append(
+// Render into the example's own box: the doc site gives an example a `preview` element (its
+// page IS the doc page); the old playground ran each example in a page of its own.
+const stage = typeof preview === 'undefined' ? document.body : preview
+stage.append(
   h1('To Do'),
   ul(
     {

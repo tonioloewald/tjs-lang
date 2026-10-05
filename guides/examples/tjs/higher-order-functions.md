@@ -4,7 +4,7 @@
 
 Functions that take or return functions
 
-```tjs
+```tjs:inline
 // TJS handles higher-order functions
 // Note: Function type annotations use simple syntax
 

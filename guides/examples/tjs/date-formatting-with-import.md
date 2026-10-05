@@ -4,7 +4,7 @@
 
 Uses date-fns for date formatting via ESM import
 
-```tjs
+```tjs:inline
 TjsCompat
 /#
 ## Date Formatting with Imports

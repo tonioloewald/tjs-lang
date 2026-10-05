@@ -5,7 +5,7 @@
 Two small pieces of syntax for the two ways JavaScript surprises you: something mutated that
 shouldn't have been, and something `null` you didn't check.
 
-```tjs
+```tjs:inline
 /#
 ## `const!` — immutability that costs nothing
 

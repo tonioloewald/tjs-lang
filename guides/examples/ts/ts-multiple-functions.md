@@ -4,7 +4,7 @@
 
 Multiple functions transpile correctly
 
-```ts
+```ts:inline
 // Multiple functions in one file
 
 function add(a: number, b: number): number {

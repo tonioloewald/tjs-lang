@@ -6,7 +6,7 @@
 
 Zero-copy arrays and automatic data marshaling between JS and WASM.
 
-```tjs
+```tjs:inline
 /#
 ## How Data Moves Between JS and WASM
 

@@ -7,7 +7,7 @@ one defends but the spec will never change. Native TJS fixes them at the
 language level — always on in `.tjs`
 files. Each test below names the footgun TJS quietly fixes.
 
-```tjs
+```tjs:inline
 /#
 ## What this demonstrates
 

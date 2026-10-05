@@ -4,7 +4,7 @@
 
 The runtime records what it noticed — errors, and the near-misses that aren't errors yet
 
-```tjs
+```tjs:inline
 /#
 ## The Problem with Monadic Errors
 

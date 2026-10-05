@@ -4,7 +4,7 @@
 
 Demonstrates safe termination - try different fuel amounts!
 
-```ajs
+```ajs:inline
 function infiniteLoop({ limit = 1000000 }) {
   // This will run out of fuel before completing
   let counter = 0

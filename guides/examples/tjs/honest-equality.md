@@ -4,7 +4,7 @@
 
 JavaScript `==` is broken. TJS fixes it without breaking anything.
 
-```tjs
+```tjs:inline
 /#
 ## The Problem with JavaScript ==
 

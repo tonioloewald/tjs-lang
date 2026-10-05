@@ -4,7 +4,7 @@
 
 Classes are supported with metadata
 
-```ts
+```ts:inline
 // Classes with typed methods
 // Note: return types omitted on methods — TJS infers them
 

@@ -4,7 +4,7 @@
 
 Nested object types work correctly
 
-```ts
+```ts:inline
 // Nested object types
 
 interface Address {

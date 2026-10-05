@@ -91,7 +91,13 @@ const INLINE_TYPE_ERROR = `function __arrKinds(v){if(!v.length)return'empty arra
 function __carried(v){if(!v||typeof v!=='object')return;const s=new Set(),q=[v];let b=4096;for(let i=0;i<q.length&&b>0;i++){const o=q[i],pr=Object.getPrototypeOf(o);if(!Array.isArray(o)&&pr!==Object.prototype&&pr!==null)continue;const a=Array.isArray(o),ks=a?null:Object.keys(o),n=a?Math.min(o.length,b+1):ks.length;for(let j=0;j<n;j++){if(--b<0)return;const d=Object.getOwnPropertyDescriptor(o,a?j:ks[j]);if(!d||!('value' in d))continue;const x=d.value;if(isMonadicError(x))return x;if(x&&typeof x==='object'&&!s.has(x)){s.add(x);q.push(x)}}}}function typeError(p,e,v,r,o){if(o!==undefined&&isMonadicError(o))return o;if(isMonadicError(v))return v;const cr=__carried(o!==undefined?o:v);if(cr)return cr;const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
-import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
+import {
+  parse,
+  extractTDoc,
+  preprocess,
+  stripLineComments,
+  transformExtensionCalls,
+} from '../parser'
 
 import {
   transformEqualityToStructural,
@@ -117,7 +123,7 @@ import {
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
 import { blankDocComments } from '../../strip-comments'
 import { RT_NS } from '../rt-namespace'
-import { extractTests } from '../tests'
+import { extractTests, generateTestRunner } from '../tests'
 import {
   runAllTests,
   extractSignatureTestInfos,
@@ -1051,7 +1057,7 @@ export function transpileToJS(
   if (options.dialect !== 'js') source = blankDocComments(source)
 
   // Extract test/mock blocks before parsing (they're not valid JS)
-  const { code: cleanSource, tests, mocks, testRunner } = extractTests(source)
+  const { code: cleanSource, tests, mocks } = extractTests(source)
 
   // Parse the cleaned source (handles TJS syntax like x: 'type' and : ReturnType)
   const {
@@ -1131,6 +1137,20 @@ export function transpileToJS(
       m.body = rewriteBoolCoercionInSource(m.body)
     }
   }
+  // Extension calls too (`'x'.shout()` → the local extension), HERE rather than in
+  // `runAllTests`, so the runner this function RETURNS has them as well.
+  if (preprocessed.extensions.size > 0) {
+    for (const t of tests) {
+      t.body = transformExtensionCalls(t.body, preprocessed.extensions)
+      t.extensionsRewritten = true
+    }
+    for (const m of mocks)
+      m.body = transformExtensionCalls(m.body, preprocessed.extensions)
+  }
+  // The returned `testRunner` is built from the REWRITTEN bodies. It used to be the one
+  // `extractTests` built from raw text, so a caller running it (tosijs-ui's live examples)
+  // ran tests with plain-JS semantics and reported passing tests as failing.
+  const testRunner = generateTestRunner(tests, mocks)
 
   /**
    * Bindings imported into this module, taken from the AST rather than a scanner.
@@ -1747,10 +1767,19 @@ export function transpileToJS(
   ])
 
   // Add __tjs reference for monadic error handling and structural equality
+  // The equality, TypeOf and bool helpers are also needed by REWRITTEN test and mock bodies,
+  // which run beside the module (the `testRunner` this returns) and fall back to its inline
+  // runtime when none is installed: a module that never uses `==` itself omitted `Eq`, and
+  // its tests failed with "__tjs_rt.Eq is not a function".
+  const helperUse = [
+    code,
+    ...tests.map((t) => t.body),
+    ...mocks.map((m) => m.body),
+  ].join('\n')
   // Use createRuntime() for isolated state per-module
   const needsTypeError = code.includes('__tjs.typeError(')
   const needsStack = code.includes('__tjs.pushStack(')
-  const needsIsNot = code.includes('IsNot(')
+  const needsIsNot = helperUse.includes('IsNot(')
   // `IsNot` is implemented AS `!Is(a,b)`, so it needs `Is` emitted — and `'IsNot('` does
   // not contain `'Is('`, so the substring test missed it. An emitted module using `IsNot`
   // without also using `Is` threw `ReferenceError: Is is not defined` on first call, in
@@ -1759,9 +1788,9 @@ export function transpileToJS(
   //
   // Set before the `__ub` gate below, which is keyed on `needsIs` — otherwise `Is` gets
   // emitted referencing an undefined `__ub` and the crash just moves.
-  const needsIs = code.includes('Is(') || needsIsNot
-  const needsEq = code.includes('Eq(')
-  const needsNotEq = code.includes('NotEq(')
+  const needsIs = helperUse.includes('Is(') || needsIsNot
+  const needsEq = helperUse.includes('Eq(')
+  const needsNotEq = helperUse.includes('NotEq(')
   // Legacy equality bridges — emitted only when the author reached for one, which is the
   // point: they are deliberate, greppable escapes back to JavaScript's semantics.
   const needsLegacyEquals = code.includes('DangerousLegacyEquals(')
@@ -1770,7 +1799,7 @@ export function transpileToJS(
   const needsLegacyNotExactly = code.includes('LegacyNotExactly(')
   const needsLegacyDefault = code.includes('LegacyDefault(')
   const needsLegacyDate = code.includes('LegacyDate(')
-  const needsTypeOf = code.includes('TypeOf(')
+  const needsTypeOf = helperUse.includes('TypeOf(')
   // A `set` marker checks membership with `__oneOf` — the language's `==`, exactly as a
   // literal-union parameter does.
   const needsOneOf =
@@ -1800,7 +1829,7 @@ export function transpileToJS(
     needsTypeError ||
     code.includes('__tjs.checkFnShape(') ||
     code.includes('__tjs.bang(')
-  const needsToBool = code.includes('__tjs.toBool(')
+  const needsToBool = helperUse.includes('__tjs.toBool(')
   /** `switch` in native .tjs keys its discriminant — see swKey / switch-transform.ts. */
   const needsSwKey = code.includes('__tjs.swKey(')
   /** `Exactly(…)` used as a value — a nested discriminant inside a Type example (#45). */

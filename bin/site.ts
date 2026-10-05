@@ -35,7 +35,7 @@ import config from '../tjs-site.config'
 function firstCodeBlock(
   text: string
 ): { language: string; code: string } | null {
-  const m = text.match(/^(`{3,})(\w+)?\n([\s\S]*?)^\1\s*$/m)
+  const m = text.match(/^(`{3,})(\w+)?(?::[a-z]+)?\n([\s\S]*?)^\1\s*$/m)
   return m ? { language: m[2] || 'javascript', code: m[3].trim() } : null
 }
 

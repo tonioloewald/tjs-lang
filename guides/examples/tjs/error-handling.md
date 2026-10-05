@@ -4,7 +4,7 @@
 
 Monadic error propagation and type-safe error patterns
 
-```tjs
+```tjs:inline
 /#
 ## Monadic Error Propagation
 

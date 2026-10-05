@@ -237,6 +237,44 @@ const onlyArg = process.argv.indexOf('--only')
 const ONLY =
   onlyArg >= 0 ? new Set(process.argv[onlyArg + 1]?.split(',') ?? []) : null
 
+/** The import-resolver service worker: built apart from `targets` (see inside). */
+function buildResolverWorker(failures: string[]) {
+  // The import-resolver SERVICE WORKER cannot join targets[]: those build
+  // format:'esm'/platform:'neutral', and a classic worker (which is how
+  // registerImportResolver registers it — no {type:'module'}) rejects any
+  // residual import/export. IIFE guarantees none. Shipped as the raw asset
+  // export `tjs-lang/import-resolver/worker`; consumers copy it to their
+  // public root (a SW is origin-scoped — it can't load from a CDN).
+  try {
+    const workerOutfile = join(distDir, 'import-resolver-worker.js')
+    buildSync({
+      entryPoints: ['./src/import-resolver/worker.ts'],
+      outfile: workerOutfile,
+      bundle: true,
+      minify: true,
+      sourcemap: true,
+      format: 'iife',
+      platform: 'browser',
+      target: ['chrome100', 'firefox100', 'safari15'],
+    })
+    const workerContent = readFileSync(workerOutfile)
+    console.log(
+      `${'import-resolver-worker'.padEnd(20)} ${formatSize(
+        workerContent.length
+      ).padStart(12)} ${formatSize(gzipSync(workerContent).length).padStart(
+        12
+      )}   Import-resolver service worker (raw asset)`
+    )
+  } catch (e: any) {
+    failures.push('import-resolver-worker')
+    console.log(
+      `${'import-resolver-worker'.padEnd(20)} ${'FAILED'.padStart(12)}   ${
+        e.message
+      }`
+    )
+  }
+}
+
 function main() {
   console.log('Building TJS bundles...\n')
   console.log('─'.repeat(65))
@@ -251,9 +289,10 @@ function main() {
   let totalGzip = 0
   const failures: string[] = []
 
+  const WORKER = 'import-resolver-worker'
   const selected = ONLY ? targets.filter((t) => ONLY.has(t.name)) : targets
-  if (ONLY && selected.length !== ONLY.size) {
-    const known = new Set(targets.map((t) => t.name))
+  if (ONLY && selected.length + (ONLY.has(WORKER) ? 1 : 0) !== ONLY.size) {
+    const known = new Set([...targets.map((t) => t.name), WORKER])
     console.error(
       `✖ unknown --only target(s): ${[...ONLY]
         .filter((n) => !known.has(n))
@@ -288,6 +327,7 @@ function main() {
   )
   console.log('')
   if (ONLY) {
+    if (ONLY.has(WORKER)) buildResolverWorker(failures)
     if (failures.length) process.exit(1)
     return
   }
@@ -345,40 +385,7 @@ function main() {
     )
   }
 
-  // The import-resolver SERVICE WORKER cannot join targets[]: those build
-  // format:'esm'/platform:'neutral', and a classic worker (which is how
-  // registerImportResolver registers it — no {type:'module'}) rejects any
-  // residual import/export. IIFE guarantees none. Shipped as the raw asset
-  // export `tjs-lang/import-resolver/worker`; consumers copy it to their
-  // public root (a SW is origin-scoped — it can't load from a CDN).
-  try {
-    const workerOutfile = join(distDir, 'import-resolver-worker.js')
-    buildSync({
-      entryPoints: ['./src/import-resolver/worker.ts'],
-      outfile: workerOutfile,
-      bundle: true,
-      minify: true,
-      sourcemap: true,
-      format: 'iife',
-      platform: 'browser',
-      target: ['chrome100', 'firefox100', 'safari15'],
-    })
-    const workerContent = readFileSync(workerOutfile)
-    console.log(
-      `${'import-resolver-worker'.padEnd(20)} ${formatSize(
-        workerContent.length
-      ).padStart(12)} ${formatSize(gzipSync(workerContent).length).padStart(
-        12
-      )}   Import-resolver service worker (raw asset)`
-    )
-  } catch (e: any) {
-    failures.push('import-resolver-worker')
-    console.log(
-      `${'import-resolver-worker'.padEnd(20)} ${'FAILED'.padStart(12)}   ${
-        e.message
-      }`
-    )
-  }
+  buildResolverWorker(failures)
   console.log('')
 
   // Show what each subpath provides

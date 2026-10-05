@@ -4,7 +4,11 @@
 
 Imports `dot` and `norm_sq` from `mylinalg` and computes cosine similarity. Run **after** saving the "WASM Library: SIMD Linalg" example as `mylinalg`.
 
-```tjs
+> **Needs a second module.** This example imports the `mylinalg` module from the "WASM Library: SIMD Linalg" example, which a single example on this
+> page cannot load. Run it in the [playground](https://tjs-platform.web.app) after saving that
+> module, or locally with `tjs run` beside it.
+
+```tjs:static
 /#
 ## Using a WASM library
 

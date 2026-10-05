@@ -5,7 +5,7 @@
 `switch` has three footguns. `given` is the same idea with none of them — and a different
 shape, so you can see at a glance which one you are reading.
 
-```tjs
+```tjs:inline
 /#
 ## The three problems with `switch`
 

@@ -6,7 +6,7 @@
 
 Interactive space flythrough with parallax stars and nebula clouds. Uses `wasmBuffer()` for zero-copy WASM memory and SIMD-accelerated particle movement.
 
-```tjs
+```tjs:inline
 /#
 # Space Flythrough Demo
 
@@ -108,6 +108,11 @@ function respawnNebula(xs, ys, zs, len, maxDepth) {
   }
 }
 
+// Render into the example's own box: the doc site gives an example a `preview` element (its
+// page IS the doc page); the old playground ran each example in a page of its own.
+const stage = typeof preview === 'undefined' ? document.body : preview
+if (stage !== document.body) stage.style.cssText += ';position:relative;height:480px'
+
 // Create canvas
 const canvas = document.createElement('canvas')
 canvas.style.background = '#000'
@@ -131,7 +136,7 @@ function resize() {
   fov = width * 0.7
 }
 
-document.body.appendChild(canvas)
+stage.appendChild(canvas)
 resize()
 window.addEventListener('resize', resize)
 
@@ -160,6 +165,8 @@ let fps = 0
 let lastFpsTime = performance.now()
 
 function animate() {
+  // Stop when the canvas leaves the page (a reader navigated away, or the example re-ran).
+  if (!canvas.isConnected) return
   frameCount++
   const now = performance.now()
   if (now - lastFpsTime > 1000) {

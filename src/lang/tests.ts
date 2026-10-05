@@ -50,6 +50,8 @@ export interface ExtractedTest {
   description: string
   body: string
   line?: number
+  /** Set by `tjs()` once extension calls in `body` are rewritten, so nothing rewrites twice. */
+  extensionsRewritten?: boolean
 }
 
 export interface ExtractedMock {
@@ -314,7 +316,15 @@ function getLineNumber(source: string, pos: number): number {
 /**
  * Generate test runner code
  */
-function generateTestRunner(
+/**
+ * The runner `extractTests` returns (raw bodies) and `tjs()` returns (bodies rewritten with the
+ * module's TJS semantics: `==`, bool coercion, extension calls). Exported for `js.ts`.
+ *
+ * A rewritten body references the runtime (`__tjs_rt.Eq(…)`), which it finds in the module
+ * code it runs beside (`code + testUtils + 'return ' + testRunner`): `js.ts` counts test bodies
+ * when it decides what the inline runtime carries.
+ */
+export function generateTestRunner(
   tests: ExtractedTest[],
   mocks: ExtractedMock[]
 ): string {

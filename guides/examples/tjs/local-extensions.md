@@ -4,7 +4,7 @@
 
 Add methods to built-in types without polluting prototypes
 
-```tjs
+```tjs:inline
 /#
 ## Local Class Extensions
 

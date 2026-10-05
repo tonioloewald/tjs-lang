@@ -6,7 +6,7 @@
 
 Process 4 floats per instruction. No setup, no toolchain.
 
-```tjs
+```tjs:inline
 /#
 ## SIMD: Single Instruction, Multiple Data
 

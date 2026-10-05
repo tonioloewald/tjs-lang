@@ -4,7 +4,7 @@
 
 See how TypeScript types become TJS example-based types
 
-```ts
+```ts:inline
 /*#
 # TypeScript:
 

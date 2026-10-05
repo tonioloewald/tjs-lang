@@ -5,7 +5,7 @@
 An options object where **each member has its own default**, and passing a partial one fills
 in the rest. JavaScript makes you write that merge by hand, every time.
 
-```tjs
+```tjs:inline
 /#
 ## The JavaScript problem
 

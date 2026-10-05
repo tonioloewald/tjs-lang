@@ -4,7 +4,7 @@
 
 Object types are validated at runtime
 
-```ts
+```ts:inline
 // Converted TypeScript keeps JavaScript's behaviour until you opt in. This one
 // line opts in to full TJS, which turns the types into runtime checks:
 /* @tjs TjsStrict */

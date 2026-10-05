@@ -4,7 +4,7 @@
 
 Ban var, enforce immutability. Zero runtime cost.
 
-```tjs
+```tjs:inline
 /#
 ## var Is Dead
 

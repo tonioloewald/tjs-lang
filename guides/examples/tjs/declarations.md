@@ -4,7 +4,7 @@
 
 Types that survive to runtime: `Type`, `Enum`, `Union`, `Generic`, `FunctionPredicate`.
 
-```tjs
+```tjs:inline
 /*#
 ## Types you can call
 

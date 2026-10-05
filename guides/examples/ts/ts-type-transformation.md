@@ -4,7 +4,7 @@
 
 See how TypeScript types become TJS examples
 
-```ts
+```ts:inline
 // TypeScript type syntax -> TJS example syntax
 //
 // TypeScript:          TJS:

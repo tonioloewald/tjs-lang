@@ -4,7 +4,7 @@
 
 Optional params work in TS and TJS
 
-```ts
+```ts:inline
 // Optional parameters: TS ? syntax or default values
 
 function createGreeting(

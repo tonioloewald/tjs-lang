@@ -4,7 +4,7 @@
 
 Array types flow through the pipeline
 
-```ts
+```ts:inline
 // Array types are preserved
 
 function sum(numbers: number[]): number {

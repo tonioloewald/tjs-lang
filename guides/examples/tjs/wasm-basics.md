@@ -6,7 +6,7 @@
 
 Write WebAssembly inline — compiled at transpile time, embedded in the output.
 
-```tjs
+```tjs:inline
 /#
 ## The Problem
 

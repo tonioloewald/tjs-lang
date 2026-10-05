@@ -4,7 +4,7 @@
 
 Generics transpile with warnings (best-effort)
 
-```ts
+```ts:inline
 // Generic functions: TJS handles them best-effort
 // Generic type params become 'any' with a warning
 

@@ -84,7 +84,7 @@ export function parseExample(content: string, filePath = ''): ExampleFile {
   }
 
   // Extract first fenced code block (supports ``` or ```` fences)
-  const codeMatch = content.match(/^(`{3,})(\w*)\n([\s\S]*?)^\1/m)
+  const codeMatch = content.match(/^(`{3,})(\w*)(?::[a-z]+)?\n([\s\S]*?)^\1/m)
   const language = codeMatch?.[2] || ''
   const code = codeMatch?.[3]?.trimEnd() || ''
 

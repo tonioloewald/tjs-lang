@@ -4,7 +4,7 @@
 
 One endpoint. Any logic. Zero deployment. This is the whole thing.
 
-```tjs
+```tjs:inline
 /#
 ## The Universal Endpoint
 

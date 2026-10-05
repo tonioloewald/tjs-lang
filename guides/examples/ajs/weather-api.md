@@ -4,7 +4,7 @@
 
 Fetch weather data (no API key needed)
 
-```ajs
+```ajs:inline
 function getWeather({ lat = 37.7749, lon = -122.4194 }) {
   let url =
     'https://api.open-meteo.com/v1/forecast?latitude=' +

@@ -4,7 +4,7 @@
 
 Classes you can call like functions. Multiple constructors.
 
-```tjs
+```tjs:inline
 /#
 ## The Problem
 

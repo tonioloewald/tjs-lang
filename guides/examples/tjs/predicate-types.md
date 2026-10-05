@@ -5,7 +5,7 @@
 A type that is a **function you can run** — and, because it is verified safe, one that can
 also validate, autocomplete, and travel as JSON Schema.
 
-```tjs
+```tjs:inline
 /#
 ## The gap this fills
 

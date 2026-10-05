@@ -4,7 +4,7 @@
 
 Working with typed arrays
 
-```tjs
+```tjs:inline
 /#
 ## Array Types
 

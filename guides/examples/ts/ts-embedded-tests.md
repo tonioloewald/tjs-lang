@@ -4,7 +4,7 @@
 
 Write tests in comments that survive TypeScript compilation
 
-```ts
+```ts:inline
 // Embedded tests live inside /*test ... */ comments
 // These survive TypeScript compilation and are extracted by TJS!
 

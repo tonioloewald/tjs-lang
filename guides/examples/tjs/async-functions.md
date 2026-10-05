@@ -4,7 +4,7 @@
 
 Typed async/await patterns
 
-```tjs
+```tjs:inline
 // Async functions work naturally
 
 async function fetchUser(id: 'user-1'): { name: '', email: '' } {
@@ -21,5 +21,5 @@ async function fetchUsers(ids: ['']): [{ name: '', email: '' }] {
 }
 
 // Run it
-await fetchUsers(['alice', 'bob', 'charlie'])
+console.log(await fetchUsers(['alice', 'bob', 'charlie']))
 ```

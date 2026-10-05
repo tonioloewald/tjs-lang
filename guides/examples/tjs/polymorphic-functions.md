@@ -4,7 +4,7 @@
 
 Multiple function declarations with the same name, automatically dispatched by argument types
 
-```tjs
+```tjs:inline
 /#
 ## Polymorphic Functions
 

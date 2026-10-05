@@ -4,7 +4,7 @@
 
 TypeScript types work at RUNTIME, not just compile time
 
-```ts
+```ts:inline
 // Converted TypeScript keeps JavaScript's behaviour until you opt in. This one
 // line opts in to full TJS, which turns the types into runtime checks:
 /* @tjs TjsStrict */

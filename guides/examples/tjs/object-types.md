@@ -4,7 +4,7 @@
 
 Typed object parameters and returns
 
-```tjs
+```tjs:inline
 /#
 ## Object Types
 

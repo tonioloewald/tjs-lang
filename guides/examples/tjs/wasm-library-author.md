@@ -4,7 +4,7 @@
 
 A reusable WASM library exporting f32x4 SIMD vector kernels. Save this as `mylinalg`, then run the "Using a WASM Library" example.
 
-```tjs
+```tjs:inline
 /#
 ## A reusable WASM library
 

@@ -4,7 +4,7 @@
 
 Difference between : and = in parameters
 
-```tjs
+```tjs:inline
 /#
 ## Required vs Optional Parameters
 

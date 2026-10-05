@@ -4,7 +4,7 @@
 
 Top-level `wasm function` declarations — the building block for cross-file WASM libraries.
 
-```tjs
+```tjs:inline
 /#
 ## `wasm function` — reusable WebAssembly kernels
 

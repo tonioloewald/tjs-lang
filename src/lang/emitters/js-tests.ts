@@ -778,9 +778,11 @@ export function runAllTests(
   // Build test execution code that runs all tests in sequence
   const testBodies = tests
     .map((t, i) => {
-      // Apply extension call rewriting to test body if extensions exist
+      // Extension calls were already rewritten in `js.ts` (with the other test-body
+      // transforms), so the runner `tjs()` returns has them too. `extensions` is kept for
+      // callers that pass raw bodies.
       const body =
-        extensions.size > 0
+        extensions.size > 0 && !t.extensionsRewritten
           ? transformExtensionCalls(t.body, extensions)
           : t.body
       return `

@@ -4,7 +4,7 @@
 
 Async/await works naturally
 
-```ts
+```ts:inline
 // Async functions work naturally
 // Promise<T> is unwrapped to T in return type
 

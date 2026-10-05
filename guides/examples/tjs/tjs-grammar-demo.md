@@ -24,7 +24,7 @@ Comprehensive reference covering all major TJS syntax features.
 
 All other features are exercised in the runnable code below:
 
-```tjs
+```tjs:inline
 // ═══════════════════════════════════════════════════════════
 // 1. SAFETY DIRECTIVE
 // Must appear before any other code.

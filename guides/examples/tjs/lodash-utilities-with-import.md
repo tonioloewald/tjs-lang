@@ -4,7 +4,7 @@
 
 Uses lodash-es for utility functions via ESM import
 
-```tjs
+```tjs:inline
 /#
 ## Lodash Utilities with Type Safety
 

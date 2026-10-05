@@ -7,7 +7,7 @@ bundles. When you need a specific CDN — to test an unreleased build, work
 around a transform issue, or load a module straight from GitHub — prefix
 the spec with a CDN hint.
 
-```tjs
+```tjs:inline
 TjsCompat
 /#
 ## Per-import CDN hints
@@ -52,7 +52,10 @@ const state = tosi({
   inc() { state.count++ },
 })
 
-document.body.append(
+// Render into the example's own box: the doc site gives an example a `preview` element (its
+// page IS the doc page); the old playground ran each example in a page of its own.
+const stage = typeof preview === 'undefined' ? document.body : preview
+stage.append(
   div(
     h1({ bindText: state.count }),
     button({ onClick: state.inc }, '+1')

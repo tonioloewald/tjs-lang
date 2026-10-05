@@ -4,7 +4,11 @@
 
 Frontend that calls the User Service - run after saving user-service!
 
-```tjs
+> **Needs a second module.** This example imports the `user-service` module from the "User Service" example, which a single example on this
+> page cannot load. Run it in the [playground](https://tjs-platform.web.app) after saving that
+> module, or locally with `tjs run` beside it.
+
+```tjs:static
 /#
 ## Client Application
 

@@ -4,7 +4,7 @@
 
 A complete backend service with typed endpoints - save this first!
 
-```tjs
+```tjs:inline
 TjsCompat
 /#
 ## User Service

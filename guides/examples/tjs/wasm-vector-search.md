@@ -6,7 +6,7 @@
 
 WASM SIMD vs scalar JavaScript cosine similarity
 
-```tjs
+```tjs:inline
 /#
 # WASM SIMD Vector Search Benchmark
 
@@ -125,9 +125,13 @@ function jsSearch(corpus, query, count, dim) {
 }
 
 // UI setup
+// Render into the example's own box: the doc site gives an example a `preview` element (its
+// page IS the doc page); the old playground ran each example in a page of its own.
+const stage = typeof preview === 'undefined' ? document.body : preview
+if (stage !== document.body) stage.style.cssText += ';position:relative;height:520px'
 const container = document.createElement('div')
 container.style.cssText = 'font-family:monospace;color:#c0d8ff;background:#0a0a14;padding:24px;position:absolute;inset:0;overflow:auto'
-document.body.appendChild(container)
+stage.appendChild(container)
 
 const title = document.createElement('h2')
 title.textContent = 'Vector Search: WASM SIMD vs JS Scalar'

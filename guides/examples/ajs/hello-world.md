@@ -4,7 +4,7 @@
 
 Simple greeting with template
 
-```ajs
+```ajs:inline
 function greet({ name = 'World' }) {
   let message = template({ tmpl: 'Hello, {{name}}!', vars: { name } })
   return { message }

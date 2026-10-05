@@ -10,8 +10,44 @@
 import 'tosijs-ui/doc-browser'
 import 'tosijs-ui/live-example'
 import { registerDialect } from 'tosijs-ui/live-example'
-import { transpile } from '../src/lang/core'
+import * as tosijs from 'tosijs'
+import * as tosijsUi from 'tosijs-ui'
+import { transpile, tjs } from '../src/lang/core'
+import { generateDocsMarkdown } from '../src/lang/docs'
+import { installRuntime } from '../src/lang/runtime'
 import { AgentVM } from '../src/vm/ast'
+import { stripExports } from './strip-exports'
+
+// The FULL runtime, as the old playground installed it. Emitted code prefers an installed
+// `globalThis.__tjs` over its inline stub, and the stub has no flight recorder, so the
+// error-history example's `__tjs.clearErrors()` was "not a function" on the site.
+installRuntime()
+
+// The modules examples `import` (`tosijs`, `tosijs-ui`). The doc system reads them from these
+// globals, which tosijs-ui's OWN iife.js sets; this bundle replaces that iife, so without this
+// every `import { … } from 'tosijs'` in an example resolved to undefined (tosijs-todo: "Cannot
+// destructure property 'elements' of 'tosijs'").
+Object.assign(globalThis, { xinjs: tosijs, xinjsui: tosijsUi })
+
+// THIS commit's TJS, replacing tosijs-ui's built-in `tjs` dialect (which loads the
+// same-origin bundle, else a CDN's pinned tjs-lang). Two things the built-in does not do:
+// strip `export` (examples written as modules ran as a function body and failed with
+// "Unexpected token 'export'"), and it is the transpiler the docs describe, always.
+registerDialect('tjs', {
+  label: 'TJS',
+  editorMode: 'tjs',
+  transform(source) {
+    return {
+      code: stripExports(tjs(source, { dialect: 'tjs', runTests: false }).code),
+    }
+  },
+  docs(source) {
+    return generateDocsMarkdown(
+      source,
+      tjs(source, { dialect: 'tjs', runTests: false }).types
+    )
+  },
+})
 
 /**
  * Domains the AJS examples fetch from, and nothing else. A doc page is public: an example a

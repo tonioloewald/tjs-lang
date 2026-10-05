@@ -4,7 +4,7 @@
 
 Types-by-example: the value IS the type annotation
 
-```tjs
+```tjs:inline
 /#
 ## Types by Example
 

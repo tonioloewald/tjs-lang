@@ -4,7 +4,7 @@
 
 Three levels of runtime validation. Choose per-file or per-function.
 
-```tjs
+```tjs:inline
 safety inputs
 
 /#

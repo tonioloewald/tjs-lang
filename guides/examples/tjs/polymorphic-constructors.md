@@ -4,7 +4,7 @@
 
 Classes with multiple constructor signatures, dispatched automatically
 
-```tjs
+```tjs:inline
 /#
 ## Polymorphic Constructors
 

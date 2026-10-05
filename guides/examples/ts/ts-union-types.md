@@ -4,7 +4,7 @@
 
 Union types and nullable values
 
-```ts
+```ts:inline
 // Union types: T | null, T | undefined
 
 function findUser(id: number): string | null {

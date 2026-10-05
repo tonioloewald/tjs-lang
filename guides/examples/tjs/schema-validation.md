@@ -4,7 +4,7 @@
 
 Types persist into runtime — inspect, validate, and document at zero extra cost
 
-```tjs
+```tjs:inline
 /#
 ## Runtime Types
 

@@ -4,7 +4,7 @@
 
 Test internals without exporting them - the killer feature
 
-```tjs
+```tjs:inline
 /#
 ## Testing Private Functions
 

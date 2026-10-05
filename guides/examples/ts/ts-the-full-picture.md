@@ -4,7 +4,7 @@
 
 Complete example showing the TS -> TJS -> JS value proposition
 
-```ts
+```ts:inline
 /*#
 ## The Full Picture
 
