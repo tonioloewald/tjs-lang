@@ -21,6 +21,7 @@ import { describe, it, expect } from 'bun:test'
 import { parse } from 'acorn'
 import { findDocCommentSpans, blankDocComments } from '../strip-comments'
 import { tjs } from './index'
+import { extractTests } from './tests'
 
 const spans = (src: string) => findDocCommentSpans(src)
 const isValidJs = (src: string) => {
@@ -165,6 +166,36 @@ describe('a doc comment is INERT — no downstream pass sees into it', () => {
     const r = tjs(source, { filename: 'a.tjs', runTests: false })
     const f = new Function(`${r.code}\nreturn f`)() as any
     expect(f(7)).toBe(7)
+  })
+
+  // `extractTests` is PUBLIC (tosijs-ui's live examples call it on an example's raw source to
+  // run its inline tests), so it cannot rely on `transpile` having blanked first. It used to:
+  // every playground example opening with a `/# … #/` block reported ZERO tests on the doc
+  // site — the backtick-quoted syntax inside the block derailed its literal scanner.
+  it('extractTests on RAW source: finds the tests after it, none inside it, keeps it in code', () => {
+    const raw = `${source}
+test 'real one' {\n  expect(f(1)).toBe(1)\n}\ntest 'and two' { expect(f(2)).toBe(2) }\n`
+    const r = extractTests(raw)
+    expect(r.tests.map((t) => t.description)).toEqual(['real one', 'and two'])
+    expect(r.code).toContain('## Documenting TJS')
+    expect(r.code).not.toContain("test 'real one'")
+  })
+
+  it('extractTests on RAW source: prose in a doc block is not code: an apostrophe opens no string (the hello-tjs shape)', () => {
+    const raw = [
+      '/#',
+      '## Types by Example',
+      '| Syntax | Type |',
+      "| `name: 'Alice'` | string |",
+      '| `...nums: [0]` | rest param |',
+      "Incidentally, you're looking at inline markdown docs...",
+      '#/',
+      "function greet(name: 'World'): '' { return name }",
+      "test 'greets' { expect(greet('x')).toBe('x') }",
+    ].join('\n')
+    expect(extractTests(raw).tests.map((t) => t.description)).toEqual([
+      'greets',
+    ])
   })
 
   it('under dialect js it is left alone — there it is a regex', () => {

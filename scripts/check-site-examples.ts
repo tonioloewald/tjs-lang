@@ -103,7 +103,8 @@ class Cdp {
 const SNAPSHOT = `(() => [...document.querySelectorAll('tosi-example')].map(e => ({
   preview: (e.querySelector('.preview')?.innerText || '').trim(),
   tests: (e.querySelector('[part=testResults]')?.innerText || '').trim(),
-  console: (e.querySelector('[part=console], .console')?.innerText || '').trim(),
+  console: (e.querySelector('.example-console .console-lines')?.innerText || '').trim(),
+  inline: [...e.querySelectorAll('.tjs-test-summary, .test-fail')].map(x => x.textContent.trim()).join(' · '),
 })))()`
 
 async function main() {
@@ -122,9 +123,15 @@ async function main() {
     { stdout: 'ignore', stderr: 'ignore' }
   )
   try {
+    // Chrome creates the file before it writes the port into it.
     const portFile = join(profile, 'DevToolsActivePort')
-    for (let i = 0; i < 100 && !existsSync(portFile); i++) await Bun.sleep(100)
-    const port = readFileSync(portFile, 'utf8').split('\n')[0]
+    let port = ''
+    for (let i = 0; i < 100 && !/^\d+$/.test(port); i++) {
+      await Bun.sleep(100)
+      if (existsSync(portFile))
+        port = readFileSync(portFile, 'utf8').split('\n')[0]
+    }
+    if (!/^\d+$/.test(port)) throw new Error('headless Chrome did not start')
     const targets = await (
       await fetch(`http://127.0.0.1:${port}/json/list`)
     ).json()
@@ -162,7 +169,42 @@ async function main() {
         const settled = snap.every((e) => e.preview || e.tests)
         if (Date.now() - t0 > 2000 && settled) break
       }
+      // Since tosijs-ui 1.16.4 what an example LOGS goes to a Console tab in its code panel, not
+      // the preview. For an example that showed nothing, open the panel and read the console.
+      if (snap.some((e) => !e.preview && !e.tests)) {
+        await cdp.eval(
+          `[...document.querySelectorAll('tosi-example')].forEach(e => { if (!e.querySelector('.preview')?.innerText.trim() && !e.querySelector('[part=testResults]')?.innerText.trim()) e.querySelector('button[title="view/edit code"]')?.click() })`
+        )
+        const t1 = Date.now()
+        while (Date.now() - t1 < 5000) {
+          await Bun.sleep(300)
+          snap = (await cdp.eval(SNAPSHOT)) ?? []
+          if (snap.every((e) => e.preview || e.tests || e.console || e.inline))
+            break
+        }
+      }
+      // An example whose only output is its `test` blocks shows nothing until a reader ticks
+      // "run tests". Tick it, so the check covers the tests too.
+      if (snap.some((e) => !e.preview && !e.tests && !e.console && !e.inline)) {
+        await cdp.eval(
+          `[...document.querySelectorAll('tosi-example')].forEach(e => { const box = e.querySelector('[part=testsCheckbox]'); if (box && !box.checked) box.click() })`
+        )
+        const t2 = Date.now()
+        while (Date.now() - t2 < 8000) {
+          await Bun.sleep(300)
+          snap = (await cdp.eval(SNAPSHOT)) ?? []
+          if (snap.every((e) => e.preview || e.tests || e.console || e.inline))
+            break
+        }
+      }
       examples += snap.length
+      if (argv.includes('--eval')) console.log(await cdp.eval(opt('eval', '')))
+      if (argv.includes('--test-props'))
+        console.log(
+          await cdp.eval(
+            `JSON.stringify([...document.querySelectorAll('tosi-example')].map(e => ({ checked: e.querySelector('[part=testsCheckbox]')?.checked, testResults: e.testResults, hidden: e.querySelector('[part=testResults]')?.hidden, display: getComputedStyle(e.querySelector('[part=testResults]')).display, html: e.querySelector('[part=testResults]')?.textContent.slice(0, 300) })))`
+          )
+        )
       if (argv.includes('--open-dump')) {
         await cdp.eval(
           `[...document.querySelectorAll('tosi-example button[title="view/edit code"]')].forEach(b => b.click())`
@@ -188,7 +230,7 @@ async function main() {
         )
       const lines: string[] = []
       snap.forEach((e, i) => {
-        const shown = [e.preview, e.tests, e.console]
+        const shown = [e.preview, e.tests, e.console, e.inline]
           .filter(Boolean)
           .join(' ⏐ ')
         const flat = shown.replace(/\s+/g, ' ').slice(0, 160)

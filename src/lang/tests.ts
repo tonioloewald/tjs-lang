@@ -41,6 +41,7 @@ import {
   maskLiterals,
   commentRanges,
   matchingBrace,
+  blankDocComments,
 } from '../strip-comments'
 
 // Note: parser could be used for more robust test extraction in future
@@ -161,9 +162,17 @@ export function extractTests(source: string): TestExtractionResult {
   const tests: ExtractedTest[] = []
   const mocks: ExtractedMock[] = []
 
+  // Scan a view with TJS doc comments (`/# … #/`) blanked, offsets preserved, and slice the
+  // original. A doc comment exists to QUOTE syntax, `test '…' { }` included, so what is inside
+  // one is inert (TJS-SYNTAX.md) — and its content (backticked fragments of syntax) must not
+  // reach the literal scanner either. `transpile` blanks before calling here; this function is
+  // also PUBLIC (tosijs-ui runs live examples' inline tests through it on raw source), and every
+  // doc-site example opening with a doc block reported zero tests until this did it itself.
+  const scan = blankDocComments(source)
+
   // First, extract embedded tests from block comments (for TS compatibility)
   // These use syntax: /*test 'description' { ... }*/
-  const embeddedTests = extractEmbeddedTests(source)
+  const embeddedTests = extractEmbeddedTests(scan)
   tests.push(...embeddedTests)
 
   // Regex to match test blocks - three syntaxes supported:
@@ -194,8 +203,8 @@ export function extractTests(source: string): TestExtractionResult {
    * Masking preserves offsets — content is blanked, never removed — so every slice below
    * still reads the ORIGINAL source.
    */
-  const maskedSource = maskLiterals(source)
-  const comments = commentRanges(source)
+  const maskedSource = maskLiterals(scan)
+  const comments = commentRanges(scan)
   const insideComment = (pos: number): boolean =>
     comments.some(([from, to]) => pos >= from && pos < to)
 
