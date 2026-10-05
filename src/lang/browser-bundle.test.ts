@@ -11,6 +11,8 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { buildSync } from 'esbuild'
+import { writeFileSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { DEFAULT_TYPESCRIPT_URL } from './browser-from-ts'
 
 const HERE = import.meta.dir
@@ -61,6 +63,28 @@ describe('browser bundles are self-contained (CDN drop-in)', () => {
     expect(out.length).toBeLessThan(300_000)
     // the only runtime dependency is the configurable compiler URL
     expect(out).toContain('esm.sh/typescript')
+  })
+
+  // tosijs-ui's built-in `tjs` dialect FEATURE-DETECTS this pair on the bundle and shows a Docs
+  // tab only when both exist (tosijs-ui 1.16.3, #184 part 3). Missing, it degrades silently to no
+  // tab, so nothing else would notice the export going away.
+  it('tjs-browser exports generateDocsMarkdown, callable the way tosijs-ui calls it', async () => {
+    const file = `${tmpdir()}/tjs-browser-docs-${process.pid}.mjs`
+    writeFileSync(file, bundle('browser.ts'))
+    try {
+      const m = await import(file)
+      expect(typeof m.generateDocsMarkdown).toBe('function')
+      const source = `/*# Greeting helpers */
+function greet(name: 'World'): '' { return 'Hello, ' + name }`
+      const md = m.generateDocsMarkdown(
+        source,
+        m.tjs(source, { dialect: 'tjs', runTests: false }).types
+      )
+      expect(md).toContain('Greeting helpers')
+      expect(md).toContain('## greet')
+    } finally {
+      rmSync(file, { force: true })
+    }
   })
 
   it('default TypeScript CDN is esm.sh (the only one that serves it reliably)', () => {

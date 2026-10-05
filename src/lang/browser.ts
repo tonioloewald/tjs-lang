@@ -11,3 +11,7 @@
  * lazy-loads the TypeScript compiler from a CDN on demand).
  */
 export * from './transpiler'
+
+// Doc generation (the signature IS the docs). tosijs-ui's built-in `tjs` dialect feature-detects
+// `generateDocsMarkdown` here to show an example's Docs tab (tosijs-ui 1.16.3, #184 part 3).
+export { generateDocs, generateDocsMarkdown } from './docs'

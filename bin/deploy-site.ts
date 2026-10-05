@@ -5,6 +5,12 @@
  *
  *   bun run deploy:site            # builds HEAD
  *   bun run deploy:site <ref>      # builds <ref>
+ *   bun run preview:site [ref]     # the SAME build, served on http://localhost:8790, not pushed
+ *
+ * `preview:site` is how to test the site locally: it builds exactly what `deploy:site` would
+ * (a commit, in a worktree), so a check passed in the preview is a check on what ships. It needs
+ * no remote and does not publish. tosijs-ui's `devServer` is not used for this because it builds
+ * in THIS checkout, and `buildSite()` deletes `dist/` (reason 1 below).
  *
  * Built in a throwaway git worktree, never in this checkout, for two reasons:
  *
@@ -22,7 +28,10 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 const repo = (await $`git rev-parse --show-toplevel`.text()).trim()
-const ref = process.argv[2] ?? 'HEAD'
+const args = process.argv.slice(2)
+const preview = args.includes('--preview')
+const ref = args.find((a) => !a.startsWith('--')) ?? 'HEAD'
+const PREVIEW_PORT = Number(process.env.SITE_PREVIEW_PORT ?? 8790)
 const sha = (await $`git rev-parse --short ${ref}`.cwd(repo).text()).trim()
 
 // A site that says "built from <sha>" must name a commit others can see. Refuse one that is
@@ -31,7 +40,7 @@ const sha = (await $`git rev-parse --short ${ref}`.cwd(repo).text()).trim()
 const onRemote = (
   await $`git branch -r --contains ${sha}`.cwd(repo).nothrow().text()
 ).trim()
-if (!onRemote) {
+if (!onRemote && !preview) {
   console.error(
     `✖ ${sha} is not on any remote branch — push it first, then deploy.`
   )
@@ -58,6 +67,14 @@ if (!(await buildSite(config))) process.exit(1)
   await $`bun .build-site.ts`.cwd(tree)
 
   const out = join(tree, '.site')
+  if (preview) {
+    // Copy out of the worktree (removed in `finally`) and serve until interrupted.
+    const served = join(repo, '.site-preview')
+    rmSync(served, { recursive: true, force: true })
+    await $`cp -R ${out} ${served}`
+    serveStatic(served, sha)
+    await new Promise(() => {})
+  }
   const remote = (await $`git remote get-url origin`.cwd(repo).text()).trim()
   await $`git init -q -b gh-pages`.cwd(out)
   await $`git add -A`.cwd(out)
@@ -70,4 +87,31 @@ if (!(await buildSite(config))) process.exit(1)
 } finally {
   await $`git worktree remove --force ${tree}`.cwd(repo).nothrow().quiet()
   rmSync(work, { recursive: true, force: true })
+}
+
+/** GitHub Pages' resolution: a path, else `<path>/index.html`, else `<path>.html`, else 404. */
+function serveStatic(root: string, sha: string) {
+  Bun.serve({
+    port: PREVIEW_PORT,
+    hostname: '127.0.0.1',
+    async fetch(req: Request) {
+      const path = decodeURIComponent(new URL(req.url).pathname)
+      if (path.split('/').includes('..'))
+        return new Response('bad path', { status: 400 })
+      for (const candidate of [path, `${path}/index.html`, `${path}.html`]) {
+        const file = Bun.file(join(root, candidate))
+        if ((await file.exists()) && !candidate.endsWith('/'))
+          return new Response(file, {
+            headers: { 'Cache-Control': 'no-store' },
+          })
+      }
+      const notFound = Bun.file(join(root, '404.html'))
+      return (await notFound.exists())
+        ? new Response(notFound, { status: 404 })
+        : new Response('not found', { status: 404 })
+    },
+  })
+  console.log(
+    `✅ preview of ${sha} → http://localhost:${PREVIEW_PORT} (not published; Ctrl-C to stop)`
+  )
 }

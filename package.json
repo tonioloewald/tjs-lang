@@ -273,7 +273,7 @@
     "prettier": "^2.8.8",
     "prismjs": "^1.30.0",
     "tosijs": "^1.10.3",
-    "tosijs-ui": "1.16.1",
+    "tosijs-ui": "1.16.6",
     "typescript": "^5.6.2",
     "typescript-eslint": "^8.61.0"
   },
@@ -307,6 +307,7 @@
     "functions:serve": "cd functions && npm run serve",
     "deploy:hosting": "bun run build:demo && firebase deploy --only hosting",
     "deploy:site": "bun bin/deploy-site.ts",
+    "preview:site": "bun bin/deploy-site.ts --preview",
     "deploy": "bun run build:demo && bun run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev",
     "docs:differences": "bun scripts/build-differences.ts",
