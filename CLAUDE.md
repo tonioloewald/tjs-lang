@@ -199,6 +199,12 @@ bun run deploy:site         # The tosijs-ui DOC SITE → GitHub Pages (gh-pages)
                             #   registers the doc system AND the `ajs` dialect (tosijs-ui 1.16.1's
                             #   `registerDialect`), so ```ajs examples RUN — AST VM, fetch limited
                             #   to the examples' domains, no LLM (those say so).
+bun scripts/check-site-examples.ts  # With preview:site running: HEADLESS Chrome loads every page
+                            #   and reports each live example's output, failures and page
+                            #   errors (--only a,b; --base https://tjs.tosijs.net for the live
+                            #   site). Headless because a backgrounded window is throttled and
+                            #   its examples never finish. Opens the code panel for examples
+                            #   whose output is their Console or inline tests.
 bun run preview:site        # The SAME build as deploy:site (a commit, in a worktree), served on
                             #   http://localhost:8797 and NOT pushed. Test the site here: what
                             #   passes in the preview is what deploys. Pass a ref to preview

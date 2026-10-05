@@ -152,6 +152,21 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
+## tosijs-ui — live-example gaps found by sweeping the site (tosijs-ui#210)
+
+**Virta:** #3081
+
+**Filed 2026-10-05.** Six asks; the first is the only one still visible on the site.
+(1) inline tjs tests run `extractTests`' raw runner, so passing tests show failing
+(local-extensions, js-footgun-fixes): use `tjs().testRunner`. (2) the built-in `ts` passes
+`dialect: 'tjs'` after `fromTS`, overriding converted TypeScript's JS semantics. (3) output is
+invisible when an example renders nothing into its preview. (4) a `bundleEntry` silently drops
+the `tosijs`/`tosijs-ui` example context. (5) `export` in an example is a syntax error.
+(6) the same-origin tjs-lang bundle copy is skipped without a word. **Worked around here**
+(2, 4, 5 in `site/entry.ts`: site `tjs`/`ts` dialects, `site/strip-exports.ts`, the context
+globals; 6 by the `prebuild` in `tjs-site.config.ts` and the check in `bin/deploy-site.ts`).
+**Delete when:** each lands — the dialects can go once 1, 2 and 5 do.
+
 ## tosijs-ui — `ajs` is not a built-in live-example dialect (tosijs-ui#209)
 
 **Virta:** #3078

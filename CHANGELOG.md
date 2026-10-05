@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Found by sweeping every page of the doc site (tjs.tosijs.net) with a headless checker; the
+full account is `docs/reviews/0.14.0-site-readiness.md`.
+
+### Fixed
+
+- **`tjs(source).testRunner` runs tests with TJS semantics.** It was built from the raw test
+  bodies, before the `==` / boxed-primitive / `extend` rewrites `tjs test` applies, so a caller
+  running it (tosijs-ui's live examples) reported passing tests as failing. A module whose only
+  `==` was in its tests also left `Eq` out of its inline runtime.
+- **`extractTests` ignores `/# … #/` doc comments itself.** It is public, and on raw source an
+  apostrophe in a doc block's prose opened a string in its scanner, so every test after the
+  block vanished (37 playground examples open with one); a `test` quoted inside a doc block
+  was extracted, which TJS-SYNTAX.md says is inert.
+- **The import resolver loads packages that have dependencies.** jsDelivr's `+esm` bundles
+  import their dependencies by root-relative path (`"/npm/acorn@…/+esm"`), which resolved to
+  OUR origin and 404ed. `rewriteCdnBody` (new, exported) points every CDN body's root-relative
+  imports back at that CDN, literal-safely; `rewriteEsmShBody` delegates to it and now also
+  handles minified output.
+
+### Added
+
+- `generateDocs` / `generateDocsMarkdown` in `tjs-lang/browser`, which tosijs-ui's built-in
+  `tjs` dialect feature-detects to show an example's Docs tab.
+- `bun run preview:site` (the deploy build, served locally, not published),
+  `scripts/check-site-examples.ts` (does every live example run and show something), and
+  `scripts/build.ts --only <targets>`.
+
 ## [0.14.0] — unreleased
 
 > **Release candidate: `0.14.0-rc.2`** (2026-10-05), on the `rc` dist-tag (`npm i tjs-lang@rc`).
