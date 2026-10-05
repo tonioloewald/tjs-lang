@@ -228,6 +228,15 @@ function buildTarget(target: BuildTarget): { raw: number; gzip: number } {
   return { raw: content.length, gzip: gzipped.length }
 }
 
+/**
+ * `--only a,b` builds just those targets and stops (no linalg, worker or declarations). The
+ * doc-site build uses it to produce the browser bundles tosijs-ui copies into the site; without
+ * them it falls back to a CDN at its own pinned tjs-lang version, silently.
+ */
+const onlyArg = process.argv.indexOf('--only')
+const ONLY =
+  onlyArg >= 0 ? new Set(process.argv[onlyArg + 1]?.split(',') ?? []) : null
+
 function main() {
   console.log('Building TJS bundles...\n')
   console.log('─'.repeat(65))
@@ -242,7 +251,17 @@ function main() {
   let totalGzip = 0
   const failures: string[] = []
 
-  for (const target of targets) {
+  const selected = ONLY ? targets.filter((t) => ONLY.has(t.name)) : targets
+  if (ONLY && selected.length !== ONLY.size) {
+    const known = new Set(targets.map((t) => t.name))
+    console.error(
+      `✖ unknown --only target(s): ${[...ONLY]
+        .filter((n) => !known.has(n))
+        .join(', ')}`
+    )
+    process.exit(1)
+  }
+  for (const target of selected) {
     try {
       const { raw, gzip } = buildTarget(target)
       totalRaw += raw
@@ -268,6 +287,10 @@ function main() {
     ).padStart(12)}`
   )
   console.log('')
+  if (ONLY) {
+    if (failures.length) process.exit(1)
+    return
+  }
 
   // `tjs-lang/linalg` cannot join targets[] either, for a different reason: its entry is
   // `src/linalg/index.tjs` — TJS SOURCE, with `wasm function` declarations compiled at

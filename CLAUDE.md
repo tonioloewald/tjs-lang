@@ -200,7 +200,7 @@ bun run deploy:site         # The tosijs-ui DOC SITE → GitHub Pages (gh-pages)
                             #   `registerDialect`), so ```ajs examples RUN — AST VM, fetch limited
                             #   to the examples' domains, no LLM (those say so).
 bun run preview:site        # The SAME build as deploy:site (a commit, in a worktree), served on
-                            #   http://localhost:8790 and NOT pushed. Test the site here: what
+                            #   http://localhost:8797 and NOT pushed. Test the site here: what
                             #   passes in the preview is what deploys. Pass a ref to preview
                             #   another commit; it needs no remote. SITE_PREVIEW_PORT overrides.
 bun run functions:deploy    # Cloud functions only. WORKS on the global firebase CLI as of

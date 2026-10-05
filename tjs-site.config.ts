@@ -102,6 +102,20 @@ export default defineSiteConfig({
   // registry (tosijs-ui#184, 1.16.1) and the doc system itself. See site/entry.ts.
   bundleEntry: 'site/entry.ts',
 
+  // THIS version's transpiler for ```tjs / ```ts fences. tosijs-ui copies `tjs-lang/browser`
+  // (and `/from-ts`) into the site so examples load it same-origin, but it resolves them to
+  // `dist/`, which a fresh worktree does not have. It then SKIPS the copy without a word, and
+  // the examples fall back to a CDN at tosijs-ui's own pinned tjs-lang (0.13.13): the 0.14 docs
+  // ran on a 0.13 transpiler until 2026-10-05. Build them first; `bin/deploy-site.ts` fails the
+  // build if they still did not land.
+  prebuild() {
+    const r = Bun.spawnSync(
+      ['bun', 'scripts/build.ts', '--only', 'tjs-browser,tjs-browser-from-ts'],
+      { stdout: 'inherit', stderr: 'inherit' }
+    )
+    if (r.exitCode !== 0) throw new Error('browser bundles failed to build')
+  },
+
   // Section pages live here: overview docs the sections hang from, whose `<!-- toc -->` blocks
   // the build regenerates. Their default, `src/docs`, is a strange home for doc pages.
   sectionsDir: 'guides/sections',
