@@ -152,6 +152,17 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
+## tosijs-ui — `ajs` is not a built-in live-example dialect (tosijs-ui#209)
+
+**Virta:** #3078
+
+**Filed 2026-10-05.** Every site that wants runnable ```ajs fences has to register the dialect
+itself, and has to rediscover the safety defaults: fetch off unless domains are allowed, no LLM
+capability, a source cap, transpile outside the VM and run on `tjs-lang/vm-ast`. **Worked around
+here:** `site/entry.ts` registers `ajs` through `registerDialect` (tosijs-ui 1.16.1, #184), plus
+`dialects: ['ajs']` in the site config. **Waiting for:** a built-in `ajs` dialect, lazily
+importing tjs-lang like the built-in `tjs`. Then delete the registration and the config entry.
+
 ## tosijs-ui — docs are identified by bare filename (tosijs-ui#190)
 
 **Virta:** #2403
