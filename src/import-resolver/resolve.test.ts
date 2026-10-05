@@ -16,6 +16,7 @@ import {
   extractImports,
   rewriteImports,
   rewriteEsmShBody,
+  rewriteCdnBody,
   serializeConfig,
   parseConfig,
   DEFAULT_CONFIG,
@@ -197,6 +198,52 @@ describe('rewriteEsmShBody', () => {
   it('leaves non-root-relative specifiers alone', () => {
     const src = `import x from "./sibling.js"; import y from "https://esm.sh/z";`
     expect(rewriteEsmShBody(src)).toBe(src)
+  })
+})
+
+describe('rewriteCdnBody: a fetched module imports its deps from the CDN, not our origin', () => {
+  // jsDelivr's `+esm` bundles import dependencies by ROOT-RELATIVE path; served from our origin
+  // they resolved to `localhost/npm/…` and 404ed, so every npm package WITH dependencies failed
+  // to load on the doc site (`tjs-lang/css` → acorn). Only esm.sh bodies were rewritten, and
+  // only in unminified form.
+  const JSD =
+    'https://cdn.jsdelivr.net/npm/tjs-lang@0.13.13/dist/tjs-css.js/+esm'
+
+  it('minified jsDelivr output (no spaces around `from`, `import*as`)', () => {
+    expect(
+      rewriteCdnBody(
+        'import*as I from"/npm/acorn@8.18.0/+esm";export{a}from\'/npm/b@1/+esm\'',
+        JSD
+      )
+    ).toBe(
+      'import*as I from"https://cdn.jsdelivr.net/npm/acorn@8.18.0/+esm";export{a}from\'https://cdn.jsdelivr.net/npm/b@1/+esm\''
+    )
+  })
+
+  it('side-effect and dynamic imports', () => {
+    expect(
+      rewriteCdnBody('import"/npm/x@1/+esm";import("/npm/y@2/+esm")', JSD)
+    ).toBe(
+      'import"https://cdn.jsdelivr.net/npm/x@1/+esm";import("https://cdn.jsdelivr.net/npm/y@2/+esm")'
+    )
+  })
+
+  it('a string that merely CONTAINS `from "/x"` is data, byte-identical', () => {
+    const src =
+      'const help = "write: import x from \\"/npm/x\\""; const p = \'/npm/not-an-import\''
+    expect(rewriteCdnBody(src, JSD)).toBe(src)
+  })
+
+  it('relative, protocol-relative and absolute specifiers are left alone', () => {
+    const src =
+      'import a from"./a.js";import b from"//cdn.example/b.js";import c from"https://esm.sh/c"'
+    expect(rewriteCdnBody(src, JSD)).toBe(src)
+  })
+
+  it('esm.sh bodies resolve against esm.sh (rewriteEsmShBody delegates)', () => {
+    expect(
+      rewriteEsmShBody('import*as R from"/react@18/es2022/react.mjs"')
+    ).toBe(`import*as R from"${ESM_SH}/react@18/es2022/react.mjs"`)
   })
 })
 

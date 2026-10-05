@@ -24,6 +24,8 @@
  *     `unpkg/`, `github/`.
  */
 
+import { maskLiterals } from '../strip-comments'
+
 /** Runtime configuration shared by the client and the service worker. */
 export interface ResolverConfig {
   /**
@@ -186,15 +188,42 @@ export function rewriteImports(
  * react-dom resolve to the SAME URL). JSDelivr `/+esm` responses are
  * self-contained (no root-relative paths), so this is a no-op for them.
  */
+/**
+ * Point a CDN-served module's ROOT-RELATIVE imports back at the CDN it came from.
+ *
+ * CDN bundles import their dependencies by root-relative path (jsDelivr `+esm`:
+ * `import*as I from"/npm/acorn@8.18.0/+esm"`; esm.sh: `"/react@18/…"`). The worker serves the
+ * module from OUR origin, so unrewritten they resolve to `<our origin>/npm/…` and 404. Only
+ * esm.sh used to be rewritten, by a regex that also missed minified output (no whitespace
+ * after `import` or before the quote).
+ *
+ * Literal-safe: specifiers are found in a view with string/comment contents blanked
+ * (`maskLiterals`, offsets preserved), so a string that merely mentions `from "/x"` is
+ * untouched. Only `from "…"`, `import "…"` and `import("…")` with a single-`/` path change.
+ */
+export function rewriteCdnBody(body: string, moduleUrl: string): string {
+  const masked = maskLiterals(body)
+  const edits: Array<[number, number, string]> = []
+  for (const m of masked.matchAll(/\b(?:from|import)\s*(?:\(\s*)?(['"])/g)) {
+    const open = m.index! + m[0].length - 1
+    const close = masked.indexOf(m[1], open + 1)
+    if (close < 0) continue
+    const spec = body.slice(open + 1, close)
+    if (spec.startsWith('/') && !spec.startsWith('//'))
+      edits.push([open + 1, close, new URL(spec, moduleUrl).href])
+  }
+  let out = body
+  for (const [start, end, text] of edits.reverse())
+    out = out.slice(0, start) + text + out.slice(end)
+  return out
+}
+
+/** esm.sh's root-relative imports, against esm.sh (kept: public API; see `rewriteCdnBody`). */
 export function rewriteEsmShBody(
   body: string,
   esmShBase: string = ESM_SH
 ): string {
-  return body.replace(
-    /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])(\/[^'"]+)\2/g,
-    (_match, importClause, quote, path) =>
-      `${importClause}${quote}${esmShBase}${path}${quote}`
-  )
+  return rewriteCdnBody(body, `${esmShBase}/`)
 }
 
 /**

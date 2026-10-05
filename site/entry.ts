@@ -49,6 +49,23 @@ registerDialect('tjs', {
   },
 })
 
+// TypeScript examples: `fromTS` → TJS → JS. tosijs-ui's built-in `ts` passes `dialect: 'tjs'`
+// to the second step, which OVERRIDES the `/* tjs <- … */` annotation that gives converted
+// TypeScript JavaScript's semantics, so `new Calculator(…)` in a TS example was refused as
+// TJS. Here the annotation decides. `fromTS` comes from the same-origin bundle this build
+// ships (it lazy-loads the TypeScript compiler); the specifier is a variable so the bundler
+// leaves the import to runtime.
+const FROM_TS_URL = '/tjs/tjs-browser-from-ts.js'
+let fromTsModule: Promise<any> | undefined
+registerDialect('ts', {
+  label: 'TS',
+  async transform(source) {
+    const { fromTS } = await (fromTsModule ??= import(FROM_TS_URL))
+    const converted = (await fromTS(source, { emitTJS: true })).code
+    return { code: stripExports(tjs(converted, { runTests: false }).code) }
+  },
+})
+
 /**
  * Domains the AJS examples fetch from, and nothing else. A doc page is public: an example a
  * reader edits must not be able to reach an arbitrary host from the reader's browser.

@@ -101,7 +101,8 @@ class Cdp {
 }
 
 const SNAPSHOT = `(() => [...document.querySelectorAll('tosi-example')].map(e => ({
-  preview: (e.querySelector('.preview')?.innerText || '').trim(),
+  // Text, or a rendered DOM (a canvas has no text): either is output a reader sees.
+  preview: (e.querySelector('.preview')?.innerText || '').trim() || ([...(e.querySelector('.preview')?.children || [])].filter(c => c.tagName !== 'STYLE' && c.tagName !== 'PRE').map(c => '<' + c.tagName.toLowerCase() + '>').join('')),
   tests: (e.querySelector('[part=testResults]')?.innerText || '').trim(),
   console: (e.querySelector('.example-console .console-lines')?.innerText || '').trim(),
   inline: [...e.querySelectorAll('.tjs-test-summary, .test-fail')].map(x => x.textContent.trim()).join(' · '),
@@ -167,7 +168,10 @@ async function main() {
         await Bun.sleep(300)
         snap = (await cdp.eval(SNAPSHOT)) ?? []
         const settled = snap.every((e) => e.preview || e.tests)
+        // An example whose output is its console never settles here; after a few seconds,
+        // go and open its code panel (below) rather than waiting out the timeout.
         if (Date.now() - t0 > 2000 && settled) break
+        if (Date.now() - t0 > 4000) break
       }
       // Since tosijs-ui 1.16.4 what an example LOGS goes to a Console tab in its code panel, not
       // the preview. For an example that showed nothing, open the panel and read the console.
@@ -176,7 +180,7 @@ async function main() {
           `[...document.querySelectorAll('tosi-example')].forEach(e => { if (!e.querySelector('.preview')?.innerText.trim() && !e.querySelector('[part=testResults]')?.innerText.trim()) e.querySelector('button[title="view/edit code"]')?.click() })`
         )
         const t1 = Date.now()
-        while (Date.now() - t1 < 5000) {
+        while (Date.now() - t1 < TIMEOUT_MS) {
           await Bun.sleep(300)
           snap = (await cdp.eval(SNAPSHOT)) ?? []
           if (snap.every((e) => e.preview || e.tests || e.console || e.inline))

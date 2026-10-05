@@ -16,8 +16,7 @@ import pkg from '../package.json'
 import {
   parseTfsPath,
   buildCdnUrl,
-  rewriteEsmShBody,
-  ESM_SH,
+  rewriteCdnBody,
 } from '../src/import-resolver/resolve'
 import { reclaimPort } from '../src/cli/port'
 
@@ -238,10 +237,8 @@ const server = Bun.serve({
           return new Response(`package not found: ${cdnUrl}`, { status: 404 })
         }
 
-        let body = await cdnRes.text()
-        if (cdnUrl.startsWith(ESM_SH)) {
-          body = rewriteEsmShBody(body)
-        }
+        // Every CDN's root-relative imports point back at that CDN (jsDelivr `+esm` too).
+        const body = rewriteCdnBody(await cdnRes.text(), cdnUrl)
 
         return new Response(body, {
           headers: {

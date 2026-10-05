@@ -11,8 +11,7 @@
 import {
   parseTfsPath,
   buildCdnUrl,
-  rewriteEsmShBody,
-  ESM_SH,
+  rewriteCdnBody,
   type ResolverConfig,
 } from './resolve'
 
@@ -63,10 +62,8 @@ export async function handleResolverFetch(
       return new Response(`package not found: ${cdnUrl}`, { status: 404 })
     }
 
-    let body = await response.text()
-    if (cdnUrl.startsWith(ESM_SH)) {
-      body = rewriteEsmShBody(body)
-    }
+    // Every CDN's root-relative imports point back at that CDN (jsDelivr `+esm` too).
+    const body = rewriteCdnBody(await response.text(), cdnUrl)
 
     await cache.put(
       cacheKey,

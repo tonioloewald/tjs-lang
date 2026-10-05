@@ -35,6 +35,7 @@ export {
   extractImports,
   rewriteImports,
   rewriteEsmShBody,
+  rewriteCdnBody,
   parseTfsPath,
   buildCdnUrl,
   serializeConfig,
