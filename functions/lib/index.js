@@ -1,6 +1,3 @@
-import { createRequire } from "node:module";
-var __require = /* @__PURE__ */ createRequire(import.meta.url);
-
 // node_modules/tjs-lang/src/strip-comments.ts
 function isEscapedAt(source, index) {
   let backslashes = 0;
@@ -318,7 +315,7 @@ function isIdentifierChar(code, astral) {
   }
   return isInAstralSet(code, astralIdentifierStartCodes) || isInAstralSet(code, astralIdentifierCodes);
 }
-var TokenType = function TokenType2(label, conf) {
+var TokenType = function TokenType(label, conf) {
   if (conf === undefined)
     conf = {};
   this.label = label;
@@ -462,25 +459,25 @@ function codePointToString(code) {
   return String.fromCharCode((code >> 10) + 55296, (code & 1023) + 56320);
 }
 var loneSurrogate = /(?:[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF])/;
-var Position = function Position2(line, col) {
+var Position = function Position(line, col) {
   this.line = line;
   this.column = col;
 };
 Position.prototype.offset = function offset(n) {
   return new Position(this.line, this.column + n);
 };
-var SourceLocation = function SourceLocation2(p, start, end) {
+var SourceLocation = function SourceLocation(p, start, end) {
   this.start = start;
   this.end = end;
   if (p.sourceFile !== null) {
     this.source = p.sourceFile;
   }
 };
-function getLineInfo(input, offset2) {
+function getLineInfo(input, offset) {
   for (var line = 1, cur = 0;; ) {
-    var nextBreak = nextLineBreak(input, cur, offset2);
+    var nextBreak = nextLineBreak(input, cur, offset);
     if (nextBreak < 0) {
-      return new Position(line, offset2 - cur);
+      return new Position(line, offset - cur);
     }
     ++line;
     cur = nextBreak;
@@ -583,7 +580,7 @@ var BIND_LEXICAL = 2;
 var BIND_FUNCTION = 3;
 var BIND_SIMPLE_CATCH = 4;
 var BIND_OUTSIDE = 5;
-var Parser = function Parser2(options, input, startPos) {
+var Parser = function Parser(options, input, startPos) {
   this.options = options = getOptions(options);
   this.sourceFile = options.sourceFile;
   this.keywords = wordsRegexp(keywords$1[options.ecmaVersion >= 6 ? 6 : options.sourceType === "module" ? "5module" : 5]);
@@ -649,8 +646,8 @@ prototypeAccessors.inAsync.get = function() {
 };
 prototypeAccessors.canAwait.get = function() {
   for (var i = this.scopeStack.length - 1;i >= 0; i--) {
-    var ref2 = this.scopeStack[i];
-    var flags = ref2.flags;
+    var ref = this.scopeStack[i];
+    var flags = ref.flags;
     if (flags & (SCOPE_CLASS_STATIC_BLOCK | SCOPE_CLASS_FIELD_INIT)) {
       return false;
     }
@@ -670,8 +667,8 @@ prototypeAccessors.allowReturn.get = function() {
   return false;
 };
 prototypeAccessors.allowSuper.get = function() {
-  var ref2 = this.currentThisScope();
-  var flags = ref2.flags;
+  var ref = this.currentThisScope();
+  var flags = ref.flags;
   return (flags & SCOPE_SUPER) > 0 || this.options.allowSuperOutsideMethod;
 };
 prototypeAccessors.allowDirectSuper.get = function() {
@@ -682,8 +679,8 @@ prototypeAccessors.treatFunctionsAsVar.get = function() {
 };
 prototypeAccessors.allowNewDotTarget.get = function() {
   for (var i = this.scopeStack.length - 1;i >= 0; i--) {
-    var ref2 = this.scopeStack[i];
-    var flags = ref2.flags;
+    var ref = this.scopeStack[i];
+    var flags = ref.flags;
     if (flags & (SCOPE_CLASS_STATIC_BLOCK | SCOPE_CLASS_FIELD_INIT) || flags & SCOPE_FUNCTION && !(flags & SCOPE_ARROW)) {
       return true;
     }
@@ -691,8 +688,8 @@ prototypeAccessors.allowNewDotTarget.get = function() {
   return false;
 };
 prototypeAccessors.allowUsing.get = function() {
-  var ref2 = this.currentScope();
-  var flags = ref2.flags;
+  var ref = this.currentScope();
+  var flags = ref.flags;
   if (flags & SCOPE_SWITCH) {
     return false;
   }
@@ -714,7 +711,7 @@ Parser.extend = function extend() {
   }
   return cls;
 };
-Parser.parse = function parse2(input, options) {
+Parser.parse = function parse(input, options) {
   return new this(options, input).parse();
 };
 Parser.parseExpressionAt = function parseExpressionAt(input, pos, options) {
@@ -809,7 +806,7 @@ pp$9.expect = function(type) {
 pp$9.unexpected = function(pos) {
   this.raise(pos != null ? pos : this.start, "Unexpected token");
 };
-var DestructuringErrors = function DestructuringErrors2() {
+var DestructuringErrors = function DestructuringErrors() {
   this.shorthandAssign = this.trailingComma = this.parenthesizedAssign = this.parenthesizedBind = this.doubleProto = -1;
 };
 pp$9.checkPatternErrors = function(refDestructuringErrors, isAssign) {
@@ -1662,9 +1659,9 @@ pp$8.enterClassBody = function() {
   return element.declared;
 };
 pp$8.exitClassBody = function() {
-  var ref2 = this.privateNameStack.pop();
-  var declared = ref2.declared;
-  var used = ref2.used;
+  var ref = this.privateNameStack.pop();
+  var declared = ref.declared;
+  var used = ref.used;
   if (!this.options.checkPrivateFields) {
     return;
   }
@@ -2232,7 +2229,7 @@ pp$7.checkLValInnerPattern = function(expr, bindingType, checkClashes) {
       this.checkLValPattern(expr, bindingType, checkClashes);
   }
 };
-var TokContext = function TokContext2(token, isExpr, preserveSpace, override, generator) {
+var TokContext = function TokContext(token, isExpr, preserveSpace, override, generator) {
   this.token = token;
   this.isExpr = !!isExpr;
   this.preserveSpace = !!preserveSpace;
@@ -3016,8 +3013,8 @@ pp$5.parseNew = function() {
   }
   return this.finishNode(node, "NewExpression");
 };
-pp$5.parseTemplateElement = function(ref2) {
-  var isTagged = ref2.isTagged;
+pp$5.parseTemplateElement = function(ref) {
+  var isTagged = ref.isTagged;
   var elem = this.startNode();
   if (this.type === types$1.invalidTemplate) {
     if (!isTagged) {
@@ -3039,10 +3036,10 @@ pp$5.parseTemplateElement = function(ref2) {
   elem.tail = this.type === types$1.backQuote;
   return this.finishNode(elem, "TemplateElement");
 };
-pp$5.parseTemplate = function(ref2) {
-  if (ref2 === undefined)
-    ref2 = {};
-  var isTagged = ref2.isTagged;
+pp$5.parseTemplate = function(ref) {
+  if (ref === undefined)
+    ref = {};
+  var isTagged = ref.isTagged;
   if (isTagged === undefined)
     isTagged = false;
   var node = this.startNode();
@@ -3321,10 +3318,10 @@ pp$5.parseExprList = function(close, allowTrailingComma, allowEmpty, refDestruct
   }
   return elts;
 };
-pp$5.checkUnreserved = function(ref2) {
-  var start = ref2.start;
-  var end = ref2.end;
-  var name = ref2.name;
+pp$5.checkUnreserved = function(ref) {
+  var start = ref.start;
+  var end = ref.end;
+  var name = ref.name;
   if (this.inGenerator && name === "yield") {
     this.raiseRecoverable(start, "Cannot use 'yield' as identifier inside a generator");
   }
@@ -3440,7 +3437,7 @@ pp$4.curPosition = function() {
   }
 };
 var pp$3 = Parser.prototype;
-var Scope = function Scope2(flags) {
+var Scope = function Scope(flags) {
   this.flags = flags;
   this.var = [];
   this.lexical = [];
@@ -3519,7 +3516,7 @@ pp$3.currentThisScope = function() {
     }
   }
 };
-var Node = function Node2(parser, pos, loc) {
+var Node = function Node(parser, pos, loc) {
   this.type = "";
   this.start = pos;
   this.end = 0;
@@ -3626,7 +3623,7 @@ var ecmaVersion;
 var i;
 var list;
 var pp$1 = Parser.prototype;
-var BranchID = function BranchID2(parent, base) {
+var BranchID = function BranchID(parent, base) {
   this.parent = parent;
   this.base = base || this;
 };
@@ -3643,7 +3640,7 @@ BranchID.prototype.separatedFrom = function separatedFrom(alt) {
 BranchID.prototype.sibling = function sibling() {
   return new BranchID(this.parent, this.base);
 };
-var RegExpValidationState = function RegExpValidationState2(parser) {
+var RegExpValidationState = function RegExpValidationState(parser) {
   this.parser = parser;
   this.validFlags = "gim" + (parser.options.ecmaVersion >= 6 ? "uy" : "") + (parser.options.ecmaVersion >= 9 ? "s" : "") + (parser.options.ecmaVersion >= 13 ? "d" : "") + (parser.options.ecmaVersion >= 15 ? "v" : "");
   this.unicodeProperties = data[parser.options.ecmaVersion >= 14 ? 14 : parser.options.ecmaVersion];
@@ -3682,34 +3679,34 @@ RegExpValidationState.prototype.reset = function reset(start, pattern, flags) {
 RegExpValidationState.prototype.raise = function raise(message) {
   this.parser.raiseRecoverable(this.start, "Invalid regular expression: /" + this.source + "/: " + message);
 };
-RegExpValidationState.prototype.at = function at(i2, forceU) {
+RegExpValidationState.prototype.at = function at(i, forceU) {
   if (forceU === undefined)
     forceU = false;
   var s = this.source;
   var l = s.length;
-  if (i2 >= l) {
+  if (i >= l) {
     return -1;
   }
-  var c = s.charCodeAt(i2);
-  if (!(forceU || this.switchU) || c <= 55295 || c >= 57344 || i2 + 1 >= l) {
+  var c = s.charCodeAt(i);
+  if (!(forceU || this.switchU) || c <= 55295 || c >= 57344 || i + 1 >= l) {
     return c;
   }
-  var next = s.charCodeAt(i2 + 1);
+  var next = s.charCodeAt(i + 1);
   return next >= 56320 && next <= 57343 ? (c << 10) + next - 56613888 : c;
 };
-RegExpValidationState.prototype.nextIndex = function nextIndex(i2, forceU) {
+RegExpValidationState.prototype.nextIndex = function nextIndex(i, forceU) {
   if (forceU === undefined)
     forceU = false;
   var s = this.source;
   var l = s.length;
-  if (i2 >= l) {
+  if (i >= l) {
     return l;
   }
-  var c = s.charCodeAt(i2), next;
-  if (!(forceU || this.switchU) || c <= 55295 || c >= 57344 || i2 + 1 >= l || (next = s.charCodeAt(i2 + 1)) < 56320 || next > 57343) {
-    return i2 + 1;
+  var c = s.charCodeAt(i), next;
+  if (!(forceU || this.switchU) || c <= 55295 || c >= 57344 || i + 1 >= l || (next = s.charCodeAt(i + 1)) < 56320 || next > 57343) {
+    return i + 1;
   }
-  return i2 + 2;
+  return i + 2;
 };
 RegExpValidationState.prototype.current = function current(forceU) {
   if (forceU === undefined)
@@ -3739,10 +3736,10 @@ RegExpValidationState.prototype.eatChars = function eatChars(chs, forceU) {
   if (forceU === undefined)
     forceU = false;
   var pos = this.pos;
-  for (var i2 = 0, list2 = chs;i2 < list2.length; i2 += 1) {
-    var ch = list2[i2];
-    var current2 = this.at(pos, forceU);
-    if (current2 === -1 || current2 !== ch) {
+  for (var i = 0, list = chs;i < list.length; i += 1) {
+    var ch = list[i];
+    var current = this.at(pos, forceU);
+    if (current === -1 || current !== ch) {
       return false;
     }
     pos = this.nextIndex(pos, forceU);
@@ -3755,12 +3752,12 @@ pp$1.validateRegExpFlags = function(state) {
   var flags = state.flags;
   var u = false;
   var v = false;
-  for (var i2 = 0;i2 < flags.length; i2++) {
-    var flag = flags.charAt(i2);
+  for (var i = 0;i < flags.length; i++) {
+    var flag = flags.charAt(i);
     if (validFlags.indexOf(flag) === -1) {
       this.raise(state.start, "Invalid regular expression flag");
     }
-    if (flags.indexOf(flag, i2 + 1) > -1) {
+    if (flags.indexOf(flag, i + 1) > -1) {
       this.raise(state.start, "Duplicate regular expression flag");
     }
     if (flag === "u") {
@@ -3809,8 +3806,8 @@ pp$1.regexp_pattern = function(state) {
   if (state.maxBackReference > state.numCapturingParens) {
     state.raise("Invalid escape");
   }
-  for (var i2 = 0, list2 = state.backReferenceNames;i2 < list2.length; i2 += 1) {
-    var name = list2[i2];
+  for (var i = 0, list = state.backReferenceNames;i < list.length; i += 1) {
+    var name = list[i];
     if (!state.groupNames[name]) {
       state.raise("Invalid named capture referenced");
     }
@@ -3941,9 +3938,9 @@ pp$1.regexp_eatUncapturingGroup = function(state) {
         var addModifiers = this.regexp_eatModifiers(state);
         var hasHyphen = state.eat(45);
         if (addModifiers || hasHyphen) {
-          for (var i2 = 0;i2 < addModifiers.length; i2++) {
-            var modifier = addModifiers.charAt(i2);
-            if (addModifiers.indexOf(modifier, i2 + 1) > -1) {
+          for (var i = 0;i < addModifiers.length; i++) {
+            var modifier = addModifiers.charAt(i);
+            if (addModifiers.indexOf(modifier, i + 1) > -1) {
               state.raise("Duplicate regular expression modifiers");
             }
           }
@@ -4047,8 +4044,8 @@ pp$1.regexp_groupSpecifier = function(state) {
     var known = state.groupNames[state.lastStringValue];
     if (known) {
       if (trackDisjunction) {
-        for (var i2 = 0, list2 = known;i2 < list2.length; i2 += 1) {
-          var altID = list2[i2];
+        for (var i = 0, list = known;i < list.length; i += 1) {
+          var altID = list[i];
           if (!altID.separatedFrom(state.branchID)) {
             state.raise("Duplicate capture group name");
           }
@@ -4708,7 +4705,7 @@ function isOctalDigit(ch) {
 pp$1.regexp_eatFixedHexDigits = function(state, length) {
   var start = state.pos;
   state.lastIntValue = 0;
-  for (var i2 = 0;i2 < length; ++i2) {
+  for (var i = 0;i < length; ++i) {
     var ch = state.current();
     if (!isHexDigit(ch)) {
       state.pos = start;
@@ -4719,7 +4716,7 @@ pp$1.regexp_eatFixedHexDigits = function(state, length) {
   }
   return true;
 };
-var Token = function Token2(p) {
+var Token = function Token(p) {
   this.type = p.type;
   this.value = p.value;
   this.start = p.start;
@@ -4988,8 +4985,8 @@ pp.readToken_eq_excl = function(code) {
   return this.finishOp(code === 61 ? types$1.eq : types$1.prefix, 1);
 };
 pp.readToken_question = function() {
-  var ecmaVersion2 = this.options.ecmaVersion;
-  if (ecmaVersion2 >= 11) {
+  var ecmaVersion = this.options.ecmaVersion;
+  if (ecmaVersion >= 11) {
     var next = this.input.charCodeAt(this.pos + 1);
     if (next === 46) {
       var next2 = this.input.charCodeAt(this.pos + 2);
@@ -4998,7 +4995,7 @@ pp.readToken_question = function() {
       }
     }
     if (next === 63) {
-      if (ecmaVersion2 >= 12) {
+      if (ecmaVersion >= 12) {
         var next2$1 = this.input.charCodeAt(this.pos + 2);
         if (next2$1 === 61) {
           return this.finishOp(types$1.assign, 3);
@@ -5010,9 +5007,9 @@ pp.readToken_question = function() {
   return this.finishOp(types$1.question, 1);
 };
 pp.readToken_numberSign = function() {
-  var ecmaVersion2 = this.options.ecmaVersion;
+  var ecmaVersion = this.options.ecmaVersion;
   var code = 35;
-  if (ecmaVersion2 >= 13) {
+  if (ecmaVersion >= 13) {
     ++this.pos;
     code = this.fullCharCodeAtPos();
     if (isIdentifierStart(code, true) || code === 92) {
@@ -5162,7 +5159,7 @@ pp.readInt = function(radix, len, maybeLegacyOctalNumericLiteral) {
   var allowSeparators = this.options.ecmaVersion >= 12 && len === undefined;
   var isLegacyOctalNumericLiteral = maybeLegacyOctalNumericLiteral && this.input.charCodeAt(this.pos) === 48;
   var start = this.pos, total = 0, lastCode = 0;
-  for (var i2 = 0, e = len == null ? Infinity : len;i2 < e; ++i2, ++this.pos) {
+  for (var i = 0, e = len == null ? Infinity : len;i < e; ++i, ++this.pos) {
     var code = this.input.charCodeAt(this.pos), val = undefined;
     if (allowSeparators && code === 95) {
       if (isLegacyOctalNumericLiteral) {
@@ -5171,7 +5168,7 @@ pp.readInt = function(radix, len, maybeLegacyOctalNumericLiteral) {
       if (lastCode === 95) {
         this.raiseRecoverable(this.pos, "Numeric separator must be exactly one underscore");
       }
-      if (i2 === 0) {
+      if (i === 0) {
         this.raiseRecoverable(this.pos, "Numeric separator is not allowed at the first of digits");
       }
       lastCode = code;
@@ -5549,10 +5546,10 @@ Parser.acorn = {
   lineBreakG,
   nonASCIIwhitespace
 };
-function parse3(input, options) {
+function parse(input, options) {
   return Parser.parse(input, options);
 }
-function parseExpressionAt2(input, pos, options) {
+function parseExpressionAt(input, pos, options) {
   return Parser.parseExpressionAt(input, pos, options);
 }
 
@@ -5588,11 +5585,11 @@ class SyntaxError2 extends TranspileError {
     const endLine = Math.min(lines.length - 1, errorLine + contextLines);
     const output = [];
     const lineNumWidth = String(endLine + 1).length;
-    for (let i2 = startLine;i2 <= endLine; i2++) {
-      const lineNum = String(i2 + 1).padStart(lineNumWidth);
-      const marker = i2 === errorLine ? ">" : " ";
-      output.push(`${marker} ${lineNum} | ${lines[i2]}`);
-      if (i2 === errorLine) {
+    for (let i = startLine;i <= endLine; i++) {
+      const lineNum = String(i + 1).padStart(lineNumWidth);
+      const marker = i === errorLine ? ">" : " ";
+      output.push(`${marker} ${lineNum} | ${lines[i]}`);
+      if (i === errorLine) {
         const caretPadding = " ".repeat(lineNumWidth + 4 + this.column);
         output.push(`${caretPadding}^ ${this.message.split(" at ")[0]}`);
       }
@@ -5643,54 +5640,54 @@ function unboundedQuantifierLen(pattern, pos) {
 }
 function reDoSRisk(pattern) {
   const stack = [];
-  let i2 = 0;
+  let i = 0;
   let inClass = false;
-  while (i2 < pattern.length) {
-    const c = pattern[i2];
+  while (i < pattern.length) {
+    const c = pattern[i];
     if (c === "\\") {
-      i2 += 2;
+      i += 2;
       continue;
     }
     if (inClass) {
       if (c === "]")
         inClass = false;
-      i2++;
+      i++;
       continue;
     }
     if (c === "[") {
       inClass = true;
-      i2++;
+      i++;
       continue;
     }
     if (c === "(") {
       stack.push({ hadUnbounded: false });
-      i2++;
+      i++;
       continue;
     }
     if (c === ")") {
       const frame = stack.pop() ?? { hadUnbounded: false };
-      const qlen2 = unboundedQuantifierLen(pattern, i2 + 1);
-      if (qlen2 > 0) {
+      const qlen = unboundedQuantifierLen(pattern, i + 1);
+      if (qlen > 0) {
         if (frame.hadUnbounded)
           return "an unbounded quantifier is nested inside another (e.g. `(a+)+`)";
         if (stack.length)
           stack[stack.length - 1].hadUnbounded = true;
-        i2 += 1 + qlen2;
+        i += 1 + qlen;
         continue;
       }
       if (frame.hadUnbounded && stack.length)
         stack[stack.length - 1].hadUnbounded = true;
-      i2++;
+      i++;
       continue;
     }
-    const qlen = unboundedQuantifierLen(pattern, i2);
+    const qlen = unboundedQuantifierLen(pattern, i);
     if (qlen > 0) {
       if (stack.length)
         stack[stack.length - 1].hadUnbounded = true;
-      i2 += qlen;
+      i += qlen;
       continue;
     }
-    i2++;
+    i++;
   }
   return null;
 }
@@ -5702,8 +5699,8 @@ function alternationOverlapRisk(pattern) {
 function locAt(source, pos) {
   let line = 1;
   let column = 0;
-  for (let i2 = 0;i2 < pos && i2 < source.length; i2++) {
-    if (source[i2] === `
+  for (let i = 0;i < pos && i < source.length; i++) {
+    if (source[i] === `
 `) {
       line++;
       column = 0;
@@ -5721,8 +5718,8 @@ function isTernaryColon(source, colonIndex) {
     return false;
   let depth = 0;
   let owed = 0;
-  for (let i2 = colonIndex - 1;i2 >= 0; i2--) {
-    const c = masked[i2];
+  for (let i = colonIndex - 1;i >= 0; i--) {
+    const c = masked[i];
     if (c === ")" || c === "]" || c === "}") {
       depth++;
       continue;
@@ -5738,15 +5735,15 @@ function isTernaryColon(source, colonIndex) {
     if (c === ";" || c === ",")
       return false;
     if (c === "?") {
-      if (masked[i2 - 1] === "?") {
-        i2--;
+      if (masked[i - 1] === "?") {
+        i--;
         continue;
       }
-      if (masked[i2 + 1] === "?" || masked[i2 + 1] === ".")
+      if (masked[i + 1] === "?" || masked[i + 1] === ".")
         continue;
-      if (masked[i2 + 1] === ":" || masked[i2 + 1] === "!")
+      if (masked[i + 1] === ":" || masked[i + 1] === "!")
         continue;
-      let k = i2 - 1;
+      let k = i - 1;
       while (k >= 0 && /\s/.test(masked[k]))
         k--;
       if (k < 0 || masked[k] === "(" || masked[k] === ",")
@@ -5757,7 +5754,7 @@ function isTernaryColon(source, colonIndex) {
       continue;
     }
     if (c === ":") {
-      if (masked[i2 - 1] === ":" || masked[i2 + 1] === ":")
+      if (masked[i - 1] === ":" || masked[i + 1] === ":")
         continue;
       owed++;
     }
@@ -6160,7 +6157,7 @@ function extractLiteralValue(node) {
 }
 function parseReturnType(typeExpr) {
   try {
-    const ast = parseExpressionAt2(typeExpr, 0, {
+    const ast = parseExpressionAt(typeExpr, 0, {
       ecmaVersion: 2022
     });
     return inferTypeFromValue(ast);
@@ -6212,34 +6209,34 @@ function extractParamMarkers(src) {
     chunks.push(s);
     outLen += s.length;
   };
-  let i2 = 0;
+  let i = 0;
   for (;; ) {
-    const at2 = src.indexOf(MARKER_PREFIX, i2);
-    if (at2 < 0) {
-      emit(src.slice(i2));
+    const at = src.indexOf(MARKER_PREFIX, i);
+    if (at < 0) {
+      emit(src.slice(i));
       break;
     }
-    const isReq = src.startsWith(PARAM_REQUIRED_MARKER, at2);
-    const isOpt = !isReq && src.startsWith(PARAM_TYPENAME_MARKER, at2);
-    if (!isReq && !isOpt || literalAt(at2)) {
-      emit(src.slice(i2, at2 + MARKER_PREFIX.length));
-      i2 = at2 + MARKER_PREFIX.length;
+    const isReq = src.startsWith(PARAM_REQUIRED_MARKER, at);
+    const isOpt = !isReq && src.startsWith(PARAM_TYPENAME_MARKER, at);
+    if (!isReq && !isOpt || literalAt(at)) {
+      emit(src.slice(i, at + MARKER_PREFIX.length));
+      i = at + MARKER_PREFIX.length;
       continue;
     }
-    emit(src.slice(i2, at2));
+    emit(src.slice(i, at));
     const last = chunks[chunks.length - 1];
     if (last && last.endsWith(" ")) {
       chunks[chunks.length - 1] = last.slice(0, -1);
       outLen--;
     }
     (isReq ? required : typeName).add(outLen);
-    i2 = at2 + (isReq ? PARAM_REQUIRED_MARKER : PARAM_TYPENAME_MARKER).length;
+    i = at + (isReq ? PARAM_REQUIRED_MARKER : PARAM_TYPENAME_MARKER).length;
   }
   return { source: chunks.join(""), required, typeName };
 }
 function transformParenExpressions(source, ctx) {
   let result = "";
-  let i2 = 0;
+  let i = 0;
   let firstReturnType;
   let firstReturnSafety;
   let state = "normal";
@@ -6251,44 +6248,44 @@ function transformParenExpressions(source, ctx) {
     const frame = contextStack[contextStack.length - 1];
     return frame?.type === "class-body" && braceDepth === frame.braceDepth + 1;
   };
-  while (i2 < source.length) {
-    const char = source[i2];
-    const nextChar = source[i2 + 1];
+  while (i < source.length) {
+    const char = source[i];
+    const nextChar = source[i + 1];
     switch (state) {
       case "single-string":
         result += char;
-        if (char === "\\" && i2 + 1 < source.length) {
+        if (char === "\\" && i + 1 < source.length) {
           result += nextChar;
-          i2 += 2;
+          i += 2;
           continue;
         }
         if (char === "'") {
           state = "normal";
         }
-        i2++;
+        i++;
         continue;
       case "double-string":
         result += char;
-        if (char === "\\" && i2 + 1 < source.length) {
+        if (char === "\\" && i + 1 < source.length) {
           result += nextChar;
-          i2 += 2;
+          i += 2;
           continue;
         }
         if (char === '"') {
           state = "normal";
         }
-        i2++;
+        i++;
         continue;
       case "template-string":
         result += char;
-        if (char === "\\" && i2 + 1 < source.length) {
+        if (char === "\\" && i + 1 < source.length) {
           result += nextChar;
-          i2 += 2;
+          i += 2;
           continue;
         }
         if (char === "$" && nextChar === "{") {
           result += nextChar;
-          i2 += 2;
+          i += 2;
           templateStack.push(1);
           state = "normal";
           continue;
@@ -6296,7 +6293,7 @@ function transformParenExpressions(source, ctx) {
         if (char === "`") {
           state = "normal";
         }
-        i2++;
+        i++;
         continue;
       case "line-comment":
         result += char;
@@ -6304,52 +6301,52 @@ function transformParenExpressions(source, ctx) {
 `) {
           state = "normal";
         }
-        i2++;
+        i++;
         continue;
       case "block-comment":
         result += char;
         if (char === "*" && nextChar === "/") {
           result += nextChar;
-          i2 += 2;
+          i += 2;
           state = "normal";
           continue;
         }
-        i2++;
+        i++;
         continue;
       case "regex":
         result += char;
-        if (char === "\\" && i2 + 1 < source.length) {
+        if (char === "\\" && i + 1 < source.length) {
           result += nextChar;
-          i2 += 2;
+          i += 2;
           continue;
         }
         if (char === "[") {
-          i2++;
-          while (i2 < source.length && source[i2] !== "]") {
-            result += source[i2];
-            if (source[i2] === "\\" && i2 + 1 < source.length) {
-              result += source[i2 + 1];
-              i2 += 2;
+          i++;
+          while (i < source.length && source[i] !== "]") {
+            result += source[i];
+            if (source[i] === "\\" && i + 1 < source.length) {
+              result += source[i + 1];
+              i += 2;
             } else {
-              i2++;
+              i++;
             }
           }
-          if (i2 < source.length) {
-            result += source[i2];
-            i2++;
+          if (i < source.length) {
+            result += source[i];
+            i++;
           }
           continue;
         }
         if (char === "/") {
-          i2++;
-          while (i2 < source.length && /[gimsuy]/.test(source[i2])) {
-            result += source[i2];
-            i2++;
+          i++;
+          while (i < source.length && /[gimsuy]/.test(source[i])) {
+            result += source[i];
+            i++;
           }
           state = "normal";
           continue;
         }
-        i2++;
+        i++;
         continue;
       case "normal":
         if (templateStack.length > 0) {
@@ -6360,7 +6357,7 @@ function transformParenExpressions(source, ctx) {
             if (templateStack[templateStack.length - 1] === 0) {
               templateStack.pop();
               result += char;
-              i2++;
+              i++;
               state = "template-string";
               continue;
             }
@@ -6368,31 +6365,31 @@ function transformParenExpressions(source, ctx) {
         }
         if (char === "'") {
           result += char;
-          i2++;
+          i++;
           state = "single-string";
           continue;
         }
         if (char === '"') {
           result += char;
-          i2++;
+          i++;
           state = "double-string";
           continue;
         }
         if (char === "`") {
           result += char;
-          i2++;
+          i++;
           state = "template-string";
           continue;
         }
         if (char === "/" && nextChar === "/") {
           result += char + nextChar;
-          i2 += 2;
+          i += 2;
           state = "line-comment";
           continue;
         }
         if (char === "/" && nextChar === "*") {
           result += char + nextChar;
-          i2 += 2;
+          i += 2;
           state = "block-comment";
           continue;
         }
@@ -6402,7 +6399,7 @@ function transformParenExpressions(source, ctx) {
           const isRegexContext = !lastChar || /[=(!,;:{[&|?+\-*%<>~^]$/.test(before) || /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)\s*$/.test(before);
           if (isRegexContext) {
             result += char;
-            i2++;
+            i++;
             state = "regex";
             continue;
           }
@@ -6412,7 +6409,7 @@ function transformParenExpressions(source, ctx) {
     if (char === "{") {
       braceDepth++;
       result += char;
-      i2++;
+      i++;
       continue;
     }
     if (char === "}") {
@@ -6422,14 +6419,14 @@ function transformParenExpressions(source, ctx) {
         contextStack.pop();
       }
       result += char;
-      i2++;
+      i++;
       continue;
     }
-    const nameMatch = matchAt(RE_CLASS_NAME, source, i2);
+    const nameMatch = matchAt(RE_CLASS_NAME, source, i);
     let classHeaderLen = -1;
     if (nameMatch) {
       let d = 0;
-      let j = i2 + nameMatch[0].length;
+      let j = i + nameMatch[0].length;
       for (;j < source.length; j++) {
         const c = source[j];
         if (c === '"' || c === "'" || c === "`") {
@@ -6454,24 +6451,24 @@ function transformParenExpressions(source, ctx) {
         }
       }
       if (j > 0 && j < source.length)
-        classHeaderLen = j - i2;
+        classHeaderLen = j - i;
     }
     if (classHeaderLen > 0) {
-      const classHeader = source.slice(i2, i2 + classHeaderLen);
+      const classHeader = source.slice(i, i + classHeaderLen);
       result += classHeader;
-      i2 += classHeader.length;
+      i += classHeader.length;
       contextStack.push({ type: "class-body", braceDepth });
       continue;
     }
-    const funcMatch = matchAt(RE_FUNCTION_HEAD, source, i2);
+    const funcMatch = matchAt(RE_FUNCTION_HEAD, source, i);
     if (funcMatch) {
       const declaredName = funcMatch[1];
       const star = funcMatch[0].includes("*") ? "*" : "";
       const funcName = declaredName || "anonymous";
       const matchLen = funcMatch[0].length;
-      const afterParen = source[i2 + matchLen];
+      const afterParen = source[i + matchLen];
       let safetyMarker;
-      let paramStart = i2 + matchLen;
+      let paramStart = i + matchLen;
       if (afterParen === "?" || afterParen === "!") {
         safetyMarker = afterParen;
         paramStart++;
@@ -6482,18 +6479,18 @@ function transformParenExpressions(source, ctx) {
         }
       }
       result += declaredName ? `function${star} ${declaredName}(` : `function${star} (`;
-      i2 = paramStart;
-      const paramsResult = extractBalancedContent(source, i2, "(", ")");
+      i = paramStart;
+      const paramsResult = extractBalancedContent(source, i, "(", ")");
       if (!paramsResult) {
-        result += source[i2];
-        i2++;
+        result += source[i];
+        i++;
         continue;
       }
       const { content: params, endPos } = paramsResult;
-      i2 = endPos;
+      i = endPos;
       const processedParams = processParamString(params, ctx, true);
       result += processedParams + ")";
-      let j = i2;
+      let j = i;
       while (j < source.length && /\s/.test(source[j]))
         j++;
       if (source[j] === ":") {
@@ -6514,10 +6511,10 @@ function transformParenExpressions(source, ctx) {
             if (safety)
               firstReturnSafety = safety;
           }
-          i2 = typeResult.endPos;
+          i = typeResult.endPos;
         }
       }
-      let arrowCheck = i2;
+      let arrowCheck = i;
       while (arrowCheck < source.length && /\s/.test(source[arrowCheck]))
         arrowCheck++;
       if (source[arrowCheck] === "=" && source[arrowCheck + 1] === ">") {
@@ -6525,7 +6522,7 @@ function transformParenExpressions(source, ctx) {
       }
       continue;
     }
-    const methodMatch = matchAt(RE_METHOD_HEAD, source, i2);
+    const methodMatch = matchAt(RE_METHOD_HEAD, source, i);
     let prevIdx = -1;
     for (let k = result.length - 1;k >= 0; k--) {
       if (!/\s/.test(result[k])) {
@@ -6545,27 +6542,27 @@ function transformParenExpressions(source, ctx) {
     const isMethodDecl = !EXPRESSION_PREFIX_KEYWORDS.has(prevWord) && prevNonWs !== "=" && prevNonWs !== "," && prevNonWs !== "(" && prevNonWs !== "[" && prevNonWs !== "." && prevNonWs !== ">";
     if (methodMatch && isInClassBody() && !isMethodDecl) {
       const skipLen = methodMatch[1].length;
-      result += source.slice(i2, i2 + skipLen);
-      i2 += skipLen;
+      result += source.slice(i, i + skipLen);
+      i += skipLen;
       continue;
     }
     if (methodMatch && isInClassBody() && isMethodDecl) {
       const methodPart = methodMatch[1];
       const matchLen = methodMatch[0].length;
-      const paramStart = i2 + matchLen;
+      const paramStart = i + matchLen;
       result += methodPart + "(";
-      i2 = paramStart;
-      const paramsResult = extractBalancedContent(source, i2, "(", ")");
+      i = paramStart;
+      const paramsResult = extractBalancedContent(source, i, "(", ")");
       if (!paramsResult) {
-        result += source[i2];
-        i2++;
+        result += source[i];
+        i++;
         continue;
       }
       const { content: params, endPos } = paramsResult;
-      i2 = endPos;
+      i = endPos;
       const processedParams = processParamString(params, ctx, true);
       result += processedParams + ")";
-      let j = i2;
+      let j = i;
       while (j < source.length && /\s/.test(source[j]))
         j++;
       if (source[j] === ":") {
@@ -6579,10 +6576,10 @@ function transformParenExpressions(source, ctx) {
           j++;
         const typeResult = extractReturnTypeValue(source, j);
         if (typeResult) {
-          i2 = typeResult.endPos;
+          i = typeResult.endPos;
         }
       }
-      let k = i2;
+      let k = i;
       while (k < source.length && /\s/.test(source[k]))
         k++;
       if (source[k] === "=" && source[k + 1] === ">") {
@@ -6590,7 +6587,7 @@ function transformParenExpressions(source, ctx) {
       }
       continue;
     }
-    let argPrevIdx = i2 - 1;
+    let argPrevIdx = i - 1;
     while (argPrevIdx >= 0 && /\s/.test(source[argPrevIdx]))
       argPrevIdx--;
     const prevTok = argPrevIdx < 0 ? "" : source[argPrevIdx];
@@ -6601,12 +6598,12 @@ function transformParenExpressions(source, ctx) {
         w--;
       argPrevWord = source.slice(w + 1, argPrevIdx + 1);
     }
-    const isCallArgs = /[A-Za-z0-9_$)\]]/.test(prevTok) && !EXPRESSION_PREFIX_KEYWORDS.has(argPrevWord) && !/(^|[^A-Za-z0-9_$])async\s*$/.test(source.slice(Math.max(0, i2 - 12), i2));
-    if (source[i2] === "(" && !isCallArgs) {
-      const fullParamsResult = extractBalancedContent(source, i2 + 1, "(", ")");
+    const isCallArgs = /[A-Za-z0-9_$)\]]/.test(prevTok) && !EXPRESSION_PREFIX_KEYWORDS.has(argPrevWord) && !/(^|[^A-Za-z0-9_$])async\s*$/.test(source.slice(Math.max(0, i - 12), i));
+    if (source[i] === "(" && !isCallArgs) {
+      const fullParamsResult = extractBalancedContent(source, i + 1, "(", ")");
       if (!fullParamsResult) {
-        result += source[i2];
-        i2++;
+        result += source[i];
+        i++;
         continue;
       }
       const fullContent = fullParamsResult.content;
@@ -6646,23 +6643,23 @@ function transformParenExpressions(source, ctx) {
         const processedParams = processParamString(params, ctx, true);
         const safetyComment = safetyMarker === "?" ? "/* safe */ " : safetyMarker === "!" ? "/* unsafe */ " : "";
         result += `(${safetyComment}${processedParams})`;
-        i2 = endPos;
-        while (i2 < j && /\s/.test(source[i2])) {
-          result += source[i2];
-          i2++;
+        i = endPos;
+        while (i < j && /\s/.test(source[i])) {
+          result += source[i];
+          i++;
         }
         if (arrowReturnType) {
-          i2 = j;
+          i = j;
         }
       } else {
         const transformed = transformParenExpressions(fullContent, ctx);
         result += `(${transformed.source})`;
-        i2 = endPos;
+        i = endPos;
       }
       continue;
     }
-    result += source[i2];
-    i2++;
+    result += source[i];
+    i++;
   }
   return {
     source: result,
@@ -6672,14 +6669,14 @@ function transformParenExpressions(source, ctx) {
 }
 function extractBalancedContent(source, start, open, close) {
   let depth = 1;
-  let i2 = start;
+  let i = start;
   let inString = false;
   let stringChar = "";
   let sigTail = open;
-  while (i2 < source.length && depth > 0) {
-    const char = source[i2];
+  while (i < source.length && depth > 0) {
+    const char = source[i];
     if (inString && char === "\\") {
-      i2 += 2;
+      i += 2;
       continue;
     }
     if (!inString && (char === "'" || char === '"' || char === "`")) {
@@ -6689,9 +6686,9 @@ function extractBalancedContent(source, start, open, close) {
       inString = false;
     } else if (!inString) {
       if (char === "/" && isRegexStart(sigTail)) {
-        const end = findRegexEnd(source, i2);
+        const end = findRegexEnd(source, i);
         if (end !== -1) {
-          i2 = end + 1;
+          i = end + 1;
           sigTail = "/";
           continue;
         }
@@ -6702,13 +6699,13 @@ function extractBalancedContent(source, start, open, close) {
         depth--;
       sigTail = (sigTail + char).slice(-24);
     }
-    i2++;
+    i++;
   }
   if (depth !== 0)
     return null;
   return {
-    content: source.slice(start, i2 - 1),
-    endPos: i2
+    content: source.slice(start, i - 1),
+    endPos: i
   };
 }
 function normalizeUnionSyntax(type) {
@@ -6720,12 +6717,12 @@ var ID_CHAR = /[A-Za-z0-9_$]/;
 var RE_CLASS_NAME = new RegExp(`class\\s+${ID}`, "y");
 var RE_FUNCTION_HEAD = new RegExp(`function\\s*\\*?(?:\\s+(${ID}))?\\s*\\(`, "y");
 var RE_METHOD_HEAD = new RegExp(`(constructor|(?:get|set)\\s+(?:${ID}|\\[[^\\]]+\\])|async\\s+(?:${ID}|\\[[^\\]]+\\])|${ID}|\\[[^\\]]+\\])\\s*\\(`, "y");
-function matchAt(re, source, at2) {
-  re.lastIndex = at2;
+function matchAt(re, source, at) {
+  re.lastIndex = at;
   return re.exec(source);
 }
 function extractReturnTypeValue(source, start) {
-  let i2 = start;
+  let i = start;
   let depth = 0;
   let inString = false;
   let stringChar = "";
@@ -6734,21 +6731,21 @@ function extractReturnTypeValue(source, start) {
     type: normalizeUnionSyntax(source.slice(start, endPos).trim()),
     endPos
   });
-  while (i2 < source.length) {
-    const char = source[i2];
+  while (i < source.length) {
+    const char = source[i];
     if (!inString && char === "/") {
-      const end = findRegexEnd(source, i2);
-      if (end !== -1 && isRegexStart(source.slice(start, i2))) {
-        i2 = end + 1;
-        while (i2 < source.length && /[a-z]/.test(source[i2]))
-          i2++;
+      const end = findRegexEnd(source, i);
+      if (end !== -1 && isRegexStart(source.slice(start, i))) {
+        i = end + 1;
+        while (i < source.length && /[a-z]/.test(source[i]))
+          i++;
         sawContent = true;
         if (depth === 0) {
-          let j = i2;
+          let j = i;
           while (j < source.length && /\s/.test(source[j]))
             j++;
           if (source[j] !== "|" && source[j] !== "&")
-            return makeResult(i2);
+            return makeResult(i);
         }
         continue;
       }
@@ -6757,76 +6754,76 @@ function extractReturnTypeValue(source, start) {
       inString = true;
       stringChar = char;
       sawContent = true;
-      i2++;
+      i++;
       continue;
     }
     if (inString) {
-      if (char === stringChar && !isEscapedAt(source, i2)) {
+      if (char === stringChar && !isEscapedAt(source, i)) {
         inString = false;
-        i2++;
+        i++;
         if (depth === 0) {
-          let j = i2;
+          let j = i;
           while (j < source.length && /\s/.test(source[j]))
             j++;
           if (source[j] === "{") {
             const afterBrace = source.slice(j + 1).match(/^\s*(\w+)\s*:/);
             if (!afterBrace) {
-              return makeResult(i2);
+              return makeResult(i);
             }
           }
           if (source[j] !== "|" && source[j] !== "&") {
-            return makeResult(i2);
+            return makeResult(i);
           }
         }
         continue;
       }
-      i2++;
+      i++;
       continue;
     }
     if (char === "{" || char === "[" || char === "(") {
       depth++;
       sawContent = true;
-      i2++;
+      i++;
       continue;
     }
     if (char === "}" || char === "]" || char === ")") {
       depth--;
       if (depth === 0) {
-        i2++;
-        let j = i2;
+        i++;
+        let j = i;
         while (j < source.length && /\s/.test(source[j]))
           j++;
         if (source[j] === "|" || source[j] === "&") {
           continue;
         }
-        return makeResult(i2);
+        return makeResult(i);
       }
-      i2++;
+      i++;
       continue;
     }
     if (depth === 0 && char === "{") {
       if (sawContent) {
-        return makeResult(i2);
+        return makeResult(i);
       }
-      const afterBrace = source.slice(i2 + 1).match(/^\s*(\w+)\s*:/);
+      const afterBrace = source.slice(i + 1).match(/^\s*(\w+)\s*:/);
       if (afterBrace) {
         depth++;
         sawContent = true;
-        i2++;
+        i++;
         continue;
       }
-      return makeResult(i2);
+      return makeResult(i);
     }
     if (depth === 0 && (char === "|" || char === "&")) {
-      i2++;
-      if (i2 < source.length && source[i2] === "|")
-        i2++;
-      while (i2 < source.length && /\s/.test(source[i2]))
-        i2++;
+      i++;
+      if (i < source.length && source[i] === "|")
+        i++;
+      while (i < source.length && /\s/.test(source[i]))
+        i++;
       continue;
     }
-    if (depth === 0 && (/\d/.test(char) || char === "-" && /\d/.test(source[i2 + 1]))) {
-      let j = i2;
+    if (depth === 0 && (/\d/.test(char) || char === "-" && /\d/.test(source[i + 1]))) {
+      let j = i;
       if (source[j] === "-")
         j++;
       while (j < source.length && /\d/.test(source[j]))
@@ -6849,16 +6846,16 @@ function extractReturnTypeValue(source, start) {
       if (isIntegral && j < source.length && source[j] === "n")
         j++;
       sawContent = true;
-      i2 = j;
-      while (i2 < source.length && /\s/.test(source[i2]))
-        i2++;
-      if (i2 < source.length && source[i2] === "{") {
+      i = j;
+      while (i < source.length && /\s/.test(source[i]))
+        i++;
+      if (i < source.length && source[i] === "{") {
         return {
           type: normalizeUnionSyntax(source.slice(start, j).trim()),
           endPos: j
         };
       }
-      if (source[i2] !== "|" && source[i2] !== "&") {
+      if (source[i] !== "|" && source[i] !== "&") {
         return {
           type: normalizeUnionSyntax(source.slice(start, j).trim()),
           endPos: j
@@ -6867,20 +6864,20 @@ function extractReturnTypeValue(source, start) {
       continue;
     }
     if (depth === 0 && ID_START.test(char)) {
-      let j = i2;
+      let j = i;
       while (j < source.length && ID_CHAR.test(source[j]))
         j++;
       sawContent = true;
-      i2 = j;
-      while (i2 < source.length && /\s/.test(source[i2]))
-        i2++;
-      if (i2 < source.length && source[i2] === "(") {
+      i = j;
+      while (i < source.length && /\s/.test(source[i]))
+        i++;
+      if (i < source.length && source[i] === "(") {
         depth++;
-        i2++;
+        i++;
         continue;
       }
-      if (i2 < source.length && source[i2] === "{") {
-        const afterBrace = source.slice(i2 + 1).match(/^\s*(\w+)\s*:/);
+      if (i < source.length && source[i] === "{") {
+        const afterBrace = source.slice(i + 1).match(/^\s*(\w+)\s*:/);
         if (!afterBrace) {
           let typeEnd = j;
           while (typeEnd > start && /\s/.test(source[typeEnd - 1]))
@@ -6891,7 +6888,7 @@ function extractReturnTypeValue(source, start) {
           };
         }
       }
-      if (source[i2] !== "|" && source[i2] !== "&") {
+      if (source[i] !== "|" && source[i] !== "&") {
         return {
           type: normalizeUnionSyntax(source.slice(start, j).trim()),
           endPos: j
@@ -6899,10 +6896,10 @@ function extractReturnTypeValue(source, start) {
       }
       continue;
     }
-    i2++;
+    i++;
   }
   if (sawContent) {
-    return makeResult(i2);
+    return makeResult(i);
   }
   return null;
 }
@@ -6930,18 +6927,18 @@ function rewriteTypeArguments(type, ctx) {
 function topLevelAssignment(src) {
   const masked = maskLiterals(src);
   let depth = 0;
-  for (let i2 = 0;i2 < masked.length; i2++) {
-    const c = masked[i2];
+  for (let i = 0;i < masked.length; i++) {
+    const c = masked[i];
     if (c === "(" || c === "[" || c === "{")
       depth++;
     else if (c === ")" || c === "]" || c === "}")
       depth--;
     else if (c === "=" && depth === 0) {
-      if (masked[i2 + 1] === "=" || masked[i2 + 1] === ">")
+      if (masked[i + 1] === "=" || masked[i + 1] === ">")
         continue;
-      if ("=!<>".includes(masked[i2 - 1] ?? ""))
+      if ("=!<>".includes(masked[i - 1] ?? ""))
         continue;
-      return i2;
+      return i;
     }
   }
   return -1;
@@ -6969,15 +6966,15 @@ function applyTypeArguments(type, declaredTypes) {
   const args = [];
   let depth = 0;
   let start = 0;
-  for (let i2 = 0;i2 < argsSrc.length; i2++) {
-    const c = argsSrc[i2];
+  for (let i = 0;i < argsSrc.length; i++) {
+    const c = argsSrc[i];
     if (c === "<" || c === "(" || c === "[" || c === "{")
       depth++;
     else if (c === ">" || c === ")" || c === "]" || c === "}")
       depth--;
     else if (c === "," && depth === 0) {
-      args.push(argsSrc.slice(start, i2));
-      start = i2 + 1;
+      args.push(argsSrc.slice(start, i));
+      start = i + 1;
     }
   }
   args.push(argsSrc.slice(start));
@@ -7035,14 +7032,14 @@ function processParamString(params, ctx, trackRequired) {
       const masked = maskLiterals(trimmed);
       let depth = 0;
       let end = -1;
-      for (let i2 = 0;i2 < masked.length; i2++) {
-        const c = masked[i2];
+      for (let i = 0;i < masked.length; i++) {
+        const c = masked[i];
         if (c === "{" || c === "[")
           depth++;
         else if (c === "}" || c === "]") {
           depth--;
           if (depth === 0) {
-            end = i2;
+            end = i;
             break;
           }
         }
@@ -7161,8 +7158,8 @@ function processDestructuredObjectParams(inner, ctx) {
   });
   return processed.join(", ");
 }
-function processObjectLiteralValue(literal2) {
-  const inner = literal2.slice(1, -1).trim();
+function processObjectLiteralValue(literal) {
+  const inner = literal.slice(1, -1).trim();
   const parts = splitParameters(inner);
   const processed = parts.map((part) => {
     const trimmed = part.trim();
@@ -7197,8 +7194,8 @@ function processObjectLiteralValue(literal2) {
   });
   return `{ ${processed.join(", ")} }`;
 }
-function processArrayLiteralValue(literal2) {
-  const inner = literal2.slice(1, -1).trim();
+function processArrayLiteralValue(literal) {
+  const inner = literal.slice(1, -1).trim();
   const parts = splitParameters(inner);
   const processed = parts.map((part) => {
     const trimmed = part.trim();
@@ -7220,15 +7217,15 @@ function hasColonNotEquals(param) {
   let hasEquals = false;
   let inString = false;
   let stringChar = "";
-  for (let i2 = 0;i2 < param.length; i2++) {
-    const char = param[i2];
+  for (let i = 0;i < param.length; i++) {
+    const char = param[i];
     if (!inString && (char === "'" || char === '"' || char === "`")) {
       inString = true;
       stringChar = char;
       continue;
     }
     if (inString) {
-      if (char === stringChar && !isEscapedAt(param, i2))
+      if (char === stringChar && !isEscapedAt(param, i))
         inString = false;
       continue;
     }
@@ -7239,7 +7236,7 @@ function hasColonNotEquals(param) {
     } else if (depth === 0) {
       if (char === ":")
         hasColon = true;
-      if (char === "=" && param[i2 + 1] !== ">")
+      if (char === "=" && param[i + 1] !== ">")
         hasEquals = true;
     }
   }
@@ -7249,15 +7246,15 @@ function findTopLevelColon(param) {
   let depth = 0;
   let inString = false;
   let stringChar = "";
-  for (let i2 = 0;i2 < param.length; i2++) {
-    const char = param[i2];
+  for (let i = 0;i < param.length; i++) {
+    const char = param[i];
     if (!inString && (char === "'" || char === '"' || char === "`")) {
       inString = true;
       stringChar = char;
       continue;
     }
     if (inString) {
-      if (char === stringChar && !isEscapedAt(param, i2))
+      if (char === stringChar && !isEscapedAt(param, i))
         inString = false;
       continue;
     }
@@ -7266,7 +7263,7 @@ function findTopLevelColon(param) {
     } else if (char === ")" || char === "}" || char === "]") {
       depth--;
     } else if (depth === 0 && char === ":") {
-      return i2;
+      return i;
     }
   }
   return -1;
@@ -7291,8 +7288,8 @@ function extractFunctions(ast, filename) {
   }
   const entry = functions[functions.length - 1];
   const helpers = new Map;
-  for (let i2 = 0;i2 < functions.length - 1; i2++) {
-    const fn = functions[i2];
+  for (let i = 0;i < functions.length - 1; i++) {
+    const fn = functions[i];
     const name = fn.id?.name;
     if (!name) {
       throw new SyntaxError2("Helper function must have a name", fn.loc?.start || { line: 1, column: 0 }, undefined, filename);
@@ -7308,17 +7305,17 @@ function extractFunctions(ast, filename) {
   return { entry, helpers };
 }
 function onlyGapFiller(gap) {
-  for (let i2 = 0;i2 < gap.length; i2++) {
-    const c = gap[i2];
+  for (let i = 0;i < gap.length; i++) {
+    const c = gap[i];
     if (c === " " || c === "\t" || c === `
 ` || c === "\r")
       continue;
-    if (c === "/" && gap[i2 + 1] === "/") {
+    if (c === "/" && gap[i + 1] === "/") {
       const nl = gap.indexOf(`
-`, i2);
+`, i);
       if (nl === -1)
         return true;
-      i2 = nl;
+      i = nl;
       continue;
     }
     return false;
@@ -7374,9 +7371,9 @@ function docCommentBefore(blocks, pos, kind) {
       hi = mid - 1;
     }
   }
-  for (let i2 = idx;i2 >= 0; i2--) {
-    if (blocks[i2].kind === kind) {
-      found = blocks[i2];
+  for (let i = idx;i >= 0; i--) {
+    if (blocks[i].kind === kind) {
+      found = blocks[i];
       break;
     }
   }
@@ -7456,7 +7453,7 @@ function parseAgentSource(source, options = {}) {
   const { filename = "<source>" } = options;
   const pre = preprocessAgentSource(source, options);
   try {
-    const ast = parse3(pre.source, {
+    const ast = parse(pre.source, {
       ecmaVersion: 2022,
       sourceType: "module",
       locations: true,
@@ -8402,11 +8399,11 @@ function transformMethodCall(method, receiver, args, ctx, resultVar, isConst) {
 function transformTemplateLiteral(expr, ctx, resultVar, isConst) {
   let tmpl = "";
   const vars = {};
-  for (let i2 = 0;i2 < expr.quasis.length; i2++) {
-    tmpl += expr.quasis[i2].value.cooked || expr.quasis[i2].value.raw;
-    if (i2 < expr.expressions.length) {
-      const exprNode = expr.expressions[i2];
-      const varName = `_${i2}`;
+  for (let i = 0;i < expr.quasis.length; i++) {
+    tmpl += expr.quasis[i].value.cooked || expr.quasis[i].value.raw;
+    if (i < expr.expressions.length) {
+      const exprNode = expr.expressions[i];
+      const varName = `_${i}`;
       vars[varName] = expressionToValue(exprNode, ctx);
       tmpl += `{{${varName}}}`;
     }
@@ -8581,11 +8578,11 @@ function expressionToValue(expr, ctx) {
       }
       const objValue = expressionToValue(mem.object, ctx);
       if (objValue && typeof objValue === "object" && objValue.$expr) {
-        const prop2 = mem.computed ? String(mem.property.value) : mem.property.name;
+        const prop = mem.computed ? String(mem.property.value) : mem.property.name;
         return {
           $expr: "member",
           object: objValue,
-          property: prop2,
+          property: prop,
           ...mem.computed && { computed: true }
         };
       }
@@ -8674,11 +8671,11 @@ var V = (e) => {
   let t = re.exec(e);
   if (!t)
     return false;
-  let r = +t[1], o = +t[2], i2 = +t[3];
-  if (o < 1 || o > 12 || i2 < 1)
+  let r = +t[1], o = +t[2], i = +t[3];
+  if (o < 1 || o > 12 || i < 1)
     return false;
   let c = o === 2 && r % 4 === 0 && (r % 100 !== 0 || r % 400 === 0) ? 29 : ne[o - 1];
-  return i2 <= c;
+  return i <= c;
 };
 var ie = /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 var S = { email: (e) => /^\S+@\S+\.\S+$/.test(e), uuid: (e) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(e), uri: (e) => {
@@ -8691,21 +8688,21 @@ var S = { email: (e) => /^\S+@\S+\.\S+$/.test(e), uuid: (e) => /^[0-9a-f]{8}-[0-
   let t = ie.exec(e);
   if (!t || !V(t[1]))
     return false;
-  let r = +t[2], o = +t[3], i2 = +t[4];
+  let r = +t[2], o = +t[3], i = +t[4];
   if (r > 23 || o > 59)
     return false;
-  return i2 <= 59 || i2 === 60 && r === 23 && o === 59;
+  return i <= 59 || i === 60 && r === 23 && o === 59;
 }, emoji: (e) => new RegExp("\\p{Extended_Pictographic}", "u").test(e) };
 var v = new Set(Object.keys(S));
 var k = new Map;
 var P = (e, t) => {
-  let r = t ? "u" : "", o = r + "\x00" + e, i2 = k.get(o);
-  if (i2 === undefined) {
-    if (i2 = new RegExp(e, r), k.size >= 500)
+  let r = t ? "u" : "", o = r + "\x00" + e, i = k.get(o);
+  if (i === undefined) {
+    if (i = new RegExp(e, r), k.size >= 500)
       k.clear();
-    k.set(o, i2);
+    k.set(o, i);
   }
-  return i2;
+  return i;
 };
 var m = (e, t = false) => ({ schema: e, _type: null, _optional: t, validate: (r, o) => b(r, e, o), get optional() {
   let r = { ...e };
@@ -8771,11 +8768,11 @@ var _ = { get email() {
   return m({});
 }, pattern: (e) => m({ type: "string", pattern: typeof e === "string" ? e : e.source }), union: (e) => m({ anyOf: e.map((t) => t.schema) }), enum: (e) => m({ type: typeof e[0], enum: e }), const: (e) => m({ const: e }), array: (e) => m({ type: "array", items: e.schema }), tuple: (e) => m({ type: "array", items: e.map((t) => t.schema), minItems: e.length, maxItems: e.length }), object: (e, t) => {
   let r = {}, o = [];
-  for (let i2 in e) {
-    r[i2] = e[i2].schema;
-    let c = r[i2];
-    if (e[i2]._optional !== true && (!Array.isArray(c.type) || !c.type.includes("null")))
-      o.push(i2);
+  for (let i in e) {
+    r[i] = e[i].schema;
+    let c = r[i];
+    if (e[i]._optional !== true && (!Array.isArray(c.type) || !c.type.includes("null")))
+      o.push(i);
   }
   return m({ type: "object", properties: r, required: o, additionalProperties: t?.additionalProperties === true });
 }, record: (e) => {
@@ -8801,8 +8798,8 @@ var _ = { get email() {
   }
   if (t === "object") {
     let r = {}, o = [];
-    for (let i2 in e)
-      r[i2] = _.infer(e[i2]).schema, o.push(i2);
+    for (let i in e)
+      r[i] = _.infer(e[i]).schema, o.push(i);
     return m({ type: "object", properties: r, required: o, additionalProperties: false });
   }
   return m({});
@@ -8836,9 +8833,9 @@ var W = new Set(["type", "properties", "required", "items", "enum", "const", "an
 var G = (e) => e.properties !== undefined || e.required !== undefined || e.additionalProperties !== undefined || e.minProperties !== undefined || e.maxProperties !== undefined;
 var z = (e) => e.items !== undefined || e.minItems !== undefined || e.maxItems !== undefined;
 function b(e, t, r) {
-  let o = t?.schema || t, i2 = typeof r === "function" ? r : r?.onError, c = typeof r === "object" ? r?.strict ?? r?.fullScan ?? false : false, f = [], a = (u) => {
-    if (i2)
-      i2(f.join(".") || "root", u);
+  let o = t?.schema || t, i = typeof r === "function" ? r : r?.onError, c = typeof r === "object" ? r?.strict ?? r?.fullScan ?? false : false, f = [], a = (u) => {
+    if (i)
+      i(f.join(".") || "root", u);
     return false;
   }, s = (u, n) => {
     if (n === true)
@@ -9027,13 +9024,13 @@ function b(e, t, r) {
   return s(e, o);
 }
 function Te(e, t, r) {
-  let o = t?.schema || t, i2 = typeof r === "function" ? r : r?.onError, c = typeof r === "object" ? r?.strict ?? r?.fullScan ?? false : false, f = typeof r === "object" ? r?.skipValidation : false, a = A(e, o, c);
+  let o = t?.schema || t, i = typeof r === "function" ? r : r?.onError, c = typeof r === "object" ? r?.strict ?? r?.fullScan ?? false : false, f = typeof r === "object" ? r?.skipValidation : false, a = A(e, o, c);
   if (!f) {
     let s = "", u = "", n = (l, p) => {
       if (!s)
         s = l, u = p;
-      if (i2)
-        i2(l, p);
+      if (i)
+        i(l, p);
     }, d;
     try {
       d = b(a, o, { onError: n, fullScan: c });
@@ -9096,11 +9093,11 @@ function A(e, t, r = false) {
     }
     return u !== null && !d ? u : e;
   }
-  let o = t.type, i2 = (o === "object" || !o && G(t)) && typeof e === "object" && !Array.isArray(e), c = (o === "array" || !o && z(t)) && Array.isArray(e);
-  if (i2 && !t.properties && t.additionalProperties === false)
+  let o = t.type, i = (o === "object" || !o && G(t)) && typeof e === "object" && !Array.isArray(e), c = (o === "array" || !o && z(t)) && Array.isArray(e);
+  if (i && !t.properties && t.additionalProperties === false)
     return {};
   let f = t.additionalProperties && typeof t.additionalProperties === "object" ? t.additionalProperties : t.additionalProperties === true ? {} : null;
-  if (i2 && (t.properties || f)) {
+  if (i && (t.properties || f)) {
     let a = {};
     if (t.properties) {
       for (let s of Object.keys(t.properties))
@@ -9130,15 +9127,15 @@ var ue = [["type", (e) => typeof e === "string" || Array.isArray(e) && e.every((
 var Z = [["minLength", ["string"]], ["maxLength", ["string"]], ["pattern", ["string"]], ["format", ["string"]], ["minimum", ["number", "integer"]], ["maximum", ["number", "integer"]], ["exclusiveMinimum", ["number", "integer"]], ["exclusiveMaximum", ["number", "integer"]], ["multipleOf", ["number", "integer"]], ["items", ["array"]], ["minItems", ["array"]], ["maxItems", ["array"]], ["properties", ["object"]], ["required", ["object"]], ["additionalProperties", ["object"]], ["minProperties", ["object"]], ["maxProperties", ["object"]]];
 var fe = [...Z.map(([e]) => e), "enum", "$predicate"];
 // node_modules/tjs-lang/src/vm/runtime.ts
-function eqValue(a, b2) {
+function eqValue(a, b) {
   a = unwrapBoxed(a);
-  b2 = unwrapBoxed(b2);
-  if (a === b2)
+  b = unwrapBoxed(b);
+  if (a === b)
     return true;
-  if (typeof a === "number" && typeof b2 === "number" && isNaN(a) && isNaN(b2)) {
+  if (typeof a === "number" && typeof b === "number" && isNaN(a) && isNaN(b)) {
     return true;
   }
-  if ((a === null || a === undefined) && (b2 === null || b2 === undefined)) {
+  if ((a === null || a === undefined) && (b === null || b === undefined)) {
     return true;
   }
   return false;
@@ -9240,14 +9237,14 @@ function membraneValue(value, maxBytes) {
   const seen = new WeakSet;
   const stack = [{ v: value, depth: 0 }];
   while (stack.length) {
-    const { v: v2, depth } = stack.pop();
-    if (v2 === null || v2 === undefined) {
+    const { v, depth } = stack.pop();
+    if (v === null || v === undefined) {
       bytes += 8;
       if (bytes > maxBytes)
         return overBudget(maxBytes);
       continue;
     }
-    const vt = typeof v2;
+    const vt = typeof v;
     if (vt === "function" || vt === "symbol" || vt === "bigint") {
       return {
         ok: false,
@@ -9255,7 +9252,7 @@ function membraneValue(value, maxBytes) {
       };
     }
     if (vt === "string") {
-      bytes += v2.length * 2 + 8;
+      bytes += v.length * 2 + 8;
       if (bytes > maxBytes)
         return overBudget(maxBytes);
       continue;
@@ -9272,32 +9269,32 @@ function membraneValue(value, maxBytes) {
         reason: "capability return exceeds membrane depth limit"
       };
     }
-    if (seen.has(v2))
+    if (seen.has(v))
       continue;
-    seen.add(v2);
+    seen.add(v);
     bytes += 16;
     if (bytes > maxBytes)
       return overBudget(maxBytes);
-    if (Array.isArray(v2)) {
-      const own2 = readArrayData(v2, bytes, maxBytes, stack, depth);
-      if (!own2.ok)
-        return own2;
-      bytes = own2.bytes;
-    } else if (v2 instanceof Date) {
+    if (Array.isArray(v)) {
+      const own = readArrayData(v, bytes, maxBytes, stack, depth);
+      if (!own.ok)
+        return own;
+      bytes = own.bytes;
+    } else if (v instanceof Date) {
       bytes += 32;
       if (bytes > maxBytes)
         return overBudget(maxBytes);
-    } else if (ArrayBuffer.isView(v2)) {
-      bytes += v2.byteLength;
+    } else if (ArrayBuffer.isView(v)) {
+      bytes += v.byteLength;
       if (bytes > maxBytes)
         return overBudget(maxBytes);
-    } else if (v2 instanceof ArrayBuffer) {
-      bytes += v2.byteLength;
+    } else if (v instanceof ArrayBuffer) {
+      bytes += v.byteLength;
       if (bytes > maxBytes)
         return overBudget(maxBytes);
-    } else if (v2 instanceof Map || v2 instanceof Set) {
-      const proto = Object.getPrototypeOf(v2);
-      const isMap = v2 instanceof Map;
+    } else if (v instanceof Map || v instanceof Set) {
+      const proto = Object.getPrototypeOf(v);
+      const isMap = v instanceof Map;
       if (proto !== (isMap ? Map.prototype : Set.prototype)) {
         return {
           ok: false,
@@ -9307,7 +9304,7 @@ function membraneValue(value, maxBytes) {
       bytes += 16;
       if (bytes > maxBytes)
         return overBudget(maxBytes);
-      const it = isMap ? Map.prototype.entries.call(v2) : Set.prototype.values.call(v2);
+      const it = isMap ? Map.prototype.entries.call(v) : Set.prototype.values.call(v);
       const next = it.next.bind(it);
       for (let step = next();!step.done; step = next()) {
         if (isMap) {
@@ -9319,14 +9316,14 @@ function membraneValue(value, maxBytes) {
         }
       }
     } else {
-      const own2 = readOwnData(v2);
-      if (!own2.ok)
-        return own2;
-      bytes += own2.bytes;
+      const own = readOwnData(v);
+      if (!own.ok)
+        return own;
+      bytes += own.bytes;
       if (bytes > maxBytes)
         return overBudget(maxBytes);
-      for (const value2 of own2.values)
-        stack.push({ v: value2, depth: depth + 1 });
+      for (const value of own.values)
+        stack.push({ v: value, depth: depth + 1 });
     }
   }
   try {
@@ -9344,22 +9341,22 @@ function overBudget(maxBytes) {
     reason: `capability return exceeds the ${maxBytes}-byte membrane budget`
   };
 }
-function readArrayData(v2, startBytes, maxBytes, stack, depth) {
+function readArrayData(v, startBytes, maxBytes, stack, depth) {
   let bytes = startBytes;
   let pushed = 0;
   let indexCount = 0;
-  const len = v2.length;
+  const len = v.length;
   const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4);
   const scanned = Math.min(len, probeCap);
-  let i2 = 0;
-  for (;i2 < scanned; i2++) {
-    const d = Object.getOwnPropertyDescriptor(v2, i2);
+  let i = 0;
+  for (;i < scanned; i++) {
+    const d = Object.getOwnPropertyDescriptor(v, i);
     if (!d)
       continue;
     if (d.get || d.set) {
       return {
         ok: false,
-        reason: `capability return has an accessor at index ${i2}; the boundary takes plain data only, because reading an accessor would execute host code`
+        reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`
       };
     }
     stack.push({ v: d.value, depth: depth + 1 });
@@ -9368,21 +9365,21 @@ function readArrayData(v2, startBytes, maxBytes, stack, depth) {
     if (bytes + pushed * 8 > maxBytes)
       return overBudget(maxBytes);
   }
-  for (const k2 of Object.keys(v2)) {
-    const asIndex = isArrayIndex(k2) ? Number(k2) : -1;
-    if (asIndex >= 0 && asIndex < i2)
+  for (const k of Object.keys(v)) {
+    const asIndex = isArrayIndex(k) ? Number(k) : -1;
+    if (asIndex >= 0 && asIndex < i)
       continue;
-    const d = Object.getOwnPropertyDescriptor(v2, k2);
+    const d = Object.getOwnPropertyDescriptor(v, k);
     if (d && (d.get || d.set)) {
       return {
         ok: false,
-        reason: `capability return has an accessor ${asIndex >= 0 ? `at index ${k2}` : `property '${k2}'`}; the boundary takes plain data only, because reading an accessor would execute host code`
+        reason: `capability return has an accessor ${asIndex >= 0 ? `at index ${k}` : `property '${k}'`}; the boundary takes plain data only, because reading an accessor would execute host code`
       };
     }
     stack.push({ v: d ? d.value : undefined, depth: depth + 1 });
     pushed++;
     if (asIndex < 0)
-      bytes += k2.length * 2 + 8;
+      bytes += k.length * 2 + 8;
     else
       indexCount++;
     if (bytes + pushed * 8 > maxBytes)
@@ -9396,22 +9393,22 @@ function readArrayData(v2, startBytes, maxBytes, stack, depth) {
   }
   return { ok: true, bytes };
 }
-function isArrayIndex(k2) {
-  const n = Number(k2);
-  return Number.isInteger(n) && n >= 0 && n < 4294967295 && String(n) === k2;
+function isArrayIndex(k) {
+  const n = Number(k);
+  return Number.isInteger(n) && n >= 0 && n < 4294967295 && String(n) === k;
 }
-function readOwnData(v2) {
+function readOwnData(v) {
   const values = [];
   let bytes = 0;
-  for (const k2 of Object.keys(v2)) {
-    const d = Object.getOwnPropertyDescriptor(v2, k2);
+  for (const k of Object.keys(v)) {
+    const d = Object.getOwnPropertyDescriptor(v, k);
     if (d && (d.get || d.set)) {
       return {
         ok: false,
-        reason: `capability return has an accessor property '${k2}'; the boundary takes plain data only, because reading an accessor would execute host code`
+        reason: `capability return has an accessor property '${k}'; the boundary takes plain data only, because reading an accessor would execute host code`
       };
     }
-    bytes += k2.length * 2 + 8;
+    bytes += k.length * 2 + 8;
     values.push(d ? d.value : undefined);
   }
   return { ok: true, values, bytes };
@@ -9540,12 +9537,12 @@ function resolveValue(val, ctx) {
           throw new Error(`Security Error: Access to '${part}' is forbidden`);
         }
       }
-      let current2 = ctx.state[parts[0]];
-      if (current2 !== undefined) {
-        for (let i2 = 1;i2 < parts.length; i2++) {
-          current2 = current2?.[parts[i2]];
+      let current = ctx.state[parts[0]];
+      if (current !== undefined) {
+        for (let i = 1;i < parts.length; i++) {
+          current = current?.[parts[i]];
         }
-        return current2;
+        return current;
       }
     }
     if (scopeHas(ctx.state, val)) {
@@ -9754,9 +9751,9 @@ var builtins = Object.assign(Object.create(null), {
   null: null,
   NaN: NaN,
   Infinity: Infinity,
-  filter: (data2, schema) => {
+  filter: (data, schema) => {
     const jsonSchema = convertExampleToSchema(schema);
-    const result = Te(data2, jsonSchema);
+    const result = Te(data, jsonSchema);
     if (result instanceof Error) {
       throw result;
     }
@@ -9776,65 +9773,65 @@ var builtins = Object.assign(Object.create(null), {
       };
     },
     fromExample: (example) => convertExampleToSchema(example),
-    isValid: (data2, schemaOrExample) => {
+    isValid: (data, schemaOrExample) => {
       if (schemaOrExample?.schema != null) {
-        return b(data2, schemaOrExample);
+        return b(data, schemaOrExample);
       }
-      return b(data2, convertExampleToSchema(schemaOrExample));
+      return b(data, convertExampleToSchema(schemaOrExample));
     }
   },
   Set: (items = []) => {
-    const data2 = [...new globalThis.Set(items)];
+    const data = [...new globalThis.Set(items)];
     return {
       add(item) {
-        if (!data2.includes(item)) {
-          data2.push(item);
+        if (!data.includes(item)) {
+          data.push(item);
         }
         return this;
       },
       remove(item) {
-        const idx = data2.indexOf(item);
+        const idx = data.indexOf(item);
         if (idx !== -1) {
-          data2.splice(idx, 1);
+          data.splice(idx, 1);
         }
         return this;
       },
       clear() {
-        data2.length = 0;
+        data.length = 0;
         return this;
       },
       has(item) {
-        return data2.includes(item);
+        return data.includes(item);
       },
       get size() {
-        return data2.length;
+        return data.length;
       },
       toArray() {
-        return [...data2];
+        return [...data];
       },
       union(other) {
         const otherItems = other?.toArray?.() ?? other ?? [];
-        return builtins.Set([...data2, ...otherItems]);
+        return builtins.Set([...data, ...otherItems]);
       },
       intersection(other) {
         const otherItems = other?.toArray?.() ?? other ?? [];
-        return builtins.Set(data2.filter((x) => otherItems.includes(x)));
+        return builtins.Set(data.filter((x) => otherItems.includes(x)));
       },
       diff(other) {
         const otherItems = other?.toArray?.() ?? other ?? [];
-        return builtins.Set(data2.filter((x) => !otherItems.includes(x)));
+        return builtins.Set(data.filter((x) => !otherItems.includes(x)));
       },
       forEach(fn) {
-        data2.forEach(fn);
+        data.forEach(fn);
       },
       map(fn) {
-        return builtins.Set(data2.map(fn));
+        return builtins.Set(data.map(fn));
       },
       filter(fn) {
-        return builtins.Set(data2.filter(fn));
+        return builtins.Set(data.filter(fn));
       },
       toJSON() {
-        return [...data2];
+        return [...data];
       }
     };
   },
@@ -9961,9 +9958,9 @@ var SAFE_METHOD_NAMES = (() => {
     }
   }
   for (const key of Object.keys(builtins)) {
-    const b2 = builtins[key];
-    if (b2 && typeof b2 === "object") {
-      for (const name of Object.keys(b2)) {
+    const b = builtins[key];
+    if (b && typeof b === "object") {
+      for (const name of Object.keys(b)) {
         if (!FORBIDDEN_PROPERTIES.has(name))
           names.add(name);
       }
@@ -10014,13 +10011,13 @@ var unsupportedBuiltins = Object.assign(Object.create(null), {
 var EXPR_FUEL_COST = 0.01;
 var STRING_FUEL_PER_CHAR = 0.0001;
 var ARRAY_FUEL_PER_ELEMENT = 0.001;
-function sizeHint(v2) {
-  if (typeof v2 === "string")
-    return v2.length;
-  if (Array.isArray(v2))
-    return v2.length;
-  if (v2 && typeof v2 === "object")
-    return Object.keys(v2).length;
+function sizeHint(v) {
+  if (typeof v === "string")
+    return v.length;
+  if (Array.isArray(v))
+    return v.length;
+  if (v && typeof v === "object")
+    return Object.keys(v).length;
   return 0;
 }
 var MAX_HEAP_BYTES = 64 * 1024 * 1024;
@@ -10031,47 +10028,47 @@ function estimateBytes(value, cap) {
   const seen = new WeakSet;
   const stack = [value];
   while (stack.length && bytes <= cap) {
-    const v2 = stack.pop();
+    const v = stack.pop();
     nodes++;
-    if (v2 === null || v2 === undefined)
+    if (v === null || v === undefined)
       continue;
-    const t = typeof v2;
+    const t = typeof v;
     if (t === "string") {
-      bytes += v2.length * 2;
+      bytes += v.length * 2;
       continue;
     }
     if (t !== "object") {
       bytes += 8;
       continue;
     }
-    if (seen.has(v2))
+    if (seen.has(v))
       continue;
-    seen.add(v2);
+    seen.add(v);
     bytes += 16;
-    if (ArrayBuffer.isView(v2)) {
-      bytes += v2.byteLength;
-    } else if (v2 instanceof ArrayBuffer) {
-      bytes += v2.byteLength;
-    } else if (Array.isArray(v2)) {
-      for (let i2 = 0;i2 < v2.length && bytes <= cap; i2++)
-        stack.push(v2[i2]);
-    } else if (v2 instanceof Map) {
-      for (const [k2, mv] of v2) {
-        stack.push(k2);
+    if (ArrayBuffer.isView(v)) {
+      bytes += v.byteLength;
+    } else if (v instanceof ArrayBuffer) {
+      bytes += v.byteLength;
+    } else if (Array.isArray(v)) {
+      for (let i = 0;i < v.length && bytes <= cap; i++)
+        stack.push(v[i]);
+    } else if (v instanceof Map) {
+      for (const [k, mv] of v) {
+        stack.push(k);
         stack.push(mv);
         if (bytes > cap)
           break;
       }
-    } else if (v2 instanceof Set) {
-      for (const sv of v2) {
+    } else if (v instanceof Set) {
+      for (const sv of v) {
         stack.push(sv);
         if (bytes > cap)
           break;
       }
-    } else if (!(v2 instanceof Date)) {
-      for (const k2 of Object.keys(v2)) {
-        bytes += k2.length * 2;
-        stack.push(v2[k2]);
+    } else if (!(v instanceof Date)) {
+      for (const k of Object.keys(v)) {
+        bytes += k.length * 2;
+        stack.push(v[k]);
         if (bytes > cap)
           break;
       }
@@ -10106,21 +10103,21 @@ function trackHeapWrite(ctx, key, value, op) {
     return true;
   }
   if (prevEntry && prevEntry.ref === value && Array.isArray(value) && witness > prevEntry.witness) {
-    const account2 = ctx.heapAccount ??= { bytes: 0 };
+    const account = ctx.heapAccount ??= { bytes: 0 };
     const tail = value.slice(prevEntry.witness);
-    const headroom2 = cap - account2.bytes;
-    const { bytes: added, nodes: nodes2 } = estimateBytes(tail, Math.max(0, headroom2));
-    if (!chargeHeapWalk(ctx, nodes2, op))
+    const headroom = cap - account.bytes;
+    const { bytes: added, nodes } = estimateBytes(tail, Math.max(0, headroom));
+    if (!chargeHeapWalk(ctx, nodes, op))
       return false;
-    const total2 = account2.bytes + added;
+    const total = account.bytes + added;
     ctx.heapPerKey.set(key, {
       size: prevEntry.size + added,
       ref: value,
       witness
     });
-    account2.bytes = total2;
-    if (total2 > cap) {
-      ctx.error = heapLimitError(total2, cap, op);
+    account.bytes = total;
+    if (total > cap) {
+      ctx.error = heapLimitError(total, cap, op);
       return false;
     }
     return true;
@@ -10417,7 +10414,7 @@ function defineAtom(op, inputSchema, outputSchema, fn, options = {}) {
       const execute = async () => fn(step, ctx);
       result = effectiveTimeout > 0 ? await Promise.race([
         execute(),
-        new Promise((_2, reject) => {
+        new Promise((_, reject) => {
           timer = setTimeout(() => reject(new Error(`Atom '${op}' timed out`)), effectiveTimeout);
         })
       ]).finally(() => clearTimeout(timer)) : await execute();
@@ -10521,15 +10518,15 @@ var ret = defineAtom("return", undefined, Ae.any, async (step, ctx) => {
     return ctx.error;
   }
   if ("value" in step) {
-    const res2 = resolveValue(step.value, ctx);
-    if (!ctx.localCall && res2 !== undefined && res2 !== null && !isAgentError(res2) && (typeof res2 !== "object" || Array.isArray(res2))) {
-      const err = new AgentError(`Agent must return an object, got ${Array.isArray(res2) ? "array" : typeof res2}`, "return");
+    const res = resolveValue(step.value, ctx);
+    if (!ctx.localCall && res !== undefined && res !== null && !isAgentError(res) && (typeof res !== "object" || Array.isArray(res))) {
+      const err = new AgentError(`Agent must return an object, got ${Array.isArray(res) ? "array" : typeof res}`, "return");
       ctx.error = err;
       ctx.output = err;
       return err;
     }
-    ctx.output = res2;
-    return res2;
+    ctx.output = res;
+    return res;
   }
   let res = {};
   if (step.schema?.properties) {
@@ -10571,8 +10568,8 @@ var varSet = defineAtom("varSet", Ae.object({ key: Ae.string, value: Ae.any }), 
   if (ctx.consts.has(key)) {
     throw new Error(`Cannot reassign const variable '${key}'`);
   }
-  const v2 = resolveValue(value, ctx);
-  if (!setStateVar(ctx, key, v2, "varSet"))
+  const v = resolveValue(value, ctx);
+  if (!setStateVar(ctx, key, v, "varSet"))
     return;
 }, { docs: "Set Variable", cost: 0.1 });
 var constSet = defineAtom("constSet", Ae.object({ key: Ae.string, value: Ae.any }), undefined, async ({ key, value }, ctx) => {
@@ -10596,14 +10593,14 @@ var varsImport = defineAtom("varsImport", Ae.object({
 }), undefined, async ({ keys }, ctx) => {
   if (Array.isArray(keys)) {
     for (const key of keys) {
-      const v2 = resolveValue({ $kind: "arg", path: key }, ctx);
-      if (!setStateVar(ctx, key, v2, "varsImport"))
+      const v = resolveValue({ $kind: "arg", path: key }, ctx);
+      if (!setStateVar(ctx, key, v, "varsImport"))
         return;
     }
   } else {
     for (const [alias, path] of Object.entries(keys)) {
-      const v2 = resolveValue({ $kind: "arg", path }, ctx);
-      if (!setStateVar(ctx, alias, v2, "varsImport"))
+      const v = resolveValue({ $kind: "arg", path }, ctx);
+      if (!setStateVar(ctx, alias, v, "varsImport"))
         return;
     }
   }
@@ -10615,8 +10612,8 @@ var varsLet = defineAtom("varsLet", Ae.record(Ae.any), undefined, async (step, c
   for (const key of Object.keys(step)) {
     if (key === "op" || key === "result")
       continue;
-    const v2 = resolveValue(step[key], ctx);
-    if (!setStateVar(ctx, key, v2, "varsLet"))
+    const v = resolveValue(step[key], ctx);
+    if (!setStateVar(ctx, key, v, "varsLet"))
       return;
   }
 }, {
@@ -10678,18 +10675,18 @@ var callLocal = defineAtom("callLocal", Ae.object({
     heapPerKey: new Map
   };
   try {
-    for (let i2 = 0;i2 < helper.paramNames.length; i2++) {
-      const arg = resolvedArgs[i2];
+    for (let i = 0;i < helper.paramNames.length; i++) {
+      const arg = resolvedArgs[i];
       if (arg && typeof arg === "object" && ctx.heapPerKey) {
         for (const entry of ctx.heapPerKey.values()) {
           if (entry.ref !== arg)
             continue;
-          scopedCtx.heapPerKey.set(helper.paramNames[i2], entry);
+          scopedCtx.heapPerKey.set(helper.paramNames[i], entry);
           (scopedCtx.heapAccount ??= { bytes: 0 }).bytes += entry.size;
           break;
         }
       }
-      if (!setStateVar(scopedCtx, helper.paramNames[i2], resolvedArgs[i2], "callLocal"))
+      if (!setStateVar(scopedCtx, helper.paramNames[i], resolvedArgs[i], "callLocal"))
         return;
     }
     await seq.exec({ op: "seq", steps: helper.steps }, scopedCtx);
@@ -10806,15 +10803,15 @@ var find = defineAtom("find", Ae.object({
   }
   return null;
 }, { docs: "Find in Array", timeoutMs: 0, cost: 1 });
-var push = defineAtom("push", Ae.object({ list: Ae.array(Ae.any), item: Ae.any }), Ae.array(Ae.any), async ({ list: list2, item }, ctx) => {
-  const resolvedList = resolveValue(list2, ctx);
+var push = defineAtom("push", Ae.object({ list: Ae.array(Ae.any), item: Ae.any }), Ae.array(Ae.any), async ({ list, item }, ctx) => {
+  const resolvedList = resolveValue(list, ctx);
   const resolvedItem = resolveValue(item, ctx);
   if (Array.isArray(resolvedList))
     resolvedList.push(resolvedItem);
   return resolvedList;
 }, { docs: "Push to Array", cost: 1 });
-var len = defineAtom("len", Ae.object({ list: Ae.any }), Ae.number, async ({ list: list2 }, ctx) => {
-  const val = resolveValue(list2, ctx);
+var len = defineAtom("len", Ae.object({ list: Ae.any }), Ae.number, async ({ list }, ctx) => {
+  const val = resolveValue(list, ctx);
   return Array.isArray(val) || typeof val === "string" ? val.length : 0;
 }, { docs: "Length", cost: 1 });
 var split = defineAtom("split", Ae.object({ str: Ae.string, sep: Ae.string }), Ae.array(Ae.string), async ({ str, sep }, ctx) => {
@@ -10825,8 +10822,8 @@ var split = defineAtom("split", Ae.object({ str: Ae.string, sep: Ae.string }), A
   chargeForSize(ctx, out, "split");
   return out;
 }, { docs: "Split String", cost: 1 });
-var join = defineAtom("join", Ae.object({ list: Ae.array(Ae.string), sep: Ae.string }), Ae.string, async ({ list: list2, sep }, ctx) => {
-  const input = resolveValue(list2, ctx);
+var join = defineAtom("join", Ae.object({ list: Ae.array(Ae.string), sep: Ae.string }), Ae.string, async ({ list, sep }, ctx) => {
+  const input = resolveValue(list, ctx);
   if (!chargeForSize(ctx, input, "join"))
     return;
   const out = input.join(resolveValue(sep, ctx));
@@ -10837,7 +10834,7 @@ var template = defineAtom("template", Ae.object({ tmpl: Ae.string, vars: Ae.reco
   const resolvedTmpl = resolveValue(tmpl, ctx);
   if (!chargeForSize(ctx, resolvedTmpl, "template"))
     return;
-  const out = resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_2, key) => String(resolveValue(vars[key], ctx) ?? ""));
+  const out = resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => String(resolveValue(vars[key], ctx) ?? ""));
   chargeForSize(ctx, out, "template");
   return out;
 }, { docs: "String Template", cost: 1 });
@@ -10869,7 +10866,7 @@ var pick = defineAtom("pick", Ae.object({ obj: Ae.record(Ae.any), keys: Ae.array
     return;
   const res = {};
   if (resolvedObj && Array.isArray(resolvedKeys)) {
-    resolvedKeys.forEach((k2) => res[k2] = resolvedObj[k2]);
+    resolvedKeys.forEach((k) => res[k] = resolvedObj[k]);
   }
   return res;
 }, { docs: "Pick Keys", cost: 1 });
@@ -10880,16 +10877,16 @@ var omit = defineAtom("omit", Ae.object({ obj: Ae.record(Ae.any), keys: Ae.array
     return;
   const res = {};
   if (resolvedObj) {
-    Object.keys(resolvedObj).forEach((k2) => {
-      if (!resolvedKeys.has(k2))
-        res[k2] = resolvedObj[k2];
+    Object.keys(resolvedObj).forEach((k) => {
+      if (!resolvedKeys.has(k))
+        res[k] = resolvedObj[k];
     });
   }
   return res;
 }, { docs: "Omit Keys", cost: 1 });
-var merge = defineAtom("merge", Ae.object({ a: Ae.record(Ae.any), b: Ae.record(Ae.any) }), Ae.record(Ae.any), async ({ a, b: b2 }, ctx) => {
+var merge = defineAtom("merge", Ae.object({ a: Ae.record(Ae.any), b: Ae.record(Ae.any) }), Ae.record(Ae.any), async ({ a, b }, ctx) => {
   const ra = resolveValue(a, ctx);
-  const rb = resolveValue(b2, ctx);
+  const rb = resolveValue(b, ctx);
   if (!chargeForSize(ctx, ra, "merge"))
     return;
   if (!chargeForSize(ctx, rb, "merge"))
@@ -10987,12 +10984,12 @@ var fetch2 = defineAtom("httpFetch", Ae.object({
       const buffer = await res.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       let binary = "";
-      for (let i2 = 0;i2 < bytes.length; i2++) {
-        binary += String.fromCharCode(bytes[i2]);
+      for (let i = 0;i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
       }
       const base64 = btoa(binary);
-      const contentType2 = res.headers.get("content-type") || "application/octet-stream";
-      return `data:${contentType2};base64,${base64}`;
+      const contentType = res.headers.get("content-type") || "application/octet-stream";
+      return `data:${contentType};base64,${base64}`;
     }
     const contentType = res.headers.get("content-type");
     if (responseType === "json" || contentType && contentType.includes("application/json")) {
@@ -11003,13 +11000,13 @@ var fetch2 = defineAtom("httpFetch", Ae.object({
   throw new Error("Capability 'fetch' missing and no global fetch available");
 }, { docs: "HTTP Fetch", timeoutMs: 30000, cost: 5 });
 var storeGet = defineAtom("storeGet", Ae.object({ key: Ae.string }), Ae.any, async ({ key }, ctx) => {
-  const k2 = resolveValue(key, ctx);
-  return ctx.capabilities.store?.get(k2);
+  const k = resolveValue(key, ctx);
+  return ctx.capabilities.store?.get(k);
 }, { docs: "Store Get", cost: 5 });
 var storeSet = defineAtom("storeSet", Ae.object({ key: Ae.string, value: Ae.any }), undefined, async ({ key, value }, ctx) => {
-  const k2 = resolveValue(key, ctx);
-  const v2 = resolveValue(value, ctx);
-  return ctx.capabilities.store?.set(k2, v2);
+  const k = resolveValue(key, ctx);
+  const v = resolveValue(value, ctx);
+  return ctx.capabilities.store?.set(k, v);
 }, { docs: "Store Set", cost: 5 });
 var storeQuery = defineAtom("storeQuery", Ae.object({ query: Ae.any }), Ae.array(Ae.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: "Store Query", cost: 5 });
 var storeQueryWhere = defineAtom("storeQueryWhere", Ae.object({
@@ -11035,7 +11032,7 @@ var vectorSearch = defineAtom("storeVectorSearch", Ae.object({
   collection: Ae.string.optional,
   vector: Ae.array(Ae.number),
   k: Ae.number.optional
-}), Ae.array(Ae.any), async ({ collection, vector, k: k2 }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(collection, ctx), resolveValue(vector, ctx), resolveValue(k2, ctx)) ?? [], {
+}), Ae.array(Ae.any), async ({ collection, vector, k }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(collection, ctx), resolveValue(vector, ctx), resolveValue(k, ctx)) ?? [], {
   docs: "Vector Search",
   cost: (input, ctx) => 5 + (resolveValue(input.k, ctx) ?? 5)
 });
@@ -11050,8 +11047,8 @@ var agentRun = defineAtom("agentRun", Ae.object({ agentId: Ae.any, input: Ae.any
   let resolvedInput = rawInput;
   if (rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)) {
     resolvedInput = {};
-    for (const k2 in rawInput) {
-      resolvedInput[k2] = resolveValue(rawInput[k2], ctx);
+    for (const k in rawInput) {
+      resolvedInput[k] = resolveValue(rawInput[k], ctx);
     }
   }
   if (isProcedureToken(resolvedId)) {
@@ -11187,9 +11184,9 @@ var xmlParse = defineAtom("xmlParse", Ae.object({ str: Ae.string }), Ae.any, asy
 var memoize = defineAtom("memoize", Ae.object({ key: Ae.string.optional, steps: Ae.array(Ae.any) }), Ae.any, async ({ key, steps }, ctx) => {
   if (!ctx.memo)
     ctx.memo = new Map;
-  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
-  if (ctx.memo.has(k2)) {
-    return ctx.memo.get(k2);
+  const k = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
+  if (ctx.memo.has(k)) {
+    return ctx.memo.get(k);
   }
   const scopedCtx = createChildScope(ctx);
   let result;
@@ -11201,7 +11198,7 @@ var memoize = defineAtom("memoize", Ae.object({ key: Ae.string.optional, steps: 
   }
   if (ctx.error)
     return;
-  ctx.memo.set(k2, result);
+  ctx.memo.set(k, result);
   return result;
 }, { docs: "Memoize steps result in memory", cost: 1 });
 var cache = defineAtom("cache", Ae.object({
@@ -11211,8 +11208,8 @@ var cache = defineAtom("cache", Ae.object({
 }), Ae.any, async ({ key, steps, ttlMs }, ctx) => {
   if (!ctx.capabilities.store)
     throw new Error("Capability 'store' missing for caching");
-  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
-  const cacheKey = `cache:${k2}`;
+  const k = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
+  const cacheKey = `cache:${k}`;
   const cached = await ctx.capabilities.store.get(cacheKey);
   if (cached) {
     if (typeof cached === "object" && cached._exp) {
@@ -11245,24 +11242,24 @@ var random = defineAtom("random", Ae.object({
   length: Ae.number.optional
 }), Ae.any, async ({ min, max, format, length }, ctx) => {
   const f = resolveValue(format, ctx) ?? "float";
-  const len2 = resolveValue(length, ctx) ?? 10;
+  const len = resolveValue(length, ctx) ?? 10;
   const mn = resolveValue(min, ctx) ?? 0;
   const mx = resolveValue(max, ctx) ?? 1;
   if (f === "base36") {
     const chars = "0123456789abcdefghijklmnopqrstuvwxyz";
-    let result2 = "";
+    let result = "";
     if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-      const values = new Uint8Array(len2);
+      const values = new Uint8Array(len);
       crypto.getRandomValues(values);
-      for (let i2 = 0;i2 < len2; i2++) {
-        result2 += chars[values[i2] % 36];
+      for (let i = 0;i < len; i++) {
+        result += chars[values[i] % 36];
       }
     } else {
-      for (let i2 = 0;i2 < len2; i2++) {
-        result2 += chars.charAt(Math.floor(Math.random() * 36));
+      for (let i = 0;i < len; i++) {
+        result += chars.charAt(Math.floor(Math.random() * 36));
       }
     }
-    return result2;
+    return result;
   }
   let val;
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {
@@ -11288,13 +11285,13 @@ var uuid = defineAtom("uuid", undefined, Ae.string, async () => {
     crypto.getRandomValues(bytes);
     bytes[6] = bytes[6] & 15 | 64;
     bytes[8] = bytes[8] & 63 | 128;
-    const hex = Array.from(bytes, (b2) => b2.toString(16).padStart(2, "0")).join("");
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0;
-    const v2 = c === "x" ? r : r & 3 | 8;
-    return v2.toString(16);
+    const v = c === "x" ? r : r & 3 | 8;
+    return v.toString(16);
   });
 }, { docs: "Generate UUID", cost: 1 });
 var hash = defineAtom("hash", Ae.object({
@@ -11307,18 +11304,18 @@ var hash = defineAtom("hash", Ae.object({
   const algo = resolveValue(algorithm, ctx) || "SHA-256";
   if (typeof crypto !== "undefined" && crypto.subtle) {
     const encoder = new TextEncoder;
-    const data2 = encoder.encode(str);
-    const hashBuffer = await crypto.subtle.digest(algo, data2);
+    const data = encoder.encode(str);
+    const hashBuffer = await crypto.subtle.digest(algo, data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b2) => b2.toString(16).padStart(2, "0")).join("");
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   }
-  let hash2 = 0;
-  for (let i2 = 0;i2 < str.length; i2++) {
-    const char = str.charCodeAt(i2);
-    hash2 = (hash2 << 5) - hash2 + char;
-    hash2 |= 0;
+  let hash = 0;
+  for (let i = 0;i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
   }
-  return String(hash2);
+  return String(hash);
 }, { docs: "Hash a value", cost: 1 });
 var consoleLog = defineAtom("consoleLog", Ae.object({ message: Ae.any }), undefined, async ({ message }, ctx) => {
   const msg = resolveValue(message, ctx);
@@ -11515,54 +11512,54 @@ function parseCondition(condition, vars) {
 }
 function tokenize(expr) {
   const tokens = [];
-  let i2 = 0;
-  while (i2 < expr.length) {
-    while (i2 < expr.length && /\s/.test(expr[i2]))
-      i2++;
-    if (i2 >= expr.length)
+  let i = 0;
+  while (i < expr.length) {
+    while (i < expr.length && /\s/.test(expr[i]))
+      i++;
+    if (i >= expr.length)
       break;
-    if (expr[i2] === '"' || expr[i2] === "'") {
-      const quote = expr[i2++];
+    if (expr[i] === '"' || expr[i] === "'") {
+      const quote = expr[i++];
       let str = "";
-      while (i2 < expr.length && expr[i2] !== quote) {
-        if (expr[i2] === "\\" && i2 + 1 < expr.length) {
-          i2++;
-          str += expr[i2++];
+      while (i < expr.length && expr[i] !== quote) {
+        if (expr[i] === "\\" && i + 1 < expr.length) {
+          i++;
+          str += expr[i++];
         } else {
-          str += expr[i2++];
+          str += expr[i++];
         }
       }
-      i2++;
+      i++;
       tokens.push(JSON.stringify(str));
       continue;
     }
-    if (expr.slice(i2, i2 + 2).match(/^(&&|\|\||==|!=|>=|<=)$/)) {
-      tokens.push(expr.slice(i2, i2 + 2));
-      i2 += 2;
+    if (expr.slice(i, i + 2).match(/^(&&|\|\||==|!=|>=|<=)$/)) {
+      tokens.push(expr.slice(i, i + 2));
+      i += 2;
       continue;
     }
-    if ("+-*/%><!().?:[]".includes(expr[i2])) {
-      tokens.push(expr[i2]);
-      i2++;
+    if ("+-*/%><!().?:[]".includes(expr[i])) {
+      tokens.push(expr[i]);
+      i++;
       continue;
     }
-    if (/\d/.test(expr[i2])) {
+    if (/\d/.test(expr[i])) {
       let num = "";
-      while (i2 < expr.length && /[\d.]/.test(expr[i2])) {
-        num += expr[i2++];
+      while (i < expr.length && /[\d.]/.test(expr[i])) {
+        num += expr[i++];
       }
       tokens.push(num);
       continue;
     }
-    if (/[a-zA-Z_]/.test(expr[i2])) {
+    if (/[a-zA-Z_]/.test(expr[i])) {
       let id = "";
-      while (i2 < expr.length && /[a-zA-Z0-9_]/.test(expr[i2])) {
-        id += expr[i2++];
+      while (i < expr.length && /[a-zA-Z0-9_]/.test(expr[i])) {
+        id += expr[i++];
       }
       tokens.push(id);
       continue;
     }
-    i2++;
+    i++;
   }
   return tokens;
 }
@@ -11714,11 +11711,11 @@ class TypedBuilder {
       steps: [...this.steps]
     };
   }
-  varsImport(keys2) {
-    return this.add(this.atoms["varsImport"].create({ keys: keys2 }));
+  varsImport(keys) {
+    return this.add(this.atoms["varsImport"].create({ keys }));
   }
-  varsExport(keys2) {
-    return this.add(this.atoms["varsExport"].create({ keys: keys2 }));
+  varsExport(keys) {
+    return this.add(this.atoms["varsExport"].create({ keys }));
   }
   if(condition, vars, thenBranch, elseBranch) {
     const thenB = new TypedBuilder(this.atoms);
@@ -11881,11 +11878,11 @@ class AgentVM {
   resolve(op) {
     return this.atoms[op];
   }
-  getTools(filter2 = "all") {
+  getTools(filter = "all") {
     let targetAtoms = Object.values(this.atoms);
-    if (Array.isArray(filter2)) {
-      targetAtoms = targetAtoms.filter((a) => filter2.includes(a.op));
-    } else if (filter2 === "flow") {
+    if (Array.isArray(filter)) {
+      targetAtoms = targetAtoms.filter((a) => filter.includes(a.op));
+    } else if (filter === "flow") {
       const flowOps = [
         "seq",
         "if",
@@ -11993,7 +11990,7 @@ class AgentVM {
     try {
       await Promise.race([
         this.resolve("seq")?.exec(ast, ctx),
-        new Promise((_2, reject) => {
+        new Promise((_, reject) => {
           controller.signal.addEventListener("abort", () => {
             reject(new Error(`Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`));
           });
@@ -12156,71 +12153,71 @@ decrypt.__tjs = {
 
 // src/llm.js
 var __tjs_rt = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
-  function TypeOf(v2) {
-    return v2 === null ? "null" : typeof v2;
+  function TypeOf(v) {
+    return v === null ? "null" : typeof v;
   }
-  function toBool(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
   return { __ub, __proj, __ac, TypeOf, toBool };
 })();
 var TypeOf = __tjs_rt.TypeOf;
 var toBool = __tjs_rt.toBool;
-var __tjs = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt.TypeOf, toBool: __tjs_rt.toBool };
+var __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { TypeOf: __tjs_rt.TypeOf, toBool: __tjs_rt.toBool };
 var __tjsToBool = __tjs.toBool;
-__tjs.toBool = function(v2) {
-  return __tjsToBool(__tjs_rt.__proj(v2));
+__tjs.toBool = function(v) {
+  return __tjsToBool(__tjs_rt.__proj(v));
 };
 function createLlmCapability(apiKeys) {
   return {
@@ -12278,17 +12275,17 @@ function createLlmCapability(apiKeys) {
           headers,
           body: JSON.stringify(body)
         });
-        const data2 = await response.json();
+        const data = await response.json();
         let text;
         if (__tjs.toBool(apiKeys.gemini)) {
-          text = data2.candidates?.[0]?.content?.parts?.[0]?.text;
+          text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         } else if (__tjs.toBool(apiKeys.anthropic)) {
-          text = data2.content?.[0]?.text;
+          text = data.content?.[0]?.text;
         } else {
-          text = data2.choices?.[0]?.message?.content;
+          text = data.choices?.[0]?.message?.content;
         }
         if (__tjs.toBool(__tjs_rt.TypeOf(text) !== "string")) {
-          throw new Error("LLM returned unexpected format: " + JSON.stringify(data2));
+          throw new Error("LLM returned unexpected format: " + JSON.stringify(data));
         }
         return text;
       } catch (error) {
@@ -12318,94 +12315,94 @@ import { getFirestore } from "firebase-admin/firestore";
 
 // src/schema.js
 var __tjs_rt2 = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
-  function TypeOf2(v2) {
-    return v2 === null ? "null" : typeof v2;
+  function TypeOf(v) {
+    return v === null ? "null" : typeof v;
   }
-  function toBool2(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
-  return { __ub, __proj, __ac, TypeOf: TypeOf2, toBool: toBool2 };
+  return { __ub, __proj, __ac, TypeOf, toBool };
 })();
 var TypeOf2 = __tjs_rt2.TypeOf;
 var toBool2 = __tjs_rt2.toBool;
-var __tjs2 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt2.TypeOf, toBool: __tjs_rt2.toBool };
+var __tjs2 = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { TypeOf: __tjs_rt2.TypeOf, toBool: __tjs_rt2.toBool };
 var __tjsToBool2 = __tjs2.toBool;
-__tjs2.toBool = function(v2) {
-  return __tjsToBool2(__tjs_rt2.__proj(v2));
+__tjs2.toBool = function(v) {
+  return __tjsToBool2(__tjs_rt2.__proj(v));
 };
-function validateSchema(schema, data2) {
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs__t : !__tjs2.toBool(data2))(!__tjs2.toBool(schema))))
+function validateSchema(schema, data) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs__t : !__tjs2.toBool(data))(!__tjs2.toBool(schema))))
     return { valid: true };
   const errors = [];
   if (__tjs2.toBool(schema.type)) {
-    const actualType = __tjs2.toBool(Array.isArray(data2)) ? "array" : __tjs_rt2.TypeOf(data2);
+    const actualType = __tjs2.toBool(Array.isArray(data)) ? "array" : __tjs_rt2.TypeOf(data);
     if (__tjs2.toBool(schema.type !== actualType)) {
       errors.push(`Expected type ${schema.type}, got ${actualType}`);
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2 !== null : __tjs__t)(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data2) === "object" : __tjs__t)(schema.type === "object")))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data !== null : __tjs__t)(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data) === "object" : __tjs__t)(schema.type === "object")))) {
     if (__tjs2.toBool(schema.required)) {
       for (const field of schema.required) {
-        if (__tjs2.toBool(!__tjs2.toBool(field in data2))) {
+        if (__tjs2.toBool(!__tjs2.toBool(field in data))) {
           errors.push(`Missing required field: ${field}`);
         }
       }
     }
     if (__tjs2.toBool(schema.properties)) {
       for (const [key, propSchema] of Object.entries(schema.properties)) {
-        if (__tjs2.toBool(key in data2)) {
-          const propResult = validateSchema(propSchema, data2[key]);
+        if (__tjs2.toBool(key in data)) {
+          const propResult = validateSchema(propSchema, data[key]);
           if (__tjs2.toBool(!__tjs2.toBool(propResult.valid))) {
             errors.push(...propResult.errors.map((e) => `${key}: ${e}`));
           }
@@ -12413,42 +12410,42 @@ function validateSchema(schema, data2) {
       }
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data2) === "string" : __tjs__t)(schema.type === "string"))) {
-    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2.length < schema.minLength : __tjs__t)(schema.minLength))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data) === "string" : __tjs__t)(schema.type === "string"))) {
+    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data.length < schema.minLength : __tjs__t)(schema.minLength))) {
       errors.push(`String too short (min ${schema.minLength})`);
     }
-    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2.length > schema.maxLength : __tjs__t)(schema.maxLength))) {
+    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data.length > schema.maxLength : __tjs__t)(schema.maxLength))) {
       errors.push(`String too long (max ${schema.maxLength})`);
     }
-    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? !__tjs2.toBool(new RegExp(schema.pattern).test(data2)) : __tjs__t)(schema.pattern))) {
+    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? !__tjs2.toBool(new RegExp(schema.pattern).test(data)) : __tjs__t)(schema.pattern))) {
       errors.push(`String does not match pattern`);
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data2) === "number" : __tjs__t)(schema.type === "number"))) {
-    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2 < schema.minimum : __tjs__t)(schema.minimum !== undefined))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data) === "number" : __tjs__t)(schema.type === "number"))) {
+    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data < schema.minimum : __tjs__t)(schema.minimum !== undefined))) {
       errors.push(`Number below minimum (${schema.minimum})`);
     }
-    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2 > schema.maximum : __tjs__t)(schema.maximum !== undefined))) {
+    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data > schema.maximum : __tjs__t)(schema.maximum !== undefined))) {
       errors.push(`Number above maximum (${schema.maximum})`);
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? Array.isArray(data2) : __tjs__t)(schema.type === "array"))) {
-    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2.length < schema.minItems : __tjs__t)(schema.minItems))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? Array.isArray(data) : __tjs__t)(schema.type === "array"))) {
+    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data.length < schema.minItems : __tjs__t)(schema.minItems))) {
       errors.push(`Array too short (min ${schema.minItems} items)`);
     }
-    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2.length > schema.maxItems : __tjs__t)(schema.maxItems))) {
+    if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data.length > schema.maxItems : __tjs__t)(schema.maxItems))) {
       errors.push(`Array too long (max ${schema.maxItems} items)`);
     }
     if (__tjs2.toBool(schema.items)) {
-      data2.forEach((item, i2) => {
+      data.forEach((item, i) => {
         const itemResult = validateSchema(schema.items, item);
         if (__tjs2.toBool(!__tjs2.toBool(itemResult.valid))) {
-          errors.push(...itemResult.errors.map((e) => `[${i2}]: ${e}`));
+          errors.push(...itemResult.errors.map((e) => `[${i}]: ${e}`));
         }
       });
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? !__tjs2.toBool(schema.enum.includes(data2)) : __tjs__t)(schema.enum))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? !__tjs2.toBool(schema.enum.includes(data)) : __tjs__t)(schema.enum))) {
     errors.push(`Value must be one of: ${schema.enum.join(", ")}`);
   }
   return { valid: errors.length === 0, errors };
@@ -12474,71 +12471,112 @@ validateSchema.__tjs = {
 
 // src/rbac.js
 var __tjs_rt3 = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
-  function TypeOf3(v2) {
-    return v2 === null ? "null" : typeof v2;
+  function TypeOf(v) {
+    return v === null ? "null" : typeof v;
   }
-  function toBool3(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
-  return { __ub, __proj, __ac, TypeOf: TypeOf3, toBool: toBool3 };
+  return { __ub, __proj, __ac, TypeOf, toBool };
 })();
 var TypeOf3 = __tjs_rt3.TypeOf;
 var toBool3 = __tjs_rt3.toBool;
-var __tjs3 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt3.TypeOf, toBool: __tjs_rt3.toBool };
+var __tjs3 = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { TypeOf: __tjs_rt3.TypeOf, toBool: __tjs_rt3.toBool };
 var __tjsToBool3 = __tjs3.toBool;
-__tjs3.toBool = function(v2) {
-  return __tjsToBool3(__tjs_rt3.__proj(v2));
+__tjs3.toBool = function(v) {
+  return __tjsToBool3(__tjs_rt3.__proj(v));
+};
+function plainData(v, depth = 0) {
+  if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : depth > 64)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : __tjs_rt3.TypeOf(v) !== "object")(v === null))))
+    return v;
+  if (__tjs3.toBool(Array.isArray(v)))
+    return v.map((x) => plainData(x, depth + 1));
+  if (__tjs3.toBool(v instanceof Date))
+    return v;
+  const proto = Object.getPrototypeOf(v);
+  if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : proto === null)(proto === Object.prototype))) {
+    const out = {};
+    for (const k of Object.keys(v))
+      out[k] = plainData(v[k], depth + 1);
+    return out;
+  }
+  if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs_rt3.TypeOf(v.seconds) === "number" : __tjs__t)(__tjs_rt3.TypeOf(v.toMillis) === "function")))
+    return { seconds: v.seconds, nanoseconds: v.nanoseconds };
+  if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs_rt3.TypeOf(v.longitude) === "number" : __tjs__t)(__tjs_rt3.TypeOf(v.latitude) === "number")))
+    return { latitude: v.latitude, longitude: v.longitude };
+  if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs_rt3.TypeOf(v.id) === "string" : __tjs__t)(__tjs_rt3.TypeOf(v.path) === "string")))
+    return { id: v.id, path: v.path };
+  return v;
+}
+plainData.__tjs = {
+  params: {
+    v: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    depth: {
+      type: {
+        kind: "integer"
+      },
+      required: false,
+      default: 0
+    }
+  },
+  unsafe: true,
+  source: "rbac.tjs:40"
 };
 var _db = null;
 function db() {
@@ -12549,7 +12587,7 @@ function db() {
 db.__tjs = {
   params: {},
   unsafe: true,
-  source: "rbac.tjs:25"
+  source: "rbac.tjs:60"
 };
 var securityRulesCache = {
   data: new Map,
@@ -12580,7 +12618,7 @@ getSecurityRule.__tjs = {
     }
   },
   unsafe: true,
-  source: "rbac.tjs:36"
+  source: "rbac.tjs:71"
 };
 function evaluateAccessShortcut(accessRule, context) {
   if (__tjs3.toBool(__tjs_rt3.TypeOf(accessRule) !== "string"))
@@ -12635,7 +12673,7 @@ evaluateAccessShortcut.__tjs = {
     }
   },
   unsafe: true,
-  source: "rbac.tjs:70"
+  source: "rbac.tjs:105"
 };
 async function evaluateSecurityRule(rule, context) {
   const startTime = performance.now();
@@ -12658,18 +12696,18 @@ async function evaluateSecurityRule(rule, context) {
     if (__tjs3.toBool(__tjs_rt3.TypeOf(accessRule) === "string")) {
       const shortcutResult = evaluateAccessShortcut(accessRule, context);
       if (__tjs3.toBool(shortcutResult)) {
-        const evalTimeMs2 = performance.now() - startTime;
-        return { ...shortcutResult, evalTimeMs: evalTimeMs2, fuelUsed: 0, type: "shortcut" };
+        const evalTimeMs = performance.now() - startTime;
+        return { ...shortcutResult, evalTimeMs, fuelUsed: 0, type: "shortcut" };
       }
     }
     if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? newData : __tjs__t)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? rule.schema : __tjs__t)(_method === "write")))) {
       const schemaResult = validateSchema(rule.schema, newData);
       if (__tjs3.toBool(!__tjs3.toBool(schemaResult.valid))) {
-        const evalTimeMs2 = performance.now() - startTime;
+        const evalTimeMs = performance.now() - startTime;
         return {
           allowed: false,
           reason: "Schema validation failed: " + schemaResult.errors.join("; "),
-          evalTimeMs: evalTimeMs2,
+          evalTimeMs,
           fuelUsed: 0,
           type: "schema"
         };
@@ -12681,12 +12719,12 @@ async function evaluateSecurityRule(rule, context) {
       const timeoutMs = ((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : 1000)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : rule.timeoutMs)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? accessRule?.timeoutMs : __tjs__t)(__tjs_rt3.TypeOf(accessRule) === "object")));
       const result = await Eval({
         code: codeToRun,
-        context,
+        context: { ...context, doc: plainData(context.doc) },
         fuel,
         timeoutMs,
         capabilities: {}
       });
-      const evalTimeMs2 = performance.now() - startTime;
+      const evalTimeMs = performance.now() - startTime;
       let allowed = false;
       let reason = null;
       if (__tjs3.toBool(__tjs_rt3.TypeOf(result.result) === "boolean")) {
@@ -12695,11 +12733,11 @@ async function evaluateSecurityRule(rule, context) {
         allowed = !__tjs3.toBool(!__tjs3.toBool(result.result.allow));
         reason = result.result.reason;
       }
-      return { allowed, reason, evalTimeMs: evalTimeMs2, fuelUsed: result.fuelUsed, type: "code" };
+      return { allowed, reason, evalTimeMs, fuelUsed: result.fuelUsed, type: "code" };
     }
     if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? !__tjs3.toBool(rule.code) : __tjs__t)(rule.schema))) {
-      const evalTimeMs2 = performance.now() - startTime;
-      return { allowed: true, evalTimeMs: evalTimeMs2, fuelUsed: 0, type: "schema-only" };
+      const evalTimeMs = performance.now() - startTime;
+      return { allowed: true, evalTimeMs, fuelUsed: 0, type: "schema-only" };
     }
     const evalTimeMs = performance.now() - startTime;
     return { allowed: false, reason: "No access rule defined", evalTimeMs, fuelUsed: 0, type: "default" };
@@ -12725,7 +12763,7 @@ evaluateSecurityRule.__tjs = {
     }
   },
   unsafe: true,
-  source: "rbac.tjs:136"
+  source: "rbac.tjs:171"
 };
 async function loadUserRoles(uid) {
   if (__tjs3.toBool(!__tjs3.toBool(uid)))
@@ -12751,73 +12789,73 @@ loadUserRoles.__tjs = {
     }
   },
   unsafe: true,
-  source: "rbac.tjs:232"
+  source: "rbac.tjs:268"
 };
 
 // src/indexes.js
 import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
 var __tjs_rt4 = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
-  function toBool4(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
-  return { __ub, __proj, __ac, toBool: toBool4 };
+  return { __ub, __proj, __ac, toBool };
 })();
 var toBool4 = __tjs_rt4.toBool;
-var __tjs4 = globalThis.__tjs?.createRuntime?.() ?? { toBool: __tjs_rt4.toBool };
+var __tjs4 = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { toBool: __tjs_rt4.toBool };
 var __tjsToBool4 = __tjs4.toBool;
-__tjs4.toBool = function(v2) {
-  return __tjsToBool4(__tjs_rt4.__proj(v2));
+__tjs4.toBool = function(v) {
+  return __tjsToBool4(__tjs_rt4.__proj(v));
 };
 var _db2 = null;
 function db2() {
@@ -12830,10 +12868,10 @@ db2.__tjs = {
   unsafe: true,
   source: "indexes.tjs:34"
 };
-function matchesFilter(doc, filter2) {
-  if (__tjs4.toBool(!__tjs4.toBool(filter2)))
+function matchesFilter(doc, filter) {
+  if (__tjs4.toBool(!__tjs4.toBool(filter)))
     return true;
-  for (const [key, value] of Object.entries(filter2)) {
+  for (const [key, value] of Object.entries(filter)) {
     if (__tjs4.toBool(doc[key] !== value))
       return false;
   }
@@ -12929,9 +12967,9 @@ async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) {
   const startTime = performance.now();
   let updated = 0;
   for (const index of indexes) {
-    const { name, filter: filter2, fields, partitionBy, partitionByArray } = index;
-    const oldMatches = __tjs4.toBool(oldDoc) ? matchesFilter(oldDoc, filter2) : false;
-    const newMatches = matchesFilter(newDoc, filter2);
+    const { name, filter, fields, partitionBy, partitionByArray } = index;
+    const oldMatches = __tjs4.toBool(oldDoc) ? matchesFilter(oldDoc, filter) : false;
+    const newMatches = matchesFilter(newDoc, filter);
     if (__tjs4.toBool(partitionByArray)) {
       const oldPartitions = __tjs4.toBool(((__tjs__t) => __tjs4.toBool(__tjs__t) ? oldMatches : __tjs__t)(oldDoc)) ? ((__tjs__t) => __tjs4.toBool(__tjs__t) ? __tjs__t : [])(oldDoc[partitionByArray]) : [];
       const newPartitions = __tjs4.toBool(newMatches) ? ((__tjs__t) => __tjs4.toBool(__tjs__t) ? __tjs__t : [])(newDoc[partitionByArray]) : [];
@@ -13019,8 +13057,8 @@ async function removeFromIndexes(collection, docId, doc, indexes) {
   const startTime = performance.now();
   let removed = 0;
   for (const index of indexes) {
-    const { name, filter: filter2, partitionBy, partitionByArray } = index;
-    if (__tjs4.toBool(!__tjs4.toBool(matchesFilter(doc, filter2))))
+    const { name, filter, partitionBy, partitionByArray } = index;
+    if (__tjs4.toBool(!__tjs4.toBool(matchesFilter(doc, filter))))
       continue;
     if (__tjs4.toBool(partitionByArray)) {
       const partitions = ((__tjs__t) => __tjs4.toBool(__tjs__t) ? __tjs__t : [])(doc[partitionByArray]);
@@ -13080,67 +13118,67 @@ removeFromIndexes.__tjs = {
 
 // src/store.js
 var __tjs_rt5 = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
-  function toBool5(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
-  return { __ub, __proj, __ac, toBool: toBool5 };
+  return { __ub, __proj, __ac, toBool };
 })();
 var toBool5 = __tjs_rt5.toBool;
-var __tjs5 = globalThis.__tjs?.createRuntime?.() ?? { toBool: __tjs_rt5.toBool };
+var __tjs5 = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { toBool: __tjs_rt5.toBool };
 var __tjsToBool5 = __tjs5.toBool;
-__tjs5.toBool = function(v2) {
-  return __tjsToBool5(__tjs_rt5.__proj(v2));
+__tjs5.toBool = function(v) {
+  return __tjsToBool5(__tjs_rt5.__proj(v));
 };
 var _db3 = null;
 function db3() {
@@ -13187,7 +13225,7 @@ function createStoreCapability(uid) {
       }
       return doc;
     },
-    async set(collection, docId, data2) {
+    async set(collection, docId, data) {
       const rule = await getSecurityRule(collection);
       if (__tjs5.toBool(!__tjs5.toBool(rule))) {
         return { error: `No security rule for collection: ${collection}` };
@@ -13205,15 +13243,15 @@ function createStoreCapability(uid) {
         _collection: collection,
         _docId: docId,
         doc,
-        newData: data2
+        newData: data
       });
       console.log(`RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
       if (__tjs5.toBool(!__tjs5.toBool(ruleResult.allowed))) {
         return { error: "Permission denied", reason: ruleResult.reason };
       }
-      await docRef.set(data2, { merge: true });
+      await docRef.set(data, { merge: true });
       if (__tjs5.toBool(rule.indexes)) {
-        await updateIndexes(collection, docId, doc, data2, rule.indexes);
+        await updateIndexes(collection, docId, doc, data, rule.indexes);
       }
       return { success: true };
     },
@@ -13308,67 +13346,67 @@ createStoreCapability.__tjs = {
 // src/routing.js
 import { getFirestore as getFirestore4 } from "firebase-admin/firestore";
 var __tjs_rt6 = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
-  function toBool6(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
-  return { __ub, __proj, __ac, toBool: toBool6 };
+  return { __ub, __proj, __ac, toBool };
 })();
 var toBool6 = __tjs_rt6.toBool;
-var __tjs6 = globalThis.__tjs?.createRuntime?.() ?? { toBool: __tjs_rt6.toBool };
+var __tjs6 = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { toBool: __tjs_rt6.toBool };
 var __tjsToBool6 = __tjs6.toBool;
-__tjs6.toBool = function(v2) {
-  return __tjsToBool6(__tjs_rt6.__proj(v2));
+__tjs6.toBool = function(v) {
+  return __tjsToBool6(__tjs_rt6.__proj(v));
 };
 var _db4 = null;
 function db4() {
@@ -13390,9 +13428,9 @@ function matchUrlPattern(pattern, path) {
     return null;
   }
   const params = {};
-  for (let i2 = 0;__tjs6.toBool(i2 < patternParts.length); i2++) {
-    const patternPart = patternParts[i2];
-    const pathPart = pathParts[i2];
+  for (let i = 0;__tjs6.toBool(i < patternParts.length); i++) {
+    const patternPart = patternParts[i];
+    const pathPart = pathParts[i];
     if (__tjs6.toBool(patternPart.startsWith(":"))) {
       const paramName = patternPart.slice(1);
       params[paramName] = decodeURIComponent(pathPart);
@@ -13450,75 +13488,75 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { getFirestore as getFirestore5, FieldValue } from "firebase-admin/firestore";
 var __tjs_rt7 = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
   function LegacyDate(...a) {
     return new Date(...a);
   }
-  function TypeOf4(v2) {
-    return v2 === null ? "null" : typeof v2;
+  function TypeOf(v) {
+    return v === null ? "null" : typeof v;
   }
-  function toBool7(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
-  return { __ub, __proj, __ac, LegacyDate, TypeOf: TypeOf4, toBool: toBool7 };
+  return { __ub, __proj, __ac, LegacyDate, TypeOf, toBool };
 })();
 var LegacyDate = __tjs_rt7.LegacyDate;
 var TypeOf4 = __tjs_rt7.TypeOf;
 var toBool7 = __tjs_rt7.toBool;
-var __tjs7 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt7.TypeOf, toBool: __tjs_rt7.toBool };
+var __tjs7 = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { TypeOf: __tjs_rt7.TypeOf, toBool: __tjs_rt7.toBool };
 var __tjsToBool7 = __tjs7.toBool;
-__tjs7.toBool = function(v2) {
-  return __tjsToBool7(__tjs_rt7.__proj(v2));
+__tjs7.toBool = function(v) {
+  return __tjsToBool7(__tjs_rt7.__proj(v));
 };
 var GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 var MODEL = "gemini-2.5-flash-lite";
@@ -13540,13 +13578,13 @@ utcDay.__tjs = {
   unsafe: true,
   source: "demo-llm.tjs:81"
 };
-async function claimQuota(db5, uid, now, limits = {}) {
+async function claimQuota(db, uid, now, limits = {}) {
   const perUser = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : DAILY_PER_USER)(limits.perUser);
   const global = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : DAILY_GLOBAL)(limits.global);
   const day = utcDay(now);
-  const userRef = db5.collection("users").doc(uid).collection("usage").doc(`demo-${day}`);
-  const globalRef = db5.collection("demoUsage").doc(day);
-  return db5.runTransaction(async (tx) => {
+  const userRef = db.collection("users").doc(uid).collection("usage").doc(`demo-${day}`);
+  const globalRef = db.collection("demoUsage").doc(day);
+  return db.runTransaction(async (tx) => {
     const userSnap = await tx.get(userRef);
     const globalSnap = await tx.get(globalRef);
     const used = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 0)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? userSnap.data().count : __tjs__t)(userSnap.exists));
@@ -13606,8 +13644,8 @@ var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (reque
   if (__tjs7.toBool(prompt.length > MAX_PROMPT_CHARS)) {
     throw new HttpsError("invalid-argument", `prompt is ${prompt.length} characters; the demo model accepts up to ${MAX_PROMPT_CHARS}`);
   }
-  const db5 = getFirestore5();
-  const quota = await claimQuota(db5, uid, Date.now());
+  const db = getFirestore5();
+  const quota = await claimQuota(db, uid, Date.now());
   if (__tjs7.toBool(!__tjs7.toBool(quota.ok))) {
     throw new HttpsError("resource-exhausted", __tjs7.toBool(quota.reason === "per-user") ? `Daily limit reached (${DAILY_PER_USER} calls). It resets at 00:00 UTC. Add your own API key in settings to keep going.` : "The demo model has hit its daily limit across all users. Try again tomorrow, or add your own API key in settings.");
   }
@@ -13626,78 +13664,78 @@ var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (reque
     console.error("demoPredict upstream error", res.status, detail.slice(0, 500));
     throw new HttpsError("internal", `The demo model returned ${res.status}. ${detail.slice(0, 200)}`);
   }
-  const data2 = await res.json();
-  const text = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "")(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts[0].text : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts[0] : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0] : __tjs__t)(data2.candidates))))));
+  const data = await res.json();
+  const text = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "")(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data.candidates[0].content.parts[0].text : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data.candidates[0].content.parts[0] : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data.candidates[0].content.parts : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data.candidates[0].content : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data.candidates[0] : __tjs__t)(data.candidates))))));
   return { text, remaining: quota.remaining, model: MODEL };
 });
 
 // src/index.js
 var __tjs_rt8 = (() => {
-  function __ub(v2) {
+  function __ub(v) {
     try {
-      if (v2 instanceof String)
-        return String.prototype.valueOf.call(v2);
-      if (v2 instanceof Number)
-        return Number.prototype.valueOf.call(v2);
-      if (v2 instanceof Boolean)
-        return Boolean.prototype.valueOf.call(v2);
+      if (v instanceof String)
+        return String.prototype.valueOf.call(v);
+      if (v instanceof Number)
+        return Number.prototype.valueOf.call(v);
+      if (v instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v);
     } catch {
-      return v2;
+      return v;
     }
-    return v2;
+    return v;
   }
   const __ac = Object.create(null);
-  function __proj(v2) {
-    if (v2 === null || v2 === undefined || typeof v2 !== "object")
-      return v2;
-    let k2;
+  function __proj(v) {
+    if (v === null || v === undefined || typeof v !== "object")
+      return v;
+    let k;
     try {
-      k2 = v2.constructor && v2.constructor.name;
+      k = v.constructor && v.constructor.name;
     } catch {
-      return v2;
+      return v;
     }
-    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    let f = k && Object.prototype.hasOwnProperty.call(__ac, k) ? __ac[k] : null;
     if (typeof f !== "function") {
       try {
-        f = v2.asCompared;
+        f = v.asCompared;
       } catch {
-        return v2;
+        return v;
       }
     }
     if (typeof f !== "function")
-      return v2;
+      return v;
     let p;
     try {
-      p = f.call(v2);
+      p = f.call(v);
     } catch {
-      return v2;
+      return v;
     }
     const t = typeof p;
-    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v;
   }
-  function TypeOf5(v2) {
-    return v2 === null ? "null" : typeof v2;
+  function TypeOf(v) {
+    return v === null ? "null" : typeof v;
   }
-  function toBool8(v2) {
-    v2 = __proj(v2);
+  function toBool(v) {
+    v = __proj(v);
     try {
-      if (v2 instanceof Boolean)
-        return Boolean(Boolean.prototype.valueOf.call(v2));
-      if (v2 instanceof Number)
-        return Boolean(Number.prototype.valueOf.call(v2));
-      if (v2 instanceof String)
-        return Boolean(String.prototype.valueOf.call(v2));
+      if (v instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v));
+      if (v instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v));
+      if (v instanceof String)
+        return Boolean(String.prototype.valueOf.call(v));
     } catch (e) {}
-    return Boolean(v2);
+    return Boolean(v);
   }
-  return { __ub, __proj, __ac, TypeOf: TypeOf5, toBool: toBool8 };
+  return { __ub, __proj, __ac, TypeOf, toBool };
 })();
 var TypeOf5 = __tjs_rt8.TypeOf;
 var toBool8 = __tjs_rt8.toBool;
-var __tjs8 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt8.TypeOf, toBool: __tjs_rt8.toBool };
+var __tjs8 = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { TypeOf: __tjs_rt8.TypeOf, toBool: __tjs_rt8.toBool };
 var __tjsToBool8 = __tjs8.toBool;
-__tjs8.toBool = function(v2) {
-  return __tjsToBool8(__tjs_rt8.__proj(v2));
+__tjs8.toBool = function(v) {
+  return __tjsToBool8(__tjs_rt8.__proj(v));
 };
 initializeApp();
 var db5 = getFirestore6();
@@ -13745,13 +13783,13 @@ var health = onRequest((req, res) => {
 });
 function hashPayload(payload) {
   const str = JSON.stringify(payload);
-  let hash2 = 0;
-  for (let i2 = 0;__tjs8.toBool(i2 < str.length); i2++) {
-    const char = str.charCodeAt(i2);
-    hash2 = (hash2 << 5) - hash2 + char;
-    hash2 = hash2 & hash2;
+  let hash = 0;
+  for (let i = 0;__tjs8.toBool(i < str.length); i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
   }
-  return hash2.toString(16);
+  return hash.toString(16);
 }
 hashPayload.__tjs = {
   params: {
@@ -13774,8 +13812,8 @@ var agentRun2 = onCall2(async (request) => {
   if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : __tjs_rt8.TypeOf(code) !== "string")(!__tjs8.toBool(code)))) {
     throw new HttpsError2("invalid-argument", "code must be a non-empty string");
   }
-  if (__tjs8.toBool(fuel > 1e4)) {
-    throw new HttpsError2("invalid-argument", "fuel limit cannot exceed 10000");
+  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : fuel > 1e4)(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : fuel <= 0)(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : !__tjs8.toBool(Number.isFinite(fuel)))(__tjs_rt8.TypeOf(fuel) !== "number"))))) {
+    throw new HttpsError2("invalid-argument", "fuel must be a number from 1 to 10000");
   }
   const startTime = Date.now();
   let result = null;
@@ -13785,7 +13823,7 @@ var agentRun2 = onCall2(async (request) => {
     const llm = createLlmCapability(apiKeys);
     const store = createStoreCapability(uid);
     result = await Eval({
-      maxSourceBytes: 64 * 1024,
+      maxSourceBytes: 8 * 1024,
       code,
       context: args,
       fuel,
@@ -13853,8 +13891,8 @@ var run = onRequest(async (req, res) => {
   if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : __tjs_rt8.TypeOf(code) !== "string")(!__tjs8.toBool(code)))) {
     return res.status(400).json({ error: "code must be a non-empty string" });
   }
-  if (__tjs8.toBool(fuel > 1e4)) {
-    return res.status(400).json({ error: "fuel limit cannot exceed 10000" });
+  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : fuel > 1e4)(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : fuel <= 0)(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : !__tjs8.toBool(Number.isFinite(fuel)))(__tjs_rt8.TypeOf(fuel) !== "number"))))) {
+    return res.status(400).json({ error: "fuel must be a number from 1 to 10000" });
   }
   const startTime = Date.now();
   let result = null;
@@ -13864,7 +13902,7 @@ var run = onRequest(async (req, res) => {
     const llm = createLlmCapability(apiKeys);
     const store = createStoreCapability(uid);
     result = await Eval({
-      maxSourceBytes: 65536,
+      maxSourceBytes: 8192,
       code,
       context: args,
       fuel,

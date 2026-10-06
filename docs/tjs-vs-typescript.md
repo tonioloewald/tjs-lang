@@ -75,7 +75,7 @@ console.log('5' == 5)
 | --- | --- | --- |
 | result | **rejected** | `false` |
 
-TypeScript CATCHES this one — TS2367, "no overlap" — whenever it can see both types statically. TJS makes it `false` at runtime instead, which also covers the case where TypeScript cannot see them (next row).
+TJS `==` compares the actual values when the line runs and never converts one type to another, so a string is never equal to a number. TypeScript refuses to compile this line (TS2367, "no overlap") because it can see both types here; the next row is what happens when it cannot.
 
 ---
 
@@ -90,7 +90,7 @@ console.log(a == 5)
 | --- | --- | --- |
 | result | `true` | `false` |
 
-The honest version of the previous row. Once a value is `any` — which is what arrives from JSON, the DOM or a network — TypeScript has nothing to compare and the coercion is back. TJS never coerces, because the check happens where the value is.
+The same comparison, with the string coming from `JSON.parse`. TypeScript only checks what it can see at compile time, so it says nothing here, and JavaScript `==` converts `'5'` to `5`. TJS does not depend on compile-time knowledge: it compares the values when the line runs, and `'5'` is still a string.
 
 ---
 
