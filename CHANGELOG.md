@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — a `wasm {}` block means what its `fallback {}` means
+
+Found by reviewing the WASM QuickStart, whose first example printed `undefined` (it promised
+7). Each is pinned by `src/lang/wasm-semantics.test.ts`, which runs functions through WASM and
+through the fallback and requires the same answer.
+
+- **A statement that computes a value and throws it away is a compile error** that names the
+  fix (`write \`return a + b\``). A block returns only with `return`, as in JavaScript; a bare
+  final `a + b` compiled to a function with NO result. ASSUMPTIONS L6 decided this in 2026-08
+  and it was never built. It found the same bug in `examples/wasm-demo.tjs` (three functions
+  returning `undefined`) and in the prose of the `wasm-basics` example.
+- **`/` is JavaScript's division** in a wasm block, even with two integer operands (`7 / 2` is
+  `3.5`, not `3`). The old integer-division warning is retired: there is nothing left to warn
+  about.
+- **`let` is block-scoped**: two sibling `for (let i …)` loops compile, instead of colliding
+  ("Duplicate local declaration") and silently running the fallback.
+- **The WAT comment says `(result f64)` only when the function returns a value.**
+- An unsafe (`!`) function no longer warns that a typed-array parameter "could not be resolved
+  to a runtime type": it asked for no checks.
+
+### Fixed
+
+- **Compile errors name the right line.** `extractTests` cut test blocks out, collapsed blank
+  lines and trimmed, so every error below a `test` block or a few comment lines pointed at the
+  wrong line (`src/lang/diagnostic-lines.test.ts`).
+- The WASM QuickStart is rewritten: every example asserts its result and compiles to WASM
+  (checked), and it states the supported subset and that anything else falls back. DOCS-WASM no
+  longer lists `Math.sin`/`cos`/`log`/`exp`/`pow` as supported; they fall back.
+
 ### Removed
 
 - **`predicate => expr` is gone.** It saved only `{ return }` over `predicate { return expr }`

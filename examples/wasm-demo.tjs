@@ -5,7 +5,7 @@
 
 function add(! a: 0, b: 0):! 0 {
   return wasm {
-    a + b
+    return a + b
   } fallback {
     return a + b
   }
@@ -17,7 +17,7 @@ console.log('add(3, 4):', add(3, 4))
 
 function lerp(! a: 0.0, b: 0.0, t: 0.0):! 0.0 {
   return wasm {
-    a + (b - a) * t
+    return a + (b - a) * t
   } fallback {
     return a + (b - a) * t
   }
@@ -53,7 +53,7 @@ function dot(! a: Float32Array, b: Float32Array, len: 0):! 0.0 {
       let off = i * 4
       acc = f32x4_add(acc, f32x4_mul(f32x4_load(a, off), f32x4_load(b, off)))
     }
-    f32x4_extract_lane(acc, 0) + f32x4_extract_lane(acc, 1)
+    return f32x4_extract_lane(acc, 0) + f32x4_extract_lane(acc, 1)
       + f32x4_extract_lane(acc, 2) + f32x4_extract_lane(acc, 3)
   } fallback {
     let sum = 0

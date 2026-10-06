@@ -73,6 +73,8 @@ const DOCS = [
   'guides/examples/tjs/polymorphic-constructors.md',
   'guides/examples/tjs/js-footgun-fixes.md',
   'guides/examples/tjs/local-extensions.md',
+  // Every example asserts its result: the page shipped two that returned `undefined`.
+  'docs/WASM-QUICKSTART.md',
 ]
 
 /**
@@ -93,6 +95,8 @@ const TESTED = new Set([
   'guides/examples/tjs/polymorphic-constructors.md',
   'guides/examples/tjs/js-footgun-fixes.md',
   'guides/examples/tjs/local-extensions.md',
+  // Every example asserts its result: the page shipped two that returned `undefined`.
+  'docs/WASM-QUICKSTART.md',
 ])
 
 interface Snippet {

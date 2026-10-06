@@ -345,8 +345,10 @@ warning — see § Runtime). Supported:
   array **parameter** (annotated `Float32Array` / `Float64Array` / `Int32Array` /
   `Uint8Array`, marshaled to a pointer). A plain `[0.0]` example-typed param is a
   JS array, **not** a wasm pointer — annotate it as `Float32Array`.
-- **Math intrinsics:** `sqrt`, `abs`, `floor`, `ceil`, `min`, `max`, `sin`, `cos`,
-  `log`, `exp`, `pow`.
+- **Math intrinsics:** `sqrt`, `abs`, `floor`, `ceil`, `trunc`, `min`, `max` (each a
+  single WASM instruction). `Math.sin`, `cos`, `log`, `exp`, `pow` and the rest have no
+  WASM instruction and would need a call out to JavaScript, so a block using one falls
+  back (see § Purity).
 - **SIMD:** the full `f32x4_*` set (see § SIMD intrinsics).
 
 Not supported (→ fallback + warning): allocation (JS owns all memory), function

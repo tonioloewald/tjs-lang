@@ -313,6 +313,96 @@ export function unmaskWasmBodies(source: string, masks: string[]): string {
   return result
 }
 
+/**
+ * The first statement in a `wasm` body that computes a value and throws it away.
+ *
+ * A wasm block is a JavaScript block: it returns only with `return`. The WASM QuickStart's
+ * first example ended in a bare `a + b`, which compiled to a function with NO result, so it
+ * returned `undefined` while its fallback returned 7. A statement whose whole subtree has no
+ * effect (no call, assignment, update or `delete`) can only be that mistake, so it is refused
+ * here, with the fix, rather than compiled. (ASSUMPTIONS L6 decided this in 2026-08; it was
+ * never built.)
+ */
+export function findDiscardedValue(
+  body: string
+): { text: string; offset: number } | null {
+  const prefix = 'function __wasm_body__() {'
+  let program: any
+  try {
+    program = parseJS(`${prefix}${body}\n}`, { ecmaVersion: 2022 })
+  } catch {
+    return null // not plain JS (the compiler reports its own errors)
+  }
+  const hasEffect = (node: any): boolean => {
+    if (!node || typeof node !== 'object') return false
+    if (Array.isArray(node)) return node.some(hasEffect)
+    // Calls to the PURE intrinsics only compute: `f32x4_*` (except `f32x4_store`, which
+    // writes memory) and `Math.*`. Counting them as effects let the dot-product shape —
+    // `f32x4_extract_lane(acc, 0) + …` as the last statement — through.
+    if (node.type === 'CallExpression') {
+      const c = node.callee
+      const pure =
+        (c?.type === 'Identifier' &&
+          c.name.startsWith('f32x4_') &&
+          c.name !== 'f32x4_store') ||
+        (c?.type === 'MemberExpression' &&
+          c.object?.type === 'Identifier' &&
+          c.object.name === 'Math')
+      if (!pure) return true
+      return hasEffect(node.arguments)
+    }
+    if (
+      node.type === 'NewExpression' ||
+      node.type === 'AssignmentExpression' ||
+      node.type === 'UpdateExpression' ||
+      node.type === 'AwaitExpression' ||
+      (node.type === 'UnaryExpression' && node.operator === 'delete')
+    )
+      return true
+    return Object.keys(node).some(
+      (k) => k !== 'loc' && typeof node[k] === 'object' && hasEffect(node[k])
+    )
+  }
+  const visit = (stmt: any): any => {
+    if (!stmt) return null
+    if (stmt.type === 'ExpressionStatement')
+      return hasEffect(stmt.expression) ? null : stmt.expression
+    for (const child of [
+      ...(stmt.type === 'BlockStatement' ? stmt.body : []),
+      stmt.body?.type ? stmt.body : null,
+      stmt.consequent,
+      stmt.alternate,
+    ]) {
+      const hit = child && visit(child)
+      if (hit) return hit
+    }
+    return null
+  }
+  const hit = visit(program.body[0].body)
+  return hit
+    ? {
+        text: body.slice(hit.start - prefix.length, hit.end - prefix.length),
+        offset: hit.start - prefix.length,
+      }
+    : null
+}
+
+/** Refuse a wasm body that discards a value (see `findDiscardedValue`). */
+function assertNoDiscardedValue(
+  source: string,
+  body: string,
+  bodyStart: number
+): void {
+  const hit = findDiscardedValue(body)
+  if (!hit) return
+  throw new SyntaxError(
+    `\`${hit.text}\` in a \`wasm\` block computes a value and throws it away. A wasm ` +
+      `block returns only with \`return\`, as in any JavaScript block: write ` +
+      `\`return ${hit.text}\`.`,
+    locAt(source, bodyStart + hit.offset)
+  )
+}
+
 export function extractWasmBlocks(source: string): {
   source: string
   blocks: WasmBlock[]
@@ -360,6 +450,7 @@ export function extractWasmBlocks(source: string): {
       }
 
       const body = source.slice(bodyStart, j - 1)
+      assertNoDiscardedValue(source, body, bodyStart)
       let fallbackBody: string | undefined
       let matchEnd = j
 
@@ -581,6 +672,7 @@ export function extractWasmFunctions(source: string): {
       continue
     }
     const body = source.slice(bodyStart, k - 1)
+    assertNoDiscardedValue(source, body, bodyStart)
     // k now points just past the closing `}`
 
     // Parse params into the existing `captures` shape used by the wasm

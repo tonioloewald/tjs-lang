@@ -33,7 +33,7 @@ syntax, it compiles at transpile time and embeds as base64.
     // Or with a return value:
     function compute(x: 0) {
       return wasm {
-        x * x + 1
+        return x * x + 1
       } fallback {
         return x * x + 1
       }

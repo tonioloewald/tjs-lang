@@ -238,8 +238,9 @@ function add(a: 0, b: 0) { return a + b }
       // Variant metadata should have params
       expect(result.code).toContain('add$1.__tjs')
       expect(result.code).toContain('add$2.__tjs')
-      // Variants should have inline validation
-      expect(result.code).toContain("__tjs.pushStack('<source>:1:add$1')")
+      // Variants should have inline validation. Line 2: the source opens with a newline.
+      // (This said 1 while extractTests trimmed the code; see diagnostic-lines.test.ts.)
+      expect(result.code).toContain("__tjs.pushStack('<source>:2:add$1')")
     })
 
     it('should not inject inline validation in dispatcher', () => {

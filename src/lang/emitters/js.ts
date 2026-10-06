@@ -1224,6 +1224,40 @@ export function transpileToJS(
       }
     }
 
+    // Determine safety options
+    // Module-level "safety none" makes ALL functions unsafe (no validation)
+    // `unsafeFunctions` is keyed by NAME, and only the `function` branch of the param
+    // transform records it — an arrow has no name at that stage, so `(! a: 0)` was
+    // dropped. That was harmless while arrows went unvalidated and became a real bug the
+    // moment they didn't: the marker asks for NO checks and got them anyway.
+    //
+    // The transform already leaves `/* unsafe */` in the parameter list, so read that
+    // rather than thread binding names back through the parser — it is the same fact,
+    // recorded where both sides can see it.
+    //
+    // Scanned over `maskLiteralsKeepComments`, NOT raw text. A plain `.includes` here read
+    // the marker out of a STRING, so `function h(n: 0, s = '/* unsafe */')` emitted no
+    // validation at all for `n`, while the same function without the literal validates.
+    // Identical for a template default, and for a nested arrow's default — where it
+    // disarmed the OUTER function. This is the literal-blindness class in the one place
+    // where getting it wrong turns checks OFF rather than merely garbling output.
+    //
+    // `maskLiterals` would be wrong here, and wrong in a way that looks right: it blanks
+    // comments too, so it erases the very marker being searched for and nothing is ever
+    // unsafe. This view blanks literals and KEEPS comments, which is exactly the question
+    // being asked — is there a real `/* unsafe */` comment in this parameter list?
+    const paramsSrc =
+      func.params.length && func.body
+        ? maskLiteralsKeepComments(preprocessed.source).slice(
+            func.start,
+            (func.body as any).start
+          )
+        : ''
+    const isUnsafe =
+      preprocessed.moduleSafety === 'none' ||
+      unsafeFunctions.has(funcName) ||
+      paramsSrc.includes('/* unsafe */')
+
     // Extract type info for this function
     const { types, warnings: funcWarnings } = extractFunctionTypeInfo(
       func,
@@ -1235,7 +1269,16 @@ export function transpileToJS(
       preprocessed.requiredValueOffsets,
       importedNames
     )
-    warnings.push(...funcWarnings)
+    // An unsafe (`!`) function asks for NO checks, so "this parameter could not be resolved
+    // and is unchecked" tells its author nothing: every WASM example declares
+    // `(! arr: Float32Array, …)` and printed it. A checked function keeps the warning.
+    warnings.push(
+      ...(isUnsafe
+        ? funcWarnings.filter(
+            (w) => !/could not be resolved to a runtime type/.test(w)
+          )
+        : funcWarnings)
+    )
     // Keyed by the name a consumer imports: an anonymous default export is `default`, not
     // the internal binding the emitter gave it.
     allTypes[anonymousDefault ? 'default' : funcName] = types
@@ -1387,39 +1430,6 @@ export function transpileToJS(
       }
     }
 
-    // Determine safety options
-    // Module-level "safety none" makes ALL functions unsafe (no validation)
-    // `unsafeFunctions` is keyed by NAME, and only the `function` branch of the param
-    // transform records it — an arrow has no name at that stage, so `(! a: 0)` was
-    // dropped. That was harmless while arrows went unvalidated and became a real bug the
-    // moment they didn't: the marker asks for NO checks and got them anyway.
-    //
-    // The transform already leaves `/* unsafe */` in the parameter list, so read that
-    // rather than thread binding names back through the parser — it is the same fact,
-    // recorded where both sides can see it.
-    //
-    // Scanned over `maskLiteralsKeepComments`, NOT raw text. A plain `.includes` here read
-    // the marker out of a STRING, so `function h(n: 0, s = '/* unsafe */')` emitted no
-    // validation at all for `n`, while the same function without the literal validates.
-    // Identical for a template default, and for a nested arrow's default — where it
-    // disarmed the OUTER function. This is the literal-blindness class in the one place
-    // where getting it wrong turns checks OFF rather than merely garbling output.
-    //
-    // `maskLiterals` would be wrong here, and wrong in a way that looks right: it blanks
-    // comments too, so it erases the very marker being searched for and nothing is ever
-    // unsafe. This view blanks literals and KEEPS comments, which is exactly the question
-    // being asked — is there a real `/* unsafe */` comment in this parameter list?
-    const paramsSrc =
-      func.params.length && func.body
-        ? maskLiteralsKeepComments(preprocessed.source).slice(
-            func.start,
-            (func.body as any).start
-          )
-        : ''
-    const isUnsafe =
-      preprocessed.moduleSafety === 'none' ||
-      unsafeFunctions.has(funcName) ||
-      paramsSrc.includes('/* unsafe */')
     const isSafe = preprocessed.safeFunctions.has(funcName)
     // Extract return safety per-function from original source
     const returnSafety = extractFunctionReturnSafety(cleanSource, funcName)

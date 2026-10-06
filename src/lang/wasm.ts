@@ -387,7 +387,9 @@ function decodeF64(bytes: number[], offset: number): number {
 function disassemble(
   code: number[],
   params: TypedParam[],
-  localTypes: WasmValueType[]
+  localTypes: WasmValueType[],
+  /** Whether the function returns a value. The comment used to claim `(result f64)` always. */
+  hasReturn = true
 ): string {
   const lines: string[] = []
   let indent = 1
@@ -400,7 +402,9 @@ function disassemble(
   const localStr = localTypes
     .map((t, i) => `(local $L${params.length + i} ${t})`)
     .join(' ')
-  lines.push(`(func (export "compute") ${paramStr} (result f64)`)
+  lines.push(
+    `(func (export "compute") ${paramStr}${hasReturn ? ' (result f64)' : ''}`
+  )
   if (localStr) lines.push(`  ${localStr}`)
 
   let i = 0
@@ -636,6 +640,8 @@ interface CompileContext {
   needsMemory: boolean
   /** Whether the function has a return statement */
   hasReturn: boolean
+  /** Names declared in the CURRENT block scope (a duplicate is an error only here). */
+  scopeNames: Set<string>
   /** WAT text representation lines (for debugging) */
   wat: string[]
   /** Current indentation level for WAT */
@@ -664,6 +670,7 @@ function createContext(
     needsMathImports: new Set(),
     needsMemory: false,
     hasReturn: false,
+    scopeNames: new Set(params.map((p) => p.name)),
     wat: [],
     watIndent: 1,
     moduleFunctions,
@@ -682,14 +689,34 @@ function declareLocal(
   name: string,
   type: WasmValueType
 ): number {
-  if (ctx.locals.has(name)) {
+  if (ctx.scopeNames.has(name)) {
     ctx.errors.push(`Duplicate local declaration: ${name}`)
     return ctx.locals.get(name)!.index
   }
   const index = ctx.nextLocalIndex++
   ctx.locals.set(name, { index, type })
+  ctx.scopeNames.add(name)
   ctx.localTypes.push(type)
   return index
+}
+
+/**
+ * Run `body` in a new block scope, as `let`/`const` in JavaScript: names declared inside get
+ * their own locals and vanish at the end. WASM locals are function-wide, so each declaration
+ * still gets a fresh index; only the NAME is scoped. Two sibling `for (let i …)` loops used to
+ * collide ("Duplicate local declaration: i") and the block silently ran its JS fallback.
+ */
+function inScope<T>(ctx: CompileContext, body: () => T): T {
+  const savedLocals = ctx.locals
+  const savedNames = ctx.scopeNames
+  ctx.locals = new Map(ctx.locals)
+  ctx.scopeNames = new Set()
+  try {
+    return body()
+  } finally {
+    ctx.locals = savedLocals
+    ctx.scopeNames = savedNames
+  }
 }
 
 function getLocal(
@@ -763,7 +790,8 @@ function compileStatement(
 
     case 'ForStatement': {
       const forStmt = node as acorn.ForStatement
-      return compileForLoop(forStmt, ctx)
+      // The init's `let` is scoped to the loop, as in JavaScript.
+      return inScope(ctx, () => compileForLoop(forStmt, ctx))
     }
 
     case 'IfStatement': {
@@ -773,11 +801,13 @@ function compileStatement(
 
     case 'BlockStatement': {
       const block = node as acorn.BlockStatement
-      const code: number[] = []
-      for (const stmt of block.body) {
-        code.push(...compileStatement(stmt, ctx))
-      }
-      return code
+      return inScope(ctx, () => {
+        const code: number[] = []
+        for (const stmt of block.body) {
+          code.push(...compileStatement(stmt, ctx))
+        }
+        return code
+      })
     }
 
     default:
@@ -919,6 +949,16 @@ function inferExprType(
       const rightType = inferExprType(binExpr.right as acorn.Expression, ctx)
       // v128 operations stay v128
       if (leftType === 'v128' || rightType === 'v128') return 'v128'
+      // `/` is JavaScript's division, so the WASM path and the fallback agree: two integers
+      // divide as f64 (the wider result type then sets the operation). `i32.div_s` TRUNCATED:
+      // 7 / 2 was 3, and `x / w - 0.5` silently `0 - 0.5` for x < w; a warning only reported it.
+      if (
+        binExpr.type === 'BinaryExpression' &&
+        binExpr.operator === '/' &&
+        leftType === 'i32' &&
+        rightType === 'i32'
+      )
+        return 'f64'
       // If either is f64 or f32, result is floating point
       if (leftType === 'f64' || rightType === 'f64') return 'f64'
       if (leftType === 'f32' || rightType === 'f32') return 'f32'
@@ -1162,18 +1202,6 @@ function compileBinaryExpr(
       `Operator ${node.operator} not supported for type ${opType}`
     )
     return [Op.f64_const, ...encodeF64(0)]
-  }
-
-  // Lint the i32/i32 division footgun: `/` with two integer operands (loop vars,
-  // `0`-annotated params, int literals) does TRUNCATING integer division, and the
-  // coercion to f64 only happens at the *next* operator — so `x / w - 0.5` is
-  // silently `0 - 0.5` for all `x < w`. Warn once per block; add `+ 0.0` to an
-  // operand to force f64 division. (UI-#4 — this is a warning, not an error:
-  // integer division may be intended.)
-  if (node.operator === '/' && opType === 'i32') {
-    const msg =
-      "integer division: '/' with two i32 operands truncates (result coerces to f64 only at the next operator). Add `+ 0.0` to an operand to force f64 division."
-    if (!ctx.warnings.includes(msg)) ctx.warnings.push(msg)
   }
 
   return [...leftCode, ...rightCode, opcode]
@@ -2232,7 +2260,7 @@ function compileBlockToFunction(
         needsMemory: ctx.needsMemory,
         hasReturn: ctx.hasReturn,
       },
-      wat: disassemble(code, params, ctx.localTypes),
+      wat: disassemble(code, params, ctx.localTypes, ctx.hasReturn),
       warnings: ctx.warnings,
     }
   } catch (e: any) {

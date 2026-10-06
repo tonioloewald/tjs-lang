@@ -283,17 +283,17 @@ export function extractTests(source: string): TestExtractionResult {
     mockMatches.push({ start, end: end + 1 })
   }
 
-  // Remove test and mock blocks from source (in reverse order to preserve indices)
-  const allMatches = [...testMatches, ...mockMatches].sort(
-    (a, b) => b.start - a.start
-  )
-
-  for (const m of allMatches) {
-    cleanCode = cleanCode.slice(0, m.start) + cleanCode.slice(m.end)
+  // BLANK test and mock blocks in place, newlines kept: the code returned here is what the
+  // parser and every later pass report positions in. Cutting the blocks out, collapsing blank
+  // lines and trimming made every compile error below a test block (or below a few comment
+  // lines, which arrive here already blanked) name the wrong line — see
+  // `diagnostic-lines.test.ts`.
+  for (const m of [...testMatches, ...mockMatches]) {
+    cleanCode =
+      cleanCode.slice(0, m.start) +
+      cleanCode.slice(m.start, m.end).replace(/[^\n]/g, ' ') +
+      cleanCode.slice(m.end)
   }
-
-  // Clean up extra whitespace
-  cleanCode = cleanCode.replace(/\n\s*\n\s*\n/g, '\n\n').trim()
 
   // Generate test runner
   const testRunner = generateTestRunner(tests, mocks)
