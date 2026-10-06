@@ -105,6 +105,14 @@ export default defineSiteConfig({
   // registry (tosijs-ui#184, 1.16.1) and the doc system itself. See site/entry.ts.
   bundleEntry: 'site/entry.ts',
 
+  // "Edit page source" and "Download page source" read a page's markdown from GitHub raw
+  // (`main`) on a deployed site, which has no dev-server source endpoint. Without a github
+  // link both silently did nothing (found 2026-10-07). Also the header's repo and npm links.
+  projectLinks: {
+    github: 'https://github.com/tonioloewald/tjs-lang',
+    npm: 'https://www.npmjs.com/package/tjs-lang',
+  },
+
   // `demo/static` (the default: the logo animation, favicons) plus images staged by
   // `prebuild` at the paths the markdown references.
   staticDirs: ['demo/static', SITE_STATIC],
