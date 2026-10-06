@@ -1,11 +1,9 @@
-<!--{"section": "tjs", "type": "example", "group": "basics", "order": 1, "parent": "tjs-basics.md"}-->
+<!--{"section": "tjs", "order": 1, "parent": "tjs-basics.md"}-->
 
 # Hello TJS
 
 Types-by-example: the value IS the type annotation
 
-```tjs:inline
-/#
 ## Types by Example
 
 In TJS, the example value after `:` IS the type:
@@ -20,9 +18,7 @@ In TJS, the example value after `:` IS the type:
 | `data: { x: 0, y: 0 }` | object with shape |
 | `...nums: [0]` | rest param, array of integers |
 
-Incidentally, you're looking at inline markdown docs...
-#/
-
+```tjs:static
 /**
  * But **jsDoc** is also supported.
  */

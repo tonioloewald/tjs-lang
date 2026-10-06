@@ -1,18 +1,15 @@
-<!--{"section": "tjs", "type": "example", "group": "basics", "order": 4, "parent": "tjs-basics.md"}-->
+<!--{"section": "tjs", "order": 4, "parent": "tjs-basics.md"}-->
 
 # Array Types
 
 Working with typed arrays
 
-```tjs:inline
-/#
-## Array Types
-
 Array types use a single-element example:
-- `[0]` = array of numbers
+- `[0]` = array of integers (`[0.0]` for any number)
 - `['']` = array of strings
-- `[{ x: 0 }]` = array of objects with shape { x: number }
-#/
+- `[{ x: 0 }]` = array of objects shaped like `{ x: 0 }`
+
+```tjs:static
 test 'sum adds numbers' {
   expect(sum([1, 2, 3, 4])).toBe(10)
 }

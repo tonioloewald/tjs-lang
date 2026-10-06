@@ -1,11 +1,9 @@
-<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 7, "parent": "tjs-patterns.md"}-->
+<!--{"section": "tjs", "order": 7, "parent": "tjs-patterns.md"}-->
 
 # Error Handling
 
 Monadic error propagation and type-safe error patterns
 
-```tjs:inline
-/#
 ## Monadic Error Propagation
 
 Type errors are values (MonadicError), not exceptions. They propagate
@@ -13,8 +11,8 @@ automatically through function chains — if any function receives an
 error as input, it short-circuits and returns the error immediately.
 
 No try/catch needed. No manual error checking between calls.
-#/
 
+```tjs:static
 // --- Error propagation through a pipeline ---
 
 function validate(name: ''): '' {

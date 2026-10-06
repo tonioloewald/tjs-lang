@@ -1,20 +1,16 @@
-<!--{"section": "tjs", "type": "example", "group": "basics", "order": 16, "parent": "tjs-basics.md"}-->
+<!--{"section": "tjs", "order": 16, "parent": "tjs-basics.md"}-->
 
 # Polymorphic Functions
 
 Multiple function declarations with the same name, automatically dispatched by argument types
-
-```tjs:inline
-/#
-## Polymorphic Functions
 
 Define multiple versions of a function with the same name but different
 parameter signatures. TJS automatically dispatches to the right one based
 on the number and types of arguments.
 
 Like Swift/Obj-C method overloading, but at the source level.
-#/
 
+```tjs:static
 // Same name, different arities
 function describe(value: 0) {
   return 'number: ' + value

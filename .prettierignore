@@ -23,3 +23,5 @@ bun.lockb
 package-lock.json
 .site/
 .site-docs.json
+.site-preview/
+.site-static/

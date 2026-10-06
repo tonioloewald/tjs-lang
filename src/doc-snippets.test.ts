@@ -66,6 +66,13 @@ const DOCS = [
   // A book chapter whose blocks are STATIC on the site (illustrations, not live examples):
   // static there is no reason to stop compiling them. Each block is a whole program.
   'guides/examples/tjs/declarations.md',
+  'guides/examples/tjs/hello-tjs.md',
+  'guides/examples/tjs/array-types.md',
+  'guides/examples/tjs/error-handling.md',
+  'guides/examples/tjs/polymorphic-functions.md',
+  'guides/examples/tjs/polymorphic-constructors.md',
+  'guides/examples/tjs/js-footgun-fixes.md',
+  'guides/examples/tjs/local-extensions.md',
 ]
 
 /**
@@ -77,7 +84,16 @@ const DOCS = [
  * return `''`), and one has a failing `test` block (Virta #3099). A doc joins this list when
  * its snippets pass; the goal is to delete the list and run them all.
  */
-const TESTED = new Set(['guides/examples/tjs/declarations.md'])
+const TESTED = new Set([
+  'guides/examples/tjs/declarations.md',
+  'guides/examples/tjs/hello-tjs.md',
+  'guides/examples/tjs/array-types.md',
+  'guides/examples/tjs/error-handling.md',
+  'guides/examples/tjs/polymorphic-functions.md',
+  'guides/examples/tjs/polymorphic-constructors.md',
+  'guides/examples/tjs/js-footgun-fixes.md',
+  'guides/examples/tjs/local-extensions.md',
+])
 
 interface Snippet {
   doc: string

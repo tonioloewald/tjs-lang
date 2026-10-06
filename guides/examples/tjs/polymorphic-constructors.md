@@ -1,12 +1,8 @@
-<!--{"section": "tjs", "type": "example", "group": "basics", "order": 18, "parent": "tjs-basics.md"}-->
+<!--{"section": "tjs", "order": 18, "parent": "tjs-basics.md"}-->
 
 # Polymorphic Constructors
 
 Classes with multiple constructor signatures, dispatched automatically
-
-```tjs:inline
-/#
-## Polymorphic Constructors
 
 Classes can have multiple constructor declarations. The first becomes the
 real JS constructor; the rest become factory functions that produce
@@ -14,8 +10,8 @@ correct `instanceof` results.
 
 Classes are callable without `new` by default in native TJS, giving you
 clean, expressive object creation with no directive needed.
-#/
 
+```tjs:static
 class Point {
   constructor(x: 0.0, y: 0.0) {
     this.x = x

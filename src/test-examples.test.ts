@@ -20,7 +20,8 @@ const ajsExamples = loadExamples(join(ROOT, 'guides/examples/ajs'))
 
 describe('loadExample helper', () => {
   test('extracts metadata, title, language, and code', () => {
-    const ex = loadExample(join(ROOT, 'guides/examples/tjs/hello-tjs.md'))
+    // A page that is still a runnable example (hello-tjs became a static chapter).
+    const ex = loadExample(join(ROOT, 'guides/examples/tjs/honest-equality.md'))
     expect(ex.title).toBeTruthy()
     expect(ex.code).toBeTruthy()
     expect(ex.language).toBe('tjs')

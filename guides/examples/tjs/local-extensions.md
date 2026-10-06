@@ -1,20 +1,16 @@
-<!--{"section": "tjs", "type": "example", "group": "basics", "order": 21, "parent": "tjs-basics.md"}-->
+<!--{"section": "tjs", "order": 21, "parent": "tjs-basics.md"}-->
 
 # Local Class Extensions
 
 Add methods to built-in types without polluting prototypes
-
-```tjs:inline
-/#
-## Local Class Extensions
 
 `extend TypeName { ... }` adds methods to existing types like String,
 Array, and Number. Methods are rewritten to `.call()` at transpile time
 for known types — zero runtime overhead, no prototype pollution.
 
 Think jQuery-like convenience that feels native but can't break anything.
-#/
 
+```tjs:static
 extend String {
   capitalize() {
     return this[0].toUpperCase() + this.slice(1)
