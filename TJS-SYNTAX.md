@@ -461,7 +461,7 @@ construct:
 
 | you need                              | write                                                      |
 | ------------------------------------- | ---------------------------------------------------------- |
-| a banned construct, deliberately      | `unsafe new Date(x)`, `unsafe var x = 1`, `unsafe eval(s)` |
+| a raw `Date`, deliberately           | `LegacyDate(x)` (`var` and `eval` have no escape)          |
 | JavaScript's `==` / `!=`              | `DangerousLegacyEquals(a, b)` / `DangerousLegacyNot(a, b)` |
 | JavaScript's `===` / `!==`            | `LegacyExactly(a, b)` / `LegacyNotExactly(a, b)`           |
 | JavaScript's atomic parameter default | `args = LegacyDefault({ x: 0, y: 0 })`                     |

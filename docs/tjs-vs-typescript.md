@@ -105,7 +105,7 @@ console.log(x)
 | --- | --- | --- |
 | result | `1` | **rejected** |
 
-Function-scoped hoisting is a hazard with no remaining use. `unsafe var x = 1` keeps it at a single site when a port needs it.
+`var` is banned outright: a `.tjs` file may not contain it, whatever the code does with it, and there is no escape. `let` and `const` cover every use. The reason for the ban is what `var` CAN do (function-scoped hoisting, silent redeclaration), not anything this line does.
 
 ---
 
@@ -120,7 +120,7 @@ console.log(d.getTime())
 | --- | --- | --- |
 | result | `0` | **rejected** |
 
-`Date` is mutable and timezone-dependent. `Timestamp` is epoch milliseconds and pure; `unsafe new Date(x)` is the per-site escape.
+`Date` is mutable and timezone-dependent. `Timestamp` is epoch milliseconds and pure; `LegacyDate(x)` is the per-site escape when you need a real `Date`.
 
 ---
 
