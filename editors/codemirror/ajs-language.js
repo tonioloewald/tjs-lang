@@ -587,7 +587,7 @@ var TJS_COMPLETIONS = [
     detail: "A type, by example: Type Age { example: +0 }"
   }),
   snippetCompletion(
-    "Type ${Name} {\n	example: ${0}\n	predicate => ${Name} > 0\n}",
+    "Type ${Name} {\n	example: ${0}\n	predicate { return ${Name} > 0 }\n}",
     {
       label: "Type (with predicate)",
       type: "keyword",

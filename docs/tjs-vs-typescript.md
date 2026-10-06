@@ -227,25 +227,7 @@ An index signature forces one type across all keys and a mapped type needs them 
 
 ---
 
-### Terse predicate: `predicate => expr`
-
-```js
-Type Even {
-  example: 2
-  predicate => Even % 2 === 0
-}
-console.log(Even.check(4), Even.check(3))
-```
-
-**TypeScript (`tsc --strict`)**: not comparable — the snippet is not valid input here.
-
-**TJS**: compiles and prints `true false`
-
-Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. It used to parse and accept every value, then was rejected outright rather than ignored; now it is normalised into the function form, so it inherits predicate verification and fuel bounding rather than re-implementing them.
-
----
-
-### Block predicate: `predicate { return expr }`
+### A predicate that reads as a definition: `predicate { return expr }`
 
 ```js
 Type Even {
@@ -259,7 +241,7 @@ console.log(Even.check(4), Even.check(3))
 
 **TJS**: compiles and prints `true false`
 
-The multi-line half of the same rule — a `{ }` body requires `return`, exactly as in JavaScript. Nothing new to learn, which is the argument for this spelling over an implicit last expression.
+Inside a `Type` block the type NAME is the value under test, so `Even % 2 === 0` reads as "an Even is a value where …". The body is an ordinary block, so `return` is required, exactly as in JavaScript: nothing new to learn. (`predicate(x) { … }` names the value explicitly instead.)
 
 ---
 

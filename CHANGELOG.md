@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`predicate => expr` is gone.** It saved only `{ return }` over `predicate { return expr }`
+  and was a third predicate spelling to learn. It is now a compile error that names the
+  replacement, in `Type` and `Generic` alike (so it can never be silently ignored and accept
+  every value). It never worked in a release: in 0.13.x it was accepted-and-ignored, then
+  refused; only the 0.14 release candidates ran it.
+
+### Fixed
+
+- The TJS-vs-TypeScript page shows what each compiler actually did: what the program printed,
+  or its compile error quoted verbatim (checked by `differences.test.ts`), instead of a
+  one-row table where **rejected** sat where a printed value would go.
+- Diagnostics no longer recommend the deprecated `unsafe` marker: `var` and `eval` have no
+  escape, a raw `Date` is `LegacyDate(x)`, and `new P` simply says to drop the keyword.
+
 ## [0.14.0] — unreleased
 
 > **Release candidate: `0.14.0-rc.3`** (2026-10-06), on the `rc` dist-tag. It adds the doc-site

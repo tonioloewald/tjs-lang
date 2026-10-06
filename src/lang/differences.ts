@@ -193,29 +193,20 @@ console.log(String(render({ isOpen: 'yes' })).slice(0, 22))`,
     why: 'An index signature forces one type across all keys and a mapped type needs them enumerated in advance, so TypeScript cannot express a convention over an OPEN key set. A predicate reads the name and decides.',
   },
   // ---------------------------------------------------------------------------------
-  // PROPOSED — decided, not built. Red by design; green means "promote to shipped".
+  // Shipped in 0.14 (these began as `status: 'proposed'` rows, red until built). A new
+  // proposal goes here with `status: 'proposed'`; the test asserts it RED until it holds.
   // ---------------------------------------------------------------------------------
   {
-    id: 'predicate-arrow',
-    topic: 'Terse predicate: `predicate => expr`',
-    snippet: `Type Even {
-  example: 2
-  predicate => Even % 2 === 0
-}
-console.log(Even.check(4), Even.check(3))`,
-    tjs: { accepts: true, value: 'true false' },
-    why: 'Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. It used to parse and accept every value, then was rejected outright rather than ignored; now it is normalised into the function form, so it inherits predicate verification and fuel bounding rather than re-implementing them.',
-  },
-  {
     id: 'predicate-block',
-    topic: 'Block predicate: `predicate { return expr }`',
+    topic:
+      'A predicate that reads as a definition: `predicate { return expr }`',
     snippet: `Type Even {
   example: 2
   predicate { return Even % 2 === 0 }
 }
 console.log(Even.check(4), Even.check(3))`,
     tjs: { accepts: true, value: 'true false' },
-    why: 'The multi-line half of the same rule — a `{ }` body requires `return`, exactly as in JavaScript. Nothing new to learn, which is the argument for this spelling over an implicit last expression.',
+    why: 'Inside a `Type` block the type NAME is the value under test, so `Even % 2 === 0` reads as "an Even is a value where …". The body is an ordinary block, so `return` is required, exactly as in JavaScript: nothing new to learn. (`predicate(x) { … }` names the value explicitly instead.)',
   },
   {
     id: 'generic-implicit-predicate',

@@ -277,14 +277,9 @@ Type User {
   example: { name: '', age: 0 }
 }
 
-// Three spellings of a predicate. `=>` is the one-liner, `{ }` requires `return` (as in
-// JavaScript), and the function form takes the value explicitly. In the first two the
-// TYPE NAME binds to the value under test, so it reads as a definition:
-Type Even {
-  example: 2
-  predicate => Even % 2 === 0
-}
-
+// Two spellings of a predicate. In the block form the TYPE NAME binds to the value under
+// test, so it reads as a definition; `return` is required, as in JavaScript. The function
+// form takes the value explicitly. (There is no `predicate => …` one-liner.)
 Type Positive {
   example: 1
   predicate { return Positive > 0 }

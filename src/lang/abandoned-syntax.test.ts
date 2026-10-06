@@ -160,11 +160,13 @@ describe('every predicate form checks — and an unbuilt one still fails closed'
   // tombstone existed so a type that validated nothing could not ship looking like one
   // that did. They are built now, so the guard flips from "must be refused" to "must
   // actually check" — the same promise, at the other end.
-  it('`predicate => …` checks', () => {
-    expect(checks(`${EXAMPLE}  predicate => Even % 2 === 0\n}`)).toEqual([
-      true,
-      false,
-    ])
+  // `predicate => …` was built, then REMOVED before 0.14.0 final (2026-10-06): it saved only
+  // `{ return }` over the block form while adding a third spelling to learn. Refused, and the
+  // message names the replacement, so a reader of an older doc is told what to write.
+  it('`predicate => …` is refused, naming `predicate { return … }`', () => {
+    expect(reject(`${EXAMPLE}  predicate => Even % 2 === 0\n}`)).toContain(
+      'predicate { return'
+    )
   })
 
   it('`predicate { … }` checks', () => {
@@ -173,11 +175,18 @@ describe('every predicate form checks — and an unbuilt one still fails closed'
     ).toEqual([true, false])
   })
 
-  it('all three spellings agree', () => {
+  it('…and on a Generic, where silently ignoring it would accept every value', () => {
+    expect(
+      reject(
+        'Generic Box<T> {\n  example: { value: T }\n  predicate => T(Box.value)\n}'
+      )
+    ).toContain('predicate { return')
+  })
+
+  it('both spellings agree', () => {
     // They normalise to one shape, so a divergence here means the rewrite changed
     // meaning rather than just spelling.
     const fn = checks(`${EXAMPLE}  predicate(x) { return x % 2 === 0 }\n}`)
-    expect(checks(`${EXAMPLE}  predicate => Even % 2 === 0\n}`)).toEqual(fn)
     expect(
       checks(`${EXAMPLE}  predicate { return Even % 2 === 0 }\n}`)
     ).toEqual(fn)

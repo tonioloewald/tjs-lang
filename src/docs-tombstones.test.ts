@@ -107,3 +107,31 @@ describe('the structuredClone membrane is not taught anywhere', () => {
     })
   }
 })
+
+describe('`predicate => …` is not taught anywhere (removed before 0.14.0 final)', () => {
+  // A LINE OF CODE that begins `predicate =>`; prose naming the removed form is fine.
+  const pattern = /^\s*predicate\s*=>\s*\S/m
+  const docs = [
+    ...globSync('*.md', { cwd: ROOT }),
+    ...globSync('docs/**/*.md', { cwd: ROOT }),
+    ...globSync('guides/**/*.md', { cwd: ROOT }),
+    'llms.txt',
+    'editors/codemirror/ajs-language.ts',
+  ]
+    .map((p) => p.replaceAll('\\', '/'))
+    .filter((p) => !HISTORICAL[p] && !p.startsWith('docs/reviews/'))
+
+  it('the pattern catches the form and spares prose about it (apparatus)', () => {
+    expect(
+      'Type Even {\n  example: 2\n  predicate => Even % 2 === 0\n}'
+    ).toMatch(pattern)
+    expect('(There is no `predicate => …` one-liner.)').not.toMatch(pattern)
+  })
+
+  for (const doc of docs) {
+    it(`${doc} does not teach \`predicate =>\``, () => {
+      const hit = readFileSync(join(ROOT, doc), 'utf8').match(pattern)
+      expect(hit?.[0] ?? '').toBe('')
+    })
+  }
+})

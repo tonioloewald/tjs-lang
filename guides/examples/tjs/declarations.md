@@ -71,7 +71,7 @@ string methods instead, and is verified.
 
 Type Even {
   example: 2
-  predicate => Even % 2 === 0
+  predicate { return Even % 2 === 0 }
 }
 
 Type Positive {

@@ -397,7 +397,7 @@ const TJS_COMPLETIONS: CMCompletion[] = [
     detail: 'A type, by example: Type Age { example: +0 }',
   }),
   snippetCompletion(
-    'Type ${Name} {\n\texample: ${0}\n\tpredicate => ${Name} > 0\n}',
+    'Type ${Name} {\n\texample: ${0}\n\tpredicate { return ${Name} > 0 }\n}',
     {
       label: 'Type (with predicate)',
       type: 'keyword',
