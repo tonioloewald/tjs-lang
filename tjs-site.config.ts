@@ -1,6 +1,9 @@
-import { readdirSync, statSync } from 'node:fs'
+import { cpSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineSiteConfig } from 'tosijs-ui/site'
+
+/** Staged by `prebuild`: files the docs reference beside themselves. Gitignored. */
+const SITE_STATIC = '.site-static'
 
 /**
  * Directories the doc corpus must never sweep in.
@@ -102,6 +105,10 @@ export default defineSiteConfig({
   // registry (tosijs-ui#184, 1.16.1) and the doc system itself. See site/entry.ts.
   bundleEntry: 'site/entry.ts',
 
+  // `demo/static` (the default: the logo animation, favicons) plus images staged by
+  // `prebuild` at the paths the markdown references.
+  staticDirs: ['demo/static', SITE_STATIC],
+
   // Prose pages ILLUSTRATE with fences (CHANGELOG, footguns, tjs-vs-typescript, TJS-SYNTAX…):
   // fragments with `export`, a bare `return`, a `new Date(ts)` with no `ts`. Under tosijs-ui's
   // default ('auto') every js/ts/tjs fence ran, and the first full sweep of the site found ~80
@@ -126,6 +133,17 @@ export default defineSiteConfig({
   // ran on a 0.13 transpiler until 2026-10-05. Build them first; `bin/deploy-site.ts` fails the
   // build if they still did not land.
   prebuild() {
+    // Images the markdown references beside itself (README's `docs/diagrams/*.svg` and the
+    // logo, guides/safe-eval's `../docs/diagrams/…`): a static dir's CONTENTS land at the web
+    // root, so they are staged here at the paths the markdown uses, which are also right on
+    // GitHub. They 404ed on the site until 2026-10-07; bin/deploy-site.ts now fails a build
+    // with any unresolved `src`.
+    rmSync(SITE_STATIC, { recursive: true, force: true })
+    mkdirSync(join(SITE_STATIC, 'docs'), { recursive: true })
+    cpSync('docs/diagrams', join(SITE_STATIC, 'docs/diagrams'), {
+      recursive: true,
+    })
+    cpSync('tjs-lang.svg', join(SITE_STATIC, 'tjs-lang.svg'))
     const r = Bun.spawnSync(
       [
         'bun',

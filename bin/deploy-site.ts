@@ -23,7 +23,14 @@
  * The old playground (`.demo/`, Firebase) is a separate deploy: `bun run deploy:hosting`.
  */
 import { $ } from 'bun'
-import { existsSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -76,6 +83,17 @@ if (!(await buildSite(config))) process.exit(1)
         `✖ ${bundle} is missing from the build: live examples would run a CDN's tjs-lang, not ${sha}`
       )
     }
+  // Every image a page references must be IN the build. The doc builder copies only the
+  // static dirs, so an image beside the markdown (README's docs/diagrams/*.svg, the logo) is
+  // a 404 on the site while it renders fine on GitHub, and nothing said so.
+  const missing = missingAssets(out)
+  if (missing.length)
+    throw new Error(
+      `✖ ${missing.length} referenced file(s) are not in the build:\n${missing
+        .slice(0, 20)
+        .map((m) => `    ${m}`)
+        .join('\n')}`
+    )
   if (preview) {
     // Copy out of the worktree, which `finally` removes; it is served after cleanup, so an
     // interrupted preview leaves nothing behind.
@@ -98,6 +116,29 @@ if (!(await buildSite(config))) process.exit(1)
 }
 
 if (preview) serveStatic(served, sha)
+
+/**
+ * Local `src="…"` references (img, the logo's lottie, …) in built pages that resolve to
+ * nothing in the output. Absolute URLs, data URIs and anchors are skipped.
+ */
+export function missingAssets(root: string): string[] {
+  const out: string[] = []
+  const pages = (readdirSync(root, { recursive: true }) as string[]).filter(
+    (f) => f.endsWith('.html')
+  )
+  for (const page of pages) {
+    const html = readFileSync(join(root, page), 'utf8')
+    const pageUrl = new URL(`/${page.replaceAll('\\', '/')}`, 'http://site')
+    for (const m of html.matchAll(/\ssrc="([^"]+)"/g)) {
+      const src = m[1]
+      if (/^(https?:|data:|\/\/|#|mailto:)/.test(src) || src.includes('${'))
+        continue
+      const target = decodeURIComponent(new URL(src, pageUrl).pathname)
+      if (!existsSync(join(root, target))) out.push(`${page}: ${src}`)
+    }
+  }
+  return [...new Set(out)]
+}
 
 /** GitHub Pages' resolution: a path, else `<path>/index.html`, else `<path>.html`, else 404. */
 function serveStatic(root: string, sha: string) {
