@@ -386,7 +386,11 @@
     "   consumer ever needs a different major, narrow the entry to a nested path",
     "   rather than dragging that consumer backwards.",
     "",
-    "   Delete an entry once the parent ships a bump that satisfies it on its own."
+    "   Delete an entry once the parent ships a bump that satisfies it on its own.",
+    "",
+    "   proxy-addr ^2.0.8  GHSA-jqcg-44mw-7w3h (>=1.1.0 <2.0.8, critical: IP spoofing via",
+    "                       an IPv4-mapped IPv6 trust subnet). firebase-functions > express.",
+    "                       2.0.8 is inside express's ~2.0.7, so this only holds the floor."
   ],
   "overrides": {
     "@codemirror/state": "$@codemirror/state",
@@ -397,6 +401,7 @@
     "uuid": "^11.1.1",
     "protobufjs": "^7.6.5",
     "@grpc/grpc-js": "^1.14.5",
-    "@fastify/busboy": "^3.2.1"
+    "@fastify/busboy": "^3.2.1",
+    "proxy-addr": "^2.0.8"
   }
 }

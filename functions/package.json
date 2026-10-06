@@ -39,11 +39,17 @@
     "        Reached via firebase-admin > @fastify/busboy; 3.2.1 is a patch within its range.",
     "",
     "Drop an entry once the parent ships a bump that already satisfies it — an override",
-    "that is no longer doing anything is a pin nobody is checking."
+    "that is no longer doing anything is a pin nobody is checking.",
+    "",
+    "proxy-addr GHSA-jqcg-44mw-7w3h (critical, <2.0.8): IP spoofing via an IPv4-mapped",
+    "        IPv6 trust subnet. firebase-functions > express > proxy-addr decides which",
+    "        client IP express REPORTS, so it is on the request path. 2.0.8 (2026-09-15)",
+    "        is inside express's ~2.0.7."
   ],
   "overrides": {
     "qs": "^6.16.0",
     "uuid": "^11.1.1",
-    "@fastify/busboy": "^3.2.1"
+    "@fastify/busboy": "^3.2.1",
+    "proxy-addr": "^2.0.8"
   }
 }
