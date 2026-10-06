@@ -9,10 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — unreleased
+
+> **Release candidate: `0.14.0-rc.3`** (2026-10-06), on the `rc` dist-tag. It adds the doc-site
+> work below: every playground example runs on tjs.tosijs.net, and four library fixes it found.
+> 0.14.0 final follows once the books (the site's four volumes) are reviewed as self-hosted
+> tutorials. Pin `0.14.0-rc.3` exactly to test it.
+
 Found by sweeping every page of the doc site (tjs.tosijs.net) with a headless checker; the
 full account is `docs/reviews/0.14.0-site-readiness.md`.
 
-### Fixed
+### Fixed since rc.2
 
 - **`tjs(source).testRunner` runs tests with TJS semantics.** It was built from the raw test
   bodies, before the `==` / boxed-primitive / `extend` rewrites `tjs test` applies, so a caller
@@ -28,15 +35,13 @@ full account is `docs/reviews/0.14.0-site-readiness.md`.
   imports back at that CDN, literal-safely; `rewriteEsmShBody` delegates to it and now also
   handles minified output.
 
-### Added
+### Added since rc.2
 
 - `generateDocs` / `generateDocsMarkdown` in `tjs-lang/browser`, which tosijs-ui's built-in
   `tjs` dialect feature-detects to show an example's Docs tab.
 - `bun run preview:site` (the deploy build, served locally, not published),
   `scripts/check-site-examples.ts` (does every live example run and show something), and
   `scripts/build.ts --only <targets>`.
-
-## [0.14.0] — unreleased
 
 > **Release candidate: `0.14.0-rc.2`** (2026-10-05), on the `rc` dist-tag (`npm i tjs-lang@rc`).
 > It carries everything since rc.1 below: the membrane rebuilt to construct its own copy (JSON
