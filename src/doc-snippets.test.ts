@@ -63,7 +63,21 @@ const DOCS = [
   // possible argument for compiling the prose.
   'guides/tjs.md',
   'guides/performance.md',
+  // A book chapter whose blocks are STATIC on the site (illustrations, not live examples):
+  // static there is no reason to stop compiling them. Each block is a whole program.
+  'guides/examples/tjs/declarations.md',
 ]
+
+/**
+ * Docs whose snippets also RUN their tests and signature examples when compiled.
+ *
+ * Every doc should be here. Compiling with tests off hid that eleven snippets across
+ * TJS-SYNTAX, TJS-FOR-TS, TJS-FOR-JS and guides/tjs.md write a return example as a TYPE
+ * (`greet(name: 'World'): ''`, which TJS checks as a worked example: `greet('World')` must
+ * return `''`), and one has a failing `test` block (Virta #3099). A doc joins this list when
+ * its snippets pass; the goal is to delete the list and run them all.
+ */
+const TESTED = new Set(['guides/examples/tjs/declarations.md'])
 
 interface Snippet {
   doc: string
@@ -82,7 +96,7 @@ function snippets(doc: string): Snippet[] {
   const text = readFileSync(resolve(REPO, doc), 'utf8')
   const out: Snippet[] = []
   const re =
-    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n)?```(typescript|tjs|js|javascript)\n([\s\S]*?)```/g
+    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n)?```(typescript|tjs|js|javascript)(?::[a-z]+)?\n([\s\S]*?)```/g
   for (const m of text.matchAll(re)) {
     out.push({
       doc,
@@ -113,7 +127,10 @@ describe('documentation snippets are real code', () => {
     }`, () => {
       let error: string | null = null
       try {
-        tjs(s.code, { filename: `${s.doc}:${s.line}`, runTests: false })
+        tjs(s.code, {
+          filename: `${s.doc}:${s.line}`,
+          runTests: TESTED.has(s.doc),
+        })
       } catch (e: any) {
         error = String(e.message).split('\n')[0]
       }
