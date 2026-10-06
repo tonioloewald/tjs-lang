@@ -23,15 +23,19 @@ import { tjs } from './index'
 const REPO = resolve(import.meta.dir, '../..')
 
 /** Run a TJS snippet: does it compile, and what does it print? */
-function runTjs(snippet: string): { accepts: boolean; output: string } {
+function runTjs(snippet: string): {
+  accepts: boolean
+  output: string
+  error?: string
+} {
   let code: string
   try {
     // NOT `runTests: 'report'`. The default THROWS on a failed signature test, and
     // that throw is precisely what the `signature-test-fails` row documents — reporting
     // instead would have made the row silently untrue while the test passed.
     code = tjs(snippet, { filename: 'diff.tjs' }).code
-  } catch {
-    return { accepts: false, output: '' }
+  } catch (e: any) {
+    return { accepts: false, output: '', error: String(e?.message ?? e) }
   }
   const lines: string[] = []
   const real = console.log
@@ -46,8 +50,8 @@ function runTjs(snippet: string): { accepts: boolean; output: string } {
   return { accepts: true, output: lines.join('\n') }
 }
 
-/** Typecheck every TS-bearing snippet in ONE tsc run; returns the set that errored. */
-function typecheckAll(): Set<string> {
+/** Typecheck every TS-bearing snippet in ONE tsc run; returns each failing row's diagnostics. */
+function typecheckAll(): Map<string, string> {
   const dir = mkdtempSync(join(tmpdir(), 'tjs-diff-ts-'))
   const withTs = DIFFERENCES.filter((d) => d.ts)
   try {
@@ -73,8 +77,9 @@ function typecheckAll(): Set<string> {
     const out =
       new TextDecoder().decode(proc.stdout) +
       new TextDecoder().decode(proc.stderr)
-    const failed = new Set<string>()
-    for (const m of out.matchAll(/^([\w-]+)\.ts\(/gm)) failed.add(m[1])
+    const failed = new Map<string, string>()
+    for (const m of out.matchAll(/^([\w-]+)\.ts\(\d+,\d+\): error ([^\n]*)/gm))
+      failed.set(m[1], `${failed.get(m[1]) ?? ''}${m[2]}\n`)
     return failed
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -99,6 +104,8 @@ describe('every documented difference is real', () => {
     if (d.ts) {
       it(`TypeScript: ${d.topic}`, () => {
         expect(!tsFailures.has(d.id)).toBe(d.ts!.accepts)
+        // The page shows the compiler's message, so the message is checked too.
+        if (!d.ts!.accepts) expect(tsFailures.get(d.id)).toContain(d.ts!.error)
       })
     }
 
@@ -108,9 +115,9 @@ describe('every documented difference is real', () => {
       // whose tail carries a file path and a stack.
       const matches =
         r.accepts === d.tjs.accepts &&
-        (!d.tjs.accepts ||
-          d.tjs.value === undefined ||
-          r.output.includes(d.tjs.value))
+        (d.tjs.accepts
+          ? d.tjs.value === undefined || r.output.includes(d.tjs.value)
+          : (r.error ?? '').includes(d.tjs.error))
 
       if (d.status === 'proposed') {
         // INVERTED. A proposed row states what the language SHOULD do, so it must not

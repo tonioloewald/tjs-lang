@@ -109,7 +109,7 @@ describe('abolishing a mode (TjsDate was the first)', () => {
     // Left unhandled, a removed directive is just a bare identifier — it would emit
     // `TjsDate is not defined` at runtime, which explains nothing.
     expect(() => compile(`TjsDate\nfunction f(x: 0) { return x }`)).toThrow(
-      /no longer a mode.*unsafe new Date/s
+      /no longer a mode.*LegacyDate\(x\)/s
     )
   })
 

@@ -32,10 +32,28 @@ import {
 
 const REPO = resolve(import.meta.dir, '..')
 
-function cell(o: Outcome | undefined): string {
-  if (!o) return '—'
-  if (!o.accepts) return '**rejected**'
-  return o.value !== undefined ? `\`${o.value}\`` : 'accepted'
+/**
+ * One language's outcome, as what actually happened: what it printed, or the compile error it
+ * reported, verbatim. (It used to be a one-row table whose cell read **rejected** where a
+ * printed value would go, which read as if the language had PRINTED something.)
+ */
+function outcome(
+  label: string,
+  o: Outcome | undefined,
+  intended = false
+): string[] {
+  const who = intended
+    ? `**${label}** (intended, not yet implemented)`
+    : `**${label}**`
+  if (!o)
+    return [`${who}: not comparable — the snippet is not valid input here.`]
+  if (!o.accepts)
+    return [`${who}: compile error`, '', '```text', o.error, '```']
+  return [
+    o.value !== undefined
+      ? `${who}: compiles and prints \`${o.value}\``
+      : `${who}: compiles`,
+  ]
 }
 
 function section(d: Difference): string {
@@ -55,11 +73,9 @@ function section(d: Difference): string {
     d.snippet,
     '```',
     '',
-    `| | TypeScript | TJS |`,
-    `| --- | --- | --- |`,
-    `| result | ${cell(d.ts)} | ${
-      proposed ? cell(d.tjs) + ' *(intended)*' : cell(d.tjs)
-    } |`,
+    ...outcome('TypeScript (`tsc --strict`)', d.ts),
+    '',
+    ...outcome('TJS', d.tjs, proposed),
     '',
     d.why,
   ]
@@ -101,8 +117,8 @@ were never emitted, annotations documented as checked that resolved to \`any\`, 
 completion suggesting a form the compiler rejects, and a playground page teaching nine
 abolished directives. Not one was caught by reading.
 
-**"rejected" means the compiler refused it.** A value means it compiled and that is what
-it printed.
+For each snippet you see what each compiler actually did: what the program printed, or the
+compile error it reported, quoted as the compiler wrote it.
 
 ${DIFFERENCES.map(section).join('\n\n---\n\n')}
 

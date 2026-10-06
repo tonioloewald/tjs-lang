@@ -25,8 +25,11 @@
 export type Outcome =
   /** Compiles/parses and runs. `value` is the observed result, when the row checks one. */
   | { accepts: true; value?: string }
-  /** Rejected at compile time. */
-  | { accepts: false }
+  /**
+   * Refused at compile time. `error` is what the compiler SAYS, and the test fails unless the
+   * observed diagnostic contains it — so the page shows the real message, checked like a value.
+   */
+  | { accepts: false; error: string }
 
 export interface Difference {
   /** Stable slug, used as the doc anchor. */
@@ -78,10 +81,13 @@ export const DIFFERENCES: Difference[] = [
   get value() { return this._v }
   set value(x) { this._v = String(x) }
 }
-const input = unsafe new Input()
+const input = Input()
 input.value = 42
 console.log(input.value)`,
-    ts: { accepts: false },
+    ts: {
+      accepts: false,
+      error: "TS2322: Type 'number' is not assignable to type 'string'.",
+    },
     tjs: { accepts: true, value: '42' },
     why: 'The DOM spec coerces to a string on assignment. TypeScript models `value` as a plain `string` property, so it rejects code the platform is specified to accept.',
   },
@@ -97,7 +103,11 @@ console.log(input.value)`,
     id: 'equality-coercion',
     topic: '`==` between a string and a number',
     snippet: `console.log('5' == 5)`,
-    ts: { accepts: false },
+    ts: {
+      accepts: false,
+      error:
+        "TS2367: This comparison appears to be unintentional because the types 'string' and 'number' have no overlap.",
+    },
     tjs: { accepts: true, value: 'false' },
     why: 'TJS `==` compares the actual values when the line runs and never converts one type to another, so a string is never equal to a number. TypeScript refuses to compile this line (TS2367, "no overlap") because it can see both types here; the next row is what happens when it cannot.',
   },
@@ -116,7 +126,10 @@ console.log(input.value)`,
     topic: '`var`',
     snippet: `var x = 1\nconsole.log(x)`,
     ts: { accepts: true, value: '1' },
-    tjs: { accepts: false },
+    tjs: {
+      accepts: false,
+      error: '`var` is not allowed in TJS — use `const` or `let`.',
+    },
     why: '`var` is banned outright: a `.tjs` file may not contain it, whatever the code does with it, and there is no escape. `let` and `const` cover every use. The reason for the ban is what `var` CAN do (function-scoped hoisting, silent redeclaration), not anything this line does.',
   },
   {
@@ -124,7 +137,11 @@ console.log(input.value)`,
     topic: '`new Date()`',
     snippet: `const d = new Date(0)\nconsole.log(d.getTime())`,
     ts: { accepts: true, value: '0' },
-    tjs: { accepts: false },
+    tjs: {
+      accepts: false,
+      error:
+        '`new Date()` is not allowed in TJS — the Date object is mutable and timezone-dependent.',
+    },
     why: '`Date` is mutable and timezone-dependent. `Timestamp` is epoch milliseconds and pure; `LegacyDate(x)` is the per-site escape when you need a real `Date`.',
   },
   {
@@ -152,7 +169,11 @@ console.log(input.value)`,
     id: 'signature-test-fails',
     topic: 'A wrong worked example fails the build',
     snippet: `function add(a: 2, b: 3): 6 { return a + b }`,
-    tjs: { accepts: false },
+    tjs: {
+      accepts: false,
+      error:
+        "Function signature example is inconsistent:\n    Expected 6 at 'add', got 5",
+    },
     why: 'The other half of the previous row: the example is checked, not decoration. TypeScript has no equivalent — a return type cannot be wrong about a value.',
   },
   {
@@ -226,7 +247,7 @@ console.log(area(3), area(3, 4))`,
     tjsSnippet: `function area(w: 0.0) { return w * w }
 function area(w: 0.0, h: 0.0) { return w * h }
 console.log(area(3.0), area(3.0, 4.0))`,
-    ts: { accepts: false },
+    ts: { accepts: false, error: 'TS2393: Duplicate function implementation.' },
     tjs: { accepts: true, value: '9 12' },
     why: 'TypeScript HAS overloads, but they are signature declarations over ONE implementation — TS2393 for a second body — and they are erased entirely, so you write the dispatch by hand. TJS merges same-name declarations into a real arity/type dispatcher, so each case is its own function.',
   },
@@ -235,7 +256,11 @@ console.log(area(3.0), area(3.0, 4.0))`,
     topic: '`new` on a user class',
     snippet: `class P { constructor(x: 0) { this.x = x } }
 const p = new P(1)`,
-    tjs: { accepts: false },
+    tjs: {
+      accepts: false,
+      error:
+        '`new P` is not allowed in TJS — a class is CALLED, so `P(…)` does exactly what `new P(…)` does and returns the same object. Drop the keyword.',
+    },
     why: '`P(1)` and `new P(2)` produce identical objects — a TJS class is CALLED — so `new` was decoration with the look of significance. Scoped to classes declared in the file: for a built-in `new` is MANDATORY (`new Float32Array(4)` throws without it), a limit found by shipping the general rule and watching eight examples break within a minute.',
   },
   {

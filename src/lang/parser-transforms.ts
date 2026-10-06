@@ -5608,7 +5608,7 @@ export function validateNoNew(source: string): string {
     // Quote the CALL form as the fix, not as the source: the diagnostic used to say
     // "`new Point()` is not allowed" for source that reads `new Point`, which sends the
     // reader looking for a call site that is not there.
-    `\`new ${name}\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword. To construct deliberately: \`unsafe new ${name}(…)\`.`
+    `\`new ${name}\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword.`
   )
   return source
 }

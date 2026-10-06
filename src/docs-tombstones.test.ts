@@ -26,10 +26,11 @@ const ROOT = join(import.meta.dir, '..')
 /** Directives abolished in 0.13.0, and what replaced each. */
 const ABOLISHED: Record<string, string> = {
   TjsEquals: 'always on in .tjs; per-site escape is DangerousLegacyEquals',
-  TjsClass: 'always on in .tjs; per-site escape is `unsafe new X()`',
-  TjsDate: 'always on in .tjs; per-site escape is `unsafe new Date()`',
-  TjsNoeval: 'always on in .tjs; per-site escape is `unsafe eval(s)`',
-  TjsNoVar: 'always on in .tjs; per-site escape is `unsafe var x = 1`',
+  TjsClass:
+    'always on in .tjs; `X()` does what `new X()` does, so no escape is needed',
+  TjsDate: 'always on in .tjs; per-site escape is `LegacyDate(x)`',
+  TjsNoeval: 'always on in .tjs; no escape — `Eval()` for sandboxed evaluation',
+  TjsNoVar: 'always on in .tjs; no escape — `let`/`const`',
   TjsStandard: 'always on in .tjs; no escape — newlines are meaningful',
   TjsDictDefaults: 'always on in .tjs; per-param escape is LegacyDefault(…)',
   TjsSafeEval: 'always on in .tjs',
