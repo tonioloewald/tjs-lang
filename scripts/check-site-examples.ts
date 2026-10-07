@@ -116,7 +116,10 @@ const SNAPSHOT = `(() => [...document.querySelectorAll('tosi-example')].map(e =>
   // Text, or a rendered DOM (a canvas has no text): either is output a reader sees.
   preview: (e.querySelector('.preview')?.innerText || '').trim() || ([...(e.querySelector('.preview')?.children || [])].filter(c => c.tagName !== 'STYLE' && c.tagName !== 'PRE').map(c => '<' + c.tagName.toLowerCase() + '>').join('')),
   tests: (e.querySelector('[part=testResults]')?.innerText || '').trim(),
-  console: (e.querySelector('.example-console .console-lines')?.innerText || '').trim(),
+  // Since tosijs-ui 1.16.8 an example that only logs shows its console lines in place of the
+  // empty preview, outside the code panel; read those first (what a reader sees), else the
+  // panel's Console tab.
+  console: ([...e.querySelectorAll('.console-line')].filter(x => !x.closest('[part=codeEditors]')).map(x => x.textContent).join(' ').trim()) || (e.querySelector('.example-console .console-lines')?.innerText || '').trim(),
   inline: [...e.querySelectorAll('.tjs-test-summary, .test-fail')].map(x => x.textContent.trim()).join(' · '),
 })))()`
 
@@ -179,7 +182,7 @@ async function main() {
       while (Date.now() - t0 < TIMEOUT_MS) {
         await Bun.sleep(300)
         snap = (await cdp.eval(SNAPSHOT)) ?? []
-        const settled = snap.every((e) => e.preview || e.tests)
+        const settled = snap.every((e) => e.preview || e.tests || e.console)
         // An example whose output is its console never settles here; after a few seconds,
         // go and open its code panel (below) rather than waiting out the timeout.
         if (Date.now() - t0 > 2000 && settled) break
