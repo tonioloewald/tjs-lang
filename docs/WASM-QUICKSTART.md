@@ -48,9 +48,10 @@ test 'computed in WASM' {
 - `wasm { }` is a JavaScript block compiled to WASM bytecode at transpile time. Like any
   JavaScript block it returns only with `return`: a bare `a + b` would compute a value and
   throw it away, so the compiler refuses it.
-- `fallback { }` is the same computation in plain JavaScript. It runs where WebAssembly is
-  unavailable, and wherever the `wasm` block uses something outside the supported subset (see
-  [What compiles to WASM](#what-compiles-to-wasm)). Both must give the same answer.
+- `fallback { }` is the same computation in plain JavaScript, for a runtime that cannot run
+  WASM (no `WebAssembly`, or no compiler available). Both must give the same answer. A block
+  the compiler cannot compile is a compile error, not a quiet fallback (see
+  [What compiles to WASM](#what-compiles-to-wasm)).
 - `!` marks the function unsafe: its arguments are not type-checked on each call. For a tiny
   kernel that check can cost more than the work.
 - `:!` declares the return type without a worked example. A plain `: 0` would be checked as a
@@ -228,10 +229,10 @@ A `wasm { }` block is a JavaScript subset: numeric locals (`let`), arithmetic an
 `if`, `for`, `return`, typed-array element access (`arr[i]`), the SIMD intrinsics above, and
 `Math.abs`, `ceil`, `floor`, `trunc`, `sqrt`, `min` and `max`.
 
-Anything else (an object, a string, a call to your own function, `Math.sin`) means the block
-**does not compile, and the fallback runs instead**, with a warning in the transpile result
-(`result.warnings`). The program still works, at JavaScript speed. Check the warnings when a
-block is meant to be fast. [WASM in TJS](../DOCS-WASM.md) has the full reference.
+Anything else (an object, a string, a call to your own function, `Math.sin`) is a **compile
+error** that names the construct: you asked for WASM, so it is not quietly shipped as
+JavaScript. Rewrite the block within the subset, or drop the `wasm { }` wrapper to run it as
+JavaScript. [WASM in TJS](../DOCS-WASM.md) has the full reference.
 
 A block returns a number (`f64`) or nothing.
 
@@ -306,8 +307,7 @@ test 'rescales to [0, 1]' {
 
 - **Always provide a `fallback`.** It is your safety net, and it makes the code testable
   without WASM.
-- **Check `result.warnings`** when a block is meant to be fast: a block that did not compile
-  runs its fallback silently otherwise.
+- **Read the compile error** when a block is refused: it names the construct outside the subset.
 - **Align to 4 elements** for SIMD, or finish the remainder with a scalar loop.
 - **Use `wasmBuffer` for large arrays in hot loops**: copying a regular array in and out can
   cost more than WASM saves.

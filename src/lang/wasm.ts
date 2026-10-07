@@ -816,6 +816,18 @@ function compileStatement(
   }
 }
 
+/** Is `node` a typed-array parameter? Records the same error `arr[i]` gives when not. */
+function isTypedArrayParam(
+  node: acorn.Expression | undefined,
+  ctx: CompileContext
+): boolean {
+  const name = node?.type === 'Identifier' ? node.name : undefined
+  const param = name ? ctx.params.find((p) => p.name === name) : undefined
+  if (param?.isArray && param.arrayType) return true
+  ctx.errors.push(`${name ?? 'the pointer'} is not a typed array parameter`)
+  return false
+}
+
 /** Compile a for loop */
 function compileForLoop(
   node: acorn.ForStatement,
@@ -1784,6 +1796,9 @@ function compileSIMDCall(
   switch (name) {
     case 'v128_load':
     case 'f32x4_load': {
+      // The pointer must name a typed-array PARAMETER, as for `arr[i]`. A plain JS array
+      // compiled and then trapped on the first call (the wrapper cannot pass it as a pointer).
+      if (name === 'f32x4_load' && !isTypedArrayParam(args[0], ctx)) return []
       // f32x4_load(arrayPtr, byteOffset) → v128
       code.push(...compileExpression(args[0], ctx))
       const ptrType = inferExprType(args[0], ctx)
@@ -1800,6 +1815,9 @@ function compileSIMDCall(
 
     case 'v128_store':
     case 'f32x4_store': {
+      // The pointer must name a typed-array PARAMETER, as for `arr[i]`. A plain JS array
+      // compiled and then trapped on the first call (the wrapper cannot pass it as a pointer).
+      if (name === 'f32x4_store' && !isTypedArrayParam(args[0], ctx)) return []
       // f32x4_store(arrayPtr, byteOffset, v128value) → void (push dummy for drop)
       code.push(...compileExpression(args[0], ctx))
       const ptrType = inferExprType(args[0], ctx)

@@ -225,36 +225,39 @@ describe('the WASM QuickStart compiles to WASM, not to its fallbacks', () => {
   }
 })
 
-describe('one bad block cannot take WASM away from the rest of the file', () => {
-  // `%` with f64 operands used to emit an `i32.rem_s` on f64 values: the module was invalid,
-  // failed to instantiate, and EVERY block in the file ran its fallback, while the transpile
-  // reported every block compiled. The only trace was a flight-recorder notice.
-  const SRC = `function add(! a: 0, b: 0) { return wasm { return a + b } fallback { return a + b } }
-function rem(! a: 0.0, b: 0.0) { return wasm { return a % b } fallback { return a % b } }`
-
-  it('the other blocks still run in WASM; the bad one falls back, and says why', async () => {
-    const r = tjs(SRC, { runTests: false })
-    const [addBlock, remBlock] = r.wasmCompiled!
-    expect(addBlock.success).toBe(true)
-    expect(remBlock.success).toBe(false)
-    expect((r.warnings ?? []).join('\n')).toMatch(/%/)
-    const [add, rem] = new Function(`${r.code}\nreturn [add, rem]`)()
-    await g.__tjs_wasm_ready?.()
-    expect(typeof g[addBlock.id]).toBe('function') // add really is in WASM
-    expect([add(3, 4), rem(7.5, 2)]).toEqual([7, 1.5])
+describe('an operator with no instruction for its operand types is a hard error', () => {
+  // `%` (and the bitwise operators) on f64 operands emitted an `i32` instruction on f64
+  // values: an invalid module that failed to instantiate, so EVERY block in the file silently
+  // ran its fallback while each reported success. The compiler now refuses the operator,
+  // naming it, and (since 2026-10-07) a block that cannot compile stops the build. Every
+  // emitted module is also validated, so a future codegen bug of this kind becomes a hard
+  // error ("a compiler bug") rather than a module that fails at load time; that guard was
+  // mutation-checked against this exact bug before the operator fix landed.
+  it('`%` on f64 operands', () => {
+    expect(() =>
+      tjs(
+        `function rem(! a: 0.0, b: 0.0) { return wasm { return a % b } fallback { return a % b } }`,
+        { runTests: false }
+      )
+    ).toThrow(/`%` needs integer \(i32\) operands/)
   })
 
-  it('a bitwise operator on f64 operands falls back too, rather than emitting i32 code', () => {
+  it('a bitwise operator on f64 operands', () => {
+    expect(() =>
+      tjs(
+        `function f(! a: 0.0, b: 0.0) { return wasm { return (a + b) | 0 } fallback { return (a + b) | 0 } }`,
+        { runTests: false }
+      )
+    ).toThrow(/`\|` needs integer \(i32\) operands/)
+  })
+
+  it('`%` on i32 operands still compiles, and the module is valid WebAssembly', () => {
     const r = tjs(
-      `function f(! a: 0.0, b: 0.0) { return wasm { return (a + b) | 0 } fallback { return (a + b) | 0 } }`,
+      `function f(! n: 0) { return wasm { let s = 0
+    for (let i = 0; i < n; i++) { s = s + (i % 3) }
+    return s } fallback { let s = 0; for (let i = 0; i < n; i++) s += i % 3; return s } }`,
       { runTests: false }
     )
-    expect(r.wasmCompiled?.[0]?.success).toBe(false)
-    expect((r.warnings ?? []).join('\n')).toMatch(/\|/)
-  })
-
-  it('the emitted module is valid WebAssembly', () => {
-    const r = tjs(SRC, { runTests: false })
     const b64 = r.code.match(/__wasmModuleB64\s*=\s*['"]([^'"]+)/)?.[1] ?? ''
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
     expect(WebAssembly.validate(bytes)).toBe(true)
@@ -290,5 +293,62 @@ wasm function remi(a: i32, b: i32): f64 { return a % b }`
     expect(divi(7, 2)).toBe(3.5)
     expect(remi(-7, 2)).toBe(-1)
     expect(() => remi(1, 0)).toThrow()
+  })
+})
+
+describe('a wasm block that cannot compile is a hard error, not a silent fallback', () => {
+  // `wasm { }` is a request for WASM. A block outside the supported subset used to compile to
+  // its JavaScript fallback with a warning, so a "fast path" could quietly ship as JS. The
+  // fallback is for a RUNTIME that cannot run WASM, not for code the compiler cannot compile.
+  it('an unsupported construct is refused with the reason and the line', () => {
+    const src = `// header
+
+function f(! a: 0.0, b: 0.0) {
+  return wasm {
+    return (a + b) | 0
+  } fallback {
+    return (a + b) | 0
+  }
+}`
+    let message = ''
+    try {
+      tjs(src, { runTests: false })
+    } catch (e: any) {
+      message = String(e.message)
+    }
+    expect(message).toMatch(/did not compile/)
+    expect(message).toMatch(/\|/) // the reason names the operator
+    expect(message).toMatch(/:5:/) // the line of the block's body
+  })
+
+  it('a wasm function that cannot compile is refused too', () => {
+    expect(() =>
+      tjs(`wasm function f(a: f64, b: f64): f64 { return a % b }`, {
+        runTests: false,
+      })
+    ).toThrow(/did not compile/)
+  })
+})
+
+describe('SIMD loads and stores need a typed-array parameter', () => {
+  // `f32x4_load(arr, …)` on a PLAIN array compiled "successfully" and then threw a WASM
+  // RuntimeError (out-of-bounds truncation) on the first call: the wrapper cannot pass a JS
+  // array as a pointer. `arr[i]` already refused it; the intrinsics now do too.
+  it('f32x4_load / f32x4_store on a plain array are refused at compile time', () => {
+    expect(() =>
+      tjs(
+        `function scale(! arr: [0.0], len: 0, factor: 0.0) {
+  wasm {
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      f32x4_store(arr, off, f32x4_mul(f32x4_load(arr, off), f32x4_splat(factor)))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= factor
+  }
+}`,
+        { runTests: false }
+      )
+    ).toThrow(/arr is not a typed array parameter/)
   })
 })

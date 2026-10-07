@@ -20,7 +20,11 @@
 import { describe, it, expect, afterEach } from 'bun:test'
 import { tjs } from './index'
 
-const SRC = `export function dbl(arr: [1.0], len: 1):! [1.0] {
+// A Float32Array parameter: the fixture used to take `arr: [1.0]`, a plain JS array, which a
+// wasm block cannot address, so the block NEVER compiled and every row below (the "real
+// engine" one included) was testing the fallback. Found when a block that cannot compile
+// became a hard error (2026-10-07).
+const SRC = `export function dbl(! arr: Float32Array, len: 1) {
   wasm {
     for (let i = 0; i < len; i++) { arr[i] = arr[i] * 2.0 }
   } fallback {
@@ -74,18 +78,38 @@ describe('wasm fallback survives an engine with no compiler', () => {
   it('and the fallback actually runs, producing the right answer', () => {
     // Surviving load is not enough — the point of `fallback` is that the program works.
     hostileWasm('sync-throw')
-    expect(load()([1, 2, 3], 3)).toEqual([2, 4, 6])
+    expect(Array.from(load()(new Float32Array([1, 2, 3]), 3))).toEqual([
+      2, 4, 6,
+    ])
   })
 
   it('an async REJECTION still falls back too (the case that already worked)', () => {
     // The control for the fix: guarding the sync throw must not break the path that was
     // already correct.
     hostileWasm('async-reject')
-    expect(load()([1, 2, 3], 3)).toEqual([2, 4, 6])
+    expect(Array.from(load()(new Float32Array([1, 2, 3]), 3))).toEqual([
+      2, 4, 6,
+    ])
   })
 
-  it('with a real engine, the module still loads and computes', () => {
+  it('an engine with NO WebAssembly at all (iOS Lockdown Mode) loads, and falls back', () => {
+    // Memory was created unguarded at load (`new WebAssembly.Memory`), so a file whose blocks
+    // use typed arrays died here; the old fixture used none, so nothing saw it.
+    ;(globalThis as any).WebAssembly = undefined
+    const dbl = load()
+    expect(Array.from(dbl(new Float32Array([1, 2, 3]), 3))).toEqual([2, 4, 6])
+    // wasmBuffer still hands out a working array, just not WASM memory.
+    const buf = (globalThis as any).wasmBuffer(Float32Array, 4)
+    buf[0] = 1.5
+    expect(buf[0]).toBe(1.5)
+  })
+
+  it('with a real engine, the module still loads and computes — IN WASM', () => {
     globalThis.WebAssembly = realWA
-    expect(load()([1, 2, 3], 3)).toEqual([2, 4, 6])
+    // The control must be able to fail: the block has to have compiled and been bound.
+    expect(tjs(SRC).wasmCompiled?.[0]?.success).toBe(true)
+    expect(Array.from(load()(new Float32Array([1, 2, 3]), 3))).toEqual([
+      2, 4, 6,
+    ])
   })
 })

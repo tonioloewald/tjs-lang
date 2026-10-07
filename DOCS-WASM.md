@@ -42,26 +42,24 @@ function double(arr: Float32Array, len: 0) {
 
 See `docs/WASM-QUICKSTART.md` for a thorough walkthrough.
 
-### Runtime: readiness, silent-fallback warnings, and the enable toggle
+### Runtime: readiness, failures, and the enable toggle
 
-Inline `wasm{}` blocks instantiate **asynchronously** (`WebAssembly.compile` +
-`instantiate` in a fire-and-forget IIFE), so code that runs synchronously right
-after transpile+eval takes the JS `fallback{}` — the module isn't ready yet.
-Three runtime controls (all on `globalThis`):
+Inline `wasm{}` blocks instantiate **synchronously** when the file loads (`new
+WebAssembly.Module`), so the first call already runs in WASM. The one exception is a browser
+main thread with a module over 4KB, where the engine forbids synchronous compilation; there it
+retries asynchronously and the `fallback{}` runs until it is ready.
 
-- **`await globalThis.__tjs_wasm_ready()`** — resolves once every emitted module's
-  WASM has instantiated. Await it before your first call to guarantee the WASM
-  path instead of racing the fallback. (Modules push their instantiation promise
-  onto `globalThis.__tjs_wasm_pending`; `__tjs_wasm_ready()` awaits them all.)
-- **`globalThis.__tjs_wasm_enabled = false`** — forces every block to run its
-  `fallback{}` (JS) even when the WASM is instantiated. A public A/B toggle for
-  "WASM vs JS, N×" benchmarking without poking the internal `__tjs_wasm_<id>`
-  globals. Set back to `true` (or delete) to re-enable.
-- **Silent-fallback is now surfaced.** A block that _can't compile_ (unsupported
-  construct) still falls back — but that used to be invisible. The failure is now
-  in `result.wasmCompiled` (per-block `success:false` + `error`) **and** mirrored
-  into `result.warnings` (`"wasm{} block '<id>' did not compile — running the
-fallback{} (JS): <reason>"`), so it no longer looks like WASM "worked."
+- **A block that cannot compile is a compile error** (since 0.14), naming why: an unsupported
+  construct, a `%` or bitwise operator on non-integers, a SIMD load from a plain array. Writing
+  `wasm { }` is a request for WASM, so it is not quietly shipped as JavaScript.
+- **`fallback{}` is for a runtime that cannot run WASM**: no `WebAssembly` at all (iOS Lockdown
+  Mode), no compiler available (an engine under memory pressure), or a refused instantiation.
+  Each is recorded once in `__tjs.records({ source: 'wasm' })`.
+- **`await globalThis.__tjs_wasm_ready()`** resolves once every emitted module has
+  instantiated. Await it before the first call where the async path is possible.
+- **`globalThis.__tjs_wasm_enabled = false`** forces every block to run its `fallback{}` even
+  when the WASM is instantiated: an A/B toggle for "WASM vs JS" benchmarking. Set it back to
+  `true` (or delete it) to re-enable.
 
 ### Top-level declarations
 
@@ -351,10 +349,9 @@ warning — see § Runtime). Supported:
   back (see § Purity).
 - **SIMD:** the full `f32x4_*` set (see § SIMD intrinsics).
 
-Not supported (→ fallback + warning): allocation (JS owns all memory), function
+Not supported (a compile error naming the construct): allocation (JS owns all memory), function
 calls other than the intrinsics above, closures, objects/strings, `try`/`catch`,
-`while` (use `for`). Watch the `result.warnings` / `result.wasmCompiled` to catch
-a block that fell back.
+`while` (use `for`).
 
 ### Numbers: what is `f64` and what is `i32`
 

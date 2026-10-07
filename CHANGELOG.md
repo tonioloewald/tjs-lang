@@ -28,11 +28,23 @@ through the fallback and requires the same answer.
 - **The WAT comment says `(result f64)` only when the function returns a value.**
 - An unsafe (`!`) function no longer warns that a typed-array parameter "could not be resolved
   to a runtime type": it asked for no checks.
-- **One bad block can no longer take WASM away from a whole file.** `%` (or a bitwise operator)
-  on f64 operands emitted an `i32` instruction on f64 values; the module was invalid, so EVERY
-  block in the file silently ran its fallback while each reported success. Such a block now
-  falls back on its own, naming the operator, and every emitted module is validated: a block
-  that would produce invalid bytes is failed alone and the module rebuilt without it.
+- **A `wasm` block that cannot compile is a compile error** (BREAKING for code that relied on
+  the quiet fallback). `wasm { }` is a request for WASM; an unsupported construct used to ship
+  the block's JavaScript `fallback {}` with a warning. The error names the construct. `fallback {}`
+  remains for a RUNTIME that cannot run WASM. Turning this on found four test fixtures and a
+  DOCS-TJS example that had never compiled (each passed by running its fallback), the DOCS-TJS
+  page teaching a `wasm (…)` form that was never implemented, and the bugs below.
+- **One bad block could take WASM away from a whole file.** `%` (or a bitwise operator) on f64
+  operands emitted an `i32` instruction on f64 values; the module was invalid, so every block in
+  the file ran its fallback while each reported success. It is now refused, naming the operator,
+  and every emitted module is validated, so a future codegen bug of that kind is a compile error
+  rather than a module that fails to load.
+- **`f32x4_load`/`f32x4_store` need a typed-array parameter**, as `arr[i]` did: on a plain array
+  they compiled and then threw a WebAssembly `RuntimeError` on the first call.
+- **A file with WASM loads where WebAssembly is unavailable** (iOS Lockdown Mode): its memory
+  was created unguarded at load, so a file whose blocks use typed arrays threw before any
+  fallback could run. Its blocks now run their fallbacks and `wasmBuffer` hands out ordinary
+  typed arrays.
 - DOCS-WASM documents `i32` (in `wasm function` declarations) with its measured semantics:
   truncating and wrapping at the call, wrapping `+ - *`, a throwing `% 0`.
 

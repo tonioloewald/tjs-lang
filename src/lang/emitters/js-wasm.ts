@@ -113,9 +113,9 @@ const __b64ToBytes=s=>{const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<
 const __parseType=c=>{const m=c.match(/^(\\w+)\\s*:\\s*(\\w+)$/);if(!m)return{n:c,t:'f64',a:false};const[,n,ts]=m;const at={Float32Array:'f32',Float64Array:'f64',Int32Array:'i32',Uint8Array:'i32'};if(at[ts])return{n,t:'i32',a:true,at:ts};return{n,t:'f64',a:false}};
 ${
   anyNeedsMemory
-    ? `const __wasmMem=new WebAssembly.Memory({initial:1024});
-let __woff=0;
-globalThis.wasmBuffer=function(Ctor,len){const bytes=len*Ctor.BYTES_PER_ELEMENT;const align=Math.max(Ctor.BYTES_PER_ELEMENT,16);__woff=(__woff+align-1)&~(align-1);const arr=new Ctor(__wasmMem.buffer,__woff,len);__woff+=bytes;return arr};`
+    ? `let __wasmMem=null,__woff=0;
+try{__wasmMem=new WebAssembly.Memory({initial:1024})}catch(__memErr){__rec({source:'wasm',severity:'warning',message:'WebAssembly memory is unavailable — every wasm{} block in this file is running its JS fallback: '+((__memErr&&__memErr.message)||__memErr),data:{error:String(__memErr)}})}
+globalThis.wasmBuffer=function(Ctor,len){if(!__wasmMem)return new Ctor(len);const bytes=len*Ctor.BYTES_PER_ELEMENT;const align=Math.max(Ctor.BYTES_PER_ELEMENT,16);__woff=(__woff+align-1)&~(align-1);const arr=new Ctor(__wasmMem.buffer,__woff,len);__woff+=bytes;return arr};`
     : ''
 }
 const __bind=__wasmInst=>{
@@ -140,7 +140,13 @@ for(const{id,n,c,m}of __wasmExports){
     return r};
 }};
 const __fail=e=>{try{globalThis.__tjs?.record?.({source:'wasm',severity:'warning',message:'wasm module failed to instantiate — every wasm{} block in this file is running its JS fallback: '+((e&&e.message)||e),data:{error:String(e)}})}catch{}};
-try{
+${
+  anyNeedsMemory
+    ? // No memory (no WebAssembly at all, e.g. iOS Lockdown Mode): every block runs its
+      // fallback, which is what it is for. Creating the memory unguarded took the module down.
+      `if(!__wasmMem){globalThis.__tjs_wasm_pending.push(Promise.resolve())}else `
+    : ''
+}try{
   __bind(new WebAssembly.Instance(new WebAssembly.Module(__b64ToBytes(__wasmModuleB64)),${imports}));
   globalThis.__tjs_wasm_pending.push(Promise.resolve());
 }catch(__syncErr){

@@ -25,7 +25,9 @@ const clearWasmGlobals = () => {
   }
 }
 
-const KERNEL = `function scale(arr: [0.0], len: 0, f: 0.0) {
+// A Float32Array: with a plain array (`arr: [0.0]`, as this fixture once was) the SIMD block
+// "compiled" and then trapped when called; that is now a compile error.
+const KERNEL = `function scale(! arr: Float32Array, len: 0, f: 0.0) {
   wasm {
     let s = f32x4_splat(f)
     for (let i = 0; i < len; i += 4) { let o = i * 4; f32x4_store(arr, o, f32x4_mul(f32x4_load(arr, o), s)) }

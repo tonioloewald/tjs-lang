@@ -1563,9 +1563,11 @@ function compute(a: 0, b: 0) {
     expect(await fn()).toBe(7) // 3 + 4 = 7
   })
 
-  it('should use explicit fallback when WASM compilation fails', () => {
-    // Test with code that can't compile to WASM (array.map)
-    const result = tjs(`
+  it('a block that cannot compile to WASM is a compile error, not a fallback', () => {
+    // `fallback {}` is for a RUNTIME that cannot run WASM (wasm-fallback.test.ts). Code the
+    // compiler cannot compile (here, array.map) stops the build (2026-10-07).
+    expect(() =>
+      tjs(`
 function transform(arr: []) {
   return wasm {
     return arr.map(x => x * 2)
@@ -1573,15 +1575,7 @@ function transform(arr: []) {
     return arr.map(x => x * 2)
   }
 }`)
-
-    // WASM compilation should fail (array.map not supported)
-    expect(result.wasmCompiled?.[0].success).toBe(false)
-
-    // But code should still work using fallback
-    const { installRuntime } = require('./runtime')
-    installRuntime()
-    const fn = new Function(`${result.code}; return transform([1, 2, 3]);`)
-    expect(fn()).toEqual([2, 4, 6])
+    ).toThrow(/did not compile/)
   })
 
   it('should not capture words from comments', () => {

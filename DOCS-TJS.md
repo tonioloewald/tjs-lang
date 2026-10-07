@@ -931,35 +931,43 @@ Tests are extracted at compile time and can be:
 Drop into WebAssembly for compute-heavy code:
 
 ```typescript
-function vectorDot(a: [0], b: [0]): 0 {
-  let sum = 0
-  wasm {
-    for (let i = 0; i < a.length; i++) {
+function vectorDot(! a: Float32Array, b: Float32Array, len: 0):! 0.0 {
+  return wasm {
+    let sum = 0.0
+    for (let i = 0; i < len; i++) {
       sum = sum + a[i] * b[i]
     }
+    return sum
+  } fallback {
+    let sum = 0
+    for (let i = 0; i < len; i++) sum += a[i] * b[i]
+    return sum
   }
-  return sum
 }
 ```
 
-Variables are captured automatically. Falls back to JS if WASM unavailable.
+The enclosing function's parameters are captured automatically. A block returns its result
+with `return`; it cannot assign to the function's own variables. `fallback { }` runs where
+WebAssembly is unavailable. A block that cannot compile is a compile error, naming why. The
+[WASM Quick Start](docs/WASM-QUICKSTART.md) walks through it; [WASM in TJS](DOCS-WASM.md) is
+the reference.
 
 #### SIMD Intrinsics (f32x4)
 
 For compute-heavy workloads, use f32x4 SIMD intrinsics to process 4 float32 values per instruction:
 
-<!-- tjs-doc: fragment -->
-
 ```typescript
-const scale = wasm (arr: Float32Array, len: 0, factor: 0.0): 0 {
-  let s = f32x4_splat(factor)
-  for (let i = 0; i < len; i += 4) {
-    let off = i * 4
-    let v = f32x4_load(arr, off)
-    f32x4_store(arr, off, f32x4_mul(v, s))
+function scale(! arr: Float32Array, len: 0, factor: 0.0) {
+  wasm {
+    let s = f32x4_splat(factor)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      let v = f32x4_load(arr, off)
+      f32x4_store(arr, off, f32x4_mul(v, s))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= factor
   }
-} fallback {
-  for (let i = 0; i < len; i++) arr[i] *= factor
 }
 ```
 
@@ -978,6 +986,9 @@ Available intrinsics:
 | `f32x4_div(a, b)`                   | Lane-wise division                   |
 | `f32x4_neg(v)`                      | Negate all lanes                     |
 | `f32x4_sqrt(v)`                     | Square root of all lanes             |
+
+Also `f32x4_min`/`f32x4_max`, the lane-wise comparisons and `f32x4_select`: see the
+[WASM Quick Start](docs/WASM-QUICKSTART.md) for the full list.
 
 This mirrors C/C++ SIMD intrinsics (`_mm_add_ps`, etc.) — explicit, predictable, no auto-vectorization magic.
 

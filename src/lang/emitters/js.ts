@@ -102,13 +102,14 @@ import {
 import {
   transformEqualityToStructural,
   transformIsOperators,
+  locAt,
 } from '../parser-transforms'
 import type {
   TypeDescriptor,
   ParameterDescriptor,
   PredicateVerification,
 } from '../types'
-import { isDictDefaultParam } from '../types'
+import { isDictDefaultParam, SyntaxError as TJSSyntaxError } from '../types'
 import {
   inferTypeFromValue,
   parseParameter,
@@ -2587,20 +2588,36 @@ export function transpileToJS(
       code = wasmBootstrap.code + '\n' + code
     }
     wasmCompiled = wasmBootstrap.results
-    // Surface WASM compile failures as warnings (they were only in
-    // `wasmCompiled` before, so a `wasm{}` block that can't compile fell back to
-    // its `fallback{}` SILENTLY — the worst failure mode for a perf feature).
-    // The full status stays on `wasmCompiled`; this just makes it visible.
-    for (const w of wasmCompiled) {
-      if (!w.success) {
-        warnings.push(
-          `wasm{} block '${
-            w.id
-          }' did not compile — running the fallback{} (JS)${
-            w.error ? `: ${w.error}` : ''
-          }`
-        )
+    // A block that cannot COMPILE is a hard error. `wasm { }` is a request for WASM; this used
+    // to compile to the block's `fallback {}` with a warning (and before that, silently), so a
+    // "fast path" could ship as JavaScript. The fallback is for a RUNTIME that cannot run WASM
+    // (an old engine, a CSP, an engine refusing to compile under memory pressure), not for
+    // code the compiler cannot compile: that is the author's to fix, or ours, and says which.
+    const failed = wasmCompiled.filter((w) => !w.success)
+    if (failed.length > 0) {
+      const at = (id: string) => {
+        const block = preprocessed.wasmBlocks.find((b) => b.id === id)
+        const firstLine = block?.body
+          .split('\n')
+          .map((l) => l.trim())
+          .find((l) => l.length > 0)
+        const i = firstLine ? source.indexOf(firstLine) : -1
+        return i >= 0 ? locAt(source, i) : { line: 1, column: 0 }
       }
+      const loc = at(failed[0].id)
+      throw new TJSSyntaxError(
+        failed
+          .map(
+            (w) =>
+              `A \`wasm\` block did not compile: ${w.error ?? 'unknown error'}.`
+          )
+          .join('\n') +
+          `\n\nRewrite it within the supported subset (DOCS-WASM, "Supported subset"), or ` +
+          `drop the \`wasm { }\` wrapper to run it as JavaScript.`,
+        loc,
+        source,
+        filename
+      )
     }
     // Compile-time wasm lints (e.g. i32/i32 integer division — UI-#4).
     for (const w of wasmBootstrap.warnings) warnings.push(`wasm{}: ${w}`)

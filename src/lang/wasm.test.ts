@@ -2916,13 +2916,8 @@ wasm function tryHostCall(x: f64): f64 {
   return Math.sin(x)
 }
 `
-    const result = tjs(source)
-    // Block extraction succeeds but compilation fails
-    expect(result.wasmCompiled).toBeDefined()
-    expect(result.wasmCompiled).toHaveLength(1)
-    expect(result.wasmCompiled![0].success).toBe(false)
-    expect(result.wasmCompiled![0].error).toMatch(/Math\.sin/)
-    expect(result.wasmCompiled![0].error).toMatch(/import/i)
+    // A block that cannot compile stops the build (2026-10-07), with the reason.
+    expect(() => tjs(source)).toThrow(/Math\.sin.*import|import.*Math\.sin/is)
   })
 
   it('purity: inline Math ops that DO compile (sqrt, abs, etc.) work fine', async () => {
@@ -3185,14 +3180,11 @@ wasm function caller(): f64 {
   return takesTwo(1.0)
 }
 `
-    const result = tjs(source, { runTests: false })
-    // caller fails because takesTwo gets one arg instead of two
-    const callerResult = result.wasmCompiled!.find(
-      (b) => b.id === '__tjs_wasm_caller'
+    // caller fails because takesTwo gets one arg instead of two, and a block that cannot
+    // compile stops the build (2026-10-07), with the reason.
+    expect(() => tjs(source, { runTests: false })).toThrow(
+      /takesTwo expects 2 arguments, got 1/
     )
-    expect(callerResult).toBeDefined()
-    expect(callerResult!.success).toBe(false)
-    expect(callerResult!.error).toMatch(/takesTwo expects 2 arguments, got 1/)
   })
 
   it('== inside an inline wasm{} block compiles (not rewritten to Eq) — L807', async () => {

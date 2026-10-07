@@ -1,9 +1,13 @@
 /**
- * A `wasm{}` block that can't compile falls back to its `fallback{}` (JS) — which
- * used to happen SILENTLY (the failure was only on `result.wasmCompiled`, which
- * consumers don't inspect), so WASM looked like it "worked" when it was running
- * the JS fallback. Now the failure is also mirrored into `result.warnings`.
- * (tosijs-ui feedback UI-#1.)
+ * A `wasm{}` block that can't compile is a HARD ERROR (2026-10-07).
+ *
+ * History: it used to fall back to its `fallback{}` (JS) silently (the failure was only on
+ * `result.wasmCompiled`, which consumers don't inspect), so WASM looked like it "worked" while
+ * the JS ran. The first fix mirrored the failure into `result.warnings` (tosijs-ui UI-#1). A
+ * warning still ships JavaScript where the author asked for WASM, and both of this file's own
+ * fixtures turned out to be wrong without anyone noticing: `SUPPORTED` took a plain array, so
+ * its "compiled" block trapped on the first call. `fallback {}` is for a RUNTIME that cannot run
+ * WASM (wasm-fallback.test.ts), not for code the compiler cannot compile.
  */
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
@@ -19,7 +23,7 @@ const UNSUPPORTED = `function fill(out: [0.0], w: 0, h: 0) {
   return out
 }`
 
-const SUPPORTED = `function scale(arr: [0.0], len: 0, factor: 0.0) {
+const SUPPORTED = `function scale(! arr: Float32Array, len: 0, factor: 0.0) {
   wasm {
     for (let i = 0; i < len; i += 4) {
       let off = i * 4
@@ -31,20 +35,16 @@ const SUPPORTED = `function scale(arr: [0.0], len: 0, factor: 0.0) {
   return arr
 }`
 
-describe('silent wasm{} fallback is now surfaced as a warning', () => {
-  it('warns (with the reason) when a block cannot compile', () => {
-    const r = tjs(UNSUPPORTED)
-    expect(r.wasmCompiled?.[0]?.success).toBe(false) // signal already existed…
-    const w = r.warnings?.find((w) =>
-      /wasm\{\} block .* did not compile/.test(w)
+describe('a wasm{} block that cannot compile stops the build', () => {
+  it('refuses it, with the reason', () => {
+    expect(() => tjs(UNSUPPORTED)).toThrow(
+      /did not compile: out is not a typed array parameter/
     )
-    expect(w).toBeTruthy() // …now it's in warnings too
-    expect(w).toMatch(/fallback/)
   })
 
-  it('does not warn when the block compiles to WASM', () => {
+  it('compiles a supported block, with no wasm warning', () => {
     const r = tjs(SUPPORTED)
     expect(r.wasmCompiled?.[0]?.success).toBe(true)
-    expect(r.warnings?.some((w) => /wasm\{\}/.test(w)) ?? false).toBe(false)
+    expect(r.warnings?.some((w) => /wasm/.test(w)) ?? false).toBe(false)
   })
 })
