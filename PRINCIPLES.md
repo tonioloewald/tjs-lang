@@ -381,7 +381,7 @@ Applied here:
 | the good thing       | the escape           |
 | -------------------- | -------------------- |
 | `a == b`             | `LegacyEquals(a, b)` |
-| `Timestamp.now()`    | `unsafe new Date()`  |
+| `Timestamp.now()`    | `LegacyDate()`       |
 | a validated function | `function f(! x: 0)` |
 
 Each escape is longer, noisier, and harder to skim past than the thing it replaces. That is

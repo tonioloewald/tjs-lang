@@ -90,10 +90,10 @@ export const KEYWORDS = [...AJS_KEYWORDS, ...TJS_KEYWORDS] as const
  * AJS keeps its own, much longer list: it is a sandbox, and its restrictions are real.
  */
 export const FORBIDDEN_KEYWORDS = [
-  // Rejected outright — `unsafe var x = 1` is the escape.
+  // Rejected outright, `unsafe` or not: use `let`/`const`.
   'var',
   // Rejected as a CALL (`eval(...)`). Flagged as a token because that is the only usage
-  // anyone writes, and the remedy — `Eval()` from the runtime, or `unsafe eval(src)` —
+  // anyone writes, and the remedy — `Eval()` from the runtime —
   // is worth surfacing at the site.
   'eval',
 ] as const satisfies readonly string[]

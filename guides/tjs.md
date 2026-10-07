@@ -514,7 +514,7 @@ test('async operations work') {
 | `new`    | Classes are callable without `new`                           |
 | `throw`  | Return errors as values (monadic errors)                     |
 | `eval()` | Use `Eval()` or `SafeFunction()` — bare `eval()` is an error |
-| `Date`   | Use `Timestamp`/`LegalDate`, or `unsafe new Date(x)`         |
+| `Date`   | Use `Timestamp`/`LegalDate`, or `LegacyDate(x)`              |
 
 ### Added
 
@@ -529,7 +529,6 @@ test('async operations work') {
 | `(!)`             | Mark function as unsafe (skip validation)                      |
 | `test 'name' {}`  | Compile-time test block (evaporates)                           |
 | `mock {}`         | Test setup block                                               |
-| `unsafe expr`     | Opt ONE construct out (`unsafe new Date(0)`) — not a block     |
 | `\|\|` in types   | Union types                                                    |
 | `Type Name = val` | Define runtime type with default                               |
 | `Generic<T>`      | Define a parameterized runtime type                            |

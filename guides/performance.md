@@ -81,8 +81,8 @@ that is tracked in `TODO.md`.
 ## There is no `unsafe {}` block
 
 This section used to describe one, with semantics ("wraps code in try-catch") and a measured
-overhead for a form that does not parse. `unsafe` is an expression PREFIX
-(`unsafe new Date(0)`) or a function marker (`function f(! x: 0)`) — never a block.
+overhead for a form that does not parse. The way to skip validation is the function marker
+(`function f(! x: 0)`), which is per function, never a block.
 
 ## Recommendations
 

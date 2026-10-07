@@ -166,7 +166,6 @@ class Point {
 }
 
 Point(1, 2)              // ✓ the TJS way
-unsafe new Point(1, 2)   // ✓ deliberate
 new Point(1, 2)          // ✗ ERROR — the two forms are identical, so `new` said nothing
 ```
 

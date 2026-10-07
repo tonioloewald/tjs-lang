@@ -40,7 +40,7 @@ TJS is **purely additive**. It adds type annotations, runtime validation, and me
 - **Prototype chains** — preserved. `wrapClass()` uses a Proxy only on the class constructor (to allow calling without `new`), not on instances.
 - **Module semantics** — TJS preserves ES module `import`/`export` exactly. Lazy getters, circular dependencies, and re-exports work the same as in JS.
 - **`this` binding** — unchanged. Arrow functions, `.bind()`, `.call()`, `.apply()` all work normally.
-- **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though raw `Date` is not allowed in `.tjs` — use `unsafe new Date(x)` if you mean it, and `Timestamp`/`LegalDate` are the safer alternatives).
+- **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though raw `Date` is not allowed in `.tjs` — use `LegacyDate(x)` if you mean it, and `Timestamp`/`LegalDate` are the safer alternatives).
 
 **What TJS adds (and when): **
 
@@ -330,10 +330,10 @@ function fastPath(! data: [0]) {
 }
 ```
 
-To opt one construct out, prefix it:
+To keep a real `Date` deliberately, use the named escape:
 
 ```typescript
-const d = unsafe new Date(0)
+const d = LegacyDate(0)
 ```
 
 ### Module Safety Directive
@@ -554,7 +554,6 @@ class User {
 }
 
 const u1 = User('Alice') // the TJS way
-const u3 = unsafe new User('Alice') // deliberate, allowed
 ```
 
 The wrapping uses a Proxy on the constructor that intercepts bare calls
@@ -563,7 +562,7 @@ and forwards them to `Reflect.construct`, so `User('Alice')` and
 
 **Which is exactly why `new` on a class declared in this file is an ERROR.** The two
 forms are indistinguishable, so the keyword was decoration with the look of
-significance. `unsafe new User('Alice')` is the per-site escape. Built-ins are
+significance. There is no escape, because none is needed: drop the `new`. Built-ins are
 untouched — `new Float32Array(4)` is mandatory and still required.
 
 **What gets wrapped:** Only `class` declarations in your `.tjs` file.
@@ -612,18 +611,18 @@ Asymmetric types are captured:
 
 ```typescript
 // A wrapper around Date. `new Date(…)` is rejected in TJS (mutable, time-dependent), so
-// each construction opts out explicitly with the `unsafe` PREFIX — see the shipped
+// each construction uses the named escape `LegacyDate` — see the shipped
 // Timestamp module (`import { Timestamp } from 'tjs-lang'`).
 class Timestamp {
   #value
 
   constructor(initial: '' | 0 | null) {
     this.#value =
-      initial === null ? unsafe new Date() : unsafe new Date(initial)
+      initial === null ? LegacyDate() : LegacyDate(initial)
   }
 
   set value(v: '' | 0 | null) {
-    this.#value = v === null ? unsafe new Date() : unsafe new Date(v)
+    this.#value = v === null ? LegacyDate() : LegacyDate(v)
   }
 
   get value() {

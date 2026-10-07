@@ -453,18 +453,6 @@ const TJS_COMPLETIONS: CMCompletion[] = [
     type: 'keyword',
     detail: 'Mock setup block',
   }),
-  // `unsafe <expression>` — an EXPRESSION PREFIX, not a block.
-  //
-  // This used to insert `unsafe {\n\t\n}`, a form the language rejects outright: the block
-  // exempts nothing, so the editor shipped with the language was teaching a syntax error
-  // for that language's headline feature. It only became the headline feature this
-  // release, which is how a long-dead snippet became actively misleading.
-  snippetCompletion('unsafe ${expression}', {
-    label: 'unsafe',
-    type: 'keyword',
-    detail: 'Take responsibility for ONE construct: unsafe new Date(x)',
-  }),
-
   // The `Legacy*` bridges. None of these had a completion at all, so the entire escape
   // vocabulary this release introduced was undiscoverable in the editor that ships with
   // it. The verbose names are deliberate — see PRINCIPLES.md, "make stupid stuff stand
@@ -493,6 +481,13 @@ const TJS_COMPLETIONS: CMCompletion[] = [
     label: 'LegacyDefault',
     type: 'function',
     detail: 'Atomic JS default instead of per-member merge',
+  }),
+  // `unsafe new Date(x)` used to be offered here; `unsafe` is deprecated, and this is its
+  // replacement for the one construct it was still needed for.
+  snippetCompletion('LegacyDate(${value})', {
+    label: 'LegacyDate',
+    type: 'function',
+    detail: 'A real (mutable) Date, deliberately — prefer Timestamp/LegalDate',
   }),
 ]
 

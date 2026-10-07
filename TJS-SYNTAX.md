@@ -18,7 +18,6 @@ class Point {
 
 const p1 = Point(10, 20) // the TJS way
 const p2 = new Point(10, 20) // ERROR — see below
-const p3 = unsafe new Point(10, 20) // deliberate, allowed
 ```
 
 **`new` on a class declared in this file is an ERROR**, not a warning. `P(1)` and
@@ -102,41 +101,24 @@ unsafe and disabled all of its validation, not just the merge.
 the feature. An escape should cost a moment's thought and be obvious in review, so there are
 no short aliases and none should be added.
 
-## `unsafe <expression>` — the per-construct escape
+## `unsafe <expression>` — deprecated
 
 TJS's rules are **unconditional**: the file extension is the gate, the way ESM made
-`"use strict"` implicit. There is no per-file dialing.
-
-That works because a legitimate exception is expressible at the site:
+`"use strict"` implicit. There is no per-file dialing, and exceptions are **named
+callables** at the site, which are greppable and obvious in review:
 
 ```js
-// `Timestamp` is the alternative — but this module IS Timestamp, so it must reach for Date.
-const d = unsafe new Date(ts)
+// `Timestamp` is the alternative, but this module IS Timestamp, so it must reach for Date.
+const d = LegacyDate(ts)
 ```
 
-`unsafe` exempts **one construct**, not a file. That distinction is the point: a whole-file
-opt-out also silences the _next_, accidental use. It has zero runtime cost — the marker is
-removed before emit.
+The `unsafe` expression prefix (`unsafe new Date(ts)`) was the older spelling of the same
+idea. It still parses, with a deprecation warning, and will be removed. Of the three things
+it gated, `new Date(x)` now has `LegacyDate(x)`; `new X(…)` on a class declared in the file
+needs no escape (drop the `new`, since calling the class constructs it); and `var` and `eval`
+are refused outright, `unsafe` or not, the way strict mode removed `with` without a way back.
 
-### In TypeScript source: `/* @tjs-unsafe */`
-
-TJS-only syntax cannot appear in a `.ts` file — `tsc` rejects `unsafe new Date(x)` — so
-TypeScript sources use the `@tjs` comment channel instead:
-
-```ts
-const d = /* @tjs-unsafe */ new Date(ts)   // tsc sees a comment; conversion sees `unsafe`
-```
-
-Conversion replaces the annotation **in place**, so the marker lands exactly where it was:
-same line, immediately before its expression, which is what `unsafe` requires.
-
-Two rules keep it from colliding with ordinary JavaScript, since a variable named `unsafe`
-is legal JS and must stay legal (TJS ⊇ JS):
-
-- It must be in **expression position**, so `obj.unsafe thing` is not a marker.
-- It must be on the **same line** as its expression. `unsafe foo()` on one line is not valid
-  JavaScript, so it can only be the marker; across a newline ASI makes `let r = unsafe` and
-  `foo()` two statements, and those are left alone.
+In TypeScript source, `/* @tjs-unsafe */` converts to the same deprecated prefix.
 
 ## Function Parameters
 
@@ -246,12 +228,8 @@ function safeAdd(? a: 0, b: 0) { return a + b }
 
 There is **no `unsafe { }` block**. This section used to show one; the form was removed
 because it exempted nothing — the wrapper decision is made at transpile time, so a block
-could not skip anything a marker did not already skip. `unsafe` is an expression PREFIX:
-
-```typescript
-const d = unsafe new Date(0) // this one construct, deliberately
-const p = unsafe new Point(1, 2)
-```
+could not skip anything a marker did not already skip. To skip validation, mark the
+function (`!` above); for a real `Date`, use `LegacyDate(x)`.
 
 ## Bang Access (`!.`)
 

@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Read this first: what breaks since rc.3
+
+Each of these breaks toward correctness; none has a compatibility switch.
+
+- **A `wasm {}` block that cannot compile stops the transpile** (it used to ship its
+  `fallback {}` with a warning). Fix the block, or drop the `wasm` wrapper. The error names
+  the construct, the function and the line.
+- **`%` and bitwise operators on f64 operands in WASM are refused**; `/` is now JavaScript's
+  division even for two `i32` operands (`Math.trunc(a / b)` for integer division).
+- **`predicate => expr` is a compile error**: write `predicate(x) { return expr }`.
+- **`unsafe var` and `unsafe eval(…)` are refused**, as the docs already said: there is no
+  escape for either. `unsafe` itself is deprecated; `LegacyDate(x)` replaces `unsafe new
+  Date(x)`, and `new X(…)` on a class declared in the file needs no escape (drop `new`).
+- **Emitted JavaScript has a different shape.** Test blocks, doc comments and the hashbang are
+  blank lines in the output rather than removed, so line N of the output's body is line N of
+  the source. Anything matching exact emitted text will see different line numbers.
+
 ### Changed — a `wasm {}` block means what its `fallback {}` means
 
 Found by reviewing the WASM QuickStart, whose first example printed `undefined` (it promised
@@ -54,8 +71,44 @@ through the fallback and requires the same answer.
   lines and trimmed, so every error below a `test` block or a few comment lines pointed at the
   wrong line (`src/lang/diagnostic-lines.test.ts`).
 - The WASM QuickStart is rewritten: every example asserts its result and compiles to WASM
-  (checked), and it states the supported subset and that anything else falls back. DOCS-WASM no
-  longer lists `Math.sin`/`cos`/`log`/`exp`/`pow` as supported; they fall back.
+  (checked), and it states the supported subset and that anything else is a compile error.
+  DOCS-WASM no longer lists `Math.sin`/`cos`/`log`/`exp`/`pow` as supported; a block using one
+  does not compile.
+- The TJS-vs-TypeScript page shows what each compiler actually did: what the program printed,
+  or its compile error quoted verbatim (checked by `differences.test.ts`), instead of a
+  one-row table where **rejected** sat where a printed value would go.
+- Diagnostics no longer recommend the deprecated `unsafe` marker: `var` and `eval` have no
+  escape, a raw `Date` is `LegacyDate(x)`, and `new P` simply says to drop the keyword. The
+  docs no longer teach it either (a `docs-tombstones` row keeps it that way), and the
+  CodeMirror integration no longer offers it as a completion; it offers `LegacyDate`.
+- **`unsafe var` and `unsafe eval(…)` compiled** although every diagnostic said there was no
+  escape: the checks ran on source with the `unsafe` spans masked. They now run on the raw
+  source. `dialect: 'js'` still accepts both (TJS ⊇ JS).
+- **`wasm` is TJS syntax only.** Under `dialect: 'js'`, `return wasm` followed by a block on
+  the next line (legal JavaScript, by ASI) was rewritten and then refused.
+- **The wasm compile error wins over a failing signature example**: the block is compiled
+  before the transpile-time tests run, so `%` on f64 operands no longer reports "signature
+  example is inconsistent… got undefined".
+- **Each failing wasm block is reported at its own line**, and a `wasm function` by name. Two
+  blocks sharing a first line both pointed at the first, and a repeated body pointed at the
+  previous block's `fallback {}`.
+- **`wasm function f(x: 0.0): 0.0` parses.** The return annotation accepted only an
+  identifier (`: f64`), so the idiomatic numeric example was passed through as JavaScript and
+  failed with "Unexpected token".
+- A WASM module that is invalid with no single block responsible fails every block (a
+  compile error) rather than being returned as success.
+- **`stripModuleSyntax` parses** instead of using line regexes: a template literal with a line
+  starting `export` survives, and top-level `await` and imports are handled. It now shares its
+  implementation with `stripExports`.
+- **Blanked regions cost lines, not bytes.** The padding that keeps offsets during the rewrite
+  is dropped from the output (trailing whitespace only, never inside a string or template), so
+  100 lines of doc comment no longer triple a module's size.
+
+### Added
+
+- **`stripExports`** from `tjs-lang/lang` and `tjs-lang/browser` (#3109): turns a module into a
+  script body by dropping `export` and removing imports, literal-safely. tosijs-ui's live
+  examples need it to run a module's code inline.
 
 ### Removed
 
@@ -64,14 +117,6 @@ through the fallback and requires the same answer.
   replacement, in `Type` and `Generic` alike (so it can never be silently ignored and accept
   every value). It never worked in a release: in 0.13.x it was accepted-and-ignored, then
   refused; only the 0.14 release candidates ran it.
-
-### Fixed
-
-- The TJS-vs-TypeScript page shows what each compiler actually did: what the program printed,
-  or its compile error quoted verbatim (checked by `differences.test.ts`), instead of a
-  one-row table where **rejected** sat where a printed value would go.
-- Diagnostics no longer recommend the deprecated `unsafe` marker: `var` and `eval` have no
-  escape, a raw `Date` is `LegacyDate(x)`, and `new P` simply says to drop the keyword.
 
 ## [0.14.0] — unreleased
 

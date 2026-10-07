@@ -51,7 +51,11 @@ retries asynchronously and the `fallback{}` runs until it is ready.
 
 - **A block that cannot compile is a compile error** (since 0.14), naming why: an unsupported
   construct, a `%` or bitwise operator on non-integers, a SIMD load from a plain array. Writing
-  `wasm { }` is a request for WASM, so it is not quietly shipped as JavaScript.
+  `wasm { }` is a request for WASM, so it is not quietly shipped as JavaScript. These refusals
+  come from TJS's own compiler and do not depend on where you transpile. One backstop does: the
+  emitted module is checked with `WebAssembly.validate`, which catches a TJS codegen bug, and a
+  transpile host without `WebAssembly` (iOS Lockdown Mode) skips that check. A module that is
+  invalid anyway fails to instantiate at load, runs its `fallback{}` and is recorded (below).
 - **`fallback{}` is for a runtime that cannot run WASM**: no `WebAssembly` at all (iOS Lockdown
   Mode), no compiler available (an engine under memory pressure), or a refused instantiation.
   Each is recorded once in `__tjs.records({ source: 'wasm' })`.
@@ -331,8 +335,9 @@ shorter vectors with zeros.
 ## Supported subset inside `wasm{}` / `wasm function`
 
 A `wasm{}` body is a **small, typed subset** of JS, not arbitrary code. Anything
-outside it makes an inline block fall back to its `fallback{}` (and now emits a
-warning — see § Runtime). Supported:
+outside it is a **compile error** naming the construct: a `wasm{}` block that cannot compile
+stops the transpile (since 0.14). `fallback{}` is only for a runtime that cannot run WASM (see
+§ Runtime). Supported:
 
 - **Numeric locals:** `let x = <expr>` (i32 or f64, inferred from the initializer).
 - **`for` loops** with numeric bounds — `for (let i = 0; i < n; i += k) { … }` —
@@ -345,8 +350,8 @@ warning — see § Runtime). Supported:
   JS array, **not** a wasm pointer — annotate it as `Float32Array`.
 - **Math intrinsics:** `sqrt`, `abs`, `floor`, `ceil`, `trunc`, `min`, `max` (each a
   single WASM instruction). `Math.sin`, `cos`, `log`, `exp`, `pow` and the rest have no
-  WASM instruction and would need a call out to JavaScript, so a block using one falls
-  back (see § Purity).
+  WASM instruction and would need a call out to JavaScript, so a block using one does not
+  compile (see § Purity).
 - **SIMD:** the full `f32x4_*` set (see § SIMD intrinsics).
 
 Not supported (a compile error naming the construct): allocation (JS owns all memory), function
@@ -367,7 +372,7 @@ warned about it.)
 
 **`%` and the bitwise operators (`|`, `&`, `^`, `<<`, `>>`, `>>>`) need `i32` operands.** WASM
 has no float remainder or bitwise instructions, so with `f64` operands the block does not
-compile and runs its fallback, with a warning naming the operator.
+compile; the error names the operator.
 
 **For 32-bit integer algorithms** (hashes, checksums, xorshift random numbers, packed RGBA),
 declare `i32` parameters on a `wasm function`. Their semantics are WebAssembly's, not

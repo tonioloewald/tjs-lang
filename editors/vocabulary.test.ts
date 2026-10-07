@@ -37,6 +37,7 @@ import { ALL_COMPLETIONS } from './codemirror/ajs-language'
 import {
   TJS_CONSTRUCT_KEYWORDS,
   TJS_STATEMENT_KEYWORDS,
+  TJS_DEPRECATED_KEYWORDS,
 } from '../src/lang/keywords'
 import {
   KEYWORDS,
@@ -376,6 +377,10 @@ describe('completions do not suggest what the compiler rejects', () => {
     // contextual completion today — a real gap, named in `keywords.ts` rather than hidden.
     for (const t of [...TJS_STATEMENT_KEYWORDS, 'int', 'unsigned', 'float']) {
       expect(`${t}:${labels.has(t)}`).toBe(`${t}:true`)
+    }
+    // And the other direction: a deprecated construct is painted but never offered.
+    for (const t of TJS_DEPRECATED_KEYWORDS) {
+      expect(`${t}:${labels.has(t)}`).toBe(`${t}:false`)
     }
   })
 

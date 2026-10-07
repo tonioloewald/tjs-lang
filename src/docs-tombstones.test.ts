@@ -135,3 +135,76 @@ describe('`predicate => …` is not taught anywhere (removed before 0.14.0 final
     })
   }
 })
+
+describe('the deprecated `unsafe` prefix is not taught anywhere (deprecated in 0.14.0)', () => {
+  // `unsafe new Date(x)` → `LegacyDate(x)`; `unsafe new X()` → `X()`; `unsafe var`/`unsafe eval`
+  // are refused outright. A line that SAYS it is deprecated/refused/historical is prose about
+  // the form, not teaching it.
+  const pattern = /\bunsafe\s+(new|var|eval)\b/
+  const aboutIt = /deprecat|refused|used to|older spelling/i
+  const docs = [
+    ...globSync('*.md', { cwd: ROOT }),
+    ...globSync('docs/**/*.md', { cwd: ROOT }),
+    ...globSync('guides/**/*.md', { cwd: ROOT }),
+    'llms.txt',
+    'editors/codemirror/ajs-language.ts',
+    'editors/tjs-syntax.ts',
+  ]
+    .map((p) => p.replaceAll('\\', '/'))
+    .filter((p) => !HISTORICAL[p] && !p.startsWith('docs/reviews/'))
+
+  const teaching = (text: string) =>
+    text
+      .split('\n')
+      .filter((l) => pattern.test(l) && !aboutIt.test(l))
+      .map((l) => l.trim())
+
+  it('the filter catches teaching and spares prose about the form (apparatus)', () => {
+    expect(teaching('const d = unsafe new Date(0)')).toHaveLength(1)
+    expect(
+      teaching('| `Timestamp.now()` | `unsafe new Date()` |')
+    ).toHaveLength(1)
+    expect(
+      teaching('The prefix (`unsafe new Date(ts)`) is deprecated.')
+    ).toEqual([])
+    expect(teaching('wait for the unsafe variant')).toEqual([])
+  })
+
+  for (const doc of docs) {
+    it(`${doc} does not teach \`unsafe new\`/\`var\`/\`eval\``, () => {
+      expect(teaching(readFileSync(join(ROOT, doc), 'utf8'))).toEqual([])
+    })
+  }
+})
+
+describe('a wasm{} block that cannot compile is not taught to fall back (0.14.0)', () => {
+  // Since 0.14 an uncompilable block is a compile error; `fallback {}` is for a RUNTIME with no
+  // WebAssembly. Prose about a runtime without WASM is fine; "unsupported → falls back" is not.
+  const pattern =
+    /runs its fallback,? with a warning|fall back to its `?fallback ?\{\}`?|block (using one )?falls back|anything else falls back/i
+  const docs = [
+    ...globSync('*.md', { cwd: ROOT }),
+    ...globSync('docs/**/*.md', { cwd: ROOT }),
+    ...globSync('guides/**/*.md', { cwd: ROOT }),
+    'llms.txt',
+  ]
+    .map((p) => p.replaceAll('\\', '/'))
+    .filter((p) => !HISTORICAL[p] && !p.startsWith('docs/reviews/'))
+
+  it('the pattern catches the retired phrasing (apparatus)', () => {
+    for (const old of [
+      'compile and runs its fallback, with a warning naming the operator.',
+      'outside it makes an inline block fall back to its `fallback{}`',
+      'so a block using one falls back (see § Purity).',
+      'the supported subset and that anything else falls back.',
+    ])
+      expect(old).toMatch(pattern)
+  })
+
+  for (const doc of docs) {
+    it(`${doc} does not teach the compile-time wasm fallback`, () => {
+      const hit = readFileSync(join(ROOT, doc), 'utf8').match(pattern)
+      expect(hit?.[0] ?? '').toBe('')
+    })
+  }
+})
