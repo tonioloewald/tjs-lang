@@ -107,6 +107,9 @@ on division by zero, so the WASM path and the fallback would disagree.
 Inside a block, `let i = 0` declares an `i32`, which is what loop counters and array
 offsets want. `/` always means JavaScript's division, even with two integer operands:
 `7 / 2` is `3.5` in WASM as in JavaScript. For integer division, write `Math.trunc(a / b)`.
+`%` and the bitwise operators need integer operands; for 32-bit integer algorithms (hashes,
+random-number generators) declare `i32` parameters on a `wasm function` ([WASM in
+TJS](../DOCS-WASM.md)), which has WebAssembly's wrapping semantics.
 
 ## SIMD: four floats per instruction
 

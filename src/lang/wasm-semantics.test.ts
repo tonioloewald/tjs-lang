@@ -224,3 +224,71 @@ describe('the WASM QuickStart compiles to WASM, not to its fallbacks', () => {
     })
   }
 })
+
+describe('one bad block cannot take WASM away from the rest of the file', () => {
+  // `%` with f64 operands used to emit an `i32.rem_s` on f64 values: the module was invalid,
+  // failed to instantiate, and EVERY block in the file ran its fallback, while the transpile
+  // reported every block compiled. The only trace was a flight-recorder notice.
+  const SRC = `function add(! a: 0, b: 0) { return wasm { return a + b } fallback { return a + b } }
+function rem(! a: 0.0, b: 0.0) { return wasm { return a % b } fallback { return a % b } }`
+
+  it('the other blocks still run in WASM; the bad one falls back, and says why', async () => {
+    const r = tjs(SRC, { runTests: false })
+    const [addBlock, remBlock] = r.wasmCompiled!
+    expect(addBlock.success).toBe(true)
+    expect(remBlock.success).toBe(false)
+    expect((r.warnings ?? []).join('\n')).toMatch(/%/)
+    const [add, rem] = new Function(`${r.code}\nreturn [add, rem]`)()
+    await g.__tjs_wasm_ready?.()
+    expect(typeof g[addBlock.id]).toBe('function') // add really is in WASM
+    expect([add(3, 4), rem(7.5, 2)]).toEqual([7, 1.5])
+  })
+
+  it('a bitwise operator on f64 operands falls back too, rather than emitting i32 code', () => {
+    const r = tjs(
+      `function f(! a: 0.0, b: 0.0) { return wasm { return (a + b) | 0 } fallback { return (a + b) | 0 } }`,
+      { runTests: false }
+    )
+    expect(r.wasmCompiled?.[0]?.success).toBe(false)
+    expect((r.warnings ?? []).join('\n')).toMatch(/\|/)
+  })
+
+  it('the emitted module is valid WebAssembly', () => {
+    const r = tjs(SRC, { runTests: false })
+    const b64 = r.code.match(/__wasmModuleB64\s*=\s*['"]([^'"]+)/)?.[1] ?? ''
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+    expect(WebAssembly.validate(bytes)).toBe(true)
+  })
+})
+
+describe('i32 in a wasm function has WebAssembly semantics (the DOCS-WASM table)', () => {
+  const SRC = `wasm function addi(a: i32, b: i32): f64 { return a + b }
+wasm function divi(a: i32, b: i32): f64 { return a / b }
+wasm function remi(a: i32, b: i32): f64 { return a % b }`
+
+  async function load() {
+    const r = tjs(SRC, { runTests: false })
+    expect(r.wasmCompiled?.every((b) => b.success)).toBe(true)
+    const fns = new Function(`${r.code}\nreturn [addi, divi, remi]`)()
+    await g.__tjs_wasm_ready?.()
+    return fns as ((a: number, b: number) => number)[]
+  }
+
+  it('arguments are truncated and wrapped at the call', async () => {
+    const [addi] = await load()
+    expect(addi(2.5, 1)).toBe(3)
+    expect(addi(3e9, 0)).toBe(-1294967296)
+  })
+
+  it('+ wraps at 32 bits', async () => {
+    const [addi] = await load()
+    expect(addi(2e9, 2e9)).toBe(-294967296)
+  })
+
+  it('/ is JavaScript division; % takes the sign of the dividend; % 0 throws', async () => {
+    const [, divi, remi] = await load()
+    expect(divi(7, 2)).toBe(3.5)
+    expect(remi(-7, 2)).toBe(-1)
+    expect(() => remi(1, 0)).toThrow()
+  })
+})

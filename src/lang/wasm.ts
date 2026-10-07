@@ -1196,10 +1196,15 @@ function compileBinaryExpr(
     return [Op.f64_const, ...encodeF64(0)]
   }
 
-  const opcode = ops[opType] ?? ops.f64 ?? ops.i32
+  // The instruction for THESE operand types, or none. Substituting another type's opcode
+  // (`?? ops.f64 ?? ops.i32`) emitted `i32.rem_s` / `i32.or` on f64 values: an invalid module
+  // that took every block in the file down with it. WASM has no float remainder or bitwise
+  // instructions, and JavaScript's ToInt32 is not one instruction either, so such a block runs
+  // its fallback, where JavaScript's own semantics apply exactly.
+  const opcode = ops[opType]
   if (opcode === undefined) {
     ctx.errors.push(
-      `Operator ${node.operator} not supported for type ${opType}`
+      `\`${node.operator}\` needs integer (i32) operands in WASM, and these are ${opType}`
     )
     return [Op.f64_const, ...encodeF64(0)]
   }
@@ -2431,10 +2436,37 @@ export function compileBlocksToModule(
     }
   }
 
-  const moduleBytes = buildMultiFunctionModule(
+  let moduleBytes = buildMultiFunctionModule(
     compiledFns,
     exports.map((e) => e.exportName)
   )
+
+  // "Compiled" must mean "valid WebAssembly". One block emitting an invalid instruction made
+  // the WHOLE module fail to instantiate, so every block in the file silently ran its fallback
+  // while each reported success (`%` on f64 did this). Validate, and if the module is invalid,
+  // find the blocks that make it so — each checked with every other slot stubbed, so function
+  // indices hold — fail just those, and rebuild. Skipped where WebAssembly is unavailable.
+  const validate = (globalThis as any).WebAssembly?.validate as
+    | ((b: Uint8Array) => boolean)
+    | undefined
+  if (validate && !validate(new Uint8Array(moduleBytes))) {
+    const names = exports.map((e) => e.exportName)
+    for (let i = 0; i < compiledFns.length; i++) {
+      if (exports[i].failed) continue
+      const alone = compiledFns.map((fn, j) =>
+        j === i ? fn : stubFunction(preSignatures[j])
+      )
+      if (validate(new Uint8Array(buildMultiFunctionModule(alone, names))))
+        continue
+      const error =
+        'emitted invalid WebAssembly (a compiler bug — please report it)'
+      compiledFns[i] = stubFunction(preSignatures[i])
+      exports[i] = { ...exports[i], wat: `(failed: ${error})`, failed: true }
+      const at = results.findIndex((r) => r.id === exports[i].id)
+      results[at] = { id: exports[i].id, success: false, error }
+    }
+    moduleBytes = buildMultiFunctionModule(compiledFns, names)
+  }
 
   return {
     bytes: new Uint8Array(moduleBytes),

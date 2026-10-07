@@ -356,25 +356,37 @@ calls other than the intrinsics above, closures, objects/strings, `try`/`catch`,
 `while` (use `for`). Watch the `result.warnings` / `result.wasmCompiled` to catch
 a block that fell back.
 
-### Numeric gotcha: i32 / i32 is **integer** division
+### Numbers: what is `f64` and what is `i32`
 
-Types are inferred per operand, and coercion to f64 happens **per binary op**, at
-the _next_ operator — so a division where both operands are i32 (loop vars,
-`0`-annotated params, integer literals) does **integer** division and truncates,
-even in a float-heavy kernel:
+**Inline blocks are JavaScript-exact.** Their parameters are `f64` whatever the TJS
+annotation (`0`, `0.0`, `int`): `f64` holds every integer JavaScript represents exactly and
+has JavaScript's arithmetic, so the block and its `fallback {}` give the same answer. A `0`
+annotation is checked at the call boundary (unless `!`); nothing converts or rounds the value.
+Inside a block, `let i = 0` is an `i32`, which is what loop counters and offsets want.
 
-```tjs
-// x and w are i32 (loop var / param): x / w truncates to 0 for all x < w,
-// so (x / w - 0.5) is (0 - 0.5) everywhere — a constant, silently wrong.
-let bad = x / w - 0.5
-// Force float early by adding 0.0 to one operand:
-let fx = x + 0.0
-let good = fx / w - 0.5          // now f64 division
-```
+**`/` is JavaScript's division** everywhere, even with two `i32` operands: `7 / 2` is `3.5`.
+For integer division write `Math.trunc(a / b)`. (Until 0.14, `i32 / i32` truncated and a lint
+warned about it.)
 
-This bit a real Mandelbrot kernel. Rule of thumb: in a float kernel, seed your
-integer loop vars into f64 (`let fx = i + 0.0`) before dividing. (A compile-time
-lint for i32/i32 division feeding a float context is a tracked follow-up.)
+**`%` and the bitwise operators (`|`, `&`, `^`, `<<`, `>>`, `>>>`) need `i32` operands.** WASM
+has no float remainder or bitwise instructions, so with `f64` operands the block does not
+compile and runs its fallback, with a warning naming the operator.
+
+**For 32-bit integer algorithms** (hashes, checksums, xorshift random numbers, packed RGBA),
+declare `i32` parameters on a `wasm function`. Their semantics are WebAssembly's, not
+JavaScript's, which is the point:
+
+| | `i32` in a `wasm function` | JavaScript |
+| --- | --- | --- |
+| A fractional argument | truncated at the call: `f(2.5)` sees `2` | `2.5` |
+| An argument beyond 32 bits | wraps modulo 2³²: `3e9` arrives as `-1294967296` | `3e9` |
+| `+`, `-`, `*` | wrap at 32 bits: `2e9 + 2e9` is `-294967296` | `4000000000` |
+| `/` | JavaScript division: `7 / 2` is `3.5` | `3.5` |
+| `%` | sign of the dividend: `-7 % 2` is `-1` | `-1` |
+| `% 0` | **throws** (WebAssembly traps) | `NaN` |
+| The return value | widened to `f64`: an ordinary number | |
+
+These rows are measured, and pinned by `src/lang/wasm-semantics.test.ts`.
 
 ## Current limitations (v1)
 

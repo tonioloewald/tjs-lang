@@ -28,6 +28,13 @@ through the fallback and requires the same answer.
 - **The WAT comment says `(result f64)` only when the function returns a value.**
 - An unsafe (`!`) function no longer warns that a typed-array parameter "could not be resolved
   to a runtime type": it asked for no checks.
+- **One bad block can no longer take WASM away from a whole file.** `%` (or a bitwise operator)
+  on f64 operands emitted an `i32` instruction on f64 values; the module was invalid, so EVERY
+  block in the file silently ran its fallback while each reported success. Such a block now
+  falls back on its own, naming the operator, and every emitted module is validated: a block
+  that would produce invalid bytes is failed alone and the module rebuilt without it.
+- DOCS-WASM documents `i32` (in `wasm function` declarations) with its measured semantics:
+  truncating and wrapping at the call, wrapping `+ - *`, a throwing `% 0`.
 
 ### Fixed
 
