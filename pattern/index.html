@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=18b2a2559121" data-tosi-doc-system />
+  <title>Pattern: declarative matching for TJS and AJS, and regex as an opt-in — tjs-lang</title>
+  <meta name="description" content="Status: proposed (Tonio, 2026-10-02); priorities and packaging settled 2026-10-03, see below. Regex is deprecated in AJS in 0.14 and removed from the core VM…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/pattern/" />
+  <link rel="alternate" type="text/markdown" href="index.md" title="Pattern: declarative matching for TJS and AJS, and regex as an opt-in — tjs-lang (markdown)" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Pattern: declarative matching for TJS and AJS, and regex as an opt-in — tjs-lang" />
+  <meta property="og:description" content="Status: proposed (Tonio, 2026-10-02); priorities and packaging settled 2026-10-03, see below. Regex is deprecated in AJS in 0.14 and removed from the core VM…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/pattern/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Pattern: declarative matching for TJS and AJS, and regex as an opt-in","description":"Status: proposed (Tonio, 2026-10-02); priorities and packaging settled 2026-10-03, see below. Regex is deprecated in AJS in 0.14 and removed from the core VM…","url":"https://tjs.tosijs.net/pattern/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+<script>globalThis.__TJS_LOCAL_BASE="/tjs/"</script><script>globalThis.__TOSI_EXAMPLE_POLICY="opt-in"</script><script>globalThis.__TOSI_DIALECTS=["ajs","tjs"]</script><script>globalThis.__TOSI_IMPORT_RESOLVER={"prefix":"/lib/","workerUrl":"/import-resolver-worker.js","reloadOnFirstInstall":false}</script>
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=5985136f9c7e" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;,&quot;projectLinks&quot;:{&quot;github&quot;:&quot;https://github.com/tonioloewald/tjs-lang&quot;,&quot;npm&quot;:&quot;https://www.npmjs.com/package/tjs-lang&quot;}}">
+  <article class="doc-content">
+<!--{"parent": "ajs.md", "order": 8}--><h1>Pattern: declarative matching for TJS and AJS, and regex as an opt-in</h1>
+<p><strong>Status: proposed (Tonio, 2026-10-02); priorities and packaging settled 2026-10-03, see below.</strong> Regex is deprecated in AJS in 0.14 and removed from the
+core VM in 0.15. Hosts that want it opt back in. Its replacement is <code>Pattern</code>: a grammar built as
+DATA by a fluent builder and run by one engine. This note began as an imperative <code>Scanner</code>
+proposal; an outside draft (Gemini, with Tonio&#39;s guidance) argued for a declarative builder, and
+that is the better shape for this project. The draft&#39;s specifics were challenged; the outcomes
+are recorded below.</p>
+<h2>Priorities: a standalone library, dogfooded to diamond hardness (Tonio, 2026-10-03)</h2>
+<blockquote>
+<p>&quot;Our goal for Pattern is to build a code editing skill around it and share it across the repo.
+Pattern would become a standalone library and between using it to replace regex as much as
+possible in our compilation code and using it to edit code we should dogfood it to diamond
+hardness.&quot;</p>
+</blockquote>
+<p>This restates what the note already argued (see &quot;Design input: editing source&quot;: Pattern should
+prevent the edit failures sed-style editing produces constantly) and settles the order and the
+packaging. Pattern is a <strong>standalone library</strong> whose first and heaviest users are us. Three users,
+each a different stress:</p>
+<ol>
+<li><strong>Code editing.</strong> A skill agents use to edit source in every repo: the code mode, unique-match
+edits, dry run, CLI. This is the daily load, measured by edits that apply the first time.</li>
+<li><strong>Our compilation code.</strong> Regex and hand-rolled scans in the TJS/AJS front ends are replaced
+wherever Pattern can, each replacement held byte-identical over the dogfood and compat
+corpora. This is the correctness load.</li>
+<li><strong>AJS.</strong> The VM builtin replacing guest regex, metered by construction. It comes last, and is
+hardened by the two above.</li>
+</ol>
+<p><strong>Packaging (decided, Tonio 2026-10-03):</strong> its <strong>own repo and npm package</strong> (working name
+<code>tosijs-pattern</code>), zero dependencies, its own tests and releases. tjs-lang depends on it as it does
+on tosijs-schema, and other repos (tosijs-ui, service-compris) can use it without tjs-lang. <strong>The
+code-editing skill ships with it</strong>: a SKILL.md plus a small CLI in the same repo, so the skill and
+the engine change together. tosijs-coding-practices points every repo at it.</p>
+<h2>Regex is not a parser, and Pattern does not pretend it is (Tonio, 2026-10-03)</h2>
+<blockquote>
+<p>&quot;The worst features in Regex are basically workarounds to allow it to do slightly more terrible
+things to work around the fact that it&#39;s simply not a parser.&quot; &quot;To the extent we can&#39;t just
+convert regex into Pattern it will reflect that regex does not correctly reflect intent.&quot;</p>
+</blockquote>
+<ul>
+<li><strong>What regex costs.</strong> A backtracking regex always terminates, but its worst case is
+exponential, and with backreferences matching is NP-hard. Its cost cannot be read from its
+source, which is why this project spent review rounds metering it. Pattern&#39;s cost is a property
+of the engine.</li>
+<li><strong>The conversion rule.</strong> Simple regexes convert to Pattern mechanically. Where one cannot, the
+converter does not approximate: it explains the site and points to the docs. An inconvertible
+regex is EVIDENCE that the regex does not state its intent (a lookaround standing in for
+structure, a backreference standing in for a grammar). The refusal is the useful output.</li>
+<li><strong>Why regex backtracks (Tonio, 2026-10-03: &quot;the reason for backtracking is typically to solve
+problems caused by working around its lack of statefulness&quot;).</strong> Plain regular expressions
+need no backtracking: Thompson&#39;s construction (1968) matches them in linear time, and so does
+our linear engine. Backtracking engines exist to serve the extensions that fake STATE or
+STRUCTURE: backreferences (memory), lookaround (context) and greedy/lazy capture (extracting
+structure by retrying). Even plain ambiguity, as in <code>(a|ab)c</code> or <code>.*foo</code>, is structure regex
+cannot state. Pattern removes the ambiguity instead of searching it: possessive repetition,
+ordered choice, and named stateful pieces (<code>quoted</code>, <code>balanced</code>, <code>sepBy</code>). A PEG choice point
+re-reads input only within that choice, and can be memoised to linear time (packrat). So the
+converter&#39;s rule is: when a regex needs backtracking to be correct, NAME the structure it is
+encoding; never reproduce the retries.</li>
+<li><strong>The long term.</strong> Pattern paves the way to eliminating regex from TJS itself, not only from
+AsyncJS: the transpiler&#39;s own regex and hand-rolled scans first (see the priorities above), then
+the language surface.</li>
+</ul>
+<h2>The goal: cost it accurately, for free</h2>
+<p>The point is not to stop ReDoS (Tonio, 2026-10-02). The point is that whatever a pattern
+costs is <strong>charged accurately, as a side effect of running it</strong>, with no metering bolted on.
+In the engine, one step of execution IS one unit of charge: the cost model and the execution
+model are the same loop. A pattern that does exponential work is then not a vulnerability; it
+runs out of fuel, and the run fails honestly with an error naming it. That is the same contract
+every other AJS operation has.</p>
+<p>Regex could not offer that for free. A backtracking engine&#39;s work is invisible to the caller.
+Our own linear engine got there only after three review rounds added meters to every place it
+did work and caps to every quantity that grew with the pattern. Each round found another place
+the work was not being counted.</p>
+<h2>Why replace regex</h2>
+<p>Regex was the most expensive surface of the 0.14.0 release. It took three review rounds
+(<code>docs/reviews/0.14.0-rc.2-rereview-{6,7,8}.md</code>) and produced a 7 KB engine of its own, a
+generated Unicode fold table, two differential fuzzers, and a long list of caps and meters. Even
+metered, it is a second language inside the language, and every reviewer has to re-verify its
+semantics against ECMAScript.</p>
+<p>Regex is also hard to get right, for models and people alike, and its failures are silent: a
+pattern that is almost right still parses and still matches. This release is evidence. A
+star-height screen certified <code>/a*a*c/</code>; hand-written case-fold rules were wrong four ways; and the
+engine itself diverged from JavaScript on nested quantifiers until a fuzzer looked.</p>
+<h2>Why a declarative Pattern (not an imperative scanner)</h2>
+<p>A pattern is a value, not a procedure:</p>
+<ul>
+<li><strong>Serializable.</strong> It can be persisted, cross the capability membrane, and travel inside a
+<code>$predicate</code>. The portable predicate VM (<code>docs/type-system-north-star.md</code>) can carry it, where
+it could never carry ECMAScript regex.</li>
+<li><strong>Readable.</strong> <code>Pattern.number()</code> says what it matches. Captures come back as a NAMED
+dictionary, not as positional groups.</li>
+<li><strong>Diagnosable.</strong> A failed match reports where and what was expected, not just <code>null</code>.</li>
+<li><strong>Usable for validation.</strong> CSS predicates and <code>$predicate</code> can use it, which an imperative
+scanner could not.</li>
+</ul>
+<h2>Semantics: PEG, stated plainly</h2>
+<p>The semantics are chosen for <strong>predictability</strong>, not as a safety mechanism (charging is the
+safety mechanism). They make a pattern&#39;s cost easy to read off the pattern:</p>
+<ul>
+<li><strong>Repetition is possessive.</strong> <code>oneOrMore(p)</code> takes as much as it can and never gives any back.</li>
+<li><strong>Choice is ordered.</strong> <code>anyOf(a, b)</code> tries <code>a</code> first; if <code>a</code> succeeds, <code>b</code> is never tried, even
+if the rest of the pattern then fails.</li>
+<li><strong>No recursion in v1.</strong> Patterns are finite trees. <code>Pattern.ref</code> (recursive rules, for nested
+parentheses) needs packrat memoization to stay bounded, and is deferred.</li>
+</ul>
+<p>Consequences, documented wherever the API is:</p>
+<ul>
+<li><strong>Behaviour differs from regex, predictably.</strong> <code>oneOrMore(digits())</code> then <code>exactly(&#39;5&#39;)</code> FAILS
+on <code>&quot;1235&quot;</code>: the digits already took the 5. The grok tasks include cases where this matters.</li>
+<li><strong>Anchored matching (<code>parse</code>) is linear</strong> in the input times the pattern size.</li>
+<li><strong>Unanchored search (<code>replace</code>, <code>matchAll</code>) is O(n²) in the worst case</strong>, because it attempts a
+match at each position. (A Pike VM does this in one pass; a PEG does not.) That is acceptable
+because every step is charged: the cost is accurate, not hidden. A first-character set
+computed from the pattern skips most start positions cheaply, as an optimisation.</li>
+<li><strong>Recursion (later) does not need memoization for safety.</strong> Exponential re-parsing would be
+charged step by step and run out of fuel. Packrat memoization is a performance choice for
+grammars that need it.</li>
+</ul>
+<h2>Primitives: loops over character ranges, never RegExp (decided)</h2>
+<p>Primitives are plain loops over merged character-range tables (the ones the regex engine already
+builds), <strong>not</strong> sticky <code>RegExp</code> calls. Host regex inside the VM would bring back the dependency
+this replaces and tie the portable VM to ECMAScript regex. Range loops are also faster than a
+regex call per token, and port to any language in an afternoon.</p>
+<h2>Fluency and natural mapping (Tonio, 2026-10-03)</h2>
+<blockquote>
+<p>&quot;Going from rail diagram to Pattern code should be trivial and reading a pattern invocation
+should read like a description of a clean regex read back by a fluent engineer. <code>[a-z]+</code> e.g.
+<code>atLeastOne(lowercase.letter)</code> where <code>atLeastOne</code> and <code>lowercase</code> are pieces of Pattern.&quot;</p>
+</blockquote>
+<p>The API is judged by two read-aloud tests:</p>
+<ul>
+<li><strong>Rail diagram to code is one-to-one.</strong> Every element of a railroad diagram (a terminal, a
+sequence, a choice branch, a loop, an optional bypass) is exactly one Pattern piece, nested the
+way the diagram nests. Drawing the diagram from the code, or the code from the diagram, is
+mechanical. That also makes the diagram a free rendering of any Pattern, for docs and the
+playground.</li>
+<li><strong>Code reads as a description.</strong> A pattern invocation reads like a fluent engineer reading a
+clean regex aloud: <code>[a-z]+</code> is <code>atLeastOne(lowercase.letter)</code>, <code>\d{3}</code> is
+<code>exactly(3, digit)</code>, <code>(,\s*)?</code> is <code>optional(sequence(&#39;,&#39;, any(whitespace)))</code>. Character
+classes are NOUNS with readable refinements (<code>lowercase.letter</code>, <code>digit</code>, <code>hex.digit</code>);
+repetition and choice are VERBS that take the noun (<code>atLeastOne</code>, <code>any</code>, <code>optional</code>,
+<code>oneOf</code>).</li>
+<li><strong>Names come from the reading, not from regex syntax.</strong> No <code>plus</code>, <code>star</code> or <code>question</code>; no
+flags. Where a reader would say &quot;a quoted string&quot; or &quot;a comma-separated list&quot;, there is a
+piece by that name (<code>quoted</code>, <code>sepBy</code>), which is also how inconvertible regexes get their
+structure named.</li>
+</ul>
+<h2>The API (draft)</h2>
+<p>Combinators take sub-patterns. There are no modifier flags that apply to &quot;the next token&quot;: those
+are stateful and order-sensitive, cannot group a sequence, and need getters, which the VM treats
+as code. Each thing has one way to write it.</p>
+<pre><code class="language-js" data-highlighted><span class="token keyword">const</span> price <span class="token operator">=</span> Pattern<span class="token punctuation">.</span><span class="token function">exactly</span><span class="token punctuation">(</span><span class="token string">'foo:'</span><span class="token punctuation">)</span>
+  <span class="token punctuation">.</span><span class="token function">maybe</span><span class="token punctuation">(</span>Pattern<span class="token punctuation">.</span><span class="token function">spaces</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+  <span class="token punctuation">.</span><span class="token function">capture</span><span class="token punctuation">(</span><span class="token string">'amount'</span><span class="token punctuation">,</span> Pattern<span class="token punctuation">.</span><span class="token function">number</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+price<span class="token punctuation">.</span><span class="token function">parse</span><span class="token punctuation">(</span><span class="token string">'foo: 42.5'</span><span class="token punctuation">)</span>
+<span class="token comment">// { success: true, match: 'foo: 42.5', length: 9, captures: { amount: 42.5 }, error: null }</span>
+price<span class="token punctuation">.</span><span class="token function">parse</span><span class="token punctuation">(</span><span class="token string">'foo: x'</span><span class="token punctuation">)</span>
+<span class="token comment">// { success: false, error: 'expected number at 5', ... }</span>
+
+price<span class="token punctuation">.</span><span class="token function">replace</span><span class="token punctuation">(</span><span class="token string">'Cost is foo: 42.50'</span><span class="token punctuation">,</span> <span class="token string">'(USD {amount})'</span><span class="token punctuation">)</span>  <span class="token comment">// 'Cost is (USD 42.5)'</span>
+<span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">const</span> m <span class="token keyword">of</span> price<span class="token punctuation">.</span><span class="token function">matchAll</span><span class="token punctuation">(</span>text<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token comment">/* m.captures.amount */</span> <span class="token punctuation">}</span>
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Builder</th>
+<th>Matches</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>exactly(str, { caseless? })</code></td>
+<td>the literal</td>
+</tr>
+<tr>
+<td><code>chars(set)</code> / <code>notChars(set)</code></td>
+<td>one or more characters in / not in a range string (<code>&#39;a-z0-9_&#39;</code>)</td>
+</tr>
+<tr>
+<td><code>digits(n?)</code>, <code>spaces()</code>, <code>word()</code>, <code>letters()</code></td>
+<td>named shortcuts over <code>chars</code> (<code>letters</code> is Unicode-aware)</td>
+</tr>
+<tr>
+<td><code>number()</code></td>
+<td>JSON&#39;s number grammar exactly (so <code>-1</code>, <code>1.5</code>, <code>1e5</code>; not <code>.5</code> or <code>+1</code>)</td>
+</tr>
+<tr>
+<td><code>until(str)</code></td>
+<td>everything up to (not including) a literal</td>
+</tr>
+<tr>
+<td><code>start()</code>, <code>end()</code></td>
+<td>anchors</td>
+</tr>
+<tr>
+<td><code>maybe(p)</code>, <code>oneOrMore(p)</code>, <code>zeroOrMore(p)</code>, <code>repeat(p, min, max)</code></td>
+<td>repetition (possessive)</td>
+</tr>
+<tr>
+<td><code>anyOf(p1, p2, …)</code></td>
+<td>ordered choice (strings are shorthand for <code>exactly</code>)</td>
+</tr>
+<tr>
+<td><code>not(p)</code></td>
+<td>negative lookahead: succeeds without consuming if <code>p</code> fails</td>
+</tr>
+<tr>
+<td><code>capture(name, p)</code></td>
+<td>names what <code>p</code> matched</td>
+</tr>
+<tr>
+<td><code>quoted(q, { escape? })</code></td>
+<td>a quoted span, no nesting; <code>escape</code> is a character (<code>&#39;\\&#39;</code>) or <code>&#39;double&#39;</code> (<code>&quot;&quot;</code> inside <code>&quot;…&quot;</code>, as CSV does); captures the unescaped inside</td>
+</tr>
+<tr>
+<td><code>balanced(open, close, { escape?, quotes? })</code></td>
+<td>a NESTED span: <code>(a (b) c)</code> closes at its own <code>)</code>; <code>quotes</code> names quote characters whose contents are skipped, so <code>f(&quot;)&quot;)</code> closes correctly</td>
+</tr>
+<tr>
+<td><code>sepBy(p, sep)</code></td>
+<td>zero or more <code>p</code> separated by <code>sep</code>; captures an ARRAY</td>
+</tr>
+</tbody></table>
+<ul>
+<li><p><strong>Delimited spans are what regex cannot do</strong> (Tonio, 2026-10-02; the capability matters, not
+the name). Balanced delimiters are not a regular language, so no regex matches <code>(a (b) c)</code> to
+its own closing parenthesis, and the usual workarounds are wrong on nesting, on escapes, or on
+delimiters inside quotes. <code>quoted</code> and <code>balanced</code> are each one linear pass: a depth counter, an
+escape rule, and (for <code>balanced</code>) quote characters whose contents are skipped. Cost is one
+charge per character scanned, like every primitive. They cover the common reason people reach
+for recursive grammars, without <code>Pattern.ref</code>.</p>
+<p>CSV, correctly (quoted fields, doubled-quote escapes, commas and newlines inside quotes):</p>
+<pre><code class="language-js" data-highlighted><span class="token keyword">const</span> field <span class="token operator">=</span> Pattern<span class="token punctuation">.</span><span class="token function">anyOf</span><span class="token punctuation">(</span>
+  Pattern<span class="token punctuation">.</span><span class="token function">quoted</span><span class="token punctuation">(</span><span class="token string">'"'</span><span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token literal-property property">escape</span><span class="token operator">:</span> <span class="token string">'double'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+  Pattern<span class="token punctuation">.</span><span class="token function">maybe</span><span class="token punctuation">(</span>Pattern<span class="token punctuation">.</span><span class="token function">notChars</span><span class="token punctuation">(</span><span class="token string">',\n'</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token comment">// an empty field (`a,,b`) is a field too</span>
+<span class="token punctuation">)</span>
+<span class="token keyword">const</span> row <span class="token operator">=</span> Pattern<span class="token punctuation">.</span><span class="token function">capture</span><span class="token punctuation">(</span><span class="token string">'fields'</span><span class="token punctuation">,</span> Pattern<span class="token punctuation">.</span><span class="token function">sepBy</span><span class="token punctuation">(</span>field<span class="token punctuation">,</span> <span class="token string">','</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+<span class="token keyword">const</span> csv <span class="token operator">=</span> Pattern<span class="token punctuation">.</span><span class="token function">capture</span><span class="token punctuation">(</span><span class="token string">'rows'</span><span class="token punctuation">,</span> Pattern<span class="token punctuation">.</span><span class="token function">sepBy</span><span class="token punctuation">(</span>row<span class="token punctuation">,</span> <span class="token string">'\n'</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+
+csv<span class="token punctuation">.</span><span class="token function">parse</span><span class="token punctuation">(</span><span class="token string">'name,quote\n"Ada","said ""hi"", then left"'</span><span class="token punctuation">)</span><span class="token punctuation">.</span>captures<span class="token punctuation">.</span>rows
+<span class="token comment">// [{ fields: ['name', 'quote'] }, { fields: ['Ada', 'said "hi", then left'] }]</span>
+</code></pre>
+<p>Captures nest: a <code>capture</code> inside each element of a <code>sepBy</code> yields one dictionary per element,
+so the result has the shape of the grammar.</p>
+<p>And a call&#39;s arguments, nested and quote-aware:</p>
+<pre><code class="language-js" data-highlighted>Pattern<span class="token punctuation">.</span><span class="token function">word</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">capture</span><span class="token punctuation">(</span><span class="token string">'args'</span><span class="token punctuation">,</span> Pattern<span class="token punctuation">.</span><span class="token function">balanced</span><span class="token punctuation">(</span><span class="token string">'('</span><span class="token punctuation">,</span> <span class="token string">')'</span><span class="token punctuation">,</span> <span class="token punctuation">{</span> <span class="token literal-property property">quotes</span><span class="token operator">:</span> <span class="token string">'"\''</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+  <span class="token punctuation">.</span><span class="token function">parse</span><span class="token punctuation">(</span><span class="token string">'f(a, g(b), ")")'</span><span class="token punctuation">)</span>   <span class="token comment">// captures.args === 'a, g(b), ")"'</span>
+</code></pre>
+</li>
+<li><p><strong>Typed captures:</strong> a capture is a string, unless its primitive defines a value (<code>number()</code>
+captures a number).</p>
+</li>
+<li><p><strong>Immutable:</strong> every builder call returns a new pattern (a small, charged allocation in the VM).</p>
+</li>
+<li><p><strong><code>replace</code> takes a template</strong> (<code>&#39;{name}&#39;</code> placeholders), not a callback. Anything more is a
+<code>matchAll</code> loop in ordinary code.</p>
+</li>
+<li><p><strong>Cost in the VM:</strong> every engine step is one charge, and every result goes through
+<code>allocate()</code>. There is no other work, so nothing can go uncounted.</p>
+</li>
+</ul>
+<h2>One engine, two hosts</h2>
+<p><code>tjs-lang/pattern</code> is a library usable from plain JS and TJS. The VM exposes the same engine as a
+builtin (a VM-built value, like <code>Set()</code> and <code>Date()</code>). There is one implementation, held honest
+by a differential test, the same arrangement as predicates.</p>
+<h2>Regex as an opt-in</h2>
+<ul>
+<li><strong><code>tjs-lang/regex</code> → <code>regexAtoms</code></strong>, registered like <code>batteryAtoms</code>. These are atoms on the
+linear engine (<code>src/vm/regex.ts</code>, moved out of the core), so they keep the run&#39;s fuel and heap
+budgets.</li>
+<li><strong>A host&#39;s own capability:</strong> a host can inject native <code>RegExp</code> behind a capability. Fuel cannot
+see inside a capability, so a catastrophic pattern there is the host&#39;s to own, as with any
+capability.</li>
+</ul>
+<h2>Migration: the transpiler converts what it can prove (Tonio, 2026-10-02)</h2>
+<p>The AJS transpiler detects each regex and either <strong>converts it to the equivalent Pattern</strong> or
+<strong>explains how to write it</strong>, the same discipline as <code>switch-to-given</code> (<code>src/lang/switch-to-given.ts</code>):
+rewrite only where the meaning provably does not change.</p>
+<p>A conversion is exact when possessive matching cannot differ from backtracking. Regex can give
+characters back to its continuation and retry later alternatives; a PEG cannot. They agree when
+nothing would ever need giving back:</p>
+<ul>
+<li>a repetition&#39;s character set is <strong>disjoint from the first set of what follows it</strong> (<code>\d+px</code>
+converts; <code>\w+\d</code> does not — <code>\w+</code> would swallow the digit);</li>
+<li>an alternation&#39;s branches <strong>cannot start the same way</strong>, or each one is followed by nothing
+the others could also reach.</li>
+</ul>
+<p>Everything else gets a diagnostic at the regex&#39;s location that names the problem (&quot;<code>\w+</code> is
+followed by <code>\d</code>, which <code>\w</code> also matches; a Pattern would take the digit too&quot;) and shows the
+nearest Pattern. Backreferences and lookbehind have no Pattern equivalent, and the diagnostic
+says so.</p>
+<p>The oracle already exists: the converter is fuzzed against the linear regex engine (random
+patterns, random inputs) and must agree everywhere it converts. In 0.14 the conversion is a
+<strong>suggestion</strong> printed with the deprecation warning; in 0.15, when regex leaves the core, it is
+what <code>tjs convert</code>-style migration applies.</p>
+<h2>Sequencing</h2>
+<table>
+<thead>
+<tr>
+<th>Release</th>
+<th>AJS core</th>
+<th>Opt-in</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0.14</td>
+<td>Regex works (linear, metered); <strong>the transpiler warns</strong> on every use: &quot;deprecated: use Pattern, or register regexAtoms&quot;. <code>Pattern</code> ships if the design settles, otherwise in 0.14.x.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>0.14.x</td>
+<td><code>Pattern</code></td>
+<td><code>tjs-lang/regex</code> (<code>regexAtoms</code>)</td>
+</tr>
+<tr>
+<td>0.15</td>
+<td><strong>Regex removed</strong>: literals, <code>regexMatch</code>, regex arguments to <code>match</code>/<code>search</code>/<code>replace</code>/<code>replaceAll</code>/<code>split</code>. The engine leaves <code>vm-ast</code> (~7 KB gzipped).</td>
+<td><code>tjs-lang/regex</code></td>
+</tr>
+</tbody></table>
+<p><strong>Removal gate:</strong> <code>bun run test:grok</code> shows the pinned small model writes Pattern code that is
+<strong>correct on held-out inputs</strong>, at a rate comparable to its regex rate. Score behaviour, not
+compilation: a regex that compiles can still be subtly wrong, and scoring compilation would
+count those as passes. Each grok task carries test inputs the model never sees, edge cases
+included (possessive repetition among them), and both styles are scored on what they return. The
+expectation (Tonio, 2026-10-02) is that Pattern wins this, not merely ties.</p>
+<h2>Design input: editing source (Tonio, 2026-10-02)</h2>
+<p>Regex-driven edits fail often, for agents as much as people. One session&#39;s record (the agent
+that wrote this note, editing this repo):</p>
+<ol>
+<li><strong>Formatting drift</strong> (most common): an exact-text edit fails because a formatter re-wrapped
+the line in between. The intent was &quot;the call to <code>compileRegex</code> with these arguments&quot;, not
+&quot;these characters&quot;. A pattern of tokens with flexible whitespace, plus <code>balanced(&#39;(&#39;, &#39;)&#39;)</code>
+for the argument list, matches the intent regardless of line breaks.</li>
+<li><strong>Escaping layers</strong>: regex inside sed inside a heredoc, or inside a Python string, needs
+escaping at every layer, and several patterns needed a second try. A builder takes literals
+literally (<code>exactly(&#39;compileRegex(&#39;)</code>): there is nothing to escape.</li>
+<li><strong>Semantic slips</strong>: a replacement string <code>false &amp;&amp; a || b</code> did not mean what was intended,
+because precedence inside a replacement is invisible. A structured edit replaces a node.</li>
+</ol>
+<p>So Pattern should be good at editing code, not only at reading data:</p>
+<ul>
+<li><strong>A code mode</strong>: whitespace and comments between tokens are skipped, and <code>balanced</code> and
+<code>quoted</code> understand the host language&#39;s strings, template literals and comments.</li>
+<li><strong>Edit safety</strong>: an edit can require a unique match (or state how many), and a dry run shows
+each match in context before anything is written.</li>
+<li><strong>A CLI</strong> (for example <code>tjs pattern replace &lt;file&gt; …</code>), so agents and people can use it
+outside the VM. That is also where its value is easiest to measure: edits that apply first time.</li>
+</ul>
+<h2>Performance: expectations, to be measured (Tonio, 2026-10-02)</h2>
+<p>Native regex will win some cases: V8 compiles a pattern to machine code with fast literal
+scanning, so short, simple, anchored patterns on short inputs (most CSS values) favour it on
+constant factors. Pattern in JavaScript should win wherever regex backtracks, wherever it cannot
+express the job (nesting, quoting), and wherever structured captures save a second pass. Its
+cost is also the cost charged, where native regex is fast on average and unbounded at worst.</p>
+<p>A Rust engine (to wasm; <code>docs/ajs-native-vm.md</code>) is where results may get interesting. Because a
+pattern is DATA, the same grammar runs on it unchanged: the regular subset (no <code>balanced</code>)
+compiles to a DFA — linear with a tiny constant, as Rust&#39;s <code>regex</code> crate does — and <code>balanced</code>
+stays a depth counter. The catch is the boundary: copying a string into wasm memory per call can
+dominate tiny inputs, so the wins are long inputs, batch validation (a whole theme per call), or
+a VM that already lives in wasm. Swapping the engine never touches anyone&#39;s patterns, which is
+hard to do with regex: any engine that runs one has to match ECMAScript&#39;s semantics exactly.</p>
+<p><strong>Measure, don&#39;t guess:</strong> one benchmark corpus — CSS values, CSV rows, log lines, nested calls —
+run across native regex, the linear regex engine, Pattern in JavaScript, and later Pattern in
+wasm, with results dated in <code>benchmarks.md</code>.</p>
+<h2>Later: the transpiler itself (Tonio, 2026-10-02)</h2>
+<p>The same engine could replace the regex and hand-rolled scanning transforms in our own front
+ends. That is where three of this project&#39;s chronic problems live:</p>
+<ul>
+<li><strong>Literal-blindness</strong>, the dominant defect class (<code>src/lang/literal-blindness.test.ts</code>): a pass
+that mis-reads code mentioning the syntax it scans for. <code>quoted</code> and <code>balanced</code> make literal-
+and brace-awareness part of the grammar instead of something each pass re-implements.</li>
+<li><strong>Pre-budget parse cost.</strong> Parsing runs before any budget exists, which is why the 0.14.0
+reviews spent nine rounds on super-linear shapes in the AJS preprocessor, and why front ends
+must run outside the VM host&#39;s trust boundary or behind <code>maxSourceBytes</code>. A Pattern-based front
+end charges every step, so transpiling untrusted AJS gets a fuel budget like everything else.</li>
+<li><strong>The parser-primitives direction</strong> (<code>docs/parser-primitives.md</code>): scoped parsers for
+expression extent and colon disambiguation are grammar fragments; Pattern is the substrate.</li>
+</ul>
+<p>The point is <strong>correctness</strong>; speed is the cost (Tonio, 2026-10-02). Native regex is fast and
+a Pattern pass may be slower; that is measured and reported per pass, and accepted where the pass
+becomes correct by construction. It is not a gate. Migration is per pass, each held to its old self
+byte-for-byte over the dogfood and compat corpora: the AJS preprocessor first (four steps,
+untrusted input), then the TJS transforms one at a time. Not before <code>Pattern</code> itself is solid.</p>
+<h2>Serializable, and the answer to JSON Schema&#39;s <code>pattern</code> (Tonio, 2026-10-04)</h2>
+<p><strong>A Pattern serializes.</strong> It is built as data by a fluent builder, so it has a canonical JSON
+form that round-trips exactly (<code>Pattern.fromJSON(p.toJSON())</code> matches what <code>p</code> matches), carries
+no code, and can be stored, sent to another process, or embedded in a schema. This is part of
+the spec, not an afterthought: it is what lets a Pattern travel with an AST and run on any host
+(including the Rust/wasm VM, <code>docs/ajs-native-vm.md</code>).</p>
+<p><strong>JSON Schema&#39;s <code>pattern</code> keyword is ECMAScript regex by definition</strong>, and running it on a
+backtracking host engine is the door the 0.14.0 reviews kept closing. The direction:</p>
+<ul>
+<li><strong>Accept only a <code>pattern</code> that converts to a Pattern.</strong> The converter (see Migration) either
+proves the regex equivalent and runs it on the Pattern engine, or refuses it and explains why,
+pointing at the docs. An inconvertible regex is evidence it does not state its intent.</li>
+<li><strong>A Pattern keyword for schemas</strong> (working name <code>$pattern</code>): the serialized Pattern, the same
+progressive-enhancement shape as <code>$predicate</code>. Aware validators run the Pattern; naive ones
+can be given the equivalent regex where one exists.</li>
+<li><strong>A library of named Patterns for the classic entities</strong>: email address, URL, UUID, ISO date
+and time, semver, hostname, IPv4/IPv6, hex colour, and so on. Each is written once, readable,
+tested against published corpora, and serializes like any other Pattern. The argument for
+Pattern replacing regex is made by these being better than the regexes people copy from
+Stack Overflow.</li>
+</ul>
+<p>Until then (0.14.0): an IO atom&#39;s declared input schema may not contain a <code>pattern</code>
+(refused at <code>defineAtom</code>), because the outbound membrane would run it on guest-chosen strings on
+the host&#39;s engine. Guest schemas already refuse it.</p>
+<h2>Out of scope for now: predicates</h2>
+<p><code>compilePredicate</code>, <code>tjs-lang/css</code> and <code>$predicate</code> keep regex on the linear engine. JSON
+Schema&#39;s <code>pattern</code> keyword is covered above. Moving predicates to <code>Pattern</code> is
+a likely next step, since the pattern is data, but it is a separate decision, made after
+<code>Pattern</code> exists.</p>
+<h2>Open decisions</h2>
+<ol start="0">
+<li><del>The goal</del>: <strong>decided</strong> — not to prevent ReDoS, but to charge whatever a pattern costs,
+accurately and for free (one engine step = one charge) (Tonio, 2026-10-02).</li>
+<li><del>Primitives via sticky RegExp</del>: <strong>decided</strong> — range loops (Tonio agreed, 2026-10-02).</li>
+<li>PEG semantics (possessive repetition, ordered choice), for predictability, with the
+documented O(n²) unanchored search.</li>
+<li>Combinators taking sub-patterns, instead of modifier flags on the next token.</li>
+<li>Primitive definitions: <code>number()</code> = JSON&#39;s grammar; a general <code>chars(set)</code>.</li>
+<li>Typed captures (<code>number()</code> captures a number).</li>
+<li><code>replace</code> takes a template, not a callback.</li>
+<li>One engine for <code>tjs-lang/pattern</code> and the VM builtin.</li>
+<li>No recursion in v1.</li>
+</ol>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — the 1.0 VM</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../vm-budgets/">VM budgets: how fuel and maxHeapBytes stay true</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link current" href="../pattern/" aria-current="page">Pattern: declarative matching for TJS and AJS, and regex as an opt-in</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script type="module" src="../hydrate-y3qvx4kt.js"></script>
+</body>
+</html>

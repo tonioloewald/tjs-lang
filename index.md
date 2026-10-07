@@ -1,0 +1,283 @@
+<!--{"section": "home", "order": 0, "navTitle": "Home", "pin": "top"}-->
+
+# TJS Platform
+
+<center>
+    <tosi-lottie style="width: 40vmin; height: 40vmin;" src="./tosi-platform.json"><img alt="tjs-lang logo" style="width: 40vmin; height: 40vmin" src="tjs-lang.svg"></tosi-lottie>
+</center>
+
+[playground](https://tjs-platform.web.app) | [github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
+
+## What is TJS?
+
+**TJS is a language.** It's what JavaScript always promised, but never quite delivered. Indeed it's what Apple's Dylan promised and never delivered. Instead of "a lot of the power of Lisp", _all_ the power of Lisp. Instead of C-like Syntax, actual JavaScript syntax. Instead of easy to learn but with weird corner cases, dangerous gotchas, and problems at scale, we fix the corner cases, remove the gotchas, and provide the tools that let you scale.
+
+**TJS is also a runtime.** A runtime that remembers your function declarations and can check whether parameter types are what they ought to be. It can guarantee safety by default, and speed when it's needed (including inline WASM).
+
+**AJS is another language.** It's a language for safe evaluation with injected capabilities and a gas limit. It's the language tjs allows you to Eval and use to create a SafeFunction. It also has its own VM and runtime to allow you to build **universal endpoints**. It's a language that's easy for agents to write and comprehend. It can be converted into an AST and run remotely.
+
+**TJS is also a toolchain.** It transpiles its own source into JavaScript — the transpiler is written in TypeScript, and running it through its own TS→TJS→JS pipeline yields a bootstrapped transpiler whose output matches the native one exactly (`src/use-cases/bootstrap.test.ts`). That's a compiler that processes its own source, not (yet) a compiler written in its own language. It transpiles TypeScript into TJS and then into JS. It turns function definitions into runtime contracts, documentation, and simple tests. It uses types both as contracts and examples. It allows inline tests of private module internals that disappear at runtime. It compresses transpilation, linting, testing, and documentation generation into a single fast pass. As for bundling? It allows it but it targets an unbundled web.
+
+![TJS Platform Overview](docs/diagrams/platform-overview.svg)
+
+## The Problem
+
+**TypeScript is fragile.** It pretends to be a superset of JavaScript, but it isn't. It pretends to be typesafe, but it isn't. Its Turing-complete type system is harder to reason about than the code it supposedly documents—and then it all disappears at runtime.
+
+TypeScript is also _difficult to transpile_. Your browser can run entire [full virtual machines](https://infinitemac.org/) in JavaScript, but most TypeScript playgrounds either fake transpilation by stripping type declarations or use a server backend to do the real work.
+
+**JavaScript is dangerous.** `eval()` and `Function()` are so powerful they're forbidden almost everywhere—blocked by CSP in most production environments. The industry's answer? The **Container Fallacy**: shipping a 200MB Linux OS just to run a 1KB function safely. We ship buildings to deliver letters.
+
+**Security is a mess.** Every layer validates. Gateway validates. Auth validates. Business logic validates. Database validates. We spend 90% of our time building pipelines to move data to code, re-checking it at every hop.
+
+## What If?
+
+What if your language were:
+
+- **Honest** — types that actually exist at runtime, not fiction that evaporates
+- **Safe** — a gas-metered VM where infinite loops are impossible, no container required
+- **Mobile** — logic that travels to data, not oceans of data dragged to logic
+- **Unified** — one source of truth, not TypeScript interfaces _plus_ Zod schemas _plus_ JSDoc
+
+That's what TJS Platform provides: **TJS** for writing your infrastructure, and **AJS** for shipping logic that runs anywhere.
+
+## TJS — Types That Survive
+
+Write typed JavaScript where the type _is_ an example. No split-brain validation.
+
+```typescript
+// TJS: The type is an example AND a test
+function greet(name: 'World'): 'Hello, World!' {
+  return `Hello, ${name}!`
+}
+// At transpile time: greet('World') is called and checked against 'Hello, World!'
+
+// Runtime: The type becomes a contract
+console.log(greet.__tjs.params) // { name: { type: 'string', example: 'World', required: true } }
+
+// Safety: Errors are values, not crashes
+const result = greet(123) // MonadicError: Expected string for 'greet.name', got number
+```
+
+**Why it matters:**
+
+- **One source of truth** — no more TS interfaces + Zod schemas + JSDoc comments
+- **Types as examples** — `name: 'Alice'` means "required string, like 'Alice'"
+- **Runtime metadata** — `__tjs` enables reflection, autocomplete, documentation from live objects
+- **Monadic errors** — type failures return values, never throw
+- **Zero build step** — transpiles in the browser, no webpack/Vite/Babel
+- **The compiler _is_ the client** — TJS transpiles itself _and_ TypeScript entirely client-side
+
+![Compile Time and Runtime Flow](docs/diagrams/compile-runtime.svg)
+
+## AJS — Code That Travels
+
+Write logic that compiles to JSON and runs in a gas-limited sandbox. Send agents to data instead of shipping data to code.
+
+```typescript
+const agent = ajs`
+  function research(topic: 'AI') {
+    let data = httpFetch({ url: '/search?q=' + topic })
+    let summary = llmPredict({ prompt: 'Summarize: ' + data })
+    return { topic, summary }
+  }
+`
+
+// Run it safely—no Docker required
+const result = await vm.run(
+  agent,
+  { topic: 'Agents' },
+  {
+    fuel: 500, // Strict CPU budget
+    capabilities: { fetch: http }, // YOUR fetch wrapper: the only network access (see guides/safe-eval.md)
+  }
+)
+```
+
+**Why it matters:**
+
+- **Safe eval** — run untrusted code without containers
+- **Code is JSON** — store in databases, diff, version, transmit
+- **Fuel metering** — every operation costs gas, infinite loops impossible
+- **Capability-based** — zero I/O by default, grant only what's needed
+- **LLM-native** — simple enough for small models to generate correctly
+
+## The Architecture Shift
+
+![Architecture Shift: Data-to-Code vs Code-to-Data](docs/diagrams/architecture-shift.svg)
+
+The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query _is_ the code.
+
+## Safe Eval
+
+`eval()` that is safe to hand untrusted code: fuel-metered so it always halts, and with no way
+out except the capabilities you give it.
+
+```js
+import { Eval } from 'tjs-lang/eval'
+
+const { result } = await Eval({
+  code: 'items.filter(x => x.price < budget)',
+  context: { items: [{ price: 40 }, { price: 250 }], budget: 100 },
+  fuel: 1000,
+})
+console.log(result) // → [{"price":40}]
+```
+
+No CSP violations, no infinite loops, no access to anything you did not grant. **[Safe
+Eval](guides/safe-eval.md)** covers `SafeFunction`, network access through an injected
+`fetch`, and exactly what the sandbox guarantees and what it does not.
+
+![Safe Eval: Capability-Based Security](docs/diagrams/safe-eval.svg)
+
+## Quick Start
+
+```bash
+npm install tjs-lang
+```
+
+### Run an Agent
+
+```typescript
+import { ajs, AgentVM } from 'tjs-lang'
+
+const agent = ajs`
+  function double(value: 21) {
+    return { result: value * 2 }
+  }
+`
+
+const vm = new AgentVM()
+const { result } = await vm.run(agent, { value: 21 })
+console.log(result) // { result: 42 }
+```
+
+### Write Typed Code
+
+```typescript
+import { tjs } from 'tjs-lang'
+
+const { code, metadata } = tjs`
+  function add(a: 0, b: 0): 0 {
+    return a + b
+  }
+`
+// code: JavaScript with __tjs metadata attached
+// metadata: { add: { params: { a: { type: 'number', example: 0 }, b: { type: 'number', example: 0 } }, returns: { type: 'number' } } }
+```
+
+### Try the Playground
+
+Since TJS compiles itself, the playground is the full engine running entirely in your browser.
+
+**[tjs-platform.web.app](https://tjs-platform.web.app)**
+
+## At a Glance
+
+|                 | TypeScript                      | TJS                                              | AJS               |
+| --------------- | ------------------------------- | ------------------------------------------------ | ----------------- |
+| **Purpose**     | Write your platform             | Write your platform                              | Write your agents |
+| **Trust level** | Your code                       | Your code                                        | Anyone's code     |
+| **Compiles to** | JavaScript + `.d.ts`            | JavaScript (with runtime checks + introspection) | JSON AST          |
+| **Runs in**     | Browser, Node, Bun              | Browser, Node, Bun                               | Sandboxed VM      |
+| **Types**       | Static only (erased at runtime) | Examples → runtime validation                    | Schemas for I/O   |
+| **Errors**      | Exceptions                      | Monadic (values, not exceptions)                 | Monadic           |
+| **Build step**  | `tsc` → JS + `.d.ts`            | Runs tests, builds docs, produces JS             | None              |
+
+> **Note:** TJS can transpile TypeScript into JS (via TJS) using `tjs convert`, giving your existing TS code
+> runtime type checks and introspection. You can even add inline tests using `/*test ...*/` comments
+> that run automatically during the build.
+
+## Bundle Size
+
+The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.14.0**; each row is
+a standalone entry point, not an increment (import only what you need):
+
+| Entry point                   | Bundle           | Size   | Gzipped   |
+| ----------------------------- | ---------------- | ------ | --------- |
+| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 129 KB | **41 KB** |
+| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 305 KB | 93 KB |
+| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 185 KB | 58 KB |
+| `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 370 KB | 118 KB    |
+| `tjs-lang` (full, TS support) | index.js         | 508 KB | 164 KB    |
+
+The transpiler grew ~11% in 0.14.0 — `Type` examples are now read for what they mean
+(floats, unions, recursive references) and checked by a real fixed-point solver, and it carries
+the linear regex engine (regex literals are checked at transpile time; `compilePredicate` runs on
+it). The VM without a parser roughly DOUBLED since rc.1 (21 KB to 41 KB gzipped, measured against the
+published rc.1; with the transpiler 71 KB to 93 KB; the regex engine is about 7 KB) for its budgets
+and its two membranes: every method guest
+code can call declares the exact type of each argument and what a call may allocate, and is
+charged for it before it runs; and guest regexes run on the VM's own linear-time engine instead
+of the host's backtracking one, so no pattern can hang a run
+([`docs/vm-budgets.md`](docs/vm-budgets.md)). The VM and
+eval bundles got **23%** and **40%** smaller in 0.13.10, and not by optimising anything: giving AJS its own parser (`parseAgentSource`, see the CHANGELOG) meant the VM
+stopped bundling ~26 TJS-only source transforms it had no business running. Less code on the
+path that compiles untrusted input is a security property before it is a size one.
+
+> These numbers are **verified by `src/bundle-size.test.ts`**, which re-measures the built
+> bundles and fails if this table drifts — so they can go stale by at most one release.
+
+**Dependencies:** `acorn` + `acorn-walk`/`acorn-loose` (JS parsing), `tosijs-schema`
+(validation). All have zero transitive dependencies.
+
+## Documentation
+
+- **[TJS Language Guide](https://github.com/tonioloewald/tjs-lang/blob/main/DOCS-TJS.md)** — Types, syntax, runtime
+- **[AJS Runtime Guide](https://github.com/tonioloewald/tjs-lang/blob/main/DOCS-AJS.md)** — VM, atoms, capabilities
+- **[WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md)** — Build WASM-accelerated libraries with zero toolchain setup
+- **[Architecture Deep Dive](https://github.com/tonioloewald/tjs-lang/blob/main/CONTEXT.md)** — How it all fits together
+- **[Playground](https://tjs-platform.web.app)** — Try it now
+
+## Installation
+
+```bash
+# npm
+npm install tjs-lang
+
+# bun
+bun add tjs-lang
+
+# pnpm
+pnpm add tjs-lang
+```
+
+### If you re-export a tjs-lang type from your own package
+
+A trap worth knowing about before you hit it — reported from `tosijs-ui`
+([#28](https://github.com/tonioloewald/tjs-lang/issues/28)).
+
+`import type` is erased from emitted **JavaScript** but **not** from emitted **`.d.ts`**. So
+if your package does the natural thing:
+
+```ts
+import type { AutocompleteConfig } from 'tjs-lang/editors/codemirror'
+export type MyConfig = AutocompleteConfig
+```
+
+your published `.d.ts` still contains that import — and every consumer of _your_ package now
+needs `tjs-lang` installed to typecheck, even if they never touch TJS:
+
+```
+error TS2307: Cannot find module 'tjs-lang/editors/codemirror'
+```
+
+**Declaring tjs-lang as an optional peer does not help.** Optionality governs installation,
+not type resolution; `tsc` still has to find the module to check the declaration.
+
+Three ways out, roughly in order of preference:
+
+1. **Do not re-export the type.** Structurally duplicate what you need in your own
+   declaration. Verbose, but your public API stops depending on ours.
+2. **Make the dependency real** — a regular `dependency`, not an optional peer — if your
+   package genuinely requires tjs-lang at type level.
+3. **Inline the shape at the boundary** (`export type MyConfig = { … }`) so the import never
+   reaches your `.d.ts`.
+
+This is not specific to tjs-lang; it catches any package that re-exports a type from an
+optional peer. It is documented here because we ship the types that invite it.
+
+## License
+
+Apache 2.0

@@ -1,0 +1,23 @@
+<!--{"section": "ajs", "type": "example", "group": "api", "order": 9, "parent": "ajs-api.md"}-->
+
+# GitHub Repos
+
+Search GitHub repositories
+
+```ajs:inline
+function searchRepos({ query = 'tosijs', perPage = 5 }) {
+  let url =
+    'https://api.github.com/search/repositories?q=' +
+    query +
+    '&per_page=' +
+    perPage +
+    '&sort=stars'
+  let response = httpFetch({ url })
+  let repos = response.items.map((x) => ({
+    name: x.full_name,
+    stars: x.stargazers_count,
+    description: x.description,
+  }))
+  return { repos }
+}
+```

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=18b2a2559121" data-tosi-doc-system />
+  <title>WASM Quick Start — tjs-lang</title>
+  <meta name="description" content="Build WASM-accelerated functions in TJS with zero toolchain setup." />
+  <link rel="canonical" href="https://tjs.tosijs.net/WASM-QUICKSTART/" />
+  <link rel="alternate" type="text/markdown" href="index.md" title="WASM Quick Start — tjs-lang (markdown)" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="WASM Quick Start — tjs-lang" />
+  <meta property="og:description" content="Build WASM-accelerated functions in TJS with zero toolchain setup." />
+  <meta property="og:url" content="https://tjs.tosijs.net/WASM-QUICKSTART/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"WASM Quick Start","description":"Build WASM-accelerated functions in TJS with zero toolchain setup.","url":"https://tjs.tosijs.net/WASM-QUICKSTART/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+<script>globalThis.__TJS_LOCAL_BASE="/tjs/"</script><script>globalThis.__TOSI_EXAMPLE_POLICY="opt-in"</script><script>globalThis.__TOSI_DIALECTS=["ajs","tjs"]</script><script>globalThis.__TOSI_IMPORT_RESOLVER={"prefix":"/lib/","workerUrl":"/import-resolver-worker.js","reloadOnFirstInstall":false}</script>
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=5985136f9c7e" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;,&quot;projectLinks&quot;:{&quot;github&quot;:&quot;https://github.com/tonioloewald/tjs-lang&quot;,&quot;npm&quot;:&quot;https://www.npmjs.com/package/tjs-lang&quot;}}">
+  <article class="doc-content">
+<!--{"parent": "tjs.md", "order": 7}--><h1>WASM Quick Start</h1>
+<p><strong>Build WASM-accelerated functions in TJS with zero toolchain setup.</strong></p>
+<p>No Emscripten. No Rust. No <code>.wasm</code> files. No webpack plugins. Write WASM inline, and the
+compiled bytecode is embedded in your JavaScript output. Ship one <code>.js</code> file.</p>
+<h2>Why TJS for WASM?</h2>
+<p>The traditional WASM workflow:</p>
+<ol>
+<li>Install a C/Rust/Go toolchain</li>
+<li>Write code in a separate language</li>
+<li>Compile to <code>.wasm</code> (configure a build system)</li>
+<li>Load the <code>.wasm</code> file at runtime (async, CORS, bundler config)</li>
+<li>Marshal data between the JS and WASM heaps (manual, error-prone)</li>
+<li>Ship multiple files</li>
+</ol>
+<p>The TJS workflow:</p>
+<ol>
+<li>Write <code>wasm { }</code> inside your function, with a <code>fallback { }</code> in plain JavaScript</li>
+<li>Run <code>tjs emit myfile.tjs &gt; myfile.js</code></li>
+<li>Ship the output <code>.js</code></li>
+</ol>
+<p>The compiler handles bytecode generation, base64 embedding, memory, and typed-array
+marshaling. The output is a single self-contained JavaScript file.</p>
+<h2>Your First WASM Block</h2>
+<pre data-example-mode="static"><code class="language-tjs" data-highlighted><span class="token keyword">function</span> <span class="token function">add</span><span class="token punctuation">(</span><span class="token parameter"><span class="token operator">!</span> a<span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token literal-property property">b</span><span class="token operator">:</span> <span class="token number">0</span></span><span class="token punctuation">)</span><span class="token operator">:</span><span class="token operator">!</span> <span class="token number">0</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> wasm <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> a <span class="token operator">+</span> b
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> a <span class="token operator">+</span> b
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+test <span class="token string">'computed in WASM'</span> <span class="token punctuation">{</span>
+  <span class="token function">expect</span><span class="token punctuation">(</span><span class="token function">add</span><span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toBe</span><span class="token punctuation">(</span><span class="token number">7</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>What&#39;s happening:</strong></p>
+<ul>
+<li><code>wasm { }</code> is a JavaScript block compiled to WASM bytecode at transpile time. Like any
+JavaScript block it returns only with <code>return</code>: a bare <code>a + b</code> would compute a value and
+throw it away, so the compiler refuses it.</li>
+<li><code>fallback { }</code> is the same computation in plain JavaScript, for a runtime that cannot run
+WASM (no <code>WebAssembly</code>, or no compiler available). Both must give the same answer. A block
+the compiler cannot compile is a compile error, not a quiet fallback (see
+<a href="#what-compiles-to-wasm">What compiles to WASM</a>).</li>
+<li><code>!</code> marks the function unsafe: its arguments are not type-checked on each call. For a tiny
+kernel that check can cost more than the work.</li>
+<li><code>:!</code> declares the return type without a worked example. A plain <code>: 0</code> would be checked as a
+worked example (<code>add</code> would have to return <code>0</code>), which is not what this function does.</li>
+</ul>
+<h2>Running it</h2>
+<p>TJS&#39;s command-line tool runs on <a href="https://bun.sh">Bun</a>. In a project:</p>
+<pre><code class="language-bash" data-highlighted>bun <span class="token function">add</span> <span class="token parameter variable">-d</span> tjs-lang
+bunx tjs run myfile.tjs              <span class="token comment"># transpile and run</span>
+bunx tjs emit myfile.tjs <span class="token operator">></span> myfile.js <span class="token comment"># emit standalone JavaScript</span>
+<span class="token function">node</span> myfile.js                       <span class="token comment"># the output runs anywhere: WASM is embedded as base64</span>
+</code></pre>
+<h2>What the Compiler Produces</h2>
+<p>For <code>add</code> above, the emitted JavaScript carries the compiled function as a comment in
+WebAssembly text (WAT), followed by the embedded module:</p>
+<pre><code class="language-text" data-highlighted>/**
+ * WASM: __tjs_wasm_1wub6pu_0 (export: compute_0)
+ * (func (export "compute") (param $a f64) (param $b f64) (result f64)
+ *   local.get $a
+ *   local.get $b
+ *   f64.add
+ *   return
+ * )
+ */
+</code></pre>
+<p>The module is instantiated synchronously when the file loads, so the first call already
+runs in WASM. (If an engine refuses synchronous compilation, it retries asynchronously and
+uses the fallback until it is ready.) The WAT comment is generated from the bytecode
+actually emitted, so it is a reliable view of what will run.</p>
+<h2>Numeric Types</h2>
+<p>Parameters take their WASM type from their TJS annotation:</p>
+<table>
+<thead>
+<tr>
+<th>TJS annotation</th>
+<th>WASM type</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0</code>, <code>+0</code> (integer)</td>
+<td><code>f64</code></td>
+<td><code>function f(x: 0)</code></td>
+</tr>
+<tr>
+<td><code>0.0</code> (number)</td>
+<td><code>f64</code></td>
+<td><code>function f(x: 0.0)</code></td>
+</tr>
+<tr>
+<td><code>Float32Array</code> (and other typed arrays)</td>
+<td><code>i32</code> (a pointer into WASM memory)</td>
+<td><code>function f(arr: Float32Array, len: 0)</code></td>
+</tr>
+</tbody></table>
+<p>Integer parameters are <code>f64</code> on purpose. A TJS integer is any whole number JavaScript
+represents exactly (up to 2⁵³), and <code>f64</code> holds all of them with exactly JavaScript&#39;s
+arithmetic. A 32-bit <code>i32</code> would wrap on overflow (<code>2e9 + 2e9</code> would be negative) and trap
+on division by zero, so the WASM path and the fallback would disagree.</p>
+<p>Inside a block, <code>let i = 0</code> declares an <code>i32</code>, which is what loop counters and array
+offsets want. <code>/</code> always means JavaScript&#39;s division, even with two integer operands:
+<code>7 / 2</code> is <code>3.5</code> in WASM as in JavaScript. For integer division, write <code>Math.trunc(a / b)</code>.
+<code>%</code> and the bitwise operators need integer operands; for 32-bit integer algorithms (hashes,
+random-number generators) declare <code>i32</code> parameters on a <code>wasm function</code> (<a href="../DOCS-WASM.md">WASM in
+TJS</a>), which has WebAssembly&#39;s wrapping semantics.</p>
+<h2>SIMD: four floats per instruction</h2>
+<p><code>f32x4_*</code> intrinsics operate on four <code>float32</code> values at once:</p>
+<pre data-example-mode="static"><code class="language-tjs" data-highlighted><span class="token keyword">function</span> <span class="token function">scale</span><span class="token punctuation">(</span><span class="token parameter"><span class="token operator">!</span> arr<span class="token operator">:</span> Float32Array<span class="token punctuation">,</span> <span class="token literal-property property">len</span><span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token literal-property property">factor</span><span class="token operator">:</span> <span class="token number">0.0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  wasm <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> s <span class="token operator">=</span> <span class="token function">f32x4_splat</span><span class="token punctuation">(</span>factor<span class="token punctuation">)</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">4</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">let</span> off <span class="token operator">=</span> i <span class="token operator">*</span> <span class="token number">4</span>
+      <span class="token keyword">let</span> v <span class="token operator">=</span> <span class="token function">f32x4_load</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">)</span>
+      <span class="token function">f32x4_store</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">,</span> <span class="token function">f32x4_mul</span><span class="token punctuation">(</span>v<span class="token punctuation">,</span> s<span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">*=</span> factor
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+test <span class="token string">'scales every element'</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> data <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Float32Array</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+  <span class="token function">scale</span><span class="token punctuation">(</span>data<span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">,</span> <span class="token number">10.0</span><span class="token punctuation">)</span>
+  <span class="token function">expect</span><span class="token punctuation">(</span>Array<span class="token punctuation">.</span><span class="token function">from</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toEqual</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">10</span><span class="token punctuation">,</span> <span class="token number">20</span><span class="token punctuation">,</span> <span class="token number">30</span><span class="token punctuation">,</span> <span class="token number">40</span><span class="token punctuation">,</span> <span class="token number">50</span><span class="token punctuation">,</span> <span class="token number">60</span><span class="token punctuation">,</span> <span class="token number">70</span><span class="token punctuation">,</span> <span class="token number">80</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>The loop steps by 4, so <code>len</code> must be a multiple of 4. Handle a remainder with a scalar
+loop (see <a href="#patterns">Patterns</a>). The intrinsics map directly to WASM SIMD opcodes: no
+auto-vectorization, no surprises.</p>
+<h3>Available SIMD intrinsics</h3>
+<table>
+<thead>
+<tr>
+<th>Intrinsic</th>
+<th>Operation</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>f32x4_load(arr, byteOffset)</code></td>
+<td>Load 4 floats from memory</td>
+</tr>
+<tr>
+<td><code>f32x4_store(arr, byteOffset, vec)</code></td>
+<td>Store 4 floats to memory</td>
+</tr>
+<tr>
+<td><code>f32x4_splat(value)</code></td>
+<td>Fill all 4 lanes with one value</td>
+</tr>
+<tr>
+<td><code>f32x4_add</code>, <code>f32x4_sub</code>, <code>f32x4_mul</code>, <code>f32x4_div</code> <code>(a, b)</code></td>
+<td>Lane-wise arithmetic</td>
+</tr>
+<tr>
+<td><code>f32x4_min</code>, <code>f32x4_max</code> <code>(a, b)</code></td>
+<td>Lane-wise minimum / maximum</td>
+</tr>
+<tr>
+<td><code>f32x4_neg(v)</code>, <code>f32x4_sqrt(v)</code></td>
+<td>Negate / square root of every lane</td>
+</tr>
+<tr>
+<td><code>f32x4_eq</code>, <code>f32x4_ne</code>, <code>f32x4_lt</code>, <code>f32x4_le</code>, <code>f32x4_gt</code>, <code>f32x4_ge</code> <code>(a, b)</code></td>
+<td>Lane-wise comparison (a mask)</td>
+</tr>
+<tr>
+<td><code>f32x4_select(a, b, mask)</code></td>
+<td>Per lane, <code>a</code> where the mask is set, else <code>b</code></td>
+</tr>
+<tr>
+<td><code>f32x4_extract_lane(vec, N)</code></td>
+<td>One float from lane <code>N</code> (0–3)</td>
+</tr>
+<tr>
+<td><code>f32x4_replace_lane(vec, N, val)</code></td>
+<td>Set lane <code>N</code></td>
+</tr>
+</tbody></table>
+<h2>Memory</h2>
+<h3>Regular typed arrays: copied in and out</h3>
+<p>Pass a normal <code>Float32Array</code> and TJS copies it into WASM memory before the call and back
+afterwards:</p>
+<pre data-example-mode="static"><code class="language-tjs" data-highlighted><span class="token keyword">function</span> <span class="token function">double</span><span class="token punctuation">(</span><span class="token parameter"><span class="token operator">!</span> arr<span class="token operator">:</span> Float32Array<span class="token punctuation">,</span> <span class="token literal-property property">len</span><span class="token operator">:</span> <span class="token number">0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  wasm <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">4</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">let</span> off <span class="token operator">=</span> i <span class="token operator">*</span> <span class="token number">4</span>
+      <span class="token keyword">let</span> v <span class="token operator">=</span> <span class="token function">f32x4_load</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">)</span>
+      <span class="token function">f32x4_store</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">,</span> <span class="token function">f32x4_add</span><span class="token punctuation">(</span>v<span class="token punctuation">,</span> v<span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">*=</span> <span class="token number">2</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+test <span class="token string">'copy-out happens automatically'</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> data <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Float32Array</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+  <span class="token function">double</span><span class="token punctuation">(</span>data<span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">)</span>
+  <span class="token function">expect</span><span class="token punctuation">(</span>Array<span class="token punctuation">.</span><span class="token function">from</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toEqual</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>That is convenient, but on a large array the copy can cost more than WASM saves, and the
+result is SLOWER than the plain JavaScript fallback. When that happens the runtime records a
+notice; read them with <code>__tjs.records({ source: &#39;wasm&#39; })</code>.</p>
+<h3><code>wasmBuffer()</code>: zero-copy shared memory</h3>
+<p>For hot paths with large arrays, allocate the array in WASM memory to begin with:</p>
+<pre data-example-mode="static"><code class="language-tjs" data-highlighted><span class="token keyword">const</span> positions <span class="token operator">=</span> <span class="token function">wasmBuffer</span><span class="token punctuation">(</span>Float32Array<span class="token punctuation">,</span> <span class="token number">1024</span><span class="token punctuation">)</span>
+
+<span class="token keyword">function</span> <span class="token function">shift</span><span class="token punctuation">(</span><span class="token parameter"><span class="token operator">!</span> arr<span class="token operator">:</span> Float32Array<span class="token punctuation">,</span> <span class="token literal-property property">len</span><span class="token operator">:</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token literal-property property">delta</span><span class="token operator">:</span> <span class="token number">0.0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  wasm <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> vd <span class="token operator">=</span> <span class="token function">f32x4_splat</span><span class="token punctuation">(</span>delta<span class="token punctuation">)</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">4</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">let</span> off <span class="token operator">=</span> i <span class="token operator">*</span> <span class="token number">4</span>
+      <span class="token function">f32x4_store</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">,</span> <span class="token function">f32x4_add</span><span class="token punctuation">(</span><span class="token function">f32x4_load</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">)</span><span class="token punctuation">,</span> vd<span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">+=</span> delta
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+test <span class="token string">'WASM and JavaScript see the same memory'</span> <span class="token punctuation">{</span>
+  <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> <span class="token number">1024</span><span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> positions<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">=</span> i
+  <span class="token function">shift</span><span class="token punctuation">(</span>positions<span class="token punctuation">,</span> <span class="token number">1024</span><span class="token punctuation">,</span> <span class="token number">0.5</span><span class="token punctuation">)</span>
+  <span class="token function">expect</span><span class="token punctuation">(</span>positions<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toBe</span><span class="token punctuation">(</span><span class="token number">0.5</span><span class="token punctuation">)</span>
+  <span class="token function">expect</span><span class="token punctuation">(</span>positions<span class="token punctuation">[</span><span class="token number">1023</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toBe</span><span class="token punctuation">(</span><span class="token number">1023.5</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p><strong>How it works:</strong> all WASM blocks in a file share one <code>WebAssembly.Memory</code> (64MB).
+<code>wasmBuffer</code> is a bump allocator that hands out views into it. When a typed array&#39;s
+<code>.buffer</code> is the WASM memory&#39;s buffer, the wrapper skips the copy and passes the byte offset.</p>
+<p><strong>Supported types:</strong> <code>Float32Array</code>, <code>Float64Array</code>, <code>Int32Array</code>, <code>Uint8Array</code>.</p>
+<p><strong>Trade-off:</strong> <code>wasmBuffer</code> allocations are permanent (a bump allocator, no <code>free</code>). Use them
+for long-lived buffers, not temporary scratch space.</p>
+<h2>What compiles to WASM</h2>
+<p>A <code>wasm { }</code> block is a JavaScript subset: numeric locals (<code>let</code>), arithmetic and comparison,
+<code>if</code>, <code>for</code>, <code>return</code>, typed-array element access (<code>arr[i]</code>), the SIMD intrinsics above, and
+<code>Math.abs</code>, <code>ceil</code>, <code>floor</code>, <code>trunc</code>, <code>sqrt</code>, <code>min</code> and <code>max</code>.</p>
+<p>Anything else (an object, a string, a call to your own function, <code>Math.sin</code>) is a <strong>compile
+error</strong> that names the construct: you asked for WASM, so it is not quietly shipped as
+JavaScript. Rewrite the block within the subset, or drop the <code>wasm { }</code> wrapper to run it as
+JavaScript. <a href="../DOCS-WASM.md">WASM in TJS</a> has the full reference.</p>
+<p>A block returns a number (<code>f64</code>) or nothing.</p>
+<h2>Patterns</h2>
+<h3>Dot product (horizontal SIMD reduction)</h3>
+<pre data-example-mode="static"><code class="language-tjs" data-highlighted><span class="token keyword">function</span> <span class="token function">dot</span><span class="token punctuation">(</span><span class="token parameter"><span class="token operator">!</span> a<span class="token operator">:</span> Float32Array<span class="token punctuation">,</span> <span class="token literal-property property">b</span><span class="token operator">:</span> Float32Array<span class="token punctuation">,</span> <span class="token literal-property property">len</span><span class="token operator">:</span> <span class="token number">0</span></span><span class="token punctuation">)</span><span class="token operator">:</span><span class="token operator">!</span> <span class="token number">0.0</span> <span class="token punctuation">{</span>
+  <span class="token keyword">return</span> wasm <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> acc <span class="token operator">=</span> <span class="token function">f32x4_splat</span><span class="token punctuation">(</span><span class="token number">0.0</span><span class="token punctuation">)</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">4</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">let</span> off <span class="token operator">=</span> i <span class="token operator">*</span> <span class="token number">4</span>
+      acc <span class="token operator">=</span> <span class="token function">f32x4_add</span><span class="token punctuation">(</span>acc<span class="token punctuation">,</span> <span class="token function">f32x4_mul</span><span class="token punctuation">(</span><span class="token function">f32x4_load</span><span class="token punctuation">(</span>a<span class="token punctuation">,</span> off<span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">f32x4_load</span><span class="token punctuation">(</span>b<span class="token punctuation">,</span> off<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">return</span> <span class="token function">f32x4_extract_lane</span><span class="token punctuation">(</span>acc<span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token function">f32x4_extract_lane</span><span class="token punctuation">(</span>acc<span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">)</span>
+      <span class="token operator">+</span> <span class="token function">f32x4_extract_lane</span><span class="token punctuation">(</span>acc<span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">)</span> <span class="token operator">+</span> <span class="token function">f32x4_extract_lane</span><span class="token punctuation">(</span>acc<span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">)</span>
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> sum <span class="token operator">=</span> <span class="token number">0</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> sum <span class="token operator">+=</span> a<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">*</span> b<span class="token punctuation">[</span>i<span class="token punctuation">]</span>
+    <span class="token keyword">return</span> sum
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+test <span class="token string">'dot product'</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> a <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Float32Array</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">,</span> <span class="token number">5</span><span class="token punctuation">,</span> <span class="token number">6</span><span class="token punctuation">,</span> <span class="token number">7</span><span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+  <span class="token keyword">const</span> b <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Float32Array</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+  <span class="token function">expect</span><span class="token punctuation">(</span><span class="token function">dot</span><span class="token punctuation">(</span>a<span class="token punctuation">,</span> b<span class="token punctuation">,</span> <span class="token number">8</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toBe</span><span class="token punctuation">(</span><span class="token number">62</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h3>Rescale an array to [0, 1]</h3>
+<p>Find the minimum and maximum with scalar reads, then rescale four values at a time:</p>
+<pre data-example-mode="static"><code class="language-tjs" data-highlighted><span class="token keyword">function</span> <span class="token function">rescale</span><span class="token punctuation">(</span><span class="token parameter"><span class="token operator">!</span> arr<span class="token operator">:</span> Float32Array<span class="token punctuation">,</span> <span class="token literal-property property">len</span><span class="token operator">:</span> <span class="token number">0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+  wasm <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> min <span class="token operator">=</span> arr<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span>
+    <span class="token keyword">let</span> max <span class="token operator">=</span> arr<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      min <span class="token operator">=</span> Math<span class="token punctuation">.</span><span class="token function">min</span><span class="token punctuation">(</span>min<span class="token punctuation">,</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span>
+      max <span class="token operator">=</span> Math<span class="token punctuation">.</span><span class="token function">max</span><span class="token punctuation">(</span>max<span class="token punctuation">,</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>max <span class="token operator">></span> min<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      <span class="token keyword">let</span> lo <span class="token operator">=</span> <span class="token function">f32x4_splat</span><span class="token punctuation">(</span>min<span class="token punctuation">)</span>
+      <span class="token keyword">let</span> inv <span class="token operator">=</span> <span class="token function">f32x4_splat</span><span class="token punctuation">(</span><span class="token number">1.0</span> <span class="token operator">/</span> <span class="token punctuation">(</span>max <span class="token operator">-</span> min<span class="token punctuation">)</span><span class="token punctuation">)</span>
+      <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i <span class="token operator">+=</span> <span class="token number">4</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        <span class="token keyword">let</span> off <span class="token operator">=</span> i <span class="token operator">*</span> <span class="token number">4</span>
+        <span class="token function">f32x4_store</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">,</span> <span class="token function">f32x4_mul</span><span class="token punctuation">(</span><span class="token function">f32x4_sub</span><span class="token punctuation">(</span><span class="token function">f32x4_load</span><span class="token punctuation">(</span>arr<span class="token punctuation">,</span> off<span class="token punctuation">)</span><span class="token punctuation">,</span> lo<span class="token punctuation">)</span><span class="token punctuation">,</span> inv<span class="token punctuation">)</span><span class="token punctuation">)</span>
+      <span class="token punctuation">}</span>
+    <span class="token punctuation">}</span>
+  <span class="token punctuation">}</span> fallback <span class="token punctuation">{</span>
+    <span class="token keyword">let</span> min <span class="token operator">=</span> arr<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span>
+    <span class="token keyword">let</span> max <span class="token operator">=</span> arr<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span>
+    <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">1</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+      min <span class="token operator">=</span> Math<span class="token punctuation">.</span><span class="token function">min</span><span class="token punctuation">(</span>min<span class="token punctuation">,</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span>
+      max <span class="token operator">=</span> Math<span class="token punctuation">.</span><span class="token function">max</span><span class="token punctuation">(</span>max<span class="token punctuation">,</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span><span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+    <span class="token keyword">if</span> <span class="token punctuation">(</span>max <span class="token operator">></span> min<span class="token punctuation">)</span> <span class="token keyword">for</span> <span class="token punctuation">(</span><span class="token keyword">let</span> i <span class="token operator">=</span> <span class="token number">0</span><span class="token punctuation">;</span> i <span class="token operator">&lt;</span> len<span class="token punctuation">;</span> i<span class="token operator">++</span><span class="token punctuation">)</span> arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token punctuation">(</span>arr<span class="token punctuation">[</span>i<span class="token punctuation">]</span> <span class="token operator">-</span> min<span class="token punctuation">)</span> <span class="token operator">/</span> <span class="token punctuation">(</span>max <span class="token operator">-</span> min<span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+test <span class="token string">'rescales to [0, 1]'</span> <span class="token punctuation">{</span>
+  <span class="token keyword">const</span> data <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Float32Array</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token operator">-</span><span class="token number">10</span><span class="token punctuation">,</span> <span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">10</span><span class="token punctuation">,</span> <span class="token number">30</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+  <span class="token function">rescale</span><span class="token punctuation">(</span>data<span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">)</span>
+  <span class="token function">expect</span><span class="token punctuation">(</span>Array<span class="token punctuation">.</span><span class="token function">from</span><span class="token punctuation">(</span>data<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">toEqual</span><span class="token punctuation">(</span><span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">0.25</span><span class="token punctuation">,</span> <span class="token number">0.5</span><span class="token punctuation">,</span> <span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<h2>Tips</h2>
+<ul>
+<li><strong>Always provide a <code>fallback</code>.</strong> It is your safety net, and it makes the code testable
+without WASM.</li>
+<li><strong>Read the compile error</strong> when a block is refused: it names the construct outside the subset.</li>
+<li><strong>Align to 4 elements</strong> for SIMD, or finish the remainder with a scalar loop.</li>
+<li><strong>Use <code>wasmBuffer</code> for large arrays in hot loops</strong>: copying a regular array in and out can
+cost more than WASM saves.</li>
+<li><strong>WASM blocks share memory per file</strong>: all blocks in one <code>.tjs</code> file use the same 64MB
+<code>WebAssembly.Memory</code>.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li>Calls inside a block are limited to the SIMD intrinsics and the <code>Math</code> functions above.
+To compose WASM across functions and files, use <code>wasm function</code> declarations
+(<a href="../DOCS-WASM.md">WASM in TJS</a>).</li>
+<li>A block returns a number (<code>f64</code>) or nothing.</li>
+<li><code>wasmBuffer</code> allocations are permanent (bump allocator).</li>
+<li>SIMD is <code>f32</code> only (<code>f32x4</code>): no <code>i32x4</code> or <code>f64x2</code> yet.</li>
+</ul>
+<h2>Next Steps</h2>
+<ul>
+<li><a href="../DOCS-WASM.md">WASM in TJS</a>: the full reference, including <code>wasm function</code>
+declarations, cross-file composition and the <code>tjs-lang/linalg</code> kernels.</li>
+<li><a href="../guides/examples/tjs/wasm-basics.md">WASM Basics</a>: integer math, floats, array processing.</li>
+<li><a href="../guides/examples/tjs/wasm-simd.md">WASM SIMD</a>: SIMD patterns and benchmarking.</li>
+<li><a href="../guides/examples/tjs/wasm-memory.md">WASM Memory</a>: marshaling and <code>wasmBuffer()</code> in depth.</li>
+<li><a href="../guides/examples/tjs/wasm-functions.md">WASM Functions</a>: <code>wasm function</code> declarations.</li>
+<li><a href="../guides/examples/tjs/wasm-starfield.md">WASM Starfield</a>: 50K SIMD-accelerated particles.</li>
+<li><a href="../guides/examples/tjs/wasm-vector-search.md">WASM Vector Search</a>: SIMD cosine similarity
+against JavaScript.</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link current" href="../WASM-QUICKSTART/" aria-current="page">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — the 1.0 VM</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../vm-budgets/">VM budgets: how fuel and maxHeapBytes stay true</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../pattern/">Pattern: declarative matching for TJS and AJS, and regex as an opt-in</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script type="module" src="../hydrate-y3qvx4kt.js"></script>
+</body>
+</html>

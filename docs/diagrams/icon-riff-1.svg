@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Riff 1: "The Aware Runtime" — owl face as a live terminal/monitor
+     The screen shows -> (the TJS return type arrow), suggesting the owl
+     IS the runtime. Eyes are active. Blue sky palette from the animation. -->
+<svg viewBox="0 0 48 48" width="48" height="48" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .bg { fill: #3da8f4; }
+    .screen { fill: #ffffff; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .outline { fill: none; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .wing { fill: #9e9e9e; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .body { fill: #e4e4e4; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .feet { fill: none; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .eye { fill: #006736; stroke: #000; stroke-width: 1.5; stroke-linecap: round; }
+    .symbol { fill: none; stroke: #006736; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .cloud { fill: rgba(255,255,255,0.85); }
+  </style>
+
+  <!-- Background: blue sky -->
+  <rect width="48" height="48" rx="8" class="bg"/>
+
+  <!-- Small cloud bottom-left (from platform icon) -->
+  <ellipse cx="8" cy="43" rx="7" ry="4" class="cloud"/>
+  <ellipse cx="15" cy="44" rx="5" ry="3" class="cloud"/>
+
+  <!-- Left wing -->
+  <path d="M7.5,16 C4.5,16,2,18.5,2,21.5 C2,24,4,26,6.5,26 L6.6,26 C7.4,26,8,26.6,8,27.4 C8,29.9,10.1,32,12.6,32 L16,32 C18.6,32,20.7,29.9,20.7,27.3 L20.7,21.4 C20.7,18.4,18.3,16,15.3,16 Z" class="wing"/>
+
+  <!-- Right wing -->
+  <path d="M40.5,16 C43.5,16,46,18.5,46,21.5 C46,24,44,26,41.5,26 L41.4,26 C40.6,26,40,26.6,40,27.4 C40,29.9,37.9,32,35.4,32 L32,32 C29.4,32,27.3,29.9,27.3,27.3 L27.3,21.4 C27.3,18.4,29.7,16,32.7,16 Z" class="wing"/>
+
+  <!-- Body -->
+  <path d="M17,29 L33,29 C33,34.5,28.5,39,23,39 C19.7,39,17,36.3,17,33 Z" class="body"/>
+
+  <!-- Feet -->
+  <path d="M20,43 L18,41 L16,43" class="feet"/>
+  <path d="M32,43 L30,41 L28,43" class="feet"/>
+
+  <!-- Rain lines (subtle, from animation) -->
+  <path d="M35,35 L32.2,35 L32.2,37.8" class="feet"/>
+  <path d="M31,39 L28.2,39 L28.2,41.8" class="feet"/>
+
+  <!-- Head/Screen -->
+  <rect x="6" y="6" width="30" height="23" rx="4" class="screen"/>
+
+  <!-- Divider line (nose) -->
+  <line x1="21" y1="11" x2="21" y2="23" class="outline"/>
+
+  <!-- Eyes: green rectangles (like code blocks / the runtime watching) -->
+  <rect x="10" y="13" width="7" height="6" rx="1.5" class="eye"/>
+  <rect x="25" y="13" width="7" height="6" rx="1.5" class="eye"/>
+
+  <!-- TJS arrow symbol on forehead area -->
+  <path d="M15,9 L19,9" class="symbol"/>
+  <path d="M17.5,7.5 L19,9 L17.5,10.5" class="symbol"/>
+</svg>

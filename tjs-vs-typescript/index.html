@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=18b2a2559121" data-tosi-doc-system />
+  <title>TJS vs TypeScript vs JavaScript — tjs-lang</title>
+  <meta name="description" content="Source: src/lang/differences.ts Regenerate: bun run docs:differences Every row below is executed against tsc --strict and TJS by src/lang/differences.test.ts…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/tjs-vs-typescript/" />
+  <link rel="alternate" type="text/markdown" href="index.md" title="TJS vs TypeScript vs JavaScript — tjs-lang (markdown)" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="TJS vs TypeScript vs JavaScript — tjs-lang" />
+  <meta property="og:description" content="Source: src/lang/differences.ts Regenerate: bun run docs:differences Every row below is executed against tsc --strict and TJS by src/lang/differences.test.ts…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/tjs-vs-typescript/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"TJS vs TypeScript vs JavaScript","description":"Source: src/lang/differences.ts Regenerate: bun run docs:differences Every row below is executed against tsc --strict and TJS by src/lang/differences.test.ts…","url":"https://tjs.tosijs.net/tjs-vs-typescript/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+<script>globalThis.__TJS_LOCAL_BASE="/tjs/"</script><script>globalThis.__TOSI_EXAMPLE_POLICY="opt-in"</script><script>globalThis.__TOSI_DIALECTS=["ajs","tjs"]</script><script>globalThis.__TOSI_IMPORT_RESOLVER={"prefix":"/lib/","workerUrl":"/import-resolver-worker.js","reloadOnFirstInstall":false}</script>
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=5985136f9c7e" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;,&quot;projectLinks&quot;:{&quot;github&quot;:&quot;https://github.com/tonioloewald/tjs-lang&quot;,&quot;npm&quot;:&quot;https://www.npmjs.com/package/tjs-lang&quot;}}">
+  <article class="doc-content">
+<!--{"section": "home", "order": 1, "navTitle": "TJS vs TypeScript", "parent": "typescript-good-bad-ugly.md"}--><h1>TJS vs TypeScript vs JavaScript</h1>
+<!-- GENERATED FILE — do not edit.
+     Source: src/lang/differences.ts
+     Regenerate: bun run docs:differences
+     Every row below is executed against `tsc --strict` and TJS by
+     src/lang/differences.test.ts, which fails if a documented result is not the
+     observed one. --><p>Every difference on this page is <strong>executed</strong>, not asserted. Each snippet is run through
+<code>tsc --strict</code> and through TJS on every test run, and the table below reports what those
+compilers actually did — not what someone believed when they wrote the page.</p>
+<p>That matters more than it sounds. One review cycle of this project turned up six
+documented behaviours that did not exist: an arrow return syntax that was never
+implemented, a <code>predicate =&gt;</code> form that parsed and validated nothing, <code>.d.ts</code> stubs that
+were never emitted, annotations documented as checked that resolved to <code>any</code>, an editor
+completion suggesting a form the compiler rejects, and a playground page teaching nine
+abolished directives. Not one was caught by reading.</p>
+<p>For each snippet you see what each compiler actually did: what the program printed, or the
+compile error it reported, quoted as the compiler wrote it.</p>
+<h3>Assigning a number to a DOM string property</h3>
+<pre><code class="language-ts" data-highlighted><span class="token keyword">declare</span> <span class="token keyword">const</span> input<span class="token operator">:</span> HTMLInputElement
+input<span class="token punctuation">.</span>value <span class="token operator">=</span> <span class="token number">42</span>
+</code></pre>
+<p>The same program in TJS (the snippet above is TypeScript-only syntax):</p>
+<pre><code class="language-js" data-highlighted><span class="token keyword">class</span> <span class="token class-name">Input</span> <span class="token punctuation">{</span>
+  <span class="token function">constructor</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token punctuation">.</span>_v <span class="token operator">=</span> <span class="token string">""</span> <span class="token punctuation">}</span>
+  <span class="token keyword">get</span> <span class="token function">value</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token keyword">this</span><span class="token punctuation">.</span>_v <span class="token punctuation">}</span>
+  <span class="token keyword">set</span> <span class="token function">value</span><span class="token punctuation">(</span><span class="token parameter">x</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token punctuation">.</span>_v <span class="token operator">=</span> <span class="token function">String</span><span class="token punctuation">(</span>x<span class="token punctuation">)</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">const</span> input <span class="token operator">=</span> <span class="token function">Input</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+input<span class="token punctuation">.</span>value <span class="token operator">=</span> <span class="token number">42</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>input<span class="token punctuation">.</span>value<span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: compile error</p>
+<pre><code class="language-text" data-highlighted>TS2322: Type 'number' is not assignable to type 'string'.
+</code></pre>
+<p><strong>TJS</strong>: compiles and prints <code>42</code></p>
+<p>The DOM spec coerces to a string on assignment. TypeScript models <code>value</code> as a plain <code>string</code> property, so it rejects code the platform is specified to accept.</p>
+<hr>
+<h3><code>typeof null</code></h3>
+<pre><code class="language-js" data-highlighted>console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token keyword">typeof</span> <span class="token keyword">null</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: compiles and prints <code>object</code></p>
+<p><strong>TJS</strong>: compiles and prints <code>null</code></p>
+<p>A 1995 bug JavaScript cannot fix without breaking the web. TypeScript inherits it; TJS reports what the value actually is.</p>
+<hr>
+<h3><code>==</code> between a string and a number</h3>
+<pre><code class="language-js" data-highlighted>console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token string">'5'</span> <span class="token operator">==</span> <span class="token number">5</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: compile error</p>
+<pre><code class="language-text" data-highlighted>TS2367: This comparison appears to be unintentional because the types 'string' and 'number' have no overlap.
+</code></pre>
+<p><strong>TJS</strong>: compiles and prints <code>false</code></p>
+<p>TJS <code>==</code> compares the actual values when the line runs and never converts one type to another, so a string is never equal to a number. TypeScript refuses to compile this line (TS2367, &quot;no overlap&quot;) because it can see both types here; the next row is what happens when it cannot.</p>
+<hr>
+<h3><code>==</code> when the type is not statically known</h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">const</span> a <span class="token operator">=</span> <span class="token constant">JSON</span><span class="token punctuation">.</span><span class="token function">parse</span><span class="token punctuation">(</span><span class="token string">'"5"'</span><span class="token punctuation">)</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>a <span class="token operator">==</span> <span class="token number">5</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: compiles and prints <code>true</code></p>
+<p><strong>TJS</strong>: compiles and prints <code>false</code></p>
+<p>The same comparison, with the string coming from <code>JSON.parse</code>. TypeScript only checks what it can see at compile time, so it says nothing here, and JavaScript <code>==</code> converts <code>&#39;5&#39;</code> to <code>5</code>. TJS does not depend on compile-time knowledge: it compares the values when the line runs, and <code>&#39;5&#39;</code> is still a string.</p>
+<hr>
+<h3><code>var</code></h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">var</span> x <span class="token operator">=</span> <span class="token number">1</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>x<span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: compiles and prints <code>1</code></p>
+<p><strong>TJS</strong>: compile error</p>
+<pre><code class="language-text" data-highlighted>`var` is not allowed in TJS — use `const` or `let`.
+</code></pre>
+<p><code>var</code> is banned outright: a <code>.tjs</code> file may not contain it, whatever the code does with it, and there is no escape. <code>let</code> and <code>const</code> cover every use. The reason for the ban is what <code>var</code> CAN do (function-scoped hoisting, silent redeclaration), not anything this line does.</p>
+<hr>
+<h3><code>new Date()</code></h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">const</span> d <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">Date</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>d<span class="token punctuation">.</span><span class="token function">getTime</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: compiles and prints <code>0</code></p>
+<p><strong>TJS</strong>: compile error</p>
+<pre><code class="language-text" data-highlighted>`new Date()` is not allowed in TJS — the Date object is mutable and timezone-dependent.
+</code></pre>
+<p><code>Date</code> is mutable and timezone-dependent. <code>Timestamp</code> is epoch milliseconds and pure; <code>LegacyDate(x)</code> is the per-site escape when you need a real <code>Date</code>.</p>
+<hr>
+<h3>Distinguishing an integer from a float</h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">function</span> <span class="token function">f</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">n</span><span class="token operator">:</span> int</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> n <span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token function">String</span><span class="token punctuation">(</span><span class="token function">f</span><span class="token punctuation">(</span><span class="token number">2.5</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">22</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>MonadicError: Expected</code></p>
+<p>TypeScript has one numeric type, so &quot;this is a count/index/id&quot; is inexpressible and ends up policed by comments. <code>int</code>, <code>unsigned</code> and <code>float</code> name the distinction.</p>
+<hr>
+<h3>A type that survives to runtime</h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">function</span> <span class="token function">greet</span><span class="token punctuation">(</span>name<span class="token operator">:</span> <span class="token string">''</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token string">'hi '</span> <span class="token operator">+</span> name <span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token function">String</span><span class="token punctuation">(</span><span class="token function">greet</span><span class="token punctuation">(</span><span class="token number">42</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">22</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>MonadicError: Expected</code></p>
+<p>TypeScript erases annotations before the program runs, so a value arriving from JSON, the DOM or a network is unchecked. TJS checks at the boundary and returns a <code>MonadicError</code> rather than throwing.</p>
+<hr>
+<h3>The annotation IS a test</h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">function</span> <span class="token function">add</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token literal-property property">b</span><span class="token operator">:</span> <span class="token number">3</span></span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">5</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> a <span class="token operator">+</span> b <span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token string">'ok'</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>ok</code></p>
+<p>A return example is a worked example, compared by deep equality at build time. <code>add(2, 3)</code> must be 5 — change the body to <code>a - b</code> and the build fails, with no test file and no runner.</p>
+<hr>
+<h3>A wrong worked example fails the build</h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">function</span> <span class="token function">add</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">a</span><span class="token operator">:</span> <span class="token number">2</span><span class="token punctuation">,</span> <span class="token literal-property property">b</span><span class="token operator">:</span> <span class="token number">3</span></span><span class="token punctuation">)</span><span class="token operator">:</span> <span class="token number">6</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> a <span class="token operator">+</span> b <span class="token punctuation">}</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compile error</p>
+<pre><code class="language-text" data-highlighted>Function signature example is inconsistent:
+    Expected 6 at 'add', got 5
+</code></pre>
+<p>The other half of the previous row: the example is checked, not decoration. TypeScript has no equivalent — a return type cannot be wrong about a value.</p>
+<hr>
+<h3>Property names that declare their own types</h3>
+<pre><code class="language-js" data-highlighted>Type Prefixed <span class="token punctuation">{</span>
+  <span class="token literal-property property">example</span><span class="token operator">:</span> <span class="token punctuation">{</span><span class="token punctuation">}</span>
+  <span class="token function">predicate</span><span class="token punctuation">(</span><span class="token parameter">o</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> Object<span class="token punctuation">.</span><span class="token function">entries</span><span class="token punctuation">(</span>o<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">every</span><span class="token punctuation">(</span><span class="token punctuation">(</span><span class="token parameter"><span class="token punctuation">[</span>k<span class="token punctuation">,</span> v<span class="token punctuation">]</span></span><span class="token punctuation">)</span> <span class="token operator">=></span>
+      k<span class="token punctuation">.</span><span class="token function">startsWith</span><span class="token punctuation">(</span><span class="token string">'is'</span><span class="token punctuation">)</span> <span class="token operator">?</span> <span class="token keyword">typeof</span> v <span class="token operator">===</span> <span class="token string">'boolean'</span> <span class="token operator">:</span> <span class="token boolean">true</span>
+    <span class="token punctuation">)</span>
+  <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">function</span> <span class="token function">render</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">p</span><span class="token operator">:</span> Prefixed</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token number">1</span> <span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token function">String</span><span class="token punctuation">(</span><span class="token function">render</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">isOpen</span><span class="token operator">:</span> <span class="token string">'yes'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">22</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>MonadicError: Expected</code></p>
+<p>An index signature forces one type across all keys and a mapped type needs them enumerated in advance, so TypeScript cannot express a convention over an OPEN key set. A predicate reads the name and decides.</p>
+<hr>
+<h3>A predicate that reads as a definition: <code>predicate { return expr }</code></h3>
+<pre><code class="language-js" data-highlighted>Type Even <span class="token punctuation">{</span>
+  <span class="token literal-property property">example</span><span class="token operator">:</span> <span class="token number">2</span>
+  predicate <span class="token punctuation">{</span> <span class="token keyword">return</span> Even <span class="token operator">%</span> <span class="token number">2</span> <span class="token operator">===</span> <span class="token number">0</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>Even<span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token number">4</span><span class="token punctuation">)</span><span class="token punctuation">,</span> Even<span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>true false</code></p>
+<p>Inside a <code>Type</code> block the type NAME is the value under test, so <code>Even % 2 === 0</code> reads as &quot;an Even is a value where …&quot;. The body is an ordinary block, so <code>return</code> is required, exactly as in JavaScript: nothing new to learn. (<code>predicate(x) { … }</code> names the value explicitly instead.)</p>
+<hr>
+<h3>A parameterized type needs no predicate to check its parameter</h3>
+<pre><code class="language-js" data-highlighted>Type Box<span class="token operator">&lt;</span><span class="token constant">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+  <span class="token literal-property property">example</span><span class="token operator">:</span> <span class="token punctuation">{</span> <span class="token literal-property property">value</span><span class="token operator">:</span> <span class="token constant">T</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token function">Box</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">value</span><span class="token operator">:</span> <span class="token number">7</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">Box</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">check</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">value</span><span class="token operator">:</span> <span class="token string">'s'</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>true false</code></p>
+<p>The example already says WHERE the parameter goes, so <code>T</code> applied at that slot is derivable and writing <code>predicate(x, T) { return T(x.value) }</code> restates it. Until this was built, omitting the predicate emitted <code>Generic([...], () =&gt; true)</code> — a parameterized type that accepted every value while looking like it checked one.</p>
+<hr>
+<h3>Type arguments in an annotation: <code>b: Box&lt;int&gt;</code></h3>
+<pre><code class="language-js" data-highlighted>Type Box<span class="token operator">&lt;</span><span class="token constant">T</span><span class="token operator">></span> <span class="token punctuation">{</span>
+  <span class="token function">predicate</span><span class="token punctuation">(</span><span class="token parameter">x<span class="token punctuation">,</span> <span class="token constant">T</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> <span class="token constant">T</span><span class="token punctuation">(</span>x<span class="token punctuation">.</span>value<span class="token punctuation">)</span> <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+<span class="token keyword">function</span> <span class="token function">unbox</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">b</span><span class="token operator">:</span> Box<span class="token operator">&lt;</span>int<span class="token operator">></span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> b<span class="token punctuation">.</span>value <span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token function">String</span><span class="token punctuation">(</span><span class="token function">unbox</span><span class="token punctuation">(</span><span class="token punctuation">{</span> <span class="token literal-property property">value</span><span class="token operator">:</span> <span class="token number">1.5</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">slice</span><span class="token punctuation">(</span><span class="token number">0</span><span class="token punctuation">,</span> <span class="token number">22</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>MonadicError: Expected</code></p>
+<p>A parameterized type applied to arguments is a CALL at run time, and a primitive argument has no runtime binding — so it becomes a PREDICATE, the only representation available for a type that is not a value. The applied type is hoisted to a module-level <code>const</code> named after the annotation, so it is built once rather than per call and the emitter&#39;s existing declared-type path handles it unchanged. Composes: <code>Box&lt;Box&lt;int&gt;&gt;</code> works because a parameterized type is itself a valid type argument.</p>
+<hr>
+<h3>Two functions with the same name</h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">function</span> <span class="token function">area</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">w</span><span class="token operator">:</span> number</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> w <span class="token operator">*</span> w <span class="token punctuation">}</span>
+<span class="token keyword">function</span> <span class="token function">area</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">w</span><span class="token operator">:</span> number<span class="token punctuation">,</span> <span class="token literal-property property">h</span><span class="token operator">:</span> number</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> w <span class="token operator">*</span> h <span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token function">area</span><span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">area</span><span class="token punctuation">(</span><span class="token number">3</span><span class="token punctuation">,</span> <span class="token number">4</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p>The same program in TJS (the snippet above is TypeScript-only syntax):</p>
+<pre><code class="language-js" data-highlighted><span class="token keyword">function</span> <span class="token function">area</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">w</span><span class="token operator">:</span> <span class="token number">0.0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> w <span class="token operator">*</span> w <span class="token punctuation">}</span>
+<span class="token keyword">function</span> <span class="token function">area</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">w</span><span class="token operator">:</span> <span class="token number">0.0</span><span class="token punctuation">,</span> <span class="token literal-property property">h</span><span class="token operator">:</span> <span class="token number">0.0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span> w <span class="token operator">*</span> h <span class="token punctuation">}</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span><span class="token function">area</span><span class="token punctuation">(</span><span class="token number">3.0</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token function">area</span><span class="token punctuation">(</span><span class="token number">3.0</span><span class="token punctuation">,</span> <span class="token number">4.0</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: compile error</p>
+<pre><code class="language-text" data-highlighted>TS2393: Duplicate function implementation.
+</code></pre>
+<p><strong>TJS</strong>: compiles and prints <code>9 12</code></p>
+<p>TypeScript HAS overloads, but they are signature declarations over ONE implementation — TS2393 for a second body — and they are erased entirely, so you write the dispatch by hand. TJS merges same-name declarations into a real arity/type dispatcher, so each case is its own function.</p>
+<hr>
+<h3><code>new</code> on a user class</h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">class</span> <span class="token class-name">P</span> <span class="token punctuation">{</span> <span class="token function">constructor</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">x</span><span class="token operator">:</span> <span class="token number">0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token punctuation">.</span>x <span class="token operator">=</span> x <span class="token punctuation">}</span> <span class="token punctuation">}</span>
+<span class="token keyword">const</span> p <span class="token operator">=</span> <span class="token keyword">new</span> <span class="token class-name">P</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compile error</p>
+<pre><code class="language-text" data-highlighted>`new P` is not allowed in TJS — a class is CALLED, so `P(…)` does exactly what `new P(…)` does and returns the same object. Drop the keyword.
+</code></pre>
+<p><code>P(1)</code> and <code>new P(2)</code> produce identical objects — a TJS class is CALLED — so <code>new</code> was decoration with the look of significance. Scoped to classes declared in the file: for a built-in <code>new</code> is MANDATORY (<code>new Float32Array(4)</code> throws without it), a limit found by shipping the general rule and watching eight examples break within a minute.</p>
+<hr>
+<h3>Calling a class without <code>new</code></h3>
+<pre><code class="language-js" data-highlighted><span class="token keyword">class</span> <span class="token class-name">P</span> <span class="token punctuation">{</span> <span class="token function">constructor</span><span class="token punctuation">(</span><span class="token parameter"><span class="token literal-property property">x</span><span class="token operator">:</span> <span class="token number">0</span></span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">this</span><span class="token punctuation">.</span>x <span class="token operator">=</span> x <span class="token punctuation">}</span> <span class="token punctuation">}</span>
+<span class="token keyword">const</span> p <span class="token operator">=</span> <span class="token constant">P</span><span class="token punctuation">(</span><span class="token number">1</span><span class="token punctuation">)</span>
+console<span class="token punctuation">.</span><span class="token function">log</span><span class="token punctuation">(</span>p<span class="token punctuation">.</span>x<span class="token punctuation">)</span>
+</code></pre>
+<p><strong>TypeScript (<code>tsc --strict</code>)</strong>: not comparable — the snippet is not valid input here.</p>
+<p><strong>TJS</strong>: compiles and prints <code>1</code></p>
+<p>A TJS class is called, not constructed — <code>new</code> adds nothing. In JavaScript (and TypeScript) calling a class without <code>new</code> is a TypeError, so the ceremony is mandatory even though it carries no information.</p>
+<hr>
+<h2>Adding a row</h2>
+<p>Edit <code>src/lang/differences.ts</code>, then run <code>bun run docs:differences</code>. If
+<code>differences.test.ts</code> disagrees with your row, it is reporting the language as it is —
+which is the point. A row that cannot be executed does not belong on this page.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — the 1.0 VM</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../vm-budgets/">VM budgets: how fuel and maxHeapBytes stay true</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../pattern/">Pattern: declarative matching for TJS and AJS, and regex as an opt-in</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details open><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link current" href="../tjs-vs-typescript/" aria-current="page">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script type="module" src="../hydrate-y3qvx4kt.js"></script>
+</body>
+</html>
