@@ -89,6 +89,26 @@ function greet(name: 'World'): '' { return 'Hello, ' + name }`
     expect(md).toContain('## greet')
   })
 
+  // tosijs-ui feature-detects `stripExports` on this bundle to run examples written as modules
+  // (`export const …` is a syntax error in the async function body it runs; #3109).
+  it('tjs-browser exports stripExports, and it parses rather than pattern-matches', () => {
+    const iife = buildSync({
+      entryPoints: [`${HERE}/browser.ts`],
+      bundle: true,
+      format: 'iife',
+      globalName: '__tjsBrowser',
+      platform: 'neutral',
+      write: false,
+    }).outputFiles[0].text
+    const m = new Function(`${iife}\nreturn __tjsBrowser`)()
+    expect(typeof m.stripExports).toBe('function')
+    expect(m.stripExports('export const a = 1')).toBe('const a = 1')
+    // A template line that begins with "export " is data.
+    expect(m.stripExports('const s = `\nexport x`')).toBe(
+      'const s = `\nexport x`'
+    )
+  })
+
   it('default TypeScript CDN is esm.sh (the only one that serves it reliably)', () => {
     expect(DEFAULT_TYPESCRIPT_URL).toBe('https://esm.sh/typescript@5')
   })

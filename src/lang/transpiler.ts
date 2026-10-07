@@ -16,6 +16,10 @@ export { transpile, ajs, tjs, createAgent, getToolDefinitions } from './core'
 // Parser — TJS's.
 export { parse, preprocess, extractTDoc } from './parser'
 
+// Make an ES module's code runnable as a script body, by PARSING (literal-safe). tosijs-ui
+// runs live examples as an async function body and ships no parser of its own (#3109).
+export { stripExports } from './strip-exports'
+
 // Parser — AJS's. Exported beside TJS's because the pair IS the split, and because the
 // 0.13.10 CHANGELOG tells `vmTarget` callers to migrate to `parseAgentSource()` "from
 // `tjs-lang/lang`" — which was false in all three export conditions until this line existed.

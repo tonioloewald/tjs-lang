@@ -10,29 +10,24 @@
 import 'tosijs-ui/doc-browser'
 import 'tosijs-ui/live-example'
 import { registerDialect } from 'tosijs-ui/live-example'
-import * as tosijs from 'tosijs'
-import * as tosijsUi from 'tosijs-ui'
 import { transpile, tjs } from '../src/lang/core'
 import { generateDocsMarkdown } from '../src/lang/docs'
 import { installRuntime } from '../src/lang/runtime'
 import { AgentVM } from '../src/vm/ast'
-import { stripExports } from './strip-exports'
+import { stripExports } from '../src/lang/strip-exports'
 
 // The FULL runtime, as the old playground installed it. Emitted code prefers an installed
 // `globalThis.__tjs` over its inline stub, and the stub has no flight recorder, so the
 // error-history example's `__tjs.clearErrors()` was "not a function" on the site.
 installRuntime()
 
-// The modules examples `import` (`tosijs`, `tosijs-ui`). The doc system reads them from these
-// globals, which tosijs-ui's OWN iife.js sets; this bundle replaces that iife, so without this
-// every `import { … } from 'tosijs'` in an example resolved to undefined (tosijs-todo: "Cannot
-// destructure property 'elements' of 'tosijs'").
-Object.assign(globalThis, { xinjs: tosijs, xinjsui: tosijsUi })
+// (The example context needs nothing here: since tosijs-ui 1.16.7 the doc system supplies
+// `tosijs` itself, and no example imports `tosijs-ui`. This entry used to set both globals.)
 
-// THIS commit's TJS, replacing tosijs-ui's built-in `tjs` dialect (which loads the
-// same-origin bundle, else a CDN's pinned tjs-lang). Two things the built-in does not do:
-// strip `export` (examples written as modules ran as a function body and failed with
-// "Unexpected token 'export'"), and it is the transpiler the docs describe, always.
+// Replaces tosijs-ui's built-in `tjs` dialect for ONE reason left: stripping `export`, so
+// examples written as modules run (as a function body they fail with "Unexpected token
+// 'export'"). tosijs-ui will do this itself by feature-detecting `stripExports` on the
+// same-origin tjs-lang bundle (tosijs-ui#210 item 5, Virta #3109); delete this then.
 registerDialect('tjs', {
   label: 'TJS',
   editorMode: 'tjs',
@@ -49,22 +44,8 @@ registerDialect('tjs', {
   },
 })
 
-// TypeScript examples: `fromTS` → TJS → JS. tosijs-ui's built-in `ts` passes `dialect: 'tjs'`
-// to the second step, which OVERRIDES the `/* tjs <- … */` annotation that gives converted
-// TypeScript JavaScript's semantics, so `new Calculator(…)` in a TS example was refused as
-// TJS. Here the annotation decides. `fromTS` comes from the same-origin bundle this build
-// ships (it lazy-loads the TypeScript compiler); the specifier is a variable so the bundler
-// leaves the import to runtime.
-const FROM_TS_URL = '/tjs/tjs-browser-from-ts.js'
-let fromTsModule: Promise<any> | undefined
-registerDialect('ts', {
-  label: 'TS',
-  async transform(source) {
-    const { fromTS } = await (fromTsModule ??= import(FROM_TS_URL))
-    const converted = (await fromTS(source, { emitTJS: true })).code
-    return { code: stripExports(tjs(converted, { runTests: false }).code) }
-  },
-})
+// TypeScript examples use tosijs-ui's built-in `ts` dialect: since 1.16.8 it no longer passes
+// `dialect: 'tjs'` after `fromTS`, which refused `new` in converted TypeScript.
 
 /**
  * Domains the AJS examples fetch from, and nothing else. A doc page is public: an example a
