@@ -63,7 +63,6 @@ export const TJS_STATEMENT_KEYWORDS = [
   'wasm', // inline WebAssembly
   'test', // inline tests
   'mock', // test setup blocks
-  'unsafe', // exception-catching blocks
   GIVEN, // value dispatch without fallthrough
 ] as const satisfies readonly string[]
 
@@ -81,10 +80,20 @@ export const TJS_BLOCK_MEMBERS = [
   'declaration',
 ] as const satisfies readonly string[]
 
+/**
+ * Deprecated constructs: still parsed (with a deprecation warning), so still highlighted —
+ * code that uses one must not look like a syntax error — but never OFFERED as a completion.
+ * An editor that suggests a construct the compiler warns about is teaching it.
+ */
+export const TJS_DEPRECATED_KEYWORDS = [
+  'unsafe', // expression prefix; `LegacyDate(x)` replaces its one remaining use
+] as const satisfies readonly string[]
+
 /** Everything that must be highlighted, and must have a proof row. */
 export const TJS_CONSTRUCT_KEYWORDS = [
   ...TJS_STATEMENT_KEYWORDS,
   ...TJS_BLOCK_MEMBERS,
+  ...TJS_DEPRECATED_KEYWORDS,
 ] as const satisfies readonly string[]
 
 export type TjsConstructKeyword = (typeof TJS_CONSTRUCT_KEYWORDS)[number]

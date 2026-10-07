@@ -76,3 +76,88 @@ test 'equality without a global runtime' {
     }
   })
 })
+
+describe('tests run for an INDENTED module source (pre-tag review M1)', () => {
+  // extractTests stopped trimming (so compile errors name the right line), and the trim had
+  // been dedenting an indented first `export`. stripModuleSyntax stripped `export` only at
+  // column 0, so the test module failed to build and EVERY test came back inconclusive,
+  // silently — the guardrail canary included. Template-literal fixtures are indented.
+  it('a failing test in an indented source fails', () => {
+    expect(() =>
+      tjs(`
+  export function inc(count: 0) { return count + 1 }
+  test 'fails' { expect(inc(1)).toBe(3) }
+`)
+    ).toThrow()
+  })
+
+  it('the signature canary in an indented source fails', () => {
+    expect(() =>
+      tjs(`
+  export function add(a: 2, b: 3): 0 { return a + b }
+`)
+    ).toThrow(/signature example is inconsistent/)
+  })
+
+  it('a passing test in an indented source passes (not inconclusive)', () => {
+    const r = tjs(
+      `
+  export function inc(count: 0) { return count + 1 }
+  test 'passes' { expect(inc(1)).toBe(2) }
+`,
+      { runTests: 'report' }
+    ) as any
+    const t = (r.testResults ?? []).find((x: any) => x.description === 'passes')
+    expect(t?.passed).toBe(true)
+    expect(t?.inconclusive ?? false).toBe(false)
+  })
+
+  it('a template line that begins with "export " is data, not syntax (m4)', () => {
+    expect(() =>
+      tjs(`
+const banner = \`a
+export b\`
+function f(x: 0) { return x }
+test 'banner' { expect(banner).toBe('a\\nexport b') }
+`)
+    ).not.toThrow()
+  })
+})
+
+describe('blanked regions cost lines, not bytes (pre-tag review m1)', () => {
+  // Doc comments and test blocks are blanked to spaces so offsets hold while the source is
+  // rewritten; the output used to keep every space (a 3.5KB module emitted ~12KB).
+  const docs =
+    '/#\n' +
+    Array.from({ length: 100 }, (_, i) => `line ${i} of documentation`).join(
+      '\n'
+    ) +
+    '\n#/'
+  const body = Array.from(
+    { length: 200 },
+    (_, i) => `  expect(f(${i})).toBe(${i})`
+  ).join('\n')
+  const src =
+    docs +
+    '\nfunction f(x: 0): 0 { return x }\nconst t = `a   \nb`\n' +
+    `test 'x' {\n${body}\n}\nconst z = 1\n`
+  const r = tjs(src)
+
+  it('no line of the output ends in padding outside a literal', () => {
+    const padded = r.code
+      .split('\n')
+      .filter((l: string) => /[ \t]$/.test(l) && !l.startsWith('const t = `'))
+    expect(padded).toEqual([])
+    expect(r.code.length).toBeLessThan(5000)
+  })
+
+  it('keeps every line, and a template literal keeps its trailing spaces', () => {
+    expect(r.code).toContain('const t = `a   \nb`')
+    const line = (code: string, needle: string) =>
+      code.slice(0, code.indexOf(needle)).split('\n').length
+    // The output carries a runtime prelude, so compare DISTANCES from the first statement.
+    const span = (code: string) =>
+      line(code, 'const z = 1') - line(code, 'const t = `')
+    expect(span(r.code)).toBe(span(src))
+  })
+})

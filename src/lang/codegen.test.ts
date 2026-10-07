@@ -2317,8 +2317,26 @@ describe('rest parameter metadata', () => {
       expect(() => tjs('var x = 1')).toThrow(/`?var`? is not allowed/)
     })
 
-    it('`unsafe var` is the deliberate exception', () => {
-      expect(() => tjs('unsafe var x = 1')).not.toThrow()
+    // `unsafe var` WAS the deliberate exception. 063371b decided there is none (var and eval
+    // are refused outright; the marker is deprecated), and the docs and diagnostics said "no
+    // escape" while this still compiled (0.14.0-rc.4 pre-tag review m2).
+    it('`unsafe var` is refused too: there is no escape', () => {
+      expect(() => tjs('unsafe var x = 1')).toThrow(/`?var`? is not allowed/)
+    })
+
+    it('`unsafe eval(s)` is refused: there is no escape', () => {
+      expect(() =>
+        tjs('function f(s: "") { return unsafe eval(s) }', { runTests: false })
+      ).toThrow(/eval/)
+    })
+
+    it('plain JS (dialect js) keeps var and eval: TJS stays a superset', () => {
+      expect(() =>
+        tjs('var x = 1\nfunction f(s) { return eval(s) }', {
+          dialect: 'js',
+          runTests: false,
+        })
+      ).not.toThrow()
     })
 
     it('allows const and let', () => {

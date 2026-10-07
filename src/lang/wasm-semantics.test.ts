@@ -318,7 +318,7 @@ function f(! a: 0.0, b: 0.0) {
     }
     expect(message).toMatch(/did not compile/)
     expect(message).toMatch(/\|/) // the reason names the operator
-    expect(message).toMatch(/:5:/) // the line of the block's body
+    expect(message).toMatch(/:4:/) // the block's own `wasm {` line
   })
 
   it('a wasm function that cannot compile is refused too', () => {
@@ -351,4 +351,96 @@ describe('SIMD loads and stores need a typed-array parameter', () => {
       )
     ).toThrow(/arr is not a typed array parameter/)
   })
+})
+
+describe('the wasm compile error is reported before transpile-time tests run (review m3)', () => {
+  it('a signature example does not mask why the block cannot compile', () => {
+    // The example is ALSO wrong (1.5 % 2.5 is 1.5, not 9). The signature test ran first, so the
+    // author saw "signature example is inconsistent" and not why the block cannot compile.
+    expect(() =>
+      tjs(
+        `function f(a: 1.5, b: 2.5): 9 { return wasm { return a % b } fallback { return a % b } }`
+      )
+    ).toThrow(/`%` needs integer \(i32\) operands/)
+  })
+})
+
+describe('module validation reaches a verdict for every invalid module (review m8)', () => {
+  // The validate-and-isolate path has no natural trigger once the compiler is correct, so
+  // these stub WebAssembly.validate. Two shapes: a module no block can produce valid (each
+  // block is the culprit), and a module that is invalid only as a WHOLE (no single culprit),
+  // which used to be rebuilt unchanged and returned, invalid, as a success.
+  const SRC = `function a(! x: 0.0) { return wasm { return x + 1.0 } fallback { return x + 1 } }
+function b(! x: 0.0) { return wasm { return x * 2.0 } fallback { return x * 2 } }`
+  const realValidate = WebAssembly.validate
+
+  it('every block invalid on its own: the transpile stops, naming a compiler bug', () => {
+    ;(WebAssembly as any).validate = () => false
+    try {
+      expect(() => tjs(SRC, { runTests: false })).toThrow(/compiler bug/)
+    } finally {
+      ;(WebAssembly as any).validate = realValidate
+    }
+  })
+
+  it('invalid only as a whole (no single culprit): the transpile stops too', () => {
+    // Isolation stubs the other slots, so each per-block module is SHORTER than the full one.
+    let full = Infinity
+    ;(WebAssembly as any).validate = (bytes: Uint8Array) => {
+      if (full === Infinity) full = bytes.length
+      return bytes.length < full
+    }
+    try {
+      expect(() => tjs(SRC, { runTests: false })).toThrow(/compiler bug/)
+    } finally {
+      ;(WebAssembly as any).validate = realValidate
+    }
+  })
+})
+
+describe('the wasm compile error points at the block that failed (review m6)', () => {
+  const blk = (n: string) => `function ${n}(! out: Float64Array, x: 0.0) {
+  wasm {
+    out[0] = x % 2
+  } fallback {
+    out[0] = x % 2
+  }
+  return out
+}
+`
+  const message = (src: string) => {
+    try {
+      tjs(src, { runTests: false })
+    } catch (e: any) {
+      return String(e.message)
+    }
+    return ''
+  }
+
+  it('two identical blocks each report their own line', () => {
+    // Body-text search pointed the second block at the FIRST block's fallback (line 5).
+    const m = message(blk('a') + blk('b'))
+    expect(m).toContain('A `wasm` block (line 2) did not compile')
+    expect(m).toContain('A `wasm` block (line 10) did not compile')
+  })
+
+  it('a wasm function is named, at its declaration', () => {
+    const m = message(
+      blk('a') + 'wasm function c(x: 0): 0 {\n  return x % 3.0\n}\n'
+    )
+    expect(m).toContain('`wasm function c` (line 9) did not compile')
+  })
+})
+
+describe('a wasm function return annotation may be a numeric example', () => {
+  // `: 0.0` is the idiomatic TJS float return. The annotation regex took `\w+`, matched `0`,
+  // missed the brace after `.0`, and passed the declaration through as JavaScript, which then
+  // failed to parse: "Unexpected token at 1:5".
+  for (const ret of ['0.0', '0', 'f64', '-1.5'])
+    it(`\`: ${ret}\` compiles`, async () => {
+      const r = tjs(`wasm function c(x: 0.0): ${ret} { return x * 3.0 }`, {
+        runTests: false,
+      })
+      expect(r.wasmCompiled?.every((b) => b.success)).toBe(true)
+    })
 })

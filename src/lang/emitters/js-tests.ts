@@ -12,6 +12,7 @@ import {
   splitTopLevelTrimmed,
 } from '../../strip-comments'
 import { transformExtensionCalls } from '../parser'
+import { stripModuleSyntaxParsed } from '../strip-exports'
 import { installRuntime } from '../runtime'
 import { expectFunction } from '../tests'
 import type { ExtractedTest, ExtractedMock } from '../tests'
@@ -370,6 +371,10 @@ function stripComments(code: string): string {
  * - Bundler plugins that need to extract module code
  */
 export function stripModuleSyntax(code: string): string {
+  // Parse first (literal-safe, indentation-blind); the line regexes below are the fallback
+  // for code that does not parse as a module. See `stripModuleSyntaxParsed`.
+  const parsed = stripModuleSyntaxParsed(code)
+  if (parsed !== null) return parsed
   // Remove import statements (entire line)
   let result = code.replace(/^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm, '')
   result = result.replace(/^import\s+['"][^'"]+['"];?\s*$/gm, '')

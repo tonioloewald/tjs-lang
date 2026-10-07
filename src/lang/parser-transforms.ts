@@ -638,11 +638,13 @@ export function extractWasmFunctions(source: string): {
       )
     }
 
-    // Optional return-type annotation: `: TYPE` (TYPE is a single identifier).
+    // Optional return-type annotation: `: TYPE`, a single identifier (`f64`) or a numeric
+    // example (`0`, `0.0`, `-1.5`). `\w+` alone matched the `0` of `: 0.0`, missed the brace
+    // after `.0`, and passed the declaration through as JavaScript.
     // Pointer-style annotations like `Ptr<f32>` are reserved for a follow-up.
     let returnType: string | undefined
     let afterReturnType = j
-    const retMatch = masked.slice(j).match(/^\s*:\s*(\w+)/)
+    const retMatch = masked.slice(j).match(/^\s*:\s*([+-]?\d+(?:\.\d+)?|\w+)/)
     if (retMatch) {
       returnType = retMatch[1]
       afterReturnType = j + retMatch[0].length
@@ -5397,7 +5399,9 @@ export function warnOnUnsafeMarker(
       `\`unsafe\` is deprecated (${spans.length} use${
         spans.length === 1 ? '' : 's'
       }) and will be removed. ` +
-        'For `new Date(x)` use `LegacyDate(x)`. `var` and `eval` will simply be refused: ' +
+        'For `new Date(x)` use `LegacyDate(x)`; for `new X(…)` on a class declared in this ' +
+        'file, drop `new` (calling the class constructs it). `var` and `eval` are refused, ' +
+        '`unsafe` or not: ' +
         'use `let`/`const`, and `Eval()` for sandboxed evaluation.'
     )
   }
@@ -5631,7 +5635,8 @@ export function validateNoVar(source: string): string {
 }
 
 /**
- * `new X()` is an error in TJS. `unsafe new X()` is the per-site escape.
+ * `new X()` on a class declared in this file is an error in TJS: call it instead. (The
+ * deprecated `unsafe new X()` still passes, with the deprecation warning.)
  *
  * It used to be a LINT for user classes while `new Date()` was a hard error — a rule for
  * built-ins and a suggestion for your own code, which is not a rule. And on a user class
@@ -5641,8 +5646,7 @@ export function validateNoVar(source: string): string {
  * harden into something we could not remove.
  *
  * Abolishing it costs nothing (the call form already works everywhere), retires the
- * `no-explicit-new` lint in favour of the compiler, and makes `unsafe new` mean
- * something instead of being decoration on top of decoration.
+ * `no-explicit-new` lint in favour of the compiler.
  *
  * SCOPED TO CLASSES DECLARED IN THIS FILE, and that limit was found by building the
  * general rule and watching the corpus reject it. `new` is decoration only where TJS

@@ -413,7 +413,14 @@ export function preprocess(
   // particular, the equality transforms below rewrite `==` to `Eq()` and
   // `Is`/`IsNot` to function calls — wasm bodies use literal operators
   // and shouldn't be affected.
-  const wasmFunctions = extractWasmFunctions(source)
+  // `wasm` is TJS syntax, so only native TJS gets it (the same "is this native TJS?" flag as
+  // raw Date). Plain JS and TS-originated source keep their meaning: `return wasm` then a
+  // block on the next line is legal JavaScript, which the scanners used to rewrite and then
+  // refuse (pre-tag review m7; PRINCIPLES invariant 1).
+  const nativeWasm = tjsModes.tjsDate
+  const wasmFunctions = nativeWasm
+    ? extractWasmFunctions(source)
+    : { source, blocks: [] as WasmBlock[] }
   source = wasmFunctions.source
 
   // Inline `wasm { ... }` blocks are extracted LATE (they need the surrounding
@@ -556,7 +563,9 @@ export function preprocess(
   // inline wasm bodies were masked across the operator transforms and restored
   // (see above) so their `==`/`Is` weren't rewritten. This finds the remaining
   // inline `wasm { ... }` blocks inside regular tjs functions.
-  const wasmBlocks = extractWasmBlocks(source)
+  const wasmBlocks = nativeWasm
+    ? extractWasmBlocks(source)
+    : { source, blocks: [] as WasmBlock[] }
   source = wasmBlocks.source
 
   // Combine all flavors of wasm blocks for the downstream emitter.
@@ -626,7 +635,7 @@ export function preprocess(
 
   // Raw `Date` is banned in native TJS. ABOLISHED AS A MODE (2026-08-02): there is no
   // `TjsDate` directive any more, so a `.tjs` file cannot dial this rule off — the
-  // extension is the gate, and `unsafe new Date(...)` is the per-construct escape.
+  // extension is the gate, and `LegacyDate(...)` is the per-construct escape.
   //
   // The flag itself survives because it still tracks DIALECT: plain JS and TS-originated
   // source must keep raw Date, or TJS would stop being a superset of JS.
@@ -646,13 +655,16 @@ export function preprocess(
   }
 
   // Validate TjsNoeval mode - check for eval/Function usage
+  // `eval` and `var` are checked against the RAW source: they have no escape (063371b), so
+  // `maskUnsafe` must not hide `unsafe eval(…)` / `unsafe var` from them. It did, and the
+  // diagnostics said "no escape" while both compiled (0.14.0-rc.4 pre-tag review m2).
   if (tjsModes.tjsNoeval) {
-    validateNoEval(ruleSource, modeWarnings)
+    validateNoEval(source, modeWarnings)
   }
 
   // Validate TjsNoVar mode - check for var declarations
   if (tjsModes.tjsNoVar) {
-    validateNoVar(ruleSource)
+    validateNoVar(source)
   }
 
   // The `unsafe` marker has done its job — remove it so what follows is plain JS.

@@ -11,7 +11,7 @@ import {
   transformBangAccess,
 } from './parser-transforms'
 import { preprocess } from './parser'
-import { commentSafe } from '../strip-comments'
+import { commentSafe, trimTrailingWhitespace } from '../strip-comments'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -1347,4 +1347,41 @@ describe('the bare-assignment auto-const leaves literals alone', () => {
   it('a real first assignment is still auto-const’d (control)', () => {
     expect(tjs('Green = { a: 1 }').code).toContain('const Green = { a: 1 }')
   })
+})
+
+describe('stripModuleSyntax leaves literals alone (pre-tag review m4)', () => {
+  it('a template whose lines begin with `export ` / `import ` is byte-identical', async () => {
+    const { stripModuleSyntax } = await import('./emitters/js-tests')
+    const literal = '`a\nexport b\nimport c from "d"\n`'
+    const out = stripModuleSyntax(`export const s = ${literal}\n`)
+    expect(out).toContain(literal)
+    expect(out.startsWith('const s = ')).toBe(true) // the declaration's own export went
+  })
+})
+
+describe('trimTrailingWhitespace leaves literals byte-identical (pre-tag review m1)', () => {
+  const rows: Array<[string, string, string]> = [
+    [
+      'template',
+      'const t = `a   \n  b  \n`   \nconst z = 1',
+      'const t = `a   \n  b  \n`\nconst z = 1',
+    ],
+    [
+      'string line continuation',
+      "const s = 'a  \\\n  b'   \nconst z = 1",
+      "const s = 'a  \\\n  b'\nconst z = 1",
+    ],
+    [
+      'blanked span before code keeps the column',
+      '        \n      const z = 1',
+      '\n      const z = 1',
+    ],
+    [
+      'regex with a trailing-space class',
+      'const r = / +/   \n',
+      'const r = / +/\n',
+    ],
+  ]
+  for (const [name, src, want] of rows)
+    it(name, () => expect(trimTrailingWhitespace(src)).toBe(want))
 })

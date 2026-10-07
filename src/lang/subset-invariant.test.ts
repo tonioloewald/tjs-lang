@@ -167,3 +167,26 @@ describe('Language subset invariants (PRINCIPLES.md)', () => {
     }
   })
 })
+
+describe('`wasm` is TJS syntax: plain JS that uses the word keeps its meaning (pre-tag review m7)', () => {
+  // `return wasm` then `{ … }` on the next line is legal JavaScript (ASI: return the variable,
+  // then a block). The wasm scanners ran in every dialect, so dialect js first REWROTE it into
+  // a wasm dispatch and, once a wasm block that cannot compile became an error, refused it.
+  it('dialect js: `return wasm` followed by a block on the next line is just JavaScript', () => {
+    const js = `function f() {
+  const wasm = 7
+  return wasm
+  { 1 + 2 }
+}`
+    const r = tjs(js, { dialect: 'js', runTests: false })
+    expect(new Function(`${r.code}\nreturn f`)()()).toBe(7)
+  })
+
+  it('dialect js: `wasm` on its own line before a function declaration', () => {
+    const js = `const wasm = 1
+wasm
+function g() { return 2 }`
+    const r = tjs(js, { dialect: 'js', runTests: false })
+    expect(new Function(`${r.code}\nreturn g`)()()).toBe(2)
+  })
+})

@@ -758,6 +758,50 @@ export function extractDocComments(source: string): string[] {
   )
 }
 
+/**
+ * Drop trailing spaces and tabs from every line, EXCEPT inside a string or template literal.
+ *
+ * The passes that blank a region (doc comments, test blocks, the hashbang) replace it with
+ * spaces so offsets hold while the source is being rewritten. In the OUTPUT that padding is
+ * dead weight: 100 blanked comment lines took a 3.5KB module to ~10KB (0.14.0-rc.4 pre-tag
+ * review m1). Only TRAILING whitespace goes, so every line and every column that has code on
+ * it is unchanged; a blanked span followed by code on its last line keeps the spaces in
+ * front of that code, because they are leading, not trailing.
+ *
+ * Literal-aware because a template literal's trailing spaces are its value — a global
+ * `/[ \t]+$/gm` would change what the program prints.
+ */
+export function trimTrailingWhitespace(code: string): string {
+  const keep = scanLiterals(code).filter(
+    (r) => r.kind === 'template' || r.kind === 'string'
+  )
+  // A linear scan, not `/[ \t]+(?=\n|$)/g`: that regex restarts at every space of a long run
+  // that ends in code, which is quadratic on exactly the blanked lines this exists for.
+  const parts: string[] = []
+  let last = 0
+  let k = 0
+  let runStart = -1
+  for (let i = 0; i <= code.length; i++) {
+    const ch = i < code.length ? code[i] : '\n'
+    if (ch === ' ' || ch === '\t') {
+      if (runStart < 0) runStart = i
+      continue
+    }
+    if (ch === '\n' && runStart >= 0) {
+      while (k < keep.length && keep[k].innerEnd <= runStart) k++
+      const inLiteral = k < keep.length && keep[k].innerStart <= runStart
+      if (!inLiteral) {
+        parts.push(code.slice(last, runStart))
+        last = i
+      }
+    }
+    runStart = -1
+  }
+  if (last === 0) return code
+  parts.push(code.slice(last))
+  return parts.join('')
+}
+
 /** Replace every TJS doc comment with equivalent whitespace, preserving offsets. */
 export function blankDocComments(source: string): string {
   const spans = findDocCommentSpans(source)

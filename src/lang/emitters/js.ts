@@ -122,7 +122,7 @@ import {
   hashbangOf,
 } from '../../strip-comments'
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
-import { blankDocComments } from '../../strip-comments'
+import { blankDocComments, trimTrailingWhitespace } from '../../strip-comments'
 import { RT_NS } from '../rt-namespace'
 import { extractTests, generateTestRunner } from '../tests'
 import {
@@ -2531,6 +2531,71 @@ export function transpileToJS(
   //     into output that is supposed to be standalone.
   code = addSafeEvalImports(code)
 
+  // Compile WASM blocks at transpile time and embed in output. BEFORE the transpile-time
+  // tests: a block that cannot compile is a compile error, and running the tests first let a
+  // failing signature example report instead, hiding why the block was refused (pre-tag review
+  // m3). The tests then also run the WASM that ships, not only the fallback.
+  let wasmCompiled:
+    | { id: string; success: boolean; error?: string; byteLength?: number }[]
+    | undefined
+  if (preprocessed.wasmBlocks.length > 0) {
+    const wasmBootstrap = generateWasmBootstrap(preprocessed.wasmBlocks)
+    if (wasmBootstrap.code) {
+      code = wasmBootstrap.code + '\n' + code
+    }
+    wasmCompiled = wasmBootstrap.results
+    // A block that cannot COMPILE is a hard error. `wasm { }` is a request for WASM; this used
+    // to compile to the block's `fallback {}` with a warning (and before that, silently), so a
+    // "fast path" could ship as JavaScript. The fallback is for a RUNTIME that cannot run WASM
+    // (an old engine, a CSP, an engine refusing to compile under memory pressure), not for
+    // code the compiler cannot compile: that is the author's to fix, or ours, and says which.
+    const failed = wasmCompiled.filter((w) => !w.success)
+    if (failed.length > 0) {
+      // Locate each block at its own keyword, over a literal-masked view: inline blocks are
+      // the `wasm {` / `wasm(…) {` sites in source order (extraction order), a declaration is
+      // `wasm function NAME`. Searching for body TEXT pointed two blocks that share a first line
+      // at the same place, and a repeated body at the previous block's `fallback {}`. An
+      // imported `wasm function` has no body here: point at the import that brought it in
+      // (pre-tag review m6).
+      const masked = maskLiterals(source)
+      const inlineSites = [
+        ...masked.matchAll(/\bwasm\s*(\([^)]*\))?\s*\{/g),
+      ].map((m) => m.index!)
+      const located = new Map<string, { line: number; column: number }>()
+      let nextInline = 0
+      for (const b of preprocessed.wasmBlocks) {
+        let i: number
+        if (b.name) {
+          i = masked.search(new RegExp(`\\bwasm\\s+function\\s+${b.name}\\b`))
+          if (i < 0)
+            i = masked.search(new RegExp(`\\bimport\\b[^;\\n]*\\b${b.name}\\b`))
+        } else i = inlineSites[nextInline++] ?? -1
+        if (i >= 0) located.set(b.id, locAt(source, i))
+      }
+      const describe = (w: { id: string; error?: string }) => {
+        const block = preprocessed.wasmBlocks.find((b) => b.id === w.id)
+        const what = block?.name
+          ? `\`wasm function ${block.name}\``
+          : 'A `wasm` block'
+        const where = located.get(w.id)
+        return `${what}${
+          where ? ` (line ${where.line})` : ''
+        } did not compile: ${w.error ?? 'unknown error'}.`
+      }
+      const loc = located.get(failed[0].id) ?? { line: 1, column: 0 }
+      throw new TJSSyntaxError(
+        failed.map(describe).join('\n') +
+          `\n\nRewrite it within the supported subset (DOCS-WASM, "Supported subset"), or ` +
+          `drop the \`wasm { }\` wrapper to run it as JavaScript.`,
+        loc,
+        source,
+        filename
+      )
+    }
+    // Compile-time wasm lints (e.g. i32/i32 integer division — UI-#4).
+    for (const w of wasmBootstrap.warnings) warnings.push(`wasm{}: ${w}`)
+  }
+
   // Run tests at transpile time if enabled
   let testResults: TestResult[] | undefined
 
@@ -2578,51 +2643,6 @@ export function transpileToJS(
     }
   }
 
-  // Compile WASM blocks at transpile time and embed in output
-  let wasmCompiled:
-    | { id: string; success: boolean; error?: string; byteLength?: number }[]
-    | undefined
-  if (preprocessed.wasmBlocks.length > 0) {
-    const wasmBootstrap = generateWasmBootstrap(preprocessed.wasmBlocks)
-    if (wasmBootstrap.code) {
-      code = wasmBootstrap.code + '\n' + code
-    }
-    wasmCompiled = wasmBootstrap.results
-    // A block that cannot COMPILE is a hard error. `wasm { }` is a request for WASM; this used
-    // to compile to the block's `fallback {}` with a warning (and before that, silently), so a
-    // "fast path" could ship as JavaScript. The fallback is for a RUNTIME that cannot run WASM
-    // (an old engine, a CSP, an engine refusing to compile under memory pressure), not for
-    // code the compiler cannot compile: that is the author's to fix, or ours, and says which.
-    const failed = wasmCompiled.filter((w) => !w.success)
-    if (failed.length > 0) {
-      const at = (id: string) => {
-        const block = preprocessed.wasmBlocks.find((b) => b.id === id)
-        const firstLine = block?.body
-          .split('\n')
-          .map((l) => l.trim())
-          .find((l) => l.length > 0)
-        const i = firstLine ? source.indexOf(firstLine) : -1
-        return i >= 0 ? locAt(source, i) : { line: 1, column: 0 }
-      }
-      const loc = at(failed[0].id)
-      throw new TJSSyntaxError(
-        failed
-          .map(
-            (w) =>
-              `A \`wasm\` block did not compile: ${w.error ?? 'unknown error'}.`
-          )
-          .join('\n') +
-          `\n\nRewrite it within the supported subset (DOCS-WASM, "Supported subset"), or ` +
-          `drop the \`wasm { }\` wrapper to run it as JavaScript.`,
-        loc,
-        source,
-        filename
-      )
-    }
-    // Compile-time wasm lints (e.g. i32/i32 integer division — UI-#4).
-    for (const w of wasmBootstrap.warnings) warnings.push(`wasm{}: ${w}`)
-  }
-
   // The `#!` line travels BESIDE the code, never inside it.
   //
   // `preprocess` blanks it so acorn accepts the source and every later offset still points
@@ -2639,7 +2659,9 @@ export function transpileToJS(
   const hashbang = hashbangOf(source)
 
   return {
-    code,
+    // Blanked regions (doc comments, test blocks, the hashbang) are padding while offsets
+    // matter; in the output they are only bytes (pre-tag review m1).
+    code: trimTrailingWhitespace(code),
     hashbang: hashbang || undefined,
     types: allTypes,
     metadata: allTypes, // alias for runtime compatibility

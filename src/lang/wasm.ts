@@ -2484,6 +2484,20 @@ export function compileBlocksToModule(
       results[at] = { id: exports[i].id, success: false, error }
     }
     moduleBytes = buildMultiFunctionModule(compiledFns, names)
+    // Invalid only as a WHOLE (no block is invalid on its own): fail them all, so the
+    // transpile stops. Returning the rebuilt module would hand back invalid bytes as success.
+    if (!validate(new Uint8Array(moduleBytes))) {
+      const error =
+        'emitted invalid WebAssembly with no single block responsible (a compiler bug — please report it)'
+      for (let i = 0; i < compiledFns.length; i++) {
+        if (exports[i].failed) continue
+        compiledFns[i] = stubFunction(preSignatures[i])
+        exports[i] = { ...exports[i], wat: `(failed: ${error})`, failed: true }
+        const at = results.findIndex((r) => r.id === exports[i].id)
+        results[at] = { id: exports[i].id, success: false, error }
+      }
+      moduleBytes = buildMultiFunctionModule(compiledFns, names)
+    }
   }
 
   return {
