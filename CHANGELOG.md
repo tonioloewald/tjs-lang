@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — unreleased
+
+> **Release candidate: `0.14.0-rc.4`** (2026-10-07), on the `rc` dist-tag. WASM blocks mean
+> what they say (a block that cannot compile is a compile error, and the WASM path and the
+> fallback give the same answer), `predicate =>` is removed, and the deprecated `unsafe` prefix
+> no longer escapes `var` or `eval`. Read "what breaks since rc.3" first. Pin `0.14.0-rc.4`
+> exactly to test it.
+
 ### Read this first: what breaks since rc.3
 
 Each of these breaks toward correctness; none has a compatibility switch.
@@ -26,7 +34,7 @@ Each of these breaks toward correctness; none has a compatibility switch.
   blank lines in the output rather than removed, so line N of the output's body is line N of
   the source. Anything matching exact emitted text will see different line numbers.
 
-### Changed — a `wasm {}` block means what its `fallback {}` means
+### Changed since rc.3 — a `wasm {}` block means what its `fallback {}` means
 
 Found by reviewing the WASM QuickStart, whose first example printed `undefined` (it promised
 7). Each is pinned by `src/lang/wasm-semantics.test.ts`, which runs functions through WASM and
@@ -65,7 +73,7 @@ through the fallback and requires the same answer.
 - DOCS-WASM documents `i32` (in `wasm function` declarations) with its measured semantics:
   truncating and wrapping at the call, wrapping `+ - *`, a throwing `% 0`.
 
-### Fixed
+### Fixed since rc.3
 
 - **Compile errors name the right line.** `extractTests` cut test blocks out, collapsed blank
   lines and trimmed, so every error below a `test` block or a few comment lines pointed at the
@@ -104,21 +112,19 @@ through the fallback and requires the same answer.
   is dropped from the output (trailing whitespace only, never inside a string or template), so
   100 lines of doc comment no longer triple a module's size.
 
-### Added
+### Added since rc.3
 
 - **`stripExports`** from `tjs-lang/lang` and `tjs-lang/browser` (#3109): turns a module into a
   script body by dropping `export` and removing imports, literal-safely. tosijs-ui's live
   examples need it to run a module's code inline.
 
-### Removed
+### Removed since rc.3
 
 - **`predicate => expr` is gone.** It saved only `{ return }` over `predicate { return expr }`
   and was a third predicate spelling to learn. It is now a compile error that names the
   replacement, in `Type` and `Generic` alike (so it can never be silently ignored and accept
   every value). It never worked in a release: in 0.13.x it was accepted-and-ignored, then
   refused; only the 0.14 release candidates ran it.
-
-## [0.14.0] — unreleased
 
 > **Release candidate: `0.14.0-rc.3`** (2026-10-06), on the `rc` dist-tag. It adds the doc-site
 > work below: every playground example runs on tjs.tosijs.net, and four library fixes it found.
