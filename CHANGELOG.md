@@ -9,7 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.14.0] — unreleased
+
+> **Release candidate: `0.14.0-rc.5`** (2026-10-08), on the `rc` dist-tag. `==` and `!=` now
+> group their operands as JavaScript does (the rewrite is an AST pass), `tjs()` returns its
+> runtime prelude separately for REPL hosts, and npm links to the documentation site. Pin
+> `0.14.0-rc.5` exactly to test it.
+
+### Read this first: what changes since rc.4
+
+- **`==` and `!=` group their operands as JavaScript does.** Expressions the old rewrite
+  grouped wrongly now compute what JavaScript would: `await f() == 3` compares the awaited
+  value, `a & b == c` is `a & (b == c)`, and nested or chained `==` work. Code that relied
+  on the old grouping gets a different, correct, answer. Everything else is additive.
+
+### Added since rc.4
 
 - **`tjs()` returns its runtime prelude separately**: `prelude` (the inline-runtime setup at
   the head of `code`, or `''`) and `body` (`code` without it). `code` is unchanged. A REPL
@@ -17,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the setup's last assignment, and a line needing `await` had no value (tosijs-ui's
   console, #3134). Evaluate `prelude`, then `body`, in one scope.
 
-### Fixed
+### Fixed since rc.4
 
 - **npm, the README and `llms.txt` name the documentation site** (tjs.tosijs.net) as the
   project's home. `package.json` had no `homepage`, so npm linked nowhere, and the README
@@ -38,8 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expressions across the precedence table and requires TJS to agree with JavaScript
   (`equality-precedence.test.ts`). Test and mock bodies that use `await` now get the
   truthiness rewrite too: their wrapper did not parse `await`, so such a body was skipped.
-
-## [0.14.0] — unreleased
 
 > **Release candidate: `0.14.0-rc.4`** (2026-10-07), on the `rc` dist-tag. WASM blocks mean
 > what they say (a block that cannot compile is a compile error, and the WASM path and the
