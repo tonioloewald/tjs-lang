@@ -383,9 +383,12 @@ export async function tjsWithCache(
 
   // Try cache first
   const cached = await effectiveCache.getTJS(source)
-  if (cached) {
+  // An entry without `prelude`/`body` predates them: re-transpile rather than guess.
+  if (cached && cached.prelude !== undefined && cached.body !== undefined) {
     return {
       code: cached.code,
+      prelude: cached.prelude,
+      body: cached.body,
       types: cached.types,
       metadata: cached.types, // alias
       testRunner: cached.testRunner,
@@ -400,6 +403,8 @@ export async function tjsWithCache(
   // Store in cache (don't await - fire and forget)
   effectiveCache.setTJS(source, {
     code: result.code,
+    prelude: result.prelude,
+    body: result.body,
     types: result.types,
     testRunner: result.testRunner,
     testCount: result.testCount,

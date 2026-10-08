@@ -43,6 +43,9 @@ export interface CachedTranspileResult {
 /** Cached entry for TJS transpilation (tjs/transpileToJS) */
 export interface CachedTJSResult {
   code: string
+  /** Absent on entries written before 0.14.0-rc.5; such an entry is treated as a miss. */
+  prelude?: string
+  body?: string
   types: Record<string, TJSTypeInfo>
   testRunner?: string
   testCount?: number

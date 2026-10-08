@@ -248,6 +248,18 @@ export interface TJSTranspileResult {
    * `tjs emit` and `tjs convert` both do.
    */
   hashbang?: string
+  /**
+   * The inline-runtime setup at the head of `code` (`const __tjs_rt = …`, `const __tjs = …`,
+   * the per-file rebinding of `toBool`/`swKey`), or `''` when the code needs none.
+   *
+   * `code` always contains it; this says where it is. A REPL host evaluating ONE line needs
+   * the two apart: with the setup in front, a declaration's line evaluated to the setup's
+   * last assignment and an `await` line had no value at all (tosijs-ui, tjs-lang #3134).
+   * Evaluate `prelude`, then `body`, in the same scope.
+   */
+  prelude: string
+  /** `code` with `prelude` removed: what the SOURCE became, and nothing else. */
+  body: string
   /** Type information for the function(s) - Record of function name to type info */
   types: Record<string, TJSTypeInfo>
   /** Function metadata (alias for types, used by runtime) */
@@ -1881,6 +1893,7 @@ export function transpileToJS(
     needsSwKey ||
     needsOneOf
 
+  let runtimePrelude = ''
   if (needsRuntime) {
     // Build standalone preamble — emitted JS must work without any setup.
     // Use globalThis.__tjs if available (shared runtime), otherwise inline
@@ -2511,6 +2524,7 @@ export function transpileToJS(
         ? `const __tjsSwKey = __tjs.swKey; __tjs.swKey = function(v){ return __tjsSwKey(${RT_NS}.__proj(v)) };\n`
         : '')
 
+    runtimePrelude = preamble
     code = preamble + code
   }
 
@@ -2635,6 +2649,8 @@ export function transpileToJS(
   if (runTests === 'only') {
     return {
       code: '',
+      prelude: '',
+      body: '',
       types: allTypes,
       metadata: allTypes,
       testResults,
@@ -2658,10 +2674,22 @@ export function transpileToJS(
   // fragment does not. `emit` and `convert` are the file writers.
   const hashbang = hashbangOf(source)
 
+  // Blanked regions (doc comments, test blocks, the hashbang) are padding while offsets
+  // matter; in the output they are only bytes (pre-tag review m1).
+  const finalCode = trimTrailingWhitespace(code)
+  const prelude = runtimePrelude ? trimTrailingWhitespace(runtimePrelude) : ''
+  const at = prelude ? finalCode.indexOf(prelude) : 0
+  if (at < 0)
+    throw new Error(
+      'tjs internal error: the runtime prelude is not a contiguous part of the emitted code'
+    )
+
   return {
-    // Blanked regions (doc comments, test blocks, the hashbang) are padding while offsets
-    // matter; in the output they are only bytes (pre-tag review m1).
-    code: trimTrailingWhitespace(code),
+    code: finalCode,
+    prelude,
+    body: prelude
+      ? finalCode.slice(0, at) + finalCode.slice(at + prelude.length)
+      : finalCode,
     hashbang: hashbang || undefined,
     types: allTypes,
     metadata: allTypes, // alias for runtime compatibility

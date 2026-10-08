@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tjs()` returns its runtime prelude separately**: `prelude` (the inline-runtime setup at
+  the head of `code`, or `''`) and `body` (`code` without it). `code` is unchanged. A REPL
+  host evaluating one line needs them apart: with the setup in front, a declaration evaluated
+  to the setup's last assignment, and a line needing `await` had no value (tosijs-ui's
+  console, #3134). Evaluate `prelude`, then `body`, in one scope.
+
+### Fixed
+
+- **`await f() == 3` compared the Promise.** The `==` rewrite ended its left operand at a
+  unary keyword, emitting `await Eq(f(), 3)`, so it was `false` when `f()` resolved to 3.
+  `await`, `void`, `delete`, `typeof` and `new` bind tighter than `==` and are now part of
+  the operand, including after another operator (`1 + await f() == 4`). Reported by
+  tosijs-ui's review of its dialect-aware console.
+
 ## [0.14.0] — unreleased
 
 > **Release candidate: `0.14.0-rc.4`** (2026-10-07), on the `rc` dist-tag. WASM blocks mean

@@ -31,7 +31,8 @@
  * them, and a numeric union cannot either.
  */
 import { describe, it, expect } from 'bun:test'
-import { Eq, TypeOf } from './runtime'
+import { Eq, TypeOf, createRuntime } from './runtime'
+import { tjs } from './index'
 
 /** Values chosen for the cases reasoning gets wrong, not for coverage. */
 const VALUES: Array<[string, unknown]> = [
@@ -171,5 +172,76 @@ describe('Set.has is not the language equality', () => {
         `${String(v)}:${byEq(v)}`
       )
     }
+  })
+})
+
+describe('a unary keyword belongs to the == operand (tosijs-ui #3134 report)', () => {
+  // `await`, `void`, `delete` and `typeof` bind tighter than `==`, so `await f() == 3` is
+  // `(await f()) == 3`. The rewrite stopped its left operand AFTER the keyword, producing
+  // `await Eq(f(), 3)`: it compared the Promise, and returned false when f() resolved to 3.
+  const run = async (src: string, name: string, ...args: unknown[]) => {
+    const prev = (globalThis as any).__tjs
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      const code = tjs(src, { runTests: false }).code
+      return await new Function(`${code}\nreturn ${name}`)()(...args)
+    } finally {
+      ;(globalThis as any).__tjs = prev
+    }
+  }
+  const three = async () => 3
+
+  it('await f() == 3 compares the awaited value', async () => {
+    expect(
+      await run('async function g(f) { return await f() == 3 }', 'g', three)
+    ).toBe(true)
+    expect(
+      await run('async function g(f) { return await f() != 3 }', 'g', three)
+    ).toBe(false)
+  })
+
+  it('await a + b == c groups as ((await a) + b) == c', async () => {
+    expect(
+      await run('async function g(f) { return await f() + 1 == 4 }', 'g', three)
+    ).toBe(true)
+  })
+
+  it('an operator before the keyword stays in the operand', async () => {
+    // `1 + await f() == 4` is `(1 + (await f())) == 4`; stopping AT the keyword dropped `1 +`.
+    expect(
+      await run('async function g(f) { return 1 + await f() == 4 }', 'g', three)
+    ).toBe(true)
+    expect(
+      await run('function g() { return 0 + new Set([1]).size == 1 }', 'g')
+    ).toBe(true)
+  })
+
+  it('void and delete are part of the operand too', async () => {
+    expect(await run('function g() { return void 0 == undefined }', 'g')).toBe(
+      true
+    )
+    expect(
+      await run(
+        'function g() { const o = { p: 1 }; return delete o.p == true }',
+        'g'
+      )
+    ).toBe(true)
+  })
+
+  it('yield, return and case still start the operand (they bind looser)', async () => {
+    expect(await run('function g(x) { return x == 3 }', 'g', 3)).toBe(true)
+    expect(
+      await run(
+        "function g(x) { switch (true) { case x == 3: return 'y' } return 'n' }",
+        'g',
+        3
+      )
+    ).toBe('y')
+    expect(
+      await run(
+        'function g() { const it = (function* () { const r = yield 1 == 1; return r })(); return it.next().value }',
+        'g'
+      )
+    ).toBe(true)
   })
 })

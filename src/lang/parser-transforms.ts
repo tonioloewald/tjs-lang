@@ -1990,25 +1990,17 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
       // Check if preceded by word char (not a keyword then)
       const beforeWord = wordStart > 0 ? source[wordStart - 1] : ''
       if (!/[a-zA-Z0-9_$]/.test(beforeWord)) {
-        // These keywords start an expression - stop after them
-        if (
-          [
-            'return',
-            'throw',
-            'case',
-            'typeof',
-            'void',
-            'delete',
-            'await',
-            'yield',
-          ].includes(word)
-        ) {
+        // These bind LOOSER than `==`, so the operand starts after them.
+        if (['return', 'throw', 'case', 'yield'].includes(word)) {
           return wordEnd
         }
-        // 'new' is part of the operand (new Foo() == bar),
-        // so include it by continuing the scan
-        if (word === 'new') {
-          return wordStart
+        // Unary keywords bind TIGHTER than `==`, so they are part of the operand:
+        // `await f() == 3` is `(await f()) == 3`, and `new Foo() == bar` likewise. Stopping
+        // after `await` produced `await Eq(f(), 3)`, which compared the Promise.
+        // Scan PAST them rather than stopping: `1 + await f() == 4` keeps the `1 +`.
+        if (['new', 'await', 'void', 'delete', 'typeof'].includes(word)) {
+          i = wordStart - 1
+          continue
         }
       }
     }
