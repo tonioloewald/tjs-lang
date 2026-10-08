@@ -28,6 +28,9 @@
 
 import * as acorn from 'acorn'
 import type { Program, Node } from 'acorn'
+import { WASM_JS_MARKER } from './rt-namespace'
+
+export { WASM_JS_MARKER }
 
 export interface BoolCoercionPatch {
   start: number
@@ -50,6 +53,49 @@ export interface RewriteOptions {
   bool?: boolean
   /** `==`/`!=` → the given callee names (TjsEquals). Omit to leave equality alone. */
   equality?: { eq: string; notEq: string }
+  /**
+   * Spans the emitter deletes (type annotations acorn sees as code, e.g. the ` || null` of
+   * `code = '' || null`). A node whose OWN operator text a deletion touches is not rewritten
+   * (it is an annotation, not logic); deletions inside a rewritten node are applied to its
+   * new text, so an outer rewrite never has to be dropped to make room for them.
+   */
+  deletions?: ReadonlyArray<{ start: number; end: number }>
+}
+
+function isWasmJs(node: any): boolean {
+  return (
+    node?.type === 'ArrowFunctionExpression' &&
+    node.params?.[0]?.type === 'Identifier' &&
+    node.params[0].name === WASM_JS_MARKER
+  )
+}
+
+/** `source[from, to)` with every deleted span removed. */
+function strip(source: string, from: number, to: number, opts: RewriteOptions) {
+  const dels = opts.deletions
+  if (!dels || dels.length === 0) return source.slice(from, to)
+  let out = ''
+  let at = from
+  for (const d of [...dels].sort((x, y) => x.start - y.start)) {
+    if (d.end <= at || d.start >= to) continue
+    if (d.start > at) out += source.slice(at, d.start)
+    at = Math.max(at, d.end)
+  }
+  if (at < to) out += source.slice(at, to)
+  return out
+}
+
+/** Does a deletion touch this node's own text (outside every child)? */
+function ownTextDeleted(node: any, opts: RewriteOptions): boolean {
+  const dels = opts.deletions
+  if (!dels || dels.length === 0) return false
+  const children = collectChildren(node)
+  return dels.some(
+    (d) =>
+      d.start < node.end &&
+      node.start < d.end &&
+      !children.some((c: any) => c.start <= d.start && d.end <= c.end)
+  )
 }
 
 /**
@@ -75,6 +121,19 @@ export function rewriteBoolCoercion(
 
   function visit(node: Node): void {
     if (!node || typeof node !== 'object' || !('type' in node)) return
+
+    if (isWasmJs(node) && opts.equality) {
+      candidates.push({
+        start: (node as any).start,
+        end: (node as any).end,
+        newText: rewriteExpr(node, source, opts),
+      })
+      return
+    }
+    if (ownTextDeleted(node, opts)) {
+      walkChildren(node, visit)
+      return
+    }
 
     if (
       opts.equality &&
@@ -197,6 +256,11 @@ function rewriteExpr(
 ): string {
   if (!node) return ''
   const n0 = node as any
+  if (isWasmJs(n0) && opts.equality)
+    return rewriteOther(node, source, { ...opts, equality: undefined })
+  // A deletion inside this node's own operator text: it is an annotation, not code to
+  // rewrite. Copy it (deletions applied) and rewrite only its children.
+  if (ownTextDeleted(n0, opts)) return rewriteOther(node, source, opts)
   if (
     opts.equality &&
     n0.type === 'BinaryExpression' &&
@@ -273,20 +337,22 @@ function rewriteOther(
   if (typeof start !== 'number' || typeof end !== 'number') return ''
 
   const children = collectChildren(node)
-  if (children.length === 0) return source.slice(start, end)
+  if (children.length === 0) return strip(source, start, end, opts)
 
   // Sort by start position (defensive — should already be in order)
   children.sort((a, b) => a.start - b.start)
 
+  const deleted = (c: Node) =>
+    (opts.deletions ?? []).some((d) => d.start <= c.start && c.end <= d.end)
   let out = ''
   let cursor = start
   for (const child of children) {
     if (child.start < cursor) continue // overlapping; skip
-    if (child.start > cursor) out += source.slice(cursor, child.start)
-    out += rewriteExpr(child, source, opts)
+    if (child.start > cursor) out += strip(source, cursor, child.start, opts)
+    if (!deleted(child)) out += rewriteExpr(child, source, opts)
     cursor = child.end
   }
-  if (cursor < end) out += source.slice(cursor, end)
+  if (cursor < end) out += strip(source, cursor, end, opts)
   return out
 }
 

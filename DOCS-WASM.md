@@ -366,6 +366,10 @@ has JavaScript's arithmetic, so the block and its `fallback {}` give the same an
 annotation is checked at the call boundary (unless `!`); nothing converts or rounds the value.
 Inside a block, `let i = 0` is an `i32`, which is what loop counters and offsets want.
 
+**`==` and `!=` are JavaScript's inside a block**, not TJS's: `x != x` is true for NaN, as
+WebAssembly's `f64.ne` says, and the block's implicit fallback compares the same way. An
+explicit `fallback {}` is ordinary TJS.
+
 **`/` is JavaScript's division** everywhere, even with two `i32` operands: `7 / 2` is `3.5`.
 For integer division write `Math.trunc(a / b)`. (Until 0.14, `i32 / i32` truncated and a lint
 warned about it.)

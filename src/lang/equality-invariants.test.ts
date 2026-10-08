@@ -245,3 +245,23 @@ describe('a unary keyword belongs to the == operand (tosijs-ui #3134 report)', (
     ).toBe(true)
   })
 })
+
+describe('== inside an annotated node keeps TJS semantics (0.14.0-rc.5 review m-1)', () => {
+  // The outer `||` overlapped a type-annotation deletion (`: 0` on the arrow inside the
+  // class), so the whole outer patch was dropped, and the `==` → Eq rewrite nested in it
+  // went too: raw JavaScript `==` coerced '1' to 1.
+  it('a class-field arrow inside a logical expression', async () => {
+    const prev = (globalThis as any).__tjs
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      const code = tjs(
+        `const C = globalThis.NOPE || class { f = (x: 0) => x == '1' }\nconst out = new C().f(1)`,
+        { runTests: false }
+      ).code
+      expect(code).toContain(`Eq(x, '1')`)
+      expect(new Function(`${code}\nreturn out`)()).toBe(false)
+    } finally {
+      ;(globalThis as any).__tjs = prev
+    }
+  })
+})

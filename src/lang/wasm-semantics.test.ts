@@ -444,3 +444,40 @@ describe('a wasm function return annotation may be a numeric example', () => {
       expect(r.wasmCompiled?.every((b) => b.success)).toBe(true)
     })
 })
+
+describe('== and != in a wasm body compare as the WASM does (0.14.0-rc.5 review M-1)', () => {
+  // The implicit fallback IS the wasm body run as JavaScript, so its `!=` must be
+  // JavaScript's (`f64.ne`: NaN != NaN). When `==` moved to the emitter's AST pass, the
+  // fallback started getting TJS `NotEq`, and the NaN test disagreed between the paths.
+  const NAN_MARK = `function nanMark(! arr: Float64Array, out: Float64Array, n: 0) {
+  wasm {
+    for (let i = 0; i < n; i++) { if (arr[i] != arr[i]) { out[i] = 1.0 } }
+  }
+  return out
+}`
+  it('the NaN test gives the same answer with and without WebAssembly', async () => {
+    const run = async (wasmOn: boolean) => {
+      const r = tjs(NAN_MARK, { runTests: false })
+      const fn = new Function(`${r.code}\nreturn nanMark`)()
+      await g.__tjs_wasm_ready?.()
+      if (!wasmOn) g.__tjs_wasm_enabled = false
+      try {
+        return Array.from(
+          fn(new Float64Array([1, NaN, 2, NaN]), new Float64Array(4), 4)
+        )
+      } finally {
+        delete g.__tjs_wasm_enabled
+      }
+    }
+    expect(await run(true)).toEqual([0, 1, 0, 1])
+    expect(await run(false)).toEqual([0, 1, 0, 1])
+  })
+
+  it('an explicit fallback {} keeps TJS semantics (it is the author’s JavaScript)', () => {
+    const code = tjs(
+      `function f(! a: Float64Array, n: 0) {\n  wasm {\n    for (let i = 0; i < n; i++) { a[i] = a[i] * 2.0 }\n  } fallback {\n    if (a[0] != 3) a[0] = 0\n  }\n  return a\n}`,
+      { runTests: false }
+    ).code
+    expect(code).toContain('NotEq(a[0], 3)')
+  })
+})

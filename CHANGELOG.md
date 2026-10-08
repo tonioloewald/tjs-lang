@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`equality-precedence.test.ts`). Test and mock bodies that use `await` now get the
   truthiness rewrite too: their wrapper did not parse `await`, so such a body was skipped.
 
+  Inside a `wasm {}` body, `==` and `!=` stay JavaScript's, which is what the compiled WASM
+  does (`x != x` is the NaN test), so the body and its implicit JavaScript fallback agree. An
+  explicit `fallback {}` is the author's own code and has TJS semantics, as before.
+
 > **Release candidate: `0.14.0-rc.4`** (2026-10-07), on the `rc` dist-tag. WASM blocks mean
 > what they say (a block that cannot compile is a compile error, and the WASM path and the
 > fallback give the same answer), `predicate =>` is removed, and the deprecated `unsafe` prefix

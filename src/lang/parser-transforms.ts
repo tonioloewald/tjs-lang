@@ -23,7 +23,7 @@ import {
   newExpressionPattern,
 } from './declared-classes'
 import { stripParamMarkers } from './parser-params'
-import { rt, RT_NS } from './rt-namespace'
+import { rt, RT_NS, WASM_JS_MARKER } from './rt-namespace'
 import {
   literalUnionValues,
   typeArgumentSource,
@@ -513,7 +513,13 @@ export function extractWasmBlocks(source: string): {
       // `globalThis.__tjs_wasm_enabled === false` forces the fallback path even
       // when the WASM is instantiated — a public toggle for A/B benchmarking
       // (WASM vs JS) without poking the internal `__tjs_wasm_<id>` globals (UI-#3).
-      const dispatch = `((globalThis.__tjs_wasm_enabled !== false && globalThis.${block.id}) ? ${wasmCall} : (() => {${fallbackCode}})())`
+      // An IMPLICIT fallback (the wasm body run as JS) is marked with an unused parameter so
+      // the emitter's `==` rewrite leaves it alone: it must compare as the WASM does, and
+      // `f64.ne` says NaN != NaN where TJS `!=` does not. An explicit `fallback {}` is the
+      // author's own JavaScript and keeps TJS semantics.
+      const fallbackFn =
+        fallbackBody === undefined ? `(${WASM_JS_MARKER}) =>` : '() =>'
+      const dispatch = `((globalThis.__tjs_wasm_enabled !== false && globalThis.${block.id}) ? ${wasmCall} : (${fallbackFn} {${fallbackCode}})())`
 
       result += dispatch
       i = matchEnd

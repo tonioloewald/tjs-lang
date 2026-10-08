@@ -85,3 +85,11 @@ export const RT_NAMES = [
 ] as const
 
 export type RtName = (typeof RT_NAMES)[number]
+
+/**
+ * The parameter that marks a wasm block's IMPLICIT fallback (`((__tjs_wasm_js) => {…})()`,
+ * emitted by `extractWasmBlocks`). Its body is the wasm body run as JavaScript, so it keeps
+ * JavaScript's `==`: that is what the compiled WASM does (`f64.ne` says NaN != NaN), and
+ * the two paths must agree. Truthiness is still rewritten (it cannot differ on numbers).
+ */
+export const WASM_JS_MARKER = '__tjs_wasm_js'

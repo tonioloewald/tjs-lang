@@ -1744,14 +1744,30 @@ export function transpileToJS(
      * `applyEdits` reports it instead, which is how it surfaced.
      */
     const claimed = deletions.map((d) => ({ ...d }))
-    const overlapsAnnotation = (start: number, end: number) =>
-      claimed.some((d) => start < d.end && d.start < end)
 
-    const boolPatches = rewriteBoolCoercion(
-      program,
-      preprocessed.source,
-      expressionRewrites
-    ).filter((p) => !overlapsAnnotation(p.start, p.end))
+    // The rewriter applies an annotation deletion INSIDE a node it rewrites (and leaves a
+    // node alone when the deletion is its own operator text), so a patch that contains a
+    // deletion absorbs it: the deletion is dropped here, not the patch. Dropping the patch
+    // instead used to lose every nested rewrite with it, including `==` → `Eq`
+    // (0.14.0-rc.5 review m-1). A patch that only PARTLY overlaps a deletion is still
+    // dropped: the rewriter cannot express it.
+    const rawPatches = rewriteBoolCoercion(program, preprocessed.source, {
+      ...expressionRewrites,
+      deletions: claimed,
+    })
+    const inside = (
+      d: { start: number; end: number },
+      p: { start: number; end: number }
+    ) => p.start <= d.start && d.end <= p.end
+    const boolPatches = rawPatches.filter(
+      (p) =>
+        !claimed.some(
+          (d) => p.start < d.end && d.start < p.end && !inside(d, p)
+        )
+    )
+    for (let k = deletions.length - 1; k >= 0; k--)
+      if (boolPatches.some((p) => inside(deletions[k], p)))
+        deletions.splice(k, 1)
     for (const p of boolPatches) {
       deletions.push({ start: p.start, end: p.end })
       insertions.push({ position: p.start, text: p.newText })
