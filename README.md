@@ -6,7 +6,7 @@
     <tosi-lottie style="width: 40vmin; height: 40vmin;" src="./tosi-platform.json"><img alt="tjs-lang logo" style="width: 40vmin; height: 40vmin" src="tjs-lang.svg"></tosi-lottie>
 </center>
 
-[playground](https://tjs-platform.web.app) | [github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
+[docs](https://tjs.tosijs.net) | [playground](https://tjs-platform.web.app) | [github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
 
 ## What is TJS?
 
@@ -166,11 +166,15 @@ const { code, metadata } = tjs`
 // metadata: { add: { params: { a: { type: 'number', example: 0 }, b: { type: 'number', example: 0 } }, returns: { type: 'number' } } }
 ```
 
-### Try the Playground
+### Try it in your browser
 
-Since TJS compiles itself, the playground is the full engine running entirely in your browser.
+Since TJS compiles itself, the full engine runs in the page. The documentation site runs its
+examples live, and you can edit them:
 
-**[tjs-platform.web.app](https://tjs-platform.web.app)**
+**[tjs.tosijs.net](https://tjs.tosijs.net)**
+
+The older playground, [tjs-platform.web.app](https://tjs-platform.web.app), is still up for
+the multi-file examples that need it.
 
 ## At a Glance
 
@@ -224,6 +228,7 @@ path that compiles untrusted input is a security property before it is a size on
 
 ## Documentation
 
+- **[Documentation site](https://tjs.tosijs.net)** — Everything below, with live examples, plus the books as ePub
 - **[TJS Language Guide](https://github.com/tonioloewald/tjs-lang/blob/main/DOCS-TJS.md)** — Types, syntax, runtime
 - **[AJS Runtime Guide](https://github.com/tonioloewald/tjs-lang/blob/main/DOCS-AJS.md)** — VM, atoms, capabilities
 - **[WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md)** — Build WASM-accelerated libraries with zero toolchain setup

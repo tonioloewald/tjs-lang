@@ -267,3 +267,25 @@ describe('paths named in docs resolve', () => {
     expect(missing).toEqual([])
   })
 })
+
+describe('every surface names the same homepage (#3125)', () => {
+  // README and llms.txt sent readers to the old playground, and package.json had no
+  // `homepage`, so npm linked nowhere. A stranger lands on one of these three first.
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const home: string = pkg.homepage
+
+  it('package.json declares a homepage', () => {
+    expect(home).toMatch(/^https:\/\//)
+  })
+
+  it('the README links it from its header line and its docs list', () => {
+    const readme = readFileSync(join(ROOT, 'README.md'), 'utf8')
+    const header = readme.split('\n').find((l) => l.includes('[github]')) ?? ''
+    expect(header).toContain(`(${home})`)
+    expect(readme.split(`(${home})`).length - 1).toBeGreaterThanOrEqual(2)
+  })
+
+  it('llms.txt names it', () => {
+    expect(readFileSync(join(ROOT, 'llms.txt'), 'utf8')).toContain(home)
+  })
+})

@@ -237,6 +237,7 @@
     "./dist/tjs-schema.js",
     "./src/bun-plugin/tjs-plugin.ts"
   ],
+  "homepage": "https://tjs.tosijs.net",
   "repository": {
     "type": "git",
     "url": "https://github.com/tonioloewald/tjs-lang.git"

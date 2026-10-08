@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **npm, the README and `llms.txt` name the documentation site** (tjs.tosijs.net) as the
+  project's home. `package.json` had no `homepage`, so npm linked nowhere, and the README
+  and `llms.txt` sent readers only to the older playground. A test keeps the three in
+  agreement.
 - **`==` and `!=` group their operands as JavaScript does.** The rewrite to `Eq`/`NotEq` was a
   text scanner that re-derived operator precedence by hand, and got it wrong in several
   shapes, all in released versions:

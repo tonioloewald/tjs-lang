@@ -60,7 +60,8 @@ This file is a navigation index for AI agents. It does not contain the docs them
 
 - [examples/](examples/) — standalone `.tjs` example files (`hello.tjs`, `datetime.tjs`, `generic-demo.tjs`, `js-footguns-fixed.tjs`).
 - [tjs-src/](tjs-src/) — the TJS runtime, written in TJS itself (self-hosting reference).
-- Playground: https://tjs-platform.web.app — try TJS in a browser.
+- Documentation site: https://tjs.tosijs.net — every doc, with live examples (the project's homepage).
+- Playground: https://tjs-platform.web.app — the older in-browser playground; still the place for multi-file examples.
 
 ## Package entry points (what to import)
 
