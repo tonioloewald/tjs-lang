@@ -58,10 +58,14 @@ describe('Type predicate → verified fuel-bounded guard', () => {
   })
 
   it('verifies a native-TJS predicate using == (rewritten to Eq)', () => {
-    // `==` → `Eq(...)`; Eq is whitelisted pure, so the predicate still verifies.
-    const out = src(`Type Five 'five' { predicate(x) { return x == 5 } }`)
-    expect(out).toContain('Eq(') // proves the equality rewrite ran
-    expect(out).toContain('__fuel') // ...and it still verified as safe
+    // The predicate verifies as written (`x == 5` is pure), and the EMITTED guard gets TJS's
+    // `==`: the rewrite is an AST pass in the emitter now, so it is checked there, not in
+    // `preprocess` output, which still says `==`.
+    const source = `Type Five 'five' { predicate(x) { return x == 5 } }\nconst ok = [Five.check(5), Five.check('5')]`
+    expect(src(source)).toContain('__fuel') // verified as safe
+    const code = tjs(source, { runTests: false }).code
+    expect(code).toContain('__tjs_rt.Eq(x, 5)') // TJS equality inside the guard
+    expect(new Function(`${code}\nreturn ok`)()).toEqual([true, false]) // no coercion
   })
 
   it('falls back to the raw arrow for an unverifiable predicate (loop)', () => {

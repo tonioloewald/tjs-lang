@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { transpileToJS } from './emitters/js'
+import { rewriteBoolCoercionInSource } from './bool-coercion'
 import { createRuntime } from './runtime'
 
 function run(src: string): any {
@@ -199,5 +200,26 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
       // → inline runtime includes the function definition
       expect(code).toContain('function toBool')
     })
+  })
+})
+
+describe('test bodies that await get the rewrites', () => {
+  // The in-source wrapper was a SYNC function, so a body using `await` did not parse and
+  // came back unrewritten: `!boxedFalse` was JavaScript's `false`, and `==` (now rewritten
+  // here too) would have been JavaScript's.
+  it('truthiness and == are TJS inside an async test body', () => {
+    const out = rewriteBoolCoercionInSource(
+      `const v = await Promise.resolve(new Boolean(false))\nexpect(!v).toBe(true) // trailing comment`,
+      { bool: true, equality: { eq: 'Eq', notEq: 'NotEq' } }
+    )
+    expect(out).toContain('!__tjs.toBool(v)')
+    const eq = rewriteBoolCoercionInSource(
+      `const w = await f()\nexpect(w == 3)`,
+      {
+        bool: false,
+        equality: { eq: 'Eq', notEq: 'NotEq' },
+      }
+    )
+    expect(eq).toContain('Eq(w, 3)')
   })
 })

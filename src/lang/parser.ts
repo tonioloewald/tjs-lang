@@ -55,7 +55,7 @@ import {
   composeImportedWasmFunctions,
   transformIsOperators,
   insertAsiProtection,
-  transformEqualityToStructural,
+  transformTypeofKeyword,
   transformTypeDeclarations,
   transformGenericDeclarations,
   transformFunctionPredicateDeclarations,
@@ -438,12 +438,14 @@ export function preprocess(
   // These are always available for explicit structural equality
   source = transformIsOperators(source)
 
-  // Transform == and != to structural equality (Is/IsNot)
-  // Only when TjsEquals mode is enabled.
-  // (This used to also check `!options.vmTarget`. It was one of exactly two transforms
-  // that did — the AJS path now has its own parser and never gets here.)
+  // `typeof x` → `TypeOf(x)` (fixes `typeof null === 'object'`), under TjsEquals.
+  //
+  // `==`/`!=` are NOT rewritten here any more. They used to be, by a text scanner that
+  // re-derived operator precedence by hand and got it wrong (`await f() == 3`, nested and
+  // chained `==`, `a & b == c`). The emitter now rewrites them from acorn's AST, together
+  // with the truthiness rewrite (`bool-coercion.ts`).
   if (tjsModes.tjsEquals) {
-    source = transformEqualityToStructural(source)
+    source = transformTypeofKeyword(source)
   }
 
   // Restore wasm bodies now that the operator transforms have run — the real

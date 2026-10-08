@@ -36,26 +36,62 @@ export interface BoolCoercionPatch {
 }
 
 /**
+ * Which rewrites to apply. Both default ON (native TJS).
+ *
+ * `equality` is the `==`/`!=` → `Eq`/`NotEq` rewrite. It lives HERE, on the AST, rather than
+ * as a text pass in `preprocess`, because a text pass has to re-derive JavaScript's operator
+ * precedence by scanning, and it did not: `await f() == 3` compared the Promise,
+ * `(a == b) == (b == c)` emitted garbage, `a == b == c` did not parse, `a & b == c` grouped as
+ * `Eq(a & b, c)`. Here acorn has already grouped every operand, and the two rewrites compose
+ * through the same partial codegen (`if (a == b)` → `__tjs.toBool(Eq(a, b))`).
+ */
+export interface RewriteOptions {
+  /** Truthiness contexts → `__tjs.toBool` (TjsStandard). */
+  bool?: boolean
+  /** `==`/`!=` → the given callee names (TjsEquals). Omit to leave equality alone. */
+  equality?: { eq: string; notEq: string }
+}
+
+/**
  * Walk the AST and emit replacement patches for every truthiness context.
  * Patches are pre-deduped: nested coercions inside an outer patch are
  * folded into the outer patch's newText, so returned patches don't overlap.
  */
 export function rewriteBoolCoercion(
   ast: Program,
-  source: string
+  source: string,
+  opts: RewriteOptions = { bool: true }
 ): BoolCoercionPatch[] {
   const candidates: BoolCoercionPatch[] = []
+  const bool = opts.bool !== false
 
   function emitTestWrap(test: Node): void {
     candidates.push({
       start: test.start,
       end: test.end,
-      newText: `__tjs.toBool(${rewriteExpr(test, source)})`,
+      newText: `__tjs.toBool(${rewriteExpr(test, source, opts)})`,
     })
   }
 
   function visit(node: Node): void {
     if (!node || typeof node !== 'object' || !('type' in node)) return
+
+    if (
+      opts.equality &&
+      (node as any).type === 'BinaryExpression' &&
+      ((node as any).operator === '==' || (node as any).operator === '!=')
+    ) {
+      candidates.push({
+        start: (node as any).start,
+        end: (node as any).end,
+        newText: rewriteExpr(node, source, opts),
+      })
+      return
+    }
+    if (!bool) {
+      walkChildren(node, visit)
+      return
+    }
 
     switch ((node as any).type) {
       case 'IfStatement':
@@ -83,9 +119,9 @@ export function rewriteBoolCoercion(
           start: n.start,
           end: n.end,
           newText:
-            `__tjs.toBool(${rewriteExpr(n.test, source)})` +
-            `?(${rewriteExpr(n.consequent, source)})` +
-            `:(${rewriteExpr(n.alternate, source)})`,
+            `__tjs.toBool(${rewriteExpr(n.test, source, opts)})` +
+            `?(${rewriteExpr(n.consequent, source, opts)})` +
+            `:(${rewriteExpr(n.alternate, source, opts)})`,
         })
         return
       }
@@ -95,7 +131,7 @@ export function rewriteBoolCoercion(
           candidates.push({
             start: n.start,
             end: n.end,
-            newText: rewriteExpr(node, source),
+            newText: rewriteExpr(node, source, opts),
           })
           return
         }
@@ -108,7 +144,7 @@ export function rewriteBoolCoercion(
           candidates.push({
             start: n.start,
             end: n.end,
-            newText: `!__tjs.toBool(${rewriteExpr(n.argument, source)})`,
+            newText: `!__tjs.toBool(${rewriteExpr(n.argument, source, opts)})`,
           })
           return
         }
@@ -128,7 +164,11 @@ export function rewriteBoolCoercion(
           candidates.push({
             start: n.start,
             end: n.end,
-            newText: `__tjs.toBool(${rewriteExpr(n.arguments[0], source)})`,
+            newText: `__tjs.toBool(${rewriteExpr(
+              n.arguments[0],
+              source,
+              opts
+            )})`,
           })
           return
         }
@@ -150,13 +190,31 @@ export function rewriteBoolCoercion(
  * subtree. For uninteresting nodes, returns the original source slice with
  * any nested coercions rewritten in place.
  */
-function rewriteExpr(node: Node | null | undefined, source: string): string {
+function rewriteExpr(
+  node: Node | null | undefined,
+  source: string,
+  opts: RewriteOptions
+): string {
   if (!node) return ''
+  const n0 = node as any
+  if (
+    opts.equality &&
+    n0.type === 'BinaryExpression' &&
+    (n0.operator === '==' || n0.operator === '!=')
+  ) {
+    const callee = n0.operator === '==' ? opts.equality.eq : opts.equality.notEq
+    return `${callee}(${rewriteExpr(n0.left, source, opts)}, ${rewriteExpr(
+      n0.right,
+      source,
+      opts
+    )})`
+  }
+  if (opts.bool === false) return rewriteOther(node, source, opts)
   switch ((node as any).type) {
     case 'LogicalExpression': {
       const n = node as any
-      const left = rewriteExpr(n.left, source)
-      const right = rewriteExpr(n.right, source)
+      const left = rewriteExpr(n.left, source, opts)
+      const right = rewriteExpr(n.right, source, opts)
       if (n.operator === '&&') {
         return `((__tjs__t)=>__tjs.toBool(__tjs__t)?(${right}):__tjs__t)(${left})`
       }
@@ -169,17 +227,17 @@ function rewriteExpr(node: Node | null | undefined, source: string): string {
     case 'ConditionalExpression': {
       const n = node as any
       return (
-        `__tjs.toBool(${rewriteExpr(n.test, source)})` +
-        `?(${rewriteExpr(n.consequent, source)})` +
-        `:(${rewriteExpr(n.alternate, source)})`
+        `__tjs.toBool(${rewriteExpr(n.test, source, opts)})` +
+        `?(${rewriteExpr(n.consequent, source, opts)})` +
+        `:(${rewriteExpr(n.alternate, source, opts)})`
       )
     }
     case 'UnaryExpression': {
       const n = node as any
       if (n.operator === '!') {
-        return `!__tjs.toBool(${rewriteExpr(n.argument, source)})`
+        return `!__tjs.toBool(${rewriteExpr(n.argument, source, opts)})`
       }
-      return rewriteOther(node, source)
+      return rewriteOther(node, source, opts)
     }
     case 'CallExpression': {
       const n = node as any
@@ -190,12 +248,12 @@ function rewriteExpr(node: Node | null | undefined, source: string): string {
         n.arguments.length === 1 &&
         n.arguments[0].type !== 'SpreadElement'
       ) {
-        return `__tjs.toBool(${rewriteExpr(n.arguments[0], source)})`
+        return `__tjs.toBool(${rewriteExpr(n.arguments[0], source, opts)})`
       }
-      return rewriteOther(node, source)
+      return rewriteOther(node, source, opts)
     }
   }
-  return rewriteOther(node, source)
+  return rewriteOther(node, source, opts)
 }
 
 /**
@@ -205,7 +263,11 @@ function rewriteExpr(node: Node | null | undefined, source: string): string {
  * needing a full code generator — we only customize the nodes we actually
  * rewrite.
  */
-function rewriteOther(node: Node, source: string): string {
+function rewriteOther(
+  node: Node,
+  source: string,
+  opts: RewriteOptions
+): string {
   const start = (node as any).start
   const end = (node as any).end
   if (typeof start !== 'number' || typeof end !== 'number') return ''
@@ -221,7 +283,7 @@ function rewriteOther(node: Node, source: string): string {
   for (const child of children) {
     if (child.start < cursor) continue // overlapping; skip
     if (child.start > cursor) out += source.slice(cursor, child.start)
-    out += rewriteExpr(child, source)
+    out += rewriteExpr(child, source, opts)
     cursor = child.end
   }
   if (cursor < end) out += source.slice(cursor, end)
@@ -286,19 +348,27 @@ function dedupeNested(patches: BoolCoercionPatch[]): BoolCoercionPatch[] {
  * fails (rather than throwing — a bad test body would already have been
  * caught by the main parse).
  */
-export function rewriteBoolCoercionInSource(source: string): string {
+export function rewriteBoolCoercionInSource(
+  source: string,
+  opts: RewriteOptions = { bool: true }
+): string {
+  // ASYNC, so a body that awaits parses (a sync wrapper rejected it and the body was returned
+  // UNREWRITTEN: no truthiness rewrite, and now that `==` is rewritten here, no `Eq` either). The closing brace on its own line, so a body
+  // ending in a `//` comment cannot swallow it.
+  const prefix = 'async function __wrap__(){'
+  const suffix = '\n}'
+  const wrapped = `${prefix}${source}${suffix}`
   let ast: Program
   try {
-    ast = acorn.parse(`function __wrap__(){${source}}`, {
-      ecmaVersion: 2022,
+    ast = acorn.parse(wrapped, {
+      ecmaVersion: 'latest',
       sourceType: 'module',
       locations: false,
     }) as Program
   } catch {
     return source
   }
-  const wrapped = `function __wrap__(){${source}}`
-  const patches = rewriteBoolCoercion(ast, wrapped)
+  const patches = rewriteBoolCoercion(ast, wrapped, opts)
   if (patches.length === 0) return source
 
   // Apply patches right-to-left
@@ -307,8 +377,5 @@ export function rewriteBoolCoercionInSource(source: string): string {
   for (const p of patches) {
     out = out.slice(0, p.start) + p.newText + out.slice(p.end)
   }
-  // Strip the wrapper
-  const prefix = 'function __wrap__(){'
-  const suffix = '}'
   return out.slice(prefix.length, out.length - suffix.length)
 }

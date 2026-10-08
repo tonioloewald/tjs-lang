@@ -19,11 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`await f() == 3` compared the Promise.** The `==` rewrite ended its left operand at a
-  unary keyword, emitting `await Eq(f(), 3)`, so it was `false` when `f()` resolved to 3.
-  `await`, `void`, `delete`, `typeof` and `new` bind tighter than `==` and are now part of
-  the operand, including after another operator (`1 + await f() == 4`). Reported by
-  tosijs-ui's review of its dialect-aware console.
+- **`==` and `!=` group their operands as JavaScript does.** The rewrite to `Eq`/`NotEq` was a
+  text scanner that re-derived operator precedence by hand, and got it wrong in several
+  shapes, all in released versions:
+  - `await f() == 3` compared the Promise: `false` when `f()` resolved to 3. Reported by
+    tosijs-ui's review of its dialect-aware console.
+  - `(a == b) == (b == c)` emitted garbage that threw at run time, and `a == b == c` did not
+    parse.
+  - `a & b == c` (and `|`, `^`) grouped as `Eq(a & b, c)`; JavaScript reads `a & (b == c)`.
+  - `void a == b` became `void Eq(a, b)`.
+
+  The rewrite is now an AST pass in the emitter, beside the truthiness rewrite
+  (`bool-coercion.ts`), so acorn decides the grouping. A differential test generates 928
+  expressions across the precedence table and requires TJS to agree with JavaScript
+  (`equality-precedence.test.ts`). Test and mock bodies that use `await` now get the
+  truthiness rewrite too: their wrapper did not parse `await`, so such a body was skipped.
 
 ## [0.14.0] — unreleased
 

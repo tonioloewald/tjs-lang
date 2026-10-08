@@ -100,7 +100,7 @@ import {
 } from '../parser'
 
 import {
-  transformEqualityToStructural,
+  transformTypeofKeyword,
   transformIsOperators,
   locAt,
 } from '../parser-transforms'
@@ -123,7 +123,7 @@ import {
 } from '../../strip-comments'
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
 import { blankDocComments, trimTrailingWhitespace } from '../../strip-comments'
-import { RT_NS } from '../rt-namespace'
+import { RT_NS, rt } from '../rt-namespace'
 import { extractTests, generateTestRunner } from '../tests'
 import {
   runAllTests,
@@ -135,6 +135,7 @@ import { generateWasmBootstrap } from './js-wasm'
 import {
   rewriteBoolCoercion,
   rewriteBoolCoercionInSource,
+  type RewriteOptions,
 } from '../bool-coercion'
 import { switchAdvice } from '../switch-transform'
 import { applyEdits } from '../source-edits'
@@ -1132,22 +1133,25 @@ export function transpileToJS(
   // bodies so they observe the module's TJS semantics (e.g. structural ==).
   // Test bodies are extracted as raw text before parse(), so they would
   // otherwise run with native JS == coercion regardless of TjsEquals mode.
+  // `==` and truthiness are rewritten from the AST, in one pass (bool-coercion.ts).
+  const expressionRewrites: RewriteOptions = {
+    bool: preprocessed.tjsModes.tjsStandard,
+    equality: preprocessed.tjsModes.tjsEquals
+      ? { eq: rt('Eq'), notEq: rt('NotEq') }
+      : undefined,
+  }
   for (const t of tests) {
     t.body = transformIsOperators(t.body)
-    if (preprocessed.tjsModes.tjsEquals) {
-      t.body = transformEqualityToStructural(t.body)
-    }
-    if (preprocessed.tjsModes.tjsStandard) {
-      t.body = rewriteBoolCoercionInSource(t.body)
+    if (preprocessed.tjsModes.tjsEquals) t.body = transformTypeofKeyword(t.body)
+    if (preprocessed.tjsModes.tjsEquals || preprocessed.tjsModes.tjsStandard) {
+      t.body = rewriteBoolCoercionInSource(t.body, expressionRewrites)
     }
   }
   for (const m of mocks) {
     m.body = transformIsOperators(m.body)
-    if (preprocessed.tjsModes.tjsEquals) {
-      m.body = transformEqualityToStructural(m.body)
-    }
-    if (preprocessed.tjsModes.tjsStandard) {
-      m.body = rewriteBoolCoercionInSource(m.body)
+    if (preprocessed.tjsModes.tjsEquals) m.body = transformTypeofKeyword(m.body)
+    if (preprocessed.tjsModes.tjsEquals || preprocessed.tjsModes.tjsStandard) {
+      m.body = rewriteBoolCoercionInSource(m.body, expressionRewrites)
     }
   }
   // Extension calls too (`'x'.shout()` → the local extension), HERE rather than in
@@ -1724,7 +1728,7 @@ export function transpileToJS(
   // context (`if`, `while`, `for`, `do/while`, `!`, `&&`, `||`, `?:`,
   // and `Boolean(x)` calls) to call `__tjs.toBool` so boxed primitives
   // unwrap before coercion. See src/lang/bool-coercion.ts.
-  if (preprocessed.tjsModes.tjsStandard) {
+  if (preprocessed.tjsModes.tjsStandard || preprocessed.tjsModes.tjsEquals) {
     /**
      * A span already claimed as a TYPE ANNOTATION is not an expression, so no expression
      * rewrite may touch it.
@@ -1745,7 +1749,8 @@ export function transpileToJS(
 
     const boolPatches = rewriteBoolCoercion(
       program,
-      preprocessed.source
+      preprocessed.source,
+      expressionRewrites
     ).filter((p) => !overlapsAnnotation(p.start, p.end))
     for (const p of boolPatches) {
       deletions.push({ start: p.start, end: p.end })
@@ -1762,9 +1767,10 @@ export function transpileToJS(
     // `given-transform.ts`), which measures with zero wrong answers. `switch` is left exactly
     // as JavaScript defines it, so nothing silently changes meaning, and instead gets a
     // warning pointing at the replacement. See `docs/case-study-switch.md`.
-    for (const w of switchAdvice(program, preprocessed.source)) {
-      warnings.push(w)
-    }
+    if (preprocessed.tjsModes.tjsStandard)
+      for (const w of switchAdvice(program, preprocessed.source)) {
+        warnings.push(w)
+      }
   }
 
   // Deletions and insertions are ONE ordered edit list, applied left to right.
