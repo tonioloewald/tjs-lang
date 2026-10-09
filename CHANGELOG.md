@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.14.0] — unreleased
+## [0.14.0-rc.5] — 2026-10-09
 
-> **Release candidate: `0.14.0-rc.5`** (2026-10-08), on the `rc` dist-tag. `==` and `!=` now
-> group their operands as JavaScript does (the rewrite is an AST pass), `tjs()` returns its
-> runtime prelude separately for REPL hosts, and npm links to the documentation site. Pin
-> `0.14.0-rc.5` exactly to test it.
+On the `rc` dist-tag. `==` and `!=` now group their operands as JavaScript does (the rewrite
+is an AST pass), `tjs()` returns its runtime prelude separately for REPL hosts, and npm links
+to the documentation site. Pin `0.14.0-rc.5` exactly to test it. This section is what changed
+since rc.4; the notes for 0.14.0 as a whole, rc.1 to rc.4, are under the 0.14.0 heading
+below.
 
 ### Read this first: what changes since rc.4
 
@@ -56,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Inside a `wasm {}` body, `==` and `!=` stay JavaScript's, which is what the compiled WASM
   does (`x != x` is the NaN test), so the body and its implicit JavaScript fallback agree. An
   explicit `fallback {}` is the author's own code and has TJS semantics, as before.
+
+## [0.14.0] — unreleased
 
 > **Release candidate: `0.14.0-rc.4`** (2026-10-07), on the `rc` dist-tag. WASM blocks mean
 > what they say (a block that cannot compile is a compile error, and the WASM path and the
