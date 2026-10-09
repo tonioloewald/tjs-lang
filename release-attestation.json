@@ -1,55 +1,55 @@
 {
   "version": "0.14.0-rc.5",
-  "tree": "a09b2032cdee28a580ecf94e9bfb22a2a950f711",
-  "commit": "72072c16518dfcc6fc36c5383002bfce5a045160",
+  "tree": "f54e45fe8ec51a6257070f9125413aaba2109c3c",
+  "commit": "cbdeb12d679f32008d2cbb59f257acb2a3cd2d07",
   "bun": "1.4.2",
   "lanes": {
     "test:full": {
       "command": "bun test",
       "exitCode": 0,
-      "durationMs": 381153,
-      "tail": "\n 8153 pass\n 6 skip\n 0 fail\n 69394 expect() calls\nRan 8159 tests across 309 files. [381.00s]"
+      "durationMs": 302320,
+      "tail": "\n 8153 pass\n 6 skip\n 0 fail\n 69394 expect() calls\nRan 8159 tests across 309 files. [302.12s]"
     },
     "test:fast": {
       "command": "SKIP_LLM_TESTS=1 SKIP_BENCHMARKS=1 SKIP_AUDIT=1 bun test",
       "exitCode": 0,
-      "durationMs": 68136,
-      "tail": "\n 8131 pass\n 31 skip\n 0 fail\n 69305 expect() calls\nRan 8162 tests across 309 files. [68.03s]"
+      "durationMs": 66204,
+      "tail": "\n 8131 pass\n 31 skip\n 0 fail\n 69305 expect() calls\nRan 8162 tests across 309 files. [66.12s]"
     },
     "test:dogfood": {
       "command": "SKIP_LLM_TESTS=1 SKIP_AUDIT=1 bun test src/lang/dogfood-convert.test.ts src/lang/dogfood-tests.test.ts",
       "exitCode": 0,
-      "durationMs": 173133,
-      "tail": "src/lang/dogfood-convert.test.ts:\n\n 4 pass\n 0 fail\n 12 expect() calls\nRan 4 tests across 2 files. [173.09s]"
+      "durationMs": 122898,
+      "tail": "src/lang/dogfood-convert.test.ts:\n\n 4 pass\n 0 fail\n 12 expect() calls\nRan 4 tests across 2 files. [122.87s]"
     },
     "test:functions": {
       "command": "bun test functions/",
       "exitCode": 0,
-      "durationMs": 457,
-      "tail": "$ bun test functions/\n\n 10 pass\n 0 fail\n 17 expect() calls\nRan 10 tests across 2 files. [434.00ms]"
+      "durationMs": 317,
+      "tail": "$ bun test functions/\n\n 10 pass\n 0 fail\n 17 expect() calls\nRan 10 tests across 2 files. [302.00ms]"
     },
     "test:llm": {
       "command": "bun test src/batteries/models.integration.test.ts",
       "exitCode": 0,
-      "durationMs": 7161,
-      "tail": "src/batteries/models.integration.test.ts:\n\n 3 pass\n 0 fail\n 9 expect() calls\nRan 3 tests across 1 file. [7.14s]"
+      "durationMs": 4786,
+      "tail": "src/batteries/models.integration.test.ts:\n\n 3 pass\n 0 fail\n 9 expect() calls\nRan 3 tests across 1 file. [4.77s]"
     },
     "test:compat": {
       "command": "bun scripts/compat-all.ts",
       "exitCode": 0,
-      "durationMs": 105906,
+      "durationMs": 49519,
       "tail": "  ✓ superstruct    pass  ok\n  ✓ ts-pattern     pass  ok\n  ✓ zod            pass  ok\n\n  7 passed, 0 failed, 0 skipped\n$ bun scripts/compat-all.ts"
     },
     "test:compat-scan": {
       "command": "bun scripts/compat-scan.ts",
       "exitCode": 0,
-      "durationMs": 54211,
+      "durationMs": 18882,
       "tail": "  SKIP  460KB  effect/packages/effect/src/Effect.ts   (preprocess is quadratic)\n  SKIP  791KB  effect/packages/ai/openai/src/Generated.ts   (preprocess is quadratic)\n\n  ratchet holds: 0 known failures, no drift\n\n$ bun scripts/compat-scan.ts"
     }
   },
   "shipped": {
     "ASSUMPTIONS.md": "0879918ad821e486c0e0a75c11c24e801a420babeffdbf65862822fd6f592159",
-    "CHANGELOG.md": "f257ceac15759fc880a2edb05a1e94892ecabb5d24f7dddc96f534d574fec04a",
+    "CHANGELOG.md": "9fbffd7956391685d7165056e2f6fe13c0584cd4cef0433d0f1ae615edf13390",
     "CLAUDE-TJS-SYNTAX.md": "8dfed25a14b677c2178c57936766323a7fdc8ec5a261e0d9a14bb614fe6fc8a2",
     "CLAUDE.md": "51ea08a13a7cdd6ed430770ffad235fd44ddf9ed750b2ac69c15d56558f84e50",
     "CONTEXT.md": "ebebacac10e5ae2685851fc17ead40a897d77cfe5d5c5a6f8eb79e58f480e762",
