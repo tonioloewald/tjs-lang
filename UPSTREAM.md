@@ -152,6 +152,17 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
+## tosijs-ui — teaching pages: hidden test results, empty tabs, nav arrow on wrapped titles (tosijs-ui#219)
+
+**Virta:** #3223
+
+**Filed 2026-10-10**, from drafting the book's Part I. (1) a test's pass/fail is in the last
+tab, so a reader never sees it; (2) empty `html`/`css`/`DOM tests` tabs on every example;
+(3) a long sidebar title wraps WHOLE below its ▶ (the summary link is `inline-block`), so the
+nav looks as if it has empty entries. **Worked around here:** (1) the chapters tell the reader
+to open the **tjs tests** tab; (3) `site/entry.ts` injects `display: inline` for the summary
+link. **Delete when:** each lands.
+
 ## tosijs-ui — live-example gaps found by sweeping the site (tosijs-ui#210)
 
 **Virta:** #3081
