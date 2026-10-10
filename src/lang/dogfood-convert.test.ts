@@ -256,7 +256,12 @@ const report = (label: string, st: Stage, total: number) => {
  * the whole point of the promote-check is that an unclaimed gain is slack a future regression
  * can occupy without turning anything red.
  */
-const GRADUATION_FLOOR = 127
+/*
+ * Raised to 129 on 2026-10-10 — the corpus grew (`type-or.ts` and the new test files from the
+ * 0.14.0-rc.6 equality and annotation work) and every addition graduates. Promoted because
+ * the ratchet asked.
+ */
+const GRADUATION_FLOOR = 129
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

@@ -208,3 +208,46 @@ describe('a wasm{} block that cannot compile is not taught to fall back (0.14.0)
     })
   }
 })
+
+describe('`||` is not taught as union syntax (#3148, a compile error since 0.14.0-rc.6)', () => {
+  // `x: '' || null` was taught as "string or null" in three docs and never meant it: the
+  // type was `string` and null was REJECTED. It is now a compile error naming `|`.
+  // Lines explaining that it is NOT a union are prose about the form and are allowed.
+  const pattern =
+    /`\|\| ?null`|\w\s*\)?\s*:\s*[^`\n=?]*\|\|\s*(null|undefined)\b/
+  const aboutIt = /not a union|is an error|compile error|one bar/i
+  const docs = [
+    ...globSync('*.md', { cwd: ROOT }),
+    ...globSync('docs/**/*.md', { cwd: ROOT }),
+    ...globSync('guides/**/*.md', { cwd: ROOT }),
+    'llms.txt',
+  ]
+    .map((p) => p.replaceAll('\\', '/'))
+    .filter((p) => !HISTORICAL[p] && !p.startsWith('docs/reviews/'))
+
+  const teaching = (text: string) =>
+    text
+      .split('\n')
+      .filter((l) => pattern.test(l) && !aboutIt.test(l))
+      .map((l) => l.trim())
+
+  it('the filter catches the taught forms and spares prose about the error (apparatus)', () => {
+    expect(teaching("function f(code: '' || null) {}")).toHaveLength(1)
+    expect(
+      teaching("function find(id: 0): { name: '' } || null {}")
+    ).toHaveLength(1)
+    expect(
+      teaching('Writing `|| null` means the value can be null')
+    ).toHaveLength(1)
+    expect(teaching('`||` is not a union in a type: write `| null`')).toEqual(
+      []
+    )
+    expect(teaching('const v = x || null')).toEqual([])
+  })
+
+  for (const doc of docs) {
+    it(`${doc} does not teach \`||\` as a union`, () => {
+      expect(teaching(readFileSync(join(ROOT, doc), 'utf8'))).toEqual([])
+    })
+  }
+})

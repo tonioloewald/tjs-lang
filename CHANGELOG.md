@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `||` in a type is a compile error; a union is spelled `|`** (#3148).
+  `x: '' || null` and `): T || null` were taught by three docs as "string or null" and never
+  meant it: an example's `||` is JavaScript's OR, so the type was only the left side and
+  `null` was REJECTED. Every type position (an annotation, an object member, an array
+  element, a union member, a return annotation) now fails with the corrected spelling:
+  `` `'' || null` reads as JavaScript OR … Write `'' | null` (one bar).`` A real default
+  (`x = a || b`) is still JavaScript. The docs now use `|`, and a docs-tombstones row keeps it.
+
 ### Fixed
 
 - **An annotation on a function inside an expression is no longer a default value** (#3147).

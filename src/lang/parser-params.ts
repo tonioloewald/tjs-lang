@@ -6,6 +6,8 @@
  */
 
 import { SyntaxError } from './types'
+import { parseExpressionAt } from 'acorn'
+import { orInType, orInTypeMessage } from './type-or'
 import type {
   TokenizerState,
   StructuralContext,
@@ -1350,6 +1352,38 @@ export function extractJSValue(
  * Normalize union syntax in type strings
  * Converts single | to || for TJS consistency (needed for JS parsing)
  */
+/**
+ * A return annotation's text, refused if it spells a union `||` (#3148), then normalized.
+ *
+ * Checked on the RAW text: `normalizeUnionSyntax` below turns `|` into `||` for the return
+ * pipeline's own use, after which the two spellings can no longer be told apart.
+ */
+function checkedReturnType(
+  source: string,
+  start: number,
+  end: number,
+  original: string
+): string {
+  const raw = source.slice(start, end).trim()
+  if (raw.includes('||')) {
+    let node: any
+    try {
+      node = parseExpressionAt(raw, 0, { ecmaVersion: 'latest' })
+    } catch {
+      node = undefined
+    }
+    if (node && node.end === raw.length && orInType(node)) {
+      const at = original.indexOf(raw)
+      throw new SyntaxError(
+        orInTypeMessage(raw),
+        locAt(original, at >= 0 ? at : 0),
+        original
+      )
+    }
+  }
+  return normalizeUnionSyntax(raw)
+}
+
 function normalizeUnionSyntax(type: string): string {
   // Replace single | (not ||) with || for proper JS parsing
   // Use negative lookbehind and lookahead to avoid matching ||
@@ -1433,7 +1467,7 @@ function extractReturnTypeValue(
 
   // Helper to create result with normalized type
   const makeResult = (endPos: number) => ({
-    type: normalizeUnionSyntax(source.slice(start, endPos).trim()),
+    type: checkedReturnType(source, start, endPos, original),
     endPos,
   })
 
@@ -1586,13 +1620,13 @@ function extractReturnTypeValue(
       if (i < source.length && source[i] === '{') {
         // Function body - type ends here
         return {
-          type: normalizeUnionSyntax(source.slice(start, j).trim()),
+          type: checkedReturnType(source, start, j, original),
           endPos: j,
         }
       }
       if (source[i] !== '|' && source[i] !== '&') {
         return {
-          type: normalizeUnionSyntax(source.slice(start, j).trim()),
+          type: checkedReturnType(source, start, j, original),
           endPos: j,
         }
       }
@@ -1635,14 +1669,14 @@ function extractReturnTypeValue(
           let typeEnd = j
           while (typeEnd > start && /\s/.test(source[typeEnd - 1])) typeEnd--
           return {
-            type: normalizeUnionSyntax(source.slice(start, typeEnd).trim()),
+            type: checkedReturnType(source, start, typeEnd, original),
             endPos: j,
           }
         }
       }
       if (source[i] !== '|' && source[i] !== '&') {
         return {
-          type: normalizeUnionSyntax(source.slice(start, j).trim()),
+          type: checkedReturnType(source, start, j, original),
           endPos: j,
         }
       }

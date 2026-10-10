@@ -124,6 +124,7 @@ import {
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
 import { blankDocComments, trimTrailingWhitespace } from '../../strip-comments'
 import { RT_NS, rt } from '../rt-namespace'
+import { orInType, orInTypeMessage } from '../type-or'
 import { extractTests, generateTestRunner } from '../tests'
 import {
   runAllTests,
@@ -1712,6 +1713,33 @@ export function transpileToJS(
       }
     }
   }
+  // `||` in a parameter annotation's type positions is a compile error naming `|` (#3148).
+  // Annotation parameters are the ones `preprocess` recorded an offset for; a real default
+  // (`x = a || b`) has none and stays JavaScript.
+  walk.simple(program as any, {
+    AssignmentPattern(node: any) {
+      const right = node.right
+      if (
+        !right ||
+        !(
+          preprocessed.requiredValueOffsets.has(right.end) ||
+          preprocessed.typeNameValueOffsets.has(right.end)
+        )
+      )
+        return
+      const hit = orInType(right)
+      if (!hit) return
+      const text = preprocessed.source.slice(right.start, right.end)
+      const at = source.indexOf(text)
+      throw new TJSSyntaxError(
+        orInTypeMessage(text),
+        at >= 0 ? locAt(source, at) : { line: 1, column: 0 },
+        source,
+        filename
+      )
+    },
+  })
+
   walk.simple(program as any, {
     MethodDefinition(node: any) {
       stripMethodAnnotations(node.value?.params)
