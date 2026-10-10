@@ -64,7 +64,7 @@ test 'the name goes in the middle' {
 }
 ```
 
-Change `'Ada'` to your own name. The page changes, and the test turns red: it still expects
+Change `'Ada'` to your own name. The page changes, and the test (in the **tjs tests** tab) turns red: it still expects
 Ada. Change the expected text in the test to match, and it turns green again. You have just
 done what programmers do all day: changed a program, and changed the check that says what it
 should do.
