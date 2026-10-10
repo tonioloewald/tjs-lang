@@ -1702,8 +1702,11 @@ export function transpileToJS(
       // is a genuine default and `f(x: a | b)` is an annotation, and they are the same AST.
       // Only the parser knows which was written, and it says so by recording the offset.
       if (
-        preprocessed.requiredValueOffsets.has(right.end) ||
-        preprocessed.typeNameValueOffsets.has(right.end)
+        (preprocessed.requiredValueOffsets.has(right.end) ||
+          preprocessed.typeNameValueOffsets.has(right.end)) &&
+        // A function the passes above already processed has its own deletion here (the
+        // whole annotation, or only a union suffix): leave that one alone.
+        !deletions.some((d) => d.start < right.end && param.left.end < d.end)
       ) {
         deletions.push({ start: param.left.end, end: right.end })
       }
@@ -1712,6 +1715,16 @@ export function transpileToJS(
   walk.simple(program as any, {
     MethodDefinition(node: any) {
       stripMethodAnnotations(node.value?.params)
+    },
+    // Every other function EXPRESSION, wherever it sits: an operand, an argument, an array
+    // element, a property, a returned arrow (#3147). `findAllFunctions` sees only named
+    // ones, so these kept `(x = '' | null)`: an annotation turned into a default that
+    // evaluates to 0. Same narrow treatment as methods: strip it, no validation yet.
+    ArrowFunctionExpression(node: any) {
+      stripMethodAnnotations(node.params)
+    },
+    FunctionExpression(node: any) {
+      stripMethodAnnotations(node.params)
     },
     PropertyDefinition(node: any) {
       const v = node.value

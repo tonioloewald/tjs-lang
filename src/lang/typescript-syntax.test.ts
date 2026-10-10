@@ -300,9 +300,10 @@ describe('Arrow Functions', () => {
         return items.map((x: '') => x.toUpperCase())
       }
     `)
-    // The arrow param should be transformed
-    expect(code).toContain('(x = ')
-    expect(code).toContain(') =>')
+    // The annotation is stripped, never left as a default (#3147: these tests used to pin
+    // `(x = '')`, which made the example a runtime default and hid a missing argument).
+    expect(code).toContain('items.map((x) =>')
+    expect(code).not.toContain('(x = ')
   })
 
   test('arrow function in callback with object type', () => {
@@ -311,7 +312,8 @@ describe('Arrow Functions', () => {
         return items.filter((item: { id: 0 }) => item.id > 0)
       }
     `)
-    expect(code).toContain('(item = ')
+    expect(code).toContain('items.filter((item) =>')
+    expect(code).not.toContain('(item = ')
   })
 
   test('arrow functions work in fromTS', () => {
@@ -335,8 +337,7 @@ describe('Arrow Functions', () => {
         return nums.map((x: 0) => x * 2).filter((y: 0) => y > 5)
       }
     `)
-    expect(code).toContain('(x = 0)')
-    expect(code).toContain('(y = 0)')
+    expect(code).toContain('nums.map((x) => x * 2).filter((y) => y > 5)')
   })
 })
 

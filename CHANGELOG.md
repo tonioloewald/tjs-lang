@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An annotation on a function inside an expression is no longer a default value** (#3147).
+  `items.map((x: 0) => x * 2)`, `a || ((x: '' | null) => x)`, `{ f: (x: 0) => x }` and
+  every other arrow or function expression that is an operand, argument, array element,
+  property or return value emitted `(x = 0) => …`: the example became a runtime default, so
+  a missing argument was silently `0` (or, for `'' | null`, the number `0`). The annotation
+  is now stripped, as it already was for declarations, named arrows, methods and class
+  fields. These functions are not validated yet; that is a larger change.
+
 ## [0.14.0-rc.5] — 2026-10-09
 
 On the `rc` dist-tag. `==` and `!=` now group their operands as JavaScript does (the rewrite
