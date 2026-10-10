@@ -184,7 +184,8 @@ export default defineSiteConfig({
   // to every volume; a name absent from a volume is ignored). The site nav puts the practical
   // TJS section first; a book reads better starting from why the language exists, so The TJS
   // Language leads — and `why-tjs` leads within it, by its own `order`.
-  book: { order: ['README', 'the-tjs-language'] },
+  // Part I, Learn to Program (#3128), comes before the reference half of the language.
+  book: { order: ['README', 'learn-to-program', 'the-tjs-language'] },
 
   epub: {
     title: 'tjs-lang',

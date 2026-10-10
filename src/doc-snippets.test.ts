@@ -75,6 +75,11 @@ const DOCS = [
   'guides/examples/tjs/local-extensions.md',
   // Every example asserts its result: the page shipped two that returned `undefined`.
   'docs/WASM-QUICKSTART.md',
+  // The book's Part I (#3128): every example is a whole program, and its tests are the
+  // reader's feedback, so they must pass as written.
+  'guides/learn/how-this-book-works.md',
+  'guides/learn/hello-screen.md',
+  'guides/learn/values-and-names.md',
 ]
 
 /*
@@ -105,7 +110,7 @@ function snippets(doc: string): Snippet[] {
     // Other HTML comments may sit between the directive and the fence (`<!-- prettier-ignore -->`
     // is common). Requiring the directive to touch the fence silently dropped it, so an
     // `expect-error` block was checked as ordinary code.
-    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n(?:<!--(?:(?!-->)[\s\S])*-->\s*\n)*)?```(typescript|tjs|js|javascript)(?::[a-z]+)?\n([\s\S]*?)```/g
+    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n(?:<!--(?:(?!-->)[\s\S])*-->\s*\n)*)?```(typescript|tjs|js|javascript)(?::[a-z]+)?(?:[ \t]*\{.*\})?\n([\s\S]*?)```/g
   for (const m of text.matchAll(re)) {
     out.push({
       doc,
@@ -125,6 +130,14 @@ describe('documentation snippets are real code', () => {
     // the apparatus-fails-closed hazard, which this repo has already been bitten by once
     // (the self-hosting baseline was inflated fourfold by a broken harness).
     expect(ALL.length).toBeGreaterThan(20)
+    // A fence with options (` ```tjs:inline {"view": "code"} `) is still a snippet.
+    expect(
+      [
+        ...'```tjs:inline {"view": "code"}\nconst a = 1\n```'.matchAll(
+          /```(typescript|tjs|js|javascript)(?::[a-z]+)?(?:[ \t]*\{.*\})?\n([\s\S]*?)```/g
+        ),
+      ].length
+    ).toBe(1)
     expect(ALL.some((s) => s.mode === 'compile')).toBe(true)
   })
 
@@ -250,4 +263,50 @@ describe('documentation snippets are real code', () => {
     )
     expect(stale).toEqual([])
   })
+})
+
+/**
+ * The book's tests RUN; none passes by being inconclusive.
+ *
+ * A live example draws into `preview`, which only exists on the page. At build time the
+ * module code then throws, every test in the block counts as INCONCLUSIVE, and an
+ * inconclusive test does not fail the build (PRINCIPLES.md), so a chapter whose tests were
+ * all wrong still reported green. With a stand-in `preview`, the tests execute, and each must
+ * pass outright. In Part I the tests are the reader's feedback, so this is the claim that
+ * matters.
+ */
+describe("the book's tests run and pass outright", () => {
+  const BOOK = ALL.filter(
+    (s) => s.doc.startsWith('guides/learn/') && /\btest\s+'/.test(s.code)
+  )
+
+  it('finds the book chapters with tests (apparatus)', () => {
+    expect(BOOK.length).toBeGreaterThan(4)
+  })
+
+  for (const s of BOOK)
+    it(`${s.doc}:${s.line}`, () => {
+      const g = globalThis as any
+      const prev = g.preview
+      g.preview = { append() {}, replaceChildren() {}, textContent: '' }
+      try {
+        const r: any = tjs(s.code, { runTests: 'report' } as any)
+        const results = (r.testResults ?? []).filter(
+          (t: any) => !t.isSignatureTest
+        )
+        expect(results.length).toBeGreaterThan(0)
+        expect(
+          results
+            .filter((t: any) => !t.passed)
+            .map(
+              (t: any) =>
+                `${t.description}: ${
+                  t.inconclusive ? 'inconclusive' : 'failed'
+                } ${t.error ?? ''}`
+            )
+        ).toEqual([])
+      } finally {
+        g.preview = prev
+      }
+    })
 })
