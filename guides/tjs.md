@@ -5,7 +5,7 @@
 TJS is a typed superset of JavaScript where **types are examples**.
 
 ```javascript
-function greet(name: 'World', times: 3): '' {
+function greet(name: 'World', times: 3): 'Hello, World! Hello, World! Hello, World!' {
   let result = ''
   let i = 0
   while (i < times) {
@@ -109,7 +109,7 @@ function createUser(
   email: 'user@example.com', // required string
   age = 0, // optional number (defaults to 0)
   role = 'user' // optional string (defaults to 'user')
-): { id: '', name: '', email: '', age: 0, role: '' } {
+):! { id: '', name: '', email: '', age: 0, role: '' } {
   return {
     id: crypto.randomUUID(),
     name,
@@ -147,7 +147,7 @@ function getUser(id: ''): { name: '', email: '' } | null {
 Use `|` for unions (same as TypeScript):
 
 ```javascript
-function parseInput(value: '' | 0 | null): '' {
+function parseInput(value: '' | 0 | null):! '' {
   if (value === null) return 'null'
   if (typeof value === 'number') return `number: ${value}`
   return `string: ${value}`
@@ -561,7 +561,7 @@ Type User {
 TypeScript erases types at compile time. TJS preserves them:
 
 ```javascript
-function greet(name: 'World'): '' {
+function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
 
@@ -612,7 +612,7 @@ If you need these, you probably need to rethink your approach. TJS favors simple
 Every TJS function has attached metadata:
 
 ```javascript
-function createUser(name: 'Anonymous', age = 0): { id: '', name: '', age: 0 } {
+function createUser(name: 'Anonymous', age = 0):! { id: '', name: '', age: 0 } {
   return { id: crypto.randomUUID(), name, age }
 }
 
@@ -697,12 +697,12 @@ function send(
 
 ```javascript
 // Public API - safe by default
-export function createUser(name: '', email: ''): { id: '', name: '', email: '' } {
+export function createUser(name: '', email: ''):! { id: '', name: '', email: '' } {
   return createUserImpl(name, email)
 }
 
 // Internal - mark as unsafe for speed
-function createUserImpl(! name: '', email: ''): { id: '', name: '', email: '' } {
+function createUserImpl(! name: '', email: ''):! { id: '', name: '', email: '' } {
   return { id: crypto.randomUUID(), name, email }
 }
 ```

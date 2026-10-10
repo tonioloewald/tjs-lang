@@ -110,12 +110,12 @@ function greet(name) {
 }
 
 // TJS - name is required and must be a string (like 'World')
-function greet(name: 'World'): '' {
+function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
 ```
 
-The `: 'World'` means "required, must be a string, here's an example." The `: ''` means "returns a string." These aren't abstract type annotations -- they're concrete values the system can use for testing, documentation, and validation.
+The `: 'World'` means "required, must be a string, here's an example." The `: 'Hello, World!'` means "returns a string, and here is what it returns for that example": TJS calls `greet('World')` at transpile time and checks the answer. These aren't abstract type annotations -- they're concrete values the system can use for testing, documentation, and validation.
 
 | You Write         | TJS Infers                    |
 | ----------------- | ----------------------------- |
@@ -187,13 +187,13 @@ function add(a: 0, b: 0): 0 {
   return a + b
 }
 
-// Returns an object with specific shape
-function getUser(id: 0): { name: '', age: 0 } {
+// Returns an object with this shape. `:!` means the example is the TYPE only.
+function getUser(id: 0):! { name: '', age: 0 } {
   return { name: 'Alice', age: 30 }
 }
 ```
 
-The return type example doubles as an automatic test. When you write `: 0`, TJS will call `add(0, 0)` at transpile time and verify the result is a number.
+The return example doubles as an automatic test. When you write `: 0`, TJS calls `add(0, 0)` at transpile time and checks that the result **equals** `0` (deep equality: it is a worked example, not just a type). When you only mean the shape of the result, as for `getUser`, write `:!` and no test runs.
 
 ### 4. Equality That Works
 
@@ -446,14 +446,14 @@ NumberBox.check({ value: 'nope' }) // false
 Every TJS function carries its type information at runtime via `__tjs`:
 
 ```javascript
-function createUser(input: { name: '', age: 0 }): { id: 0 } {
+function createUser(input: { name: '', age: 0 }):! { id: 0 } {
   return { id: 123 }
 }
 
 createUser.__tjs
 // {
 //   params: { input: { type: { kind: 'object', shape: {...} }, required: true } },
-//   returns: { type: { kind: 'object', shape: { id: { kind: 'number' } } } }
+//   returns: { type: { kind: 'object', shape: { id: { kind: 'integer' } } } }
 // }
 ```
 

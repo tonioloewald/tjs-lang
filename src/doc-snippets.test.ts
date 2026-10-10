@@ -75,31 +75,15 @@ const DOCS = [
   'guides/examples/tjs/local-extensions.md',
   // Every example asserts its result: the page shipped two that returned `undefined`.
   'docs/WASM-QUICKSTART.md',
-  'TJS-FOR-TS.md',
 ]
 
-/**
- * Docs whose snippets also RUN their tests and signature examples when compiled.
- *
- * Every doc should be here. Compiling with tests off hid that eleven snippets across
- * TJS-SYNTAX, TJS-FOR-TS, TJS-FOR-JS and guides/tjs.md write a return example as a TYPE
- * (`greet(name: 'World'): ''`, which TJS checks as a worked example: `greet('World')` must
- * return `''`), and one has a failing `test` block (Virta #3099). A doc joins this list when
- * its snippets pass; the goal is to delete the list and run them all.
+/*
+ * Every doc's snippets RUN their tests and signature examples when compiled. (There used to be
+ * a TESTED list of docs that did: compiling with tests off hid eleven snippets that wrote a
+ * return example as a TYPE, `greet(name: 'World'): ''`, and a documented union syntax that
+ * never worked, `'' || null`. All were fixed for 0.14.0-rc.6 (Virta #3099) and the list was
+ * deleted, so a new doc is tested from its first snippet.)
  */
-const TESTED = new Set([
-  'guides/examples/tjs/declarations.md',
-  'guides/examples/tjs/hello-tjs.md',
-  'guides/examples/tjs/array-types.md',
-  'guides/examples/tjs/error-handling.md',
-  'guides/examples/tjs/polymorphic-functions.md',
-  'guides/examples/tjs/polymorphic-constructors.md',
-  'guides/examples/tjs/js-footgun-fixes.md',
-  'guides/examples/tjs/local-extensions.md',
-  // Every example asserts its result: the page shipped two that returned `undefined`.
-  'docs/WASM-QUICKSTART.md',
-  'TJS-FOR-TS.md',
-])
 
 interface Snippet {
   doc: string
@@ -118,7 +102,10 @@ function snippets(doc: string): Snippet[] {
   const text = readFileSync(resolve(REPO, doc), 'utf8')
   const out: Snippet[] = []
   const re =
-    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n)?```(typescript|tjs|js|javascript)(?::[a-z]+)?\n([\s\S]*?)```/g
+    // Other HTML comments may sit between the directive and the fence (`<!-- prettier-ignore -->`
+    // is common). Requiring the directive to touch the fence silently dropped it, so an
+    // `expect-error` block was checked as ordinary code.
+    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n(?:<!--(?:(?!-->)[\s\S])*-->\s*\n)*)?```(typescript|tjs|js|javascript)(?::[a-z]+)?\n([\s\S]*?)```/g
   for (const m of text.matchAll(re)) {
     out.push({
       doc,
@@ -151,7 +138,7 @@ describe('documentation snippets are real code', () => {
       try {
         tjs(s.code, {
           filename: `${s.doc}:${s.line}`,
-          runTests: TESTED.has(s.doc),
+          runTests: true,
         })
       } catch (e: any) {
         error = String(e.message).split('\n')[0]
