@@ -127,13 +127,13 @@ The `: 'World'` means "required, must be a string, here's an example." The `: ''
 | `items: [0]`      | Required integer[]            |
 | `values: [0.0]`   | Required number[]             |
 | `user: { n: '' }` | Required object               |
-| `id: 0 \|\| null` | integer or null               |
+| `id: 0 \| null`  | integer or null               |
 
 All of these are valid JavaScript expressions. `42` vs `42.0` vs `+42` are
 all legal JS -- TJS leverages this to distinguish integer, float, and
 non-negative integer types at the syntax level.
 
-Note: `|| null` means the value accepts the base type _or_ `null`, but not
+Note: `| null` means the value accepts the base type _or_ `null`, but not
 `undefined`. TJS treats `null` and `undefined` as distinct types
 (`typeOf(null) === 'null'`, `typeOf(undefined) === 'undefined'`).
 

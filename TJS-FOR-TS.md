@@ -417,12 +417,12 @@ metadata but types become `any`. This is a place where manual review helps.
 function find(id: number): User | null { ... }
 
 // TJS
-function find(id: 0): { name: '', age: 0 } || null { ... }
+function find(id: 0): { name: '', age: 0 } | null { ... }
 ```
 
 TJS distinguishes `null` from `undefined` -- they're different types, just
 as `typeOf(null)` returns `'null'` and `typeOf(undefined)` returns
-`'undefined'`. Writing `|| null` means the value can be the base type or
+`'undefined'`. Writing `| null` means the value can be the base type or
 `null`, but not `undefined`. Optional parameters (using `=`) accept
 `undefined` because that's what you get when the caller omits the argument.
 
@@ -568,7 +568,7 @@ TJS:
 
 ```javascript
 // Types are checked at runtime. One source of truth.
-function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }): {
+function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }):! {
   status: '',
 } {
   // If order doesn't match, caller gets a MonadicError -- no crash.
@@ -944,7 +944,7 @@ function calculateTotal(items: [CartItem], taxRate = 0.1): 0.0 {
   return Math.round(subtotal * (1 + taxRate) * 100) / 100
 }
 
-function applyDiscount(total: 0.0, code: '' || null): { final: 0.0, discount: 0.0 } {
+function applyDiscount(total: 0.0, code: '' | null): { final: 0.0, discount: 0.0 } {
   const discounts = {
     SAVE10: 0.1,
     SAVE20: 0.2,
@@ -1063,7 +1063,7 @@ objects that might be circular, or define a custom `.Equals` method on the class
 TJS doesn't have `strictNullChecks` or `noImplicitAny` because the
 problems they solve don't exist:
 
-- **Null safety:** `|| null` explicitly marks nullable parameters.
+- **Null safety:** `| null` explicitly marks nullable parameters.
   Functions without it reject null at runtime.
 - **Implicit any:** Every TJS parameter has an example value that
   determines its type. There's nothing to be implicit about.

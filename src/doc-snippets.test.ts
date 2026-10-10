@@ -75,6 +75,7 @@ const DOCS = [
   'guides/examples/tjs/local-extensions.md',
   // Every example asserts its result: the page shipped two that returned `undefined`.
   'docs/WASM-QUICKSTART.md',
+  'TJS-FOR-TS.md',
 ]
 
 /**
@@ -97,6 +98,7 @@ const TESTED = new Set([
   'guides/examples/tjs/local-extensions.md',
   // Every example asserts its result: the page shipped two that returned `undefined`.
   'docs/WASM-QUICKSTART.md',
+  'TJS-FOR-TS.md',
 ])
 
 interface Snippet {

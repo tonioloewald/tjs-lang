@@ -529,7 +529,7 @@ test('async operations work') {
 | `(!)`             | Mark function as unsafe (skip validation)                      |
 | `test 'name' {}`  | Compile-time test block (evaporates)                           |
 | `mock {}`         | Test setup block                                               |
-| `\|\|` in types   | Union types                                                    |
+| `\|` in types    | Union types                                                    |
 | `Type Name = val` | Define runtime type with default                               |
 | `Generic<T>`      | Define a parameterized runtime type                            |
 | `Foo = ...`       | Bare assignment — auto-`const` (native TJS, first assign only) |
