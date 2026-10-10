@@ -28,8 +28,11 @@ installRuntime()
 // rule, whichever stylesheet loads last. Delete when tosijs-ui#219 item 3 ships.
 if (typeof document !== 'undefined') {
   const navFix = document.createElement('style')
+  // Plus a hanging indent, so a wrapped title's second line lines up with its first word
+  // rather than running back under the arrow.
   navFix.textContent =
-    '.doc-nav.doc-nav summary > .doc-link { display: inline; }'
+    '.doc-nav.doc-nav summary > .doc-link { display: inline; }' +
+    '.doc-nav.doc-nav summary { padding-left: calc(var(--spacing) * 0.5 + 1.1em); text-indent: -1.1em; }'
   document.head.append(navFix)
 }
 
