@@ -29,6 +29,7 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { globSync } from 'fs'
+import { splitConditions } from 'tosijs-ui/site'
 
 const ROOT = join(import.meta.dir, '..')
 const llms = readFileSync(join(ROOT, 'llms.txt'), 'utf8')
@@ -183,7 +184,12 @@ function publishedFiles(): string[] {
 describe('demo/docs.json is fresh and contains only our documentation', () => {
   const docs = JSON.parse(
     readFileSync(join(ROOT, 'demo', 'docs.json'), 'utf8')
-  ) as Array<{ path: string; filename: string; text?: string }>
+  ) as Array<{
+    path: string
+    filename: string
+    text?: string
+    bookText?: string
+  }>
 
   it('was generated at all', () => {
     // Apparatus. Every assertion below is vacuous over an empty array, and an empty
@@ -212,7 +218,16 @@ describe('demo/docs.json is fresh and contains only our documentation', () => {
         stale.push(`${doc.path} (indexed but missing on disk)`)
         continue
       }
-      if (readFileSync(abs, 'utf8') !== doc.text) stale.push(doc.path)
+      // Conditional text (tosijs-ui 1.16.9, `<!--{ "only": "book" }-->`) is resolved at
+      // extraction: `text` is the SITE wording and `bookText` the book's. Compare with the
+      // builder's own split, or a page with a book-only line reads as stale forever.
+      const { site, book } = splitConditions(
+        readFileSync(abs, 'utf8'),
+        doc.path
+      )
+      if (site !== doc.text) stale.push(doc.path)
+      else if (doc.bookText !== undefined && doc.bookText !== book)
+        stale.push(`${doc.path} (book wording)`)
     }
     expect(
       stale,
