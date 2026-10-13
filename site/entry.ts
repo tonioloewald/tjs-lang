@@ -21,21 +21,6 @@ import { stripExports } from '../src/lang/strip-exports'
 // error-history example's `__tjs.clearErrors()` was "not a function" on the site.
 installRuntime()
 
-// A long section title in the sidebar dropped onto its own line and left its ▶ alone on the
-// row above, so the nav looked as if it had empty entries. tosijs-ui styles the summary link
-// `inline-block`, and an inline-block wider than the rest of the line wraps WHOLE. `inline`
-// lets the title wrap beside its arrow. Doubled class for specificity over tosijs-ui's own
-// rule, whichever stylesheet loads last. Delete when tosijs-ui#219 item 3 ships.
-if (typeof document !== 'undefined') {
-  const navFix = document.createElement('style')
-  // Plus a hanging indent, so a wrapped title's second line lines up with its first word
-  // rather than running back under the arrow.
-  navFix.textContent =
-    '.doc-nav.doc-nav summary > .doc-link { display: inline; }' +
-    '.doc-nav.doc-nav summary { padding-left: calc(var(--spacing) * 0.5 + 1.1em); text-indent: -1.1em; }'
-  document.head.append(navFix)
-}
-
 // (The example context needs nothing here: since tosijs-ui 1.16.7 the doc system supplies
 // `tosijs` itself, and no example imports `tosijs-ui`. This entry used to set both globals.)
 
