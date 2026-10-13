@@ -54,8 +54,9 @@ test 'the greeting says hello' {
 }
 ```
 
-The last tab above the program, **tjs tests**, shows the result: a passing test is green.
-Change the greeting and the test fails, in red, and says what it expected and what it got. That is the whole loop of this book: run something, change
+The line under the result says how the tests did: when they pass, how many passed. Change
+the greeting and the test fails: the line turns red and says what it expected and what it
+got. Click it for the details. That is the whole loop of this book: run something, change
 it, and let the tests tell you whether you understand what happened.
 
 If you are curious how these live examples work, the

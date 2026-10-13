@@ -14,7 +14,7 @@ import { transpile, tjs } from '../src/lang/core'
 import { generateDocsMarkdown } from '../src/lang/docs'
 import { installRuntime } from '../src/lang/runtime'
 import { AgentVM } from '../src/vm/ast'
-import { stripExports } from '../src/lang/strip-exports'
+import { tjsDialect } from './tjs-dialect'
 
 // The FULL runtime, as the old playground installed it. Emitted code prefers an installed
 // `globalThis.__tjs` over its inline stub, and the stub has no flight recorder, so the
@@ -24,25 +24,8 @@ installRuntime()
 // (The example context needs nothing here: since tosijs-ui 1.16.7 the doc system supplies
 // `tosijs` itself, and no example imports `tosijs-ui`. This entry used to set both globals.)
 
-// Replaces tosijs-ui's built-in `tjs` dialect for ONE reason left: stripping `export`, so
-// examples written as modules run (as a function body they fail with "Unexpected token
-// 'export'"). tosijs-ui will do this itself by feature-detecting `stripExports` on the
-// same-origin tjs-lang bundle (tosijs-ui#210 item 5, Virta #3109); delete this then.
-registerDialect('tjs', {
-  label: 'TJS',
-  editorMode: 'tjs',
-  transform(source) {
-    return {
-      code: stripExports(tjs(source, { dialect: 'tjs', runTests: false }).code),
-    }
-  },
-  docs(source) {
-    return generateDocsMarkdown(
-      source,
-      tjs(source, { dialect: 'tjs', runTests: false }).types
-    )
-  },
-})
+// The site's `tjs` dialect: why it exists, and why it returns `testRunner`, in tjs-dialect.ts.
+registerDialect('tjs', tjsDialect)
 
 // TypeScript examples use tosijs-ui's built-in `ts` dialect: since 1.16.8 it no longer passes
 // `dialect: 'tjs'` after `fromTS`, which refused `new` in converted TypeScript.
