@@ -124,10 +124,10 @@ export default defineSiteConfig({
   // (```tjs:inline, ```ajs:inline, ```ts:inline); `src/example-fences.test.ts` keeps it so.
   liveExamples: 'opt-in',
 
-  // The dialects site/entry.ts registers: `ajs` (ours) and `tjs` (replacing the built-in).
-  // Declared so the build treats their fences as live and leaves the built-in's build-time
-  // check and pre-transpile to our transform.
-  dialects: ['ajs', 'tjs'],
+  // The dialect site/entry.ts registers: `ajs`. Declared so the build treats its fences as
+  // live. (`tjs` was here too while the site replaced the built-in; since tosijs-ui 1.16.16 the
+  // built-in does everything ours did, Virta #3119.)
+  dialects: ['ajs'],
 
   // Examples import real npm packages (`date-fns`, `lodash-es`, `unpkg/lit`) through tjs-lang's
   // import-resolver service worker (prebuild builds it; tosijs-ui copies it to the root).
