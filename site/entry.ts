@@ -10,11 +10,9 @@
 import 'tosijs-ui/doc-browser'
 import 'tosijs-ui/live-example'
 import { registerDialect } from 'tosijs-ui/live-example'
-import { transpile, tjs } from '../src/lang/core'
-import { generateDocsMarkdown } from '../src/lang/docs'
+import { transpile } from '../src/lang/core'
 import { installRuntime } from '../src/lang/runtime'
 import { AgentVM } from '../src/vm/ast'
-import { tjsDialect } from './tjs-dialect'
 
 // The FULL runtime, as the old playground installed it. Emitted code prefers an installed
 // `globalThis.__tjs` over its inline stub, and the stub has no flight recorder, so the
@@ -24,8 +22,10 @@ installRuntime()
 // (The example context needs nothing here: since tosijs-ui 1.16.7 the doc system supplies
 // `tosijs` itself, and no example imports `tosijs-ui`. This entry used to set both globals.)
 
-// The site's `tjs` dialect: why it exists, and why it returns `testRunner`, in tjs-dialect.ts.
-registerDialect('tjs', tjsDialect)
+// No site `tjs` dialect any more: tosijs-ui 1.16.16 strips `export` with tjs-lang's own
+// `stripExports`, evaluates console lines with `prelude`/`body`, and uses `testRunner`, all
+// feature-detected on the same-origin copy of this repo's browser bundle (Virta #3119). Ours
+// existed only for `export`, and by 1.16.11 it was undoing tosijs-ui's test semantics.
 
 // TypeScript examples use tosijs-ui's built-in `ts` dialect: since 1.16.8 it no longer passes
 // `dialect: 'tjs'` after `fromTS`, which refused `new` in converted TypeScript.
