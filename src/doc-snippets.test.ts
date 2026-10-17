@@ -80,6 +80,7 @@ const DOCS = [
   'guides/learn/how-this-book-works.md',
   'guides/learn/hello-screen.md',
   'guides/learn/values-and-names.md',
+  'guides/learn/functions.md',
 ]
 
 /*

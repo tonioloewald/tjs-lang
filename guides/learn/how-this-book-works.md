@@ -22,8 +22,9 @@ Here is a complete program. It puts a greeting on the page:
 preview.append('Hello, world!')
 ```
 
-The right side is the program; the left side is what it did. `preview` is the box the
-program draws in, and `append` adds something to it.
+One pane is the program, with its line numbers; the other is what it did. (On a wide screen
+they sit side by side; on a narrow one, what it did sits above the program.) `preview` is the
+box the program draws in, and `append` adds something to it.
 
 Now change it. Replace `world` with your own name. The page runs your new version as you
 type, and the greeting changes. You cannot break anything: if you make a mistake, the
