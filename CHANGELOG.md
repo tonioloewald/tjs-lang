@@ -9,7 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.14.0-rc.6] — 2026-10-17
+
+On the `rc` dist-tag. One breaking change: `||` in a type is a compile error (a union is
+spelled `|`). Plus a fix for annotations on nested functions, and documentation whose every
+example now runs its tests. Pin `0.14.0-rc.6` exactly to test it.
+
+### Read this first: what breaks since rc.5
+
+- **`||` in a type is a compile error.** `x: '' || null` never meant "string or null" (it
+  rejected null); write `'' | null`. The error names the corrected spelling. A real default
+  (`x = a || b`) is unaffected.
+
+### Changed since rc.5
 
 - **BREAKING: `||` in a type is a compile error; a union is spelled `|`** (#3148).
   `x: '' || null` and `): T || null` were taught by three docs as "string or null" and never
@@ -19,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `` `'' || null` reads as JavaScript OR … Write `'' | null` (one bar).`` A real default
   (`x = a || b`) is still JavaScript. The docs now use `|`, and a docs-tombstones row keeps it.
 
-### Fixed
+### Fixed since rc.5
 
 - **An annotation on a function inside an expression is no longer a default value** (#3147).
   `items.map((x: 0) => x * 2)`, `a || ((x: '' | null) => x)`, `{ f: (x: 0) => x }` and
@@ -28,6 +40,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a missing argument was silently `0` (or, for `'' | null`, the number `0`). The annotation
   is now stripped, as it already was for declarations, named arrows, methods and class
   fields. These functions are not validated yet; that is a larger change.
+
+### Documentation since rc.5
+
+- **Every book snippet runs its own tests.** Twelve snippets across TJS-SYNTAX, TJS-FOR-JS,
+  TJS-FOR-TS and the TJS guide wrote a return example as a type (`greet(name: 'World'): ''`,
+  which TJS checks as a worked example: `greet('World')` must return `''`), or used the `||`
+  union that never worked. Each now has a real worked result or `:!` (type only), and
+  `doc-snippets.test.ts` runs every doc's tests: its opt-in list is gone.
+- **TJS-FOR-JS described the return test wrongly.** It said TJS checks the result "is a
+  number"; it checks the result equals the example (deep equality). It now says so, and
+  shows `:!` for a type-only return.
+- **The TJS Programming Language opens with "Learn to Program"**, chapters 0 to 2 (How This
+  Book Works, Hello Screen, Values and Names): programming from scratch, in the page, each
+  example ending in a test the reader can see pass. A draft; more chapters follow.
 
 ## [0.14.0-rc.5] — 2026-10-09
 
