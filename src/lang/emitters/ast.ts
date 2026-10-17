@@ -43,6 +43,7 @@ import type {
   TranspileWarning,
 } from '../types'
 import { TranspileError, getLocation, createChildContext } from '../types'
+import { orInType, orInTypeMessage, typeText } from '../type-or'
 import {
   parseParameter,
   inferTypeFromValue,
@@ -178,7 +179,18 @@ export function transformFunction(
     const collect = (p: any): void => {
       if (!p) return
       if (p.type === 'AssignmentPattern' && p.right && p.left?.name) {
-        if (requiredValueOffsets.has(p.right.end)) requiredHere.add(p.left.name)
+        if (requiredValueOffsets.has(p.right.end)) {
+          // `x: '' || null` is not a union (#3148): TJS refuses it, so AJS must too, or
+          // AJS-legal source is TJS-illegal. Accepted, it typed `x` as a string and the VM
+          // rejected the null the author meant to allow.
+          if (orInType(p.right))
+            throw new TranspileError(
+              orInTypeMessage(typeText(p.right)),
+              getLocation(p.right),
+              source
+            )
+          requiredHere.add(p.left.name)
+        }
         return
       }
       // `{ a: 1, b = 2 }` — properties whose value is the annotation carrying the marker.

@@ -3,7 +3,7 @@
  * position refuses it, and every VALUE position keeps JavaScript's `||`.
  */
 import { describe, it, expect } from 'bun:test'
-import { tjs } from './index'
+import { tjs, transpile } from './index'
 
 const compile =
   (src: string, opts: any = {}) =>
@@ -63,4 +63,46 @@ describe('`||` as a value still compiles', () => {
     it(where, () => {
       expect(compile(src, opts)).not.toThrow()
     })
+})
+
+describe('the error says the right thing, in the right place (0.14.0-rc.6 review)', () => {
+  const errorOf = (f: () => unknown) => {
+    try {
+      f()
+    } catch (e: any) {
+      return e
+    }
+    return undefined
+  }
+
+  it('AJS names the corrected spelling of what was written', () => {
+    const e = errorOf(() =>
+      transpile(`function main(x: '' || null) { return { x } }`)
+    )
+    expect(e?.message).toContain("Write `'' | null` (one bar)")
+  })
+
+  it('a parameter annotation is located by position, not by its first textual match', () => {
+    const e = errorOf(() =>
+      tjs(
+        `const hint = "'' || null"\n\nfunction f(code: '' || null) { return code }`
+      )
+    )
+    expect(e?.line).toBe(3)
+  })
+
+  it('a return annotation is located by position too', () => {
+    const e = errorOf(() =>
+      tjs(
+        `const hint = "{ a: 0 } || null"\n\nfunction f(): { a: 0 } || null { return null }`
+      )
+    )
+    expect(e?.line).toBe(3)
+  })
+
+  it('an optional annotation (`x?:`) is a type position as well', () => {
+    expect(compile(`function f(x?: '' || null) { return x }`)).toThrow(
+      /`\|\|` is not a union in a type/
+    )
+  })
 })

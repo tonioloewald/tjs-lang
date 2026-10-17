@@ -1373,10 +1373,10 @@ function checkedReturnType(
       node = undefined
     }
     if (node && node.end === raw.length && orInType(node)) {
-      const at = original.indexOf(raw)
+      // Located at `start`, not by searching for the text (an earlier string could match).
       throw new SyntaxError(
         orInTypeMessage(raw),
-        locAt(original, at >= 0 ? at : 0),
+        locAt(source, start),
         original
       )
     }
@@ -1895,6 +1895,8 @@ function processParamString(
     maxParenDepth?: number
     parenDepth?: number
     work?: TransformWork
+    /** For locating an error in a parameter (every caller passes it). */
+    originalSource?: string
   },
   trackRequired: boolean
 ): string {
@@ -2013,6 +2015,27 @@ function processParamString(
       const [, name, type] = optionalMatch
       checkDuplicate(name)
       sawOptional = true
+      // `x?: '' || null` is a type position too (#3148). Once rewritten to `x = '' || null`
+      // it is indistinguishable from a real default, so it is checked here, on the raw text.
+      // This branch has no offset; the whole `name?: type` text is searched for, which is far
+      // less likely to match elsewhere than the type alone.
+      if (type.includes('||')) {
+        let node: any
+        try {
+          node = parseExpressionAt(type, 0, { ecmaVersion: 'latest' })
+        } catch {
+          node = undefined
+        }
+        if (node && node.end === type.trim().length && orInType(node)) {
+          const original = ctx.originalSource ?? params
+          const at = original.indexOf(trimmed)
+          throw new SyntaxError(
+            orInTypeMessage(type.trim()),
+            locAt(original, at >= 0 ? at : 0),
+            original
+          )
+        }
+      }
       // Optional params are NOT tracked as required.
       //
       // `n?: number` legitimately becomes `n = number` HERE: this string feeds the acorn

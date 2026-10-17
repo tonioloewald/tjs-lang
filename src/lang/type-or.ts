@@ -52,3 +52,41 @@ export function orInTypeMessage(text: string): string {
     `only the left side. Write \`${fixed}\` (one bar).`
   )
 }
+
+/**
+ * The source text of a type example, printed from its node.
+ *
+ * For a caller whose node offsets are into a REWRITTEN source (the AJS emitter receives the
+ * original, while acorn parsed `x = ''` where the author wrote `x: ''`), slicing quoted the
+ * wrong characters (`' || null)`). Type examples are a small grammar, so printing is exact.
+ */
+export function typeText(node: Node | null | undefined): string {
+  const n = node as any
+  if (!n) return ''
+  switch (n.type) {
+    case 'Literal':
+      return n.raw ?? JSON.stringify(n.value)
+    case 'Identifier':
+      return n.name
+    case 'LogicalExpression':
+    case 'BinaryExpression':
+      return `${typeText(n.left)} ${n.operator} ${typeText(n.right)}`
+    case 'UnaryExpression':
+      return `${n.operator}${typeText(n.argument)}`
+    case 'ParenthesizedExpression':
+      return `(${typeText(n.expression)})`
+    case 'ArrayExpression':
+      return `[${n.elements.map((e: any) => typeText(e)).join(', ')}]`
+    case 'ObjectExpression':
+      return `{ ${n.properties
+        .map((p: any) =>
+          p.type === 'Property'
+            ? `${
+                p.key.type === 'Identifier' ? p.key.name : typeText(p.key)
+              }: ${typeText(p.value)}`
+            : '…'
+        )
+        .join(', ')} }`
+  }
+  return '…'
+}

@@ -1729,11 +1729,12 @@ export function transpileToJS(
         return
       const hit = orInType(right)
       if (!hit) return
+      // Located by the node, not by searching for its text: the first textual match could be
+      // a string earlier in the file. `preprocess` keeps lines, so the line is the author's.
       const text = preprocessed.source.slice(right.start, right.end)
-      const at = source.indexOf(text)
       throw new TJSSyntaxError(
         orInTypeMessage(text),
-        at >= 0 ? locAt(source, at) : { line: 1, column: 0 },
+        locAt(preprocessed.source, right.start),
         source,
         filename
       )

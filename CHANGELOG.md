@@ -17,9 +17,11 @@ example now runs its tests. Pin `0.14.0-rc.6` exactly to test it.
 
 ### Read this first: what breaks since rc.5
 
-- **`||` in a type is a compile error.** `x: '' || null` never meant "string or null" (it
-  rejected null); write `'' | null`. The error names the corrected spelling. A real default
-  (`x = a || b`) is unaffected.
+- **`||` in a type is a compile error**, in TJS and AJS alike. `x: '' || null` never meant
+  "string or null" (it rejected null); write `'' | null`. The error names the corrected
+  spelling. A default (`x = a || b`) is still JavaScript, but its type is still read from the
+  left side, so `x = '' || null` is a string parameter that defaults to null and then rejects
+  it: write `x = '' | null` for a nullable string with a default.
 
 ### Changed since rc.5
 
@@ -28,8 +30,10 @@ example now runs its tests. Pin `0.14.0-rc.6` exactly to test it.
   meant it: an example's `||` is JavaScript's OR, so the type was only the left side and
   `null` was REJECTED. Every type position (an annotation, an object member, an array
   element, a union member, a return annotation) now fails with the corrected spelling:
-  `` `'' || null` reads as JavaScript OR … Write `'' | null` (one bar).`` A real default
-  (`x = a || b`) is still JavaScript. The docs now use `|`, and a docs-tombstones row keeps it.
+  `` `'' || null` reads as JavaScript OR … Write `'' | null` (one bar).`` This covers
+  optional annotations (`x?:`) and AJS too, and the error points at the annotation's own
+  line. A default (`x = a || b`) is still JavaScript (see "what breaks" above). The docs now
+  use `|`, and a docs-tombstones row keeps it.
 
 ### Fixed since rc.5
 

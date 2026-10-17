@@ -51,6 +51,29 @@ describe('Language subset invariants (PRINCIPLES.md)', () => {
     }
   })
 
+  // The contrapositive, for shapes TJS REFUSES: AJS must refuse them too, or AJS-legal source
+  // is TJS-illegal. `||` in a type became a TJS error in 0.14.0-rc.6 (#3148) while the AJS
+  // emitter still accepted it in a parameter annotation, and silently rejected null
+  // (0.14.0-rc.6 review, major).
+  describe('what TJS refuses, AJS refuses', () => {
+    const refused: Array<[string, string]> = [
+      [
+        '`||` in a parameter annotation',
+        `function main(x: '' || null) {\n  return { x }\n}`,
+      ],
+      [
+        '`||` in a destructured annotation',
+        `function main({ x: '' || null }) {\n  return { x }\n}`,
+      ],
+    ]
+    for (const [label, src] of refused) {
+      it(label, () => {
+        expect(() => tjs(src)).toThrow()
+        expect(() => transpile(src)).toThrow(/`\|\|` is not a union in a type/)
+      })
+    }
+  })
+
   it('un-runnable signature tests are inconclusive, not failures', () => {
     const r = tjs(
       `function main(url: ''): { x: '' } {\n  const x = httpFetch({ url })\n  return { x }\n}`
