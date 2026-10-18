@@ -81,6 +81,7 @@ const DOCS = [
   'guides/learn/hello-screen.md',
   'guides/learn/values-and-names.md',
   'guides/learn/functions.md',
+  'guides/learn/decisions.md',
 ]
 
 /*
