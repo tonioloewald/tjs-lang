@@ -82,6 +82,7 @@ const DOCS = [
   'guides/learn/values-and-names.md',
   'guides/learn/functions.md',
   'guides/learn/decisions.md',
+  'guides/learn/repetition.md',
 ]
 
 /*
@@ -290,7 +291,11 @@ describe("the book's tests run and pass outright", () => {
     it(`${s.doc}:${s.line}`, () => {
       const g = globalThis as any
       const prev = g.preview
+      const prevElements = g.elements
       g.preview = { append() {}, replaceChildren() {}, textContent: '' }
+      // The page also supplies tosijs; the build-time run strips the import, so `elements`
+      // is a stand-in too: every element creator returns an inert node.
+      g.elements = new Proxy({}, { get: () => () => ({ append() {} }) })
       try {
         const r: any = tjs(s.code, { runTests: 'report' } as any)
         const results = (r.testResults ?? []).filter(
@@ -309,6 +314,7 @@ describe("the book's tests run and pass outright", () => {
         ).toEqual([])
       } finally {
         g.preview = prev
+        g.elements = prevElements
       }
     })
 })
