@@ -129,6 +129,7 @@ import { extractTests, generateTestRunner } from '../tests'
 import {
   runAllTests,
   extractSignatureTestInfos,
+  signatureRunnerCases,
   extractReturnExampleFromSource,
 } from './js-tests'
 export { stripModuleSyntax, stripTjsPreamble } from './js-tests'
@@ -1168,7 +1169,18 @@ export function transpileToJS(
   // The returned `testRunner` is built from the REWRITTEN bodies. It used to be the one
   // `extractTests` built from raw text, so a caller running it (tosijs-ui's live examples)
   // ran tests with plain-JS semantics and reported passing tests as failing.
-  const testRunner = generateTestRunner(tests, mocks)
+  //
+  // It also carries the signature examples (#3375): the build checks them in runAllTests, but
+  // a host running this runner on a live page never did. Only for native TJS, where a return
+  // annotation is a worked example.
+  const runnerSigInfos = preprocessed.tjsModes.tjsDate
+    ? extractSignatureTestInfos(source)
+    : []
+  const testRunner = generateTestRunner(
+    tests,
+    mocks,
+    signatureRunnerCases(runnerSigInfos)
+  )
 
   /**
    * Bindings imported into this module, taken from the AST rather than a scanner.
@@ -2759,7 +2771,8 @@ export function transpileToJS(
     metadata: allTypes, // alias for runtime compatibility
     warnings: warnings.length > 0 ? warnings : undefined,
     predicates: predicateReport,
-    testRunner: tests.length > 0 ? testRunner : undefined,
+    testRunner:
+      tests.length > 0 || runnerSigInfos.length > 0 ? testRunner : undefined,
     testCount: tests.length > 0 ? tests.length : undefined,
     testResults,
     wasmCompiled,

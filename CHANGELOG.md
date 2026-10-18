@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tjs().testRunner` checks signature examples** (#3375). A return example
+  (`greet(name: 'Ada'): 'Hello, Ada!'`) is a test the build runs, but the runner `tjs()`
+  returns, which hosts such as tosijs-ui run for live examples, carried only `test` blocks, so
+  a wrong example was never reported on a live page. It now carries them too, compared with
+  the shared `expect().toEqual`. An example whose call throws is inconclusive (PRINCIPLES.md):
+  it goes to a new `inconclusive` list in the runner's result, never to `results`, which hosts
+  count. Async examples are not checked, as at build time. A differential test requires the
+  page and the build to agree on every signature example in the docs.
+
 ## [0.14.0-rc.6] — 2026-10-17
 
 On the `rc` dist-tag. One breaking change: `||` in a type is a compile error (a union is

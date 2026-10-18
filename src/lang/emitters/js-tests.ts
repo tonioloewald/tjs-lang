@@ -562,6 +562,70 @@ interface SignatureTestInfo {
 }
 
 /**
+ * Signature examples as test cases for the runner `tjs()` returns (#3375).
+ *
+ * The build runs these in `runAllTests`; a host running `tjs().testRunner` (tosijs-ui's live
+ * examples) never saw them, so a wrong return example went unreported on a live page. Each
+ * case calls the function on its examples and compares with the shared `expect` (deep
+ * equality, the same rule as the build). A call that THROWS could not evaluate the example:
+ * inconclusive (PRINCIPLES.md), so it goes to `__inconclusive`, never to `__results`, where a
+ * host would count it as a failure. Async functions are awaited (the runner is async).
+ */
+export function signatureRunnerCases(infos: SignatureTestInfo[]): string {
+  return infos
+    .map((info) => {
+      // An ASYNC function's example is not checked at build time (runAllTests skips it), so
+      // the page must not check it either, or the two disagree: documented async examples
+      // are written as types and would fail here while the build passes them.
+      if (info.isAsync) {
+        const label = info.className
+          ? `${info.className}.${info.funcName}`
+          : info.funcName
+        return `
+  __inconclusive.push({ description: ${JSON.stringify(
+    `${label} signature example`
+  )}, error: 'async: not checked, as at build time' })`
+      }
+      const label = info.className
+        ? `${info.className}.${info.funcName}`
+        : info.funcName
+      const description = JSON.stringify(`${label} signature example`)
+      const args = info.args.map(toSourceLiteral).join(', ')
+      const call = info.className
+        ? `new ${info.className}(${(info.constructorArgs || [])
+            .map(toSourceLiteral)
+            .join(', ')}).${info.funcName}(${args})`
+        : `${info.funcName}(${args})`
+      const defaults = info.defaults
+        ? `
+    if (typeof __actual === 'object' && __actual !== null) __actual = Object.assign({}, ${toSourceLiteral(
+      info.defaults
+    )}, __actual)`
+        : ''
+      return `
+  // Signature example: ${label}
+  {
+    let __actual, __ran = false
+    try {
+      __actual = await ${call}
+      __ran = true
+    } catch (__e) {
+      __inconclusive.push({ description: ${description}, error: __e && __e.message || String(__e) })
+    }
+    if (__ran) {${defaults}
+      try {
+        expect(__actual).toEqual(${toSourceLiteral(info.expected)})
+        __results.push({ description: ${description}, passed: true })
+      } catch (__e) {
+        __results.push({ description: ${description}, passed: false, error: __e.message })
+      }
+    }
+  }`
+    })
+    .join('\n')
+}
+
+/**
  * Extract signature test info from source without executing
  */
 export function extractSignatureTestInfos(

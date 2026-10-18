@@ -326,9 +326,11 @@ function getLineNumber(source: string, pos: number): number {
  */
 export function generateTestRunner(
   tests: ExtractedTest[],
-  mocks: ExtractedMock[]
+  mocks: ExtractedMock[],
+  /** More cases to run after the test blocks (`tjs()` passes its signature examples). */
+  extraCases = ''
 ): string {
-  if (tests.length === 0) {
+  if (tests.length === 0 && !extraCases) {
     return '// No tests defined'
   }
 
@@ -357,15 +359,18 @@ export function generateTestRunner(
   // Note: No comment before IIFE - ASI would break `return (async...)` if comment is between
   return `(async () => {
 const __results = []
+const __inconclusive = []
 
 ${testCases}
+${extraCases}
 
 // Compute summary (no console output - caller handles reporting)
 const __passed = __results.filter(r => r.passed).length
 const __failed = __results.filter(r => !r.passed).length
 
-// Return summary
-return { passed: __passed, failed: __failed, results: __results }
+// Return summary. \`inconclusive\`: examples that could not be evaluated (their call threw);
+// neither passed nor failed, and kept out of \`results\`, which hosts count.
+return { passed: __passed, failed: __failed, results: __results, inconclusive: __inconclusive }
 })()`.trim()
 }
 

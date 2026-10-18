@@ -100,19 +100,15 @@ function greet(name: 'Ada'): 'Hello, Ada!' {
 
 preview.append(greet('Katherine'))
 
-test 'the example answer is right' {
-  expect(greet('Ada')).toBe('Hello, Ada!')
+test 'greet works for other names too' {
+  expect(greet('Grace')).toBe('Hello, Grace!')
 }
 ```
 
 The first line now reads: "given `'Ada'`, `greet` returns `'Hello, Ada!'`". That documents
-the function, and it is a test as well: when TJS builds a program, it runs every function on
-its examples and refuses to build if an answer is wrong. Write `'Hi, Ada!'` there, and
-building it says that `greet('Ada')` actually returned `'Hello, Ada!'`.
-
-The examples on this page don't run that check while you edit them yet, which is why this
-one also has a `test` that says the same thing. Change `'Hello, Ada!'` in the test, and
-watch it fail.
+the function, and it is a test as well: TJS runs `greet('Ada')` and checks the answer. The
+result line counts it beside the `test` below. Change `'Hello, Ada!'` to `'Hi, Ada!'` and the
+line turns red, saying `greet('Ada')` actually returned `'Hello, Ada!'`.
 
 ## Values that can be left out
 
