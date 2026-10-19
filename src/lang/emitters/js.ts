@@ -2384,9 +2384,7 @@ export function transpileToJS(
     }
     // toBool — honest truthiness (unwraps boxed primitives)
     if (needsToBool) {
-      inlineParts.push(
-        `function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)}`
-      )
+      inlineParts.push(`function toBool(v){return Boolean(__ub(__proj(v)))}`)
     }
 
     // swKey — the comparison key `switch` dispatches on (native .tjs, #43).

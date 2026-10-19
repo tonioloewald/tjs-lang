@@ -36,9 +36,26 @@
  * review put it, to the copies emitted code does not run.
  */
 
+/**
+ * The key a tosijs proxy answers with the value it wraps (`tosiValue` in tosijs). A global
+ * registry symbol, so recognising one needs no dependency on tosijs, and nothing that merely
+ * has a `valueOf` (a `Date`, a class) is mistaken for one.
+ *
+ * Why this lives here: a tosijs model hands back proxies (`calculator.x` is a proxy around
+ * the number), and JavaScript works with them dynamically (`calculator.x + 1` is a number).
+ * TJS's own `==`, truthiness and `given` did not: `calculator.op == '+'` was false and
+ * `if (calculator.op)` true for an empty op. A proxy is one more kind of box, so it is
+ * unwrapped where boxes already are, and every operator built on this function agrees.
+ */
+export const TOSI_VALUE = Symbol.for('xin-value')
+
 /** The runtime implementation. */
 export function unwrapBoxed(v: unknown): unknown {
   try {
+    if (v !== null && (typeof v === 'object' || typeof v === 'function')) {
+      const wrapped = (v as any)[TOSI_VALUE]
+      if (wrapped !== undefined) return wrapped
+    }
     if (v instanceof String) return String.prototype.valueOf.call(v)
     if (v instanceof Number) return Number.prototype.valueOf.call(v)
     if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
@@ -60,6 +77,7 @@ export function unwrapBoxed(v: unknown): unknown {
  */
 export const UNWRAP_BOXED_SOURCE =
   `function __ub(v){try{` +
+  `if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[Symbol.for('xin-value')];if(w!==undefined)return w}` +
   `if(v instanceof String)return String.prototype.valueOf.call(v);` +
   `if(v instanceof Number)return Number.prototype.valueOf.call(v);` +
   `if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)` +

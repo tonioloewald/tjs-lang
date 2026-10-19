@@ -68,6 +68,21 @@ const HOSTILE: Array<[string, unknown]> = [
   ],
   ['object', { a: 1 }],
   ['array', [1, 2]],
+  // tosijs proxies answer Symbol.for('xin-value') with the value they wrap.
+  ['tosijs proxy around a number', { [Symbol.for('xin-value')]: 12 }],
+  ['tosijs proxy around an empty string', { [Symbol.for('xin-value')]: '' }],
+  [
+    'Proxy that throws when the tosijs key is read',
+    new Proxy(
+      {},
+      {
+        get: (_t, k) => {
+          if (k === Symbol.for('xin-value')) throw new Error('trap')
+          return undefined
+        },
+      }
+    ),
+  ],
 ]
 
 describe('the two unwrappers agree', () => {
@@ -129,5 +144,56 @@ describe('the operators built on it agree, end to end', () => {
     expect(eq(new String('a'), 'a')).toBe(true)
     expect(eq(new Boolean(false), false)).toBe(true)
     expect(eq('5', 5)).toBe(false)
+  })
+})
+
+/**
+ * tosijs proxies through TJS's operators (the book's calculator): `calculator.x` is a proxy
+ * around a number. JavaScript uses it dynamically; TJS's `==`, truthiness and `given` must see
+ * the value too, or a TJS program cannot use a tosijs model at all. The stand-in carries the
+ * documented marker (`Symbol.for('xin-value')`, tosijs's `tosiValue`), because tosijs itself
+ * needs a DOM to load; real proxies are checked on the doc site.
+ */
+describe('tosijs proxies are seen through by ==, truthiness and given', () => {
+  const box = (v: unknown) => ({ [Symbol.for('xin-value')]: v })
+  const load = (src: string, name: string) =>
+    new Function(
+      `${
+        tjs(src, { filename: 'tosi.tjs', runTests: false }).code
+      }\nreturn ${name}`
+    )()
+
+  it('== compares the wrapped value', () => {
+    const eq = load('function f(a, b) { return a == b }', 'f')
+    expect(eq(box('+'), '+')).toBe(true)
+    expect(eq(box(12), 12)).toBe(true)
+    expect(eq(box(12), '12')).toBe(false) // still no coercion
+    expect(sharedEq(box('+'), '+')).toBe(true)
+  })
+
+  it('truthiness reads the wrapped value', () => {
+    const truthy = load(
+      "function f(v) { if (v) return 'yes'\n return 'no' }",
+      'f'
+    )
+    expect(truthy(box(''))).toBe('no')
+    expect(truthy(box(0))).toBe('no')
+    expect(truthy(box('+'))).toBe('yes')
+  })
+
+  it('given dispatches on the wrapped value', () => {
+    const which = load(
+      "function f(op) { given op { '+' { return 'plus' } '-' { return 'minus' } } else { return 'none' } }",
+      'f'
+    )
+    expect(which(box('+'))).toBe('plus')
+    expect(which(box(''))).toBe('none')
+  })
+
+  it('a Date, or anything with only a valueOf, is not mistaken for one', () => {
+    const eq = load('function f(a, b) { return a == b }', 'f')
+    const d = new Date(5)
+    expect(eq(d, 5)).toBe(false)
+    expect(eq({ valueOf: () => 5 }, 5)).toBe(false)
   })
 })
