@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A list parameter checks its elements against a named Type or an object shape** (#3403).
+  `books: [Book]` was "array of any" and accepted `[5]`: a declared `Type` was resolved for a
+  lone parameter and for union members, but not inside a list or an object member. And
+  `[{ title: '', pages: 0 }]` checked only that each element was an object. Both are now
+  checked element by element (members, nested shapes and nested lists), the same order of
+  work as `[0.0]`, which was always checked. Code that passed malformed elements to such a
+  parameter now gets an error value instead.
+
 ### Added
 
 - **TJS works with tosijs models.** tosijs hands back proxies (`calculator.x` wraps a

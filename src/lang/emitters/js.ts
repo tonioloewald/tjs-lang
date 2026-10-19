@@ -583,7 +583,23 @@ function extractFunctionTypeInfo(
   // Worked suggestions rather than prose is deliberate: measured, a remedy shown as
   // code repaired 80% where the same advice as prose repaired 50% and a bare
   // diagnostic 0% (ASSUMPTIONS.md A1, experiments/agent-legibility).
+  // A name declared in this module, NESTED in a parameter's type: a list's items (`[Book]`) or
+  // an object member (`{ top: Book }`). The top-level case below and union members (#45) were
+  // promoted; these were not, so `books: [Book]` was "array of any" and accepted `[5]`
+  // (#3403). Recursive, so `[{ top: Book }]` and `{ shelves: [Book] }` are reached too.
+  const promoteNested = (t: any): void => {
+    if (!t || typeof t !== 'object') return
+    const promote = (inner: any) =>
+      inner?.unresolved && declaredTypes?.has(String(inner.unresolved))
+        ? { kind: 'declared', typeName: String(inner.unresolved) }
+        : (promoteNested(inner), inner)
+    if (t.kind === 'array' && t.items) t.items = promote(t.items)
+    if (t.kind === 'object' && t.shape)
+      for (const key of Object.keys(t.shape))
+        t.shape[key] = promote(t.shape[key])
+  }
   for (const [name, descriptor] of Object.entries(params)) {
+    promoteNested(descriptor.type)
     // `unresolved` is set only when an annotation DEGRADED; an explicit `any`
     // carries no marker, because honouring `any` isn't a degradation.
     const annotated = descriptor.type?.unresolved
@@ -3363,6 +3379,28 @@ function expectedLabel(t: any): string {
   return t?.typeName ?? t?.kind
 }
 
+/**
+ * A value's check INCLUDING its members, as one expression (true = invalid): for a list's
+ * elements, which cannot use the per-member `if … return` lines a lone object gets
+ * (`generateMemberCheckLines`). Recursive, so nested shapes and nested lists are covered; a
+ * nullable shape guards its member reads, as `generateMemberCheckLines` does.
+ */
+function elementCheckExpr(expr: string, type: TypeDescriptor): string | null {
+  const own = generateTypeCheckExpr(expr, type)
+  if (type.kind !== 'object' || !type.shape) return own
+  const members = Object.entries(type.shape)
+    .map(([key, memberType]) =>
+      elementCheckExpr(memberAccess(expr, key), memberType)
+    )
+    .filter((c): c is string => !!c)
+  if (members.length === 0) return own
+  const anyMemberFails = members.join(' || ')
+  const guarded = type.nullable
+    ? `(${expr} != null && (${anyMemberFails}))`
+    : `(${anyMemberFails})`
+  return own ? `(${own} || ${guarded})` : guarded
+}
+
 /** The name a parameter's checks read (see `__tv`): `p` → `__cv_p`. */
 function checkAlias(name: string): string {
   return `__cv_${name}`
@@ -3412,9 +3450,13 @@ function generateTypeCheckExpr(
       // `[MonadicError, MonadicError]` would pass the `: [0]` return-
       // type check (it's an array) and surface a confusing array-of-
       // errors to the caller.
+      //
+      // An element that is an object SHAPE is checked member by member, as a lone object
+      // parameter is (#3403): `[{ title: '', pages: 0 }]` used to check only that each
+      // element was an object, so `[{ title: 'C' }]` passed.
       const itemCheck =
         type.items && type.items.kind !== 'any'
-          ? generateTypeCheckExpr('__a', type.items)
+          ? elementCheckExpr('__a', type.items)
           : null
       if (itemCheck) {
         check = `(!Array.isArray(${fieldPath}) || ${fieldPath}.some(__a => ${itemCheck}))`
