@@ -9,7 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [0.14.0-rc.7] — 2026-10-19
+
+On the `rc` dist-tag. TJS now works with tosijs models (typed functions, `==`, truthiness and
+`given` see through tosijs proxies), live pages check signature examples, list parameters check
+their elements, and the TJS book's Part I, "Learn to Program", is complete. Pin
+`0.14.0-rc.7` exactly to test it.
+
+### Read this first: what changes since rc.6
+
+- **A list parameter checks every element** against a named `Type` or an object shape
+  (`[Book]`, `[{ title: '', pages: 0 }]`). Code that passed a malformed element to one now
+  gets an error value back.
+- **Checks accept a tosijs proxy as the value it wraps.** Additive for code that never meets
+  tosijs; nothing else is unwrapped.
+
+### Fixed since rc.6
 
 - **A list parameter checks its elements against a named Type or an object shape** (#3403).
   `books: [Book]` was "array of any" and accepted `[5]`: a declared `Type` was resolved for a
@@ -19,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   work as `[0.0]`, which was always checked. Code that passed malformed elements to such a
   parameter now gets an error value instead.
 
-### Added
+### Added since rc.6
 
 - **TJS works with tosijs models.** tosijs hands back proxies (`calculator.x` wraps a
   number). JavaScript uses them dynamically; TJS did not, which is exactly the friction it
@@ -40,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it goes to a new `inconclusive` list in the runner's result, never to `results`, which hosts
   count. Async examples are not checked, as at build time. A differential test requires the
   page and the build to agree on every signature example in the docs.
+
+### Documentation since rc.6
+
+- **The TJS Programming Language, Part I, "Learn to Program", is complete** (chapters 0 to
+  11): values and names, functions, checking your work (tests, taught right after
+  functions), decisions, repetition, lists, things with parts, responding to the reader, a
+  calculator (XY registers, a tested brain driving a tosijs model) and when things go wrong.
+  Every example runs on tjs.tosijs.net and ends in tests the reader can see pass, and
+  `doc-snippets.test.ts` runs them with stand-ins for the page.
 
 ## [0.14.0-rc.6] — 2026-10-17
 
