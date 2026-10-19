@@ -1,4 +1,4 @@
-<!--{"parent": "learn-to-program.md", "order": 6}-->
+<!--{"parent": "learn-to-program.md", "order": 7}-->
 
 # Lists
 
@@ -114,7 +114,7 @@ test 'filter keeps what passes the test' {
 
 ## Showing a list on the page
 
-Put `map` and the building blocks from chapter 1 together, and a list of data becomes a list on
+Put `map` and the building blocks from Hello, Screen together, and a list of data becomes a list on
 the page:
 
 ```tjs:inline {"view": "code"}

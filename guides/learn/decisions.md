@@ -1,4 +1,4 @@
-<!--{"parent": "learn-to-program.md", "order": 4}-->
+<!--{"parent": "learn-to-program.md", "order": 5}-->
 
 # Decisions
 
@@ -28,7 +28,7 @@ test 'a coat when it is cold, not when it is warm' {
 }
 ```
 
-`temperature < 10` is a comparison, so its value is `true` or `false` (chapter 2). When it is
+`temperature < 10` is a comparison, so its value is `true` or `false` (see Values and Names). When it is
 true, the block runs and `message` changes; when it is false, the block is skipped. Change
 `advice(5)` to `advice(25)` and watch the advice change.
 

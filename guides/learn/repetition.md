@@ -1,4 +1,4 @@
-<!--{"parent": "learn-to-program.md", "order": 5}-->
+<!--{"parent": "learn-to-program.md", "order": 6}-->
 
 # Repetition
 
@@ -133,6 +133,6 @@ your loop changes each round.
 ## Try it
 
 Write `countMultiples(n: 0, of: 0)` that counts how many numbers from 1 to `n` divide evenly
-by `of` (remember `%` from chapter 4). Test that `countMultiples(10, 3)` is 3 (3, 6 and 9).
+by `of` (remember `%` from Decisions). Test that `countMultiples(10, 3)` is 3 (3, 6 and 9).
 Then show the classic: for 1 to 15, show `'fizz'` for multiples of 3, `'buzz'` for multiples
 of 5, `'fizzbuzz'` for both, and the number otherwise.
