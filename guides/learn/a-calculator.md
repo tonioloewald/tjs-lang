@@ -191,9 +191,10 @@ preview.append(
 )
 ```
 
-Press `1`, `2`, `+`, `3`, `=` and watch the small line under the display: Y fills up when you
-press `+`, op shows what is waiting, and both clear when `=` finishes the sum. That is the
-calculator's whole mind, on screen.
+Press `1`, `2`, `+`, `3`, `=` and watch the small line under the display: Y takes the 12 when
+you press `+`, op shows the `+` that is waiting, and op clears when `=` finishes the sum (Y
+keeps the last number it held until something replaces it). That is the calculator's whole
+mind, on screen.
 
 The buttons never touch the display. `press` changes the model, and everything showing it
 follows. This is the same `press` the tests checked: the function does not care whether it is
