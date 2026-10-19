@@ -86,3 +86,45 @@ describe('a list of object shapes checks each element member by member', () => {
     expect(isError(f([{ id: 1, tags: ['a'], at: { x: 'two' } }]))).toBe(true)
   })
 })
+
+describe('a declared Type keeps `| null` when it is promoted (rc.7 review)', () => {
+  // Promotion replaced `{ unresolved: 'Book', nullable: true }` with a bare declared type, so
+  // `Book | null` stopped admitting null wherever it was promoted.
+  const BK = `Type Bk { example: { t: '' } }\n`
+
+  it('a list of nullable Books', () => {
+    const g = load(`${BK}function g(b: [Bk | null]) { return 'ok' }`, 'g')
+    expect(g([null, { t: 'a' }])).toBe('ok')
+    expect(isError(g([5]))).toBe(true)
+  })
+
+  it('a nullable Book member', () => {
+    const f = load(
+      `${BK}function f(s: { top: Bk | null }) { return 'ok' }`,
+      'f'
+    )
+    expect(f({ top: null })).toBe('ok')
+    expect(f({ top: { t: 'a' } })).toBe('ok')
+    expect(isError(f({ top: 5 }))).toBe(true)
+  })
+
+  it('a nullable Book parameter', () => {
+    const h = load(`${BK}function h(b: Bk | null) { return 'ok' }`, 'h')
+    expect(h(null)).toBe('ok')
+    expect(h({ t: 'a' })).toBe('ok')
+    expect(isError(h(5))).toBe(true)
+  })
+
+  // fromTS inlines an interface as its shape (`[{ t: '' } | null]`), so this row never reaches
+  // promotion: it pins the converted path's own nullable elements, not the fix above.
+  it('converted TypeScript (TjsStrict) admits null elements too', async () => {
+    const { fromTS } = await import('./emitters/from-ts')
+    const ts = `/* @tjs TjsStrict */
+interface Bk { t: string }
+function g(b: (Bk | null)[]): string { return 'ok' }`
+    const tjsSrc = fromTS(ts, { emitTJS: true }).code
+    const g = load(tjsSrc, 'g')
+    expect(g([null, { t: 'a' }])).toBe('ok')
+    expect(isError(g([5]))).toBe(true)
+  })
+})

@@ -33,6 +33,10 @@ their elements, and the TJS book's Part I, "Learn to Program", is complete. Pin
   checked element by element (members, nested shapes and nested lists), the same order of
   work as `[0.0]`, which was always checked. Code that passed malformed elements to such a
   parameter now gets an error value instead.
+- **`Book | null` admits null again wherever a declared Type is promoted** (rc.7 review): as a
+  parameter, a list item (`[Book | null]`) and an object member (`{ top: Book | null }`).
+  Promotion replaced the type with a bare declared one and dropped the `| null`; the
+  top-level case had done so since before rc.6.
 
 ### Added since rc.6
 
@@ -46,6 +50,9 @@ their elements, and the TJS book's Part I, "Learn to Program", is complete. Pin
   it updates the model and the page. Recognised by tosijs's `Symbol.for('xin-value')` (no
   dependency on tosijs); a `Date`, a `valueOf` object or a boxed primitive is checked as
   before. Checked with real tosijs proxies on the doc site.
+  **Not yet:** a proxy held INSIDE a plain object or list (`{ a: calculator.x }`,
+  `[calculator.x]`), an overloaded function's dispatch, and a `:?` return check still see the
+  proxy and refuse it. Pass the model or the member directly, as the book does.
 
 - **`tjs().testRunner` checks signature examples** (#3375). A return example
   (`greet(name: 'Ada'): 'Hello, Ada!'`) is a test the build runs, but the runner `tjs()`

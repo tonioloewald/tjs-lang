@@ -315,3 +315,10 @@ Kept as one line each; the full write-ups are in git history.
 - tosijs-ui — `live-example` pins tjs-lang 0.13.4 (deprecated) — ✅ RESOLVED 2026-09-26 (tosijs-ui#135 closed)
 - tosijs-ui — peer range `tjs-lang: ^0.12.0` cannot reach 0.13.x — ✅ RESOLVED 2026-09-26 (tosijs-ui#98 closed)
 - tosijs-ui — peer range `tjs-lang: ^0.13.1` cannot reach 0.14.x (tosijs-ui#182) — ✅ RESOLVED 2026-09-26 (1.15.4 declares `^0.13.1 || ^0.14.0`; nothing to remove here)
+
+## tosijs: export the proxy value symbol (filed 2026-10-19)
+
+- Issue: https://github.com/tonioloewald/tosijs/issues/51
+- Workaround: `src/unwrap-boxed.ts` and the emitted inline `__tv`/`__ub` hardcode
+  `Symbol.for('xin-value')`. Remove nothing when it lands; switch the tests to assert the
+  exported symbol is the same registered key. Card #3413.

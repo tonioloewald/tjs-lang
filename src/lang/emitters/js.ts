@@ -587,11 +587,18 @@ function extractFunctionTypeInfo(
   // an object member (`{ top: Book }`). The top-level case below and union members (#45) were
   // promoted; these were not, so `books: [Book]` was "array of any" and accepted `[5]`
   // (#3403). Recursive, so `[{ top: Book }]` and `{ shelves: [Book] }` are reached too.
+  // Promotion keeps `| null`: `Book | null` parses as `{ unresolved: 'Book', nullable: true }`,
+  // and a bare declared type in its place refused the null the source admits.
+  const declared = (from: any) => ({
+    kind: 'declared',
+    typeName: String(from.unresolved),
+    ...(from.nullable ? { nullable: true } : {}),
+  })
   const promoteNested = (t: any): void => {
     if (!t || typeof t !== 'object') return
     const promote = (inner: any) =>
       inner?.unresolved && declaredTypes?.has(String(inner.unresolved))
-        ? { kind: 'declared', typeName: String(inner.unresolved) }
+        ? declared(inner)
         : (promoteNested(inner), inner)
     if (t.kind === 'array' && t.items) t.items = promote(t.items)
     if (t.kind === 'object' && t.shape)
@@ -608,7 +615,7 @@ function extractFunctionTypeInfo(
     // predicate sat one line above a function that named it and checked nothing, while the
     // warning helpfully suggested declaring the Type the file had already declared.
     if (annotated && declaredTypes?.has(String(annotated))) {
-      descriptor.type = { kind: 'declared', typeName: String(annotated) }
+      descriptor.type = declared(descriptor.type)
       continue
     }
     // The same promotion, for the MEMBERS of a union.
@@ -638,7 +645,7 @@ function extractFunctionTypeInfo(
           return m
         }
         if (m?.unresolved && declaredTypes?.has(String(m.unresolved))) {
-          return { kind: 'declared', typeName: String(m.unresolved) }
+          return declared(m)
         }
         if (m?.unresolved) missing.push(String(m.unresolved))
         return m
