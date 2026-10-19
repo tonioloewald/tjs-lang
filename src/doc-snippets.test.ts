@@ -86,6 +86,7 @@ const DOCS = [
   'guides/learn/repetition.md',
   'guides/learn/lists.md',
   'guides/learn/things-with-parts.md',
+  'guides/learn/responding-to-the-reader.md',
 ]
 
 /*
