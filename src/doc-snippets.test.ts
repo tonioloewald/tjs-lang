@@ -83,6 +83,7 @@ const DOCS = [
   'guides/learn/functions.md',
   'guides/learn/decisions.md',
   'guides/learn/repetition.md',
+  'guides/learn/lists.md',
 ]
 
 /*
