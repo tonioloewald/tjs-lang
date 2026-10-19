@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **TJS works with tosijs models.** tosijs hands back proxies (`calculator.x` wraps a
+  number). JavaScript uses them dynamically; TJS did not, which is exactly the friction it
+  exists to remove: a typed `press(state: { x: 0 })` said "expected integer, got object" for a
+  model whose `x` was a good number, `calculator.op == '+'` was false, and `if
+  (calculator.op)` was true for an empty op. Now parameter checks, `Type.check` (and
+  `Generic`/`Enum`/`Union`), `==`, truthiness, `given` and the test harness's `expect` all
+  see the value a tosijs proxy wraps, while a function still RECEIVES the proxy, so writing to
+  it updates the model and the page. Recognised by tosijs's `Symbol.for('xin-value')` (no
+  dependency on tosijs); a `Date`, a `valueOf` object or a boxed primitive is checked as
+  before. Checked with real tosijs proxies on the doc site.
+
 - **`tjs().testRunner` checks signature examples** (#3375). A return example
   (`greet(name: 'Ada'): 'Hello, Ada!'`) is a test the build runs, but the runner `tjs()`
   returns, which hosts such as tosijs-ui run for live examples, carried only `test` blocks, so
