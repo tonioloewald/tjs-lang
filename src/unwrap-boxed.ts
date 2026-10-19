@@ -49,6 +49,24 @@
  */
 export const TOSI_VALUE = Symbol.for('xin-value')
 
+/**
+ * Only the tosijs part: the value a tosijs proxy wraps, else the value itself, never throwing.
+ *
+ * What a type CHECK reads (the inline twin is `__tv` in emitters/js.ts): a parameter or
+ * `Type.check` must accept a tosijs model, but must not start accepting a boxed primitive
+ * (`new String('x')` is still not a string to a check), which is the rest of `unwrapBoxed`.
+ */
+export function unwrapTosi(v: unknown): unknown {
+  if (v === null || (typeof v !== 'object' && typeof v !== 'function')) return v
+  try {
+    const wrapped = (v as any)[TOSI_VALUE]
+    if (wrapped !== undefined) return wrapped
+  } catch {
+    // A proxy whose key read throws is checked as itself.
+  }
+  return v
+}
+
 /** The runtime implementation. */
 export function unwrapBoxed(v: unknown): unknown {
   try {
@@ -76,8 +94,11 @@ export function unwrapBoxed(v: unknown): unknown {
  * other, not merely written carefully.
  */
 export const UNWRAP_BOXED_SOURCE =
+  // The symbol is looked up ONCE: `Symbol.for` is a registry lookup, and `__ub` runs at every
+  // truthiness site in a .tjs file. Its own name, so it can share a scope with `__tv`'s.
+  `const __ubxv=Symbol.for('xin-value');` +
   `function __ub(v){try{` +
-  `if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[Symbol.for('xin-value')];if(w!==undefined)return w}` +
+  `if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[__ubxv];if(w!==undefined)return w}` +
   `if(v instanceof String)return String.prototype.valueOf.call(v);` +
   `if(v instanceof Number)return Number.prototype.valueOf.call(v);` +
   `if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)` +

@@ -16,6 +16,7 @@
  *   ZipCode.description // '5-digit US zip code'
  */
 
+import { unwrapTosi } from '../unwrap-boxed'
 import {
   validate,
   filter as schemaFilter,
@@ -103,7 +104,9 @@ function asPredicate<T extends { check: (value: unknown) => boolean | string }>(
   name?: string
 ): T & ((value: unknown) => boolean | string) {
   const test = spec.check
-  const fn = ((value: unknown) => test(value)) as any
+  // A tosijs proxy is checked as the value it wraps, as a parameter check does: otherwise
+  // `Point.check(model)` disagreed with `function f(p: Point)` given the same model.
+  const fn = ((value: unknown) => test(unwrapTosi(value))) as any
   Object.setPrototypeOf(fn, Predicate.prototype)
   Object.assign(fn, spec)
   // `check` is the function itself — the single implementation.

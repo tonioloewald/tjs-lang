@@ -411,6 +411,14 @@ function assert(condition, message) {
  */
 export const expectFunction = `
 function expect(actual) {
+  // A tosijs proxy (a model part, e.g. calculator.x) is checked as the value it wraps, as
+  // TJS's == does: expect(calculator.x).toBe(15) must compare the number, not the proxy.
+  try {
+    if (actual !== null && (typeof actual === 'object' || typeof actual === 'function')) {
+      const wrapped = actual[Symbol.for('xin-value')]
+      if (wrapped !== undefined) actual = wrapped
+    }
+  } catch (e) {}
   // #21: pair-memoized past the same checks — without the memo, comparing
   // shared-reference graphs (DAGs) walked all 2^depth unfolded paths (~61s at
   // depth 30) and distinct-but-cyclic graphs recursed forever. A revisited

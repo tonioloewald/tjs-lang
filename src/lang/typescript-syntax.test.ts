@@ -885,7 +885,7 @@ describe('Real-World Patterns', () => {
     expect(jsResult.code).not.toMatch(/excited = false/)
     expect(jsResult.code).not.toMatch(/excited = false \| undefined/)
     // Should have union type check
-    expect(jsResult.code).toContain("typeof excited !== 'boolean'")
+    expect(jsResult.code).toContain("typeof __cv_excited !== 'boolean'")
   })
 })
 

@@ -321,7 +321,7 @@ function greet(name: 'world') {
       expect(result.code).not.toContain('greet = function')
 
       // Should have inline validation at start of function body
-      expect(result.code).toContain("if (typeof name !== 'string')")
+      expect(result.code).toContain("if (typeof __cv_name !== 'string')")
       // Should use __tjs.typeError() for proper monadic errors
       expect(result.code).toContain('__tjs.typeError')
     })
@@ -457,7 +457,7 @@ function greet(name: 'world') {
         { runTests: false }
       )
       // Should have inline validation (integer check for integer examples)
-      expect(result.code).toContain('Number.isInteger(a)')
+      expect(result.code).toContain('Number.isInteger(__cv_a)')
       expect(result.code).toContain('__tjs.typeError')
     })
 

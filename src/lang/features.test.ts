@@ -700,7 +700,7 @@ function greet(name: 'World') {
     const safe = tjs(`function add(a: 0, b: 0): 0 { return a + b }`)
     expect(safe.code).toContain('__tjs.typeError')
     expect(safe.code).toContain('__tjs.pushStack')
-    expect(safe.code).toContain("typeof a !== 'number'")
+    expect(safe.code).toContain("typeof __cv_a !== 'number'")
 
     // Without safety - should NOT have validation
     const unsafe = tjs(`safety none
@@ -761,7 +761,7 @@ describe('safe vs unsafe comparison', () => {
   it('safe function should have validation, unsafe should not', () => {
     // Safe function (default)
     const safe = tjs(`function double(x: 0): 0 { return x * 2 }`)
-    expect(safe.code).toContain("typeof x !== 'number'")
+    expect(safe.code).toContain("typeof __cv_x !== 'number'")
     expect(safe.code).toContain('__tjs.typeError')
 
     // Unsafe via (!) marker
@@ -1346,7 +1346,7 @@ function process(input: { x: 0, y: 0, name: 'test' }) {
 
     // Should have inline validation (no wrapper)
     expect(result.code).not.toContain('_original_process')
-    expect(result.code).toContain("typeof input !== 'object'")
+    expect(result.code).toContain("typeof __cv_input !== 'object'")
     // Should have __tjs metadata
     expect(result.code).toContain('process.__tjs')
   })
@@ -1359,8 +1359,8 @@ function add(x: 0, y: 0) {
 
     // Should have inline validation (no wrapper)
     expect(result.code).not.toContain('_original_add')
-    expect(result.code).toContain("typeof x !== 'number'")
-    expect(result.code).toContain("typeof y !== 'number'")
+    expect(result.code).toContain("typeof __cv_x !== 'number'")
+    expect(result.code).toContain("typeof __cv_y !== 'number'")
     // And should have metadata
     expect(result.code).toContain('add.__tjs')
   })

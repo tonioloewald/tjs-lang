@@ -396,7 +396,8 @@ describe('TJS → JS transpilation quality', () => {
       // Required params (`:` syntax) should have no default in JS
       expect(code).toContain('function greet(name)')
       expect(code).not.toContain("name: 'World'")
-      expect(code).not.toContain('name = ')
+      // `const __cv_name = …` (the check's alias) is not a default; a word boundary tells them apart.
+      expect(code).not.toMatch(/(?<![\w$])name = /)
     })
 
     it('preserves defaults for optional params (= syntax)', () => {
@@ -2187,7 +2188,7 @@ function divide(a: 10, b: 2):? { value: 5, error = '' } {
 
     it('generates union type check for required union param', () => {
       const result = tjs('function f(x: false | undefined) { return x }')
-      expect(result.code).toContain("typeof x !== 'boolean'")
+      expect(result.code).toContain("typeof __cv_x !== 'boolean'")
       expect(result.code).toContain('x !== undefined')
     })
 

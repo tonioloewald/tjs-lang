@@ -127,3 +127,24 @@ describe('the transpile-time runner has the same matchers', () => {
     })
   }
 })
+
+describe('expect sees through a tosijs proxy', () => {
+  it('toBe and toEqual compare the wrapped value', async () => {
+    const { tjs } = await import('./index')
+    const { testUtils } = await import('./tests')
+    const r = tjs(
+      `const calculator = { x: { [Symbol.for('xin-value')]: 15 }, regs: { [Symbol.for('xin-value')]: [1, 2] } }
+test 'model parts' {
+  expect(calculator.x).toBe(15)
+  expect(calculator.regs).toEqual([1, 2])
+}`,
+      { runTests: false }
+    )
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
+    const out = await new AsyncFunction(
+      `${r.code}\n${testUtils}\nreturn ${r.testRunner}`
+    )()
+    expect(out.failed).toBe(0)
+    expect(out.passed).toBe(1)
+  })
+})

@@ -719,18 +719,22 @@ function generateInlineValidationCode(
     for (const [fieldName, fieldType] of Object.entries(shape)) {
       const isRequired = requiredFields.has(fieldName)
       const path = `${pathPrefix}${funcName}.${fieldName}`
-      const typeCheck = generateTypeCheckExpr(fieldName, fieldType)
+      // Checked through `__tv`, so a tosijs proxy is checked as the value it wraps (see the
+      // positional case below); the body still receives the field itself.
+      const cv = checkAlias(fieldName)
+      const typeCheck = generateTypeCheckExpr(cv, fieldType)
 
       if (typeCheck) {
         const expectedType = expectedLabel(fieldType)
+        lines.push(`const ${cv} = ${rt('__tv')}(${fieldName});`)
         if (isRequired) {
           lines.push(
-            `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
+            `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv});`
           )
-          lines.push(...generateMemberCheckLines(fieldName, path, fieldType))
+          lines.push(...generateMemberCheckLines(cv, path, fieldType))
         } else {
           lines.push(
-            `if (${fieldName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
+            `if (${cv} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv});`
           )
         }
       }
@@ -775,23 +779,31 @@ function generateInlineValidationCode(
     // MonadicError, that error is what propagates ("errors propagate, not accumulate").
     // It used to be a pre-check returning any error element before the element check
     // ran — so `[any]` or `[Error]` parameters could never receive one.
+    // The checks read `__cv_<name>`: the parameter, or the value a tosijs proxy wraps. A
+    // tosijs model hands back proxies (`calculator.x` wraps a number), and a typed function
+    // must accept the model, or TJS adds the very friction it exists to remove: its check
+    // said "expected integer, got object" for a perfectly good number. The BODY still
+    // receives the proxy, so writing to it updates the model. Only tosijs proxies are
+    // unwrapped (`__tv`), not boxed primitives: `new String('x')` is still not a string here.
+    const cv = checkAlias(paramName)
     const rootExpr =
       param.type.kind === 'array'
-        ? `, undefined, (Array.isArray(${paramName}) ? ${paramName}.find((__i) => __tjs.isMonadicError(__i)) : undefined)`
+        ? `, undefined, (Array.isArray(${cv}) ? ${cv}.find((__i) => __tjs.isMonadicError(__i)) : undefined)`
         : ''
 
-    const typeCheck = generateTypeCheckExpr(paramName, param.type)
+    const typeCheck = generateTypeCheckExpr(cv, param.type)
 
     if (typeCheck) {
       // A declared Type reports its NAME, a union its members — see `expectedLabel`.
       const expectedType = expectedLabel(param.type)
       if (param.required) {
+        lines.push(`const ${cv} = ${rt('__tv')}(${paramName});`)
         lines.push(
-          `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName}${rootExpr});`
+          `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${rootExpr});`
         )
         // Stage 0: colon-form object params get member-level checks (the
         // object-ness line above guards these accesses).
-        lines.push(...generateMemberCheckLines(paramName, path, param.type))
+        lines.push(...generateMemberCheckLines(cv, path, param.type))
       } else if (
         dictDefaults &&
         isDictDefaultParam(param.type, param.default)
@@ -809,8 +821,9 @@ function generateInlineValidationCode(
           )
         )
       } else {
+        lines.push(`const ${cv} = ${rt('__tv')}(${paramName});`)
         lines.push(
-          `if (${paramName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName}${rootExpr});`
+          `if (${cv} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${rootExpr});`
         )
       }
     }
@@ -1943,6 +1956,17 @@ export function transpileToJS(
   const needsProjection =
     needsEq || needsIs || needsOneOf || needsToBool || needsSwKey
   const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
+  /** Parameter checks read through `__tv`, so a tosijs proxy is checked as its value. */
+  // ... and every type predicate (`__pred`) checks through it too, so `Point.check(model)`
+  // agrees with a `Point` parameter given the same model.
+  const needsTv =
+    code.includes(`${RT_NS}.__tv(`) ||
+    needsType ||
+    needsGeneric ||
+    needsEnum ||
+    needsUnion ||
+    needsExactly ||
+    needsFunctionPredicate
 
   const needsRuntime =
     needsLegacyDate ||
@@ -1967,7 +1991,8 @@ export function transpileToJS(
     // the runtime in — until error propagation stopped emitting a per-parameter pre-check
     // (0.14.0), and `area(s: any) { switch … }` threw `__tjs is not defined` standalone.
     needsSwKey ||
-    needsOneOf
+    needsOneOf ||
+    needsTv
 
   let runtimePrelude = ''
   if (needsRuntime) {
@@ -2208,7 +2233,7 @@ export function transpileToJS(
       needsFunctionPredicate
     ) {
       inlineParts.push(
-        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});Object.defineProperty(f,'toJSON',{value:()=>{const o={};for(const [k,v] of Object.entries(f)){if(k==='check'||k==='schema')continue;if(typeof v==='function')continue;o[k]=v}return o},configurable:true,writable:true});return f}`
+        `function __pred(t,n){const f=v=>t.check(__tv(v));Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});Object.defineProperty(f,'toJSON',{value:()=>{const o={};for(const [k,v] of Object.entries(f)){if(k==='check'||k==='schema')continue;if(typeof v==='function')continue;o[k]=v}return o},configurable:true,writable:true});return f}`
       )
     }
 
@@ -2382,6 +2407,13 @@ export function transpileToJS(
         `function Exactly(...v){const vals=v.flat();const d='exactly '+vals.map(x=>JSON.stringify(x)).join(' | ');return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}},d)}`
       )
     }
+    // __tv — what a parameter's checks read: the value a tosijs proxy wraps, else the value
+    // itself. Never throws: a proxy whose key read throws is checked as itself.
+    if (needsTv) {
+      inlineParts.push(
+        `const __xv=Symbol.for('xin-value');function __tv(v){if(v===null||(typeof v!=='object'&&typeof v!=='function'))return v;try{const w=v[__xv];if(w!==undefined)return w}catch(e){}return v}`
+      )
+    }
     // toBool — honest truthiness (unwraps boxed primitives)
     if (needsToBool) {
       inlineParts.push(`function toBool(v){return Boolean(__ub(__proj(v)))}`)
@@ -2461,7 +2493,8 @@ export function transpileToJS(
       rtExports.push('MonadicError', 'typeError', 'isMonadicError')
     if (needsStack) rtExports.push('pushStack', 'popStack', 'getStack')
     // `__proj` is reached from OUTSIDE the IIFE by the two `__tjs` rebindings below.
-    if (needsProjection) rtExports.push('__ub', '__proj', '__ac')
+    if (needsProjection) rtExports.push('__ubxv', '__ub', '__proj', '__ac')
+    if (needsTv) rtExports.push('__xv', '__tv')
     if (needsEq) rtExports.push('Eq')
     if (needsNotEq) rtExports.push('NotEq')
     if (needsLegacyEquals) rtExports.push('DangerousLegacyEquals')
@@ -3328,6 +3361,11 @@ function expectedLabel(t: any): string {
     return `array of ${expectedLabel(t.items)}`
   }
   return t?.typeName ?? t?.kind
+}
+
+/** The name a parameter's checks read (see `__tv`): `p` → `__cv_p`. */
+function checkAlias(name: string): string {
+  return `__cv_${name}`
 }
 
 function generateTypeCheckExpr(
