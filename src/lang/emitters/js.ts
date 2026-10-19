@@ -589,7 +589,7 @@ function extractFunctionTypeInfo(
   // (#3403). Recursive, so `[{ top: Book }]` and `{ shelves: [Book] }` are reached too.
   // Promotion keeps `| null`: `Book | null` parses as `{ unresolved: 'Book', nullable: true }`,
   // and a bare declared type in its place refused the null the source admits.
-  const declared = (from: any) => ({
+  const declared = (from: any): TypeDescriptor => ({
     kind: 'declared',
     typeName: String(from.unresolved),
     ...(from.nullable ? { nullable: true } : {}),
