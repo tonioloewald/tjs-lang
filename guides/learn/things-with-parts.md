@@ -129,4 +129,5 @@ The description is for people: it turns up in the documentation TJS writes for y
 
 Make a `Type Book` with a `title` and a number of `pages`. Write `longBooks(books: [Book])` that
 gives back the titles of the books with more than 300 pages, and test it with a list of three
-books (one short, two long), and with an empty list.
+books (one short, two long), and with an empty list. `[Book]` means "a list of Books", and
+every book in it is checked: test that a list with a book missing its `pages` is refused.
