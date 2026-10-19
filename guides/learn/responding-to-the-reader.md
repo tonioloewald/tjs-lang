@@ -25,8 +25,8 @@ interactive.
 ## A model the page follows
 
 Most interactive programs keep their facts in one place, the **model**, and show them on the
-page. tosijs makes that almost free: wrap your facts in `tosi`, **bind** parts of the page to
-them, and from then on changing the model changes the page. You never redraw anything yourself.
+page. tosijs makes that almost free: wrap your facts in `tosi`, put parts of the model on the
+page, and from then on changing the model changes the page. You never redraw anything yourself.
 
 ```tjs:inline {"view": "code"}
 import { elements, tosi } from 'tosijs'
@@ -38,7 +38,7 @@ const { div, button, span } = elements
 preview.append(
   div(
     'Clicked ',
-    span({ bindText: counter.count }),
+    span(counter.count),
     ' times. ',
     button({ onClick: () => { counter.count = counter.count + 1 } }, 'Click me'),
     button({ onClick: () => { counter.count = 0 } }, 'Reset')
@@ -48,12 +48,13 @@ preview.append(
 
 - `tosi({ counter: { count: 0 } })` makes the model, and gives back `counter`, a stand-in for
   it that notices changes.
-- `bindText: counter.count` says "this span always shows `counter.count`".
+- `span(counter.count)` puts a part of the model on the page. It is not a copy of the number:
+  the span keeps showing whatever `counter.count` is.
 - `counter.count = counter.count + 1` changes the model. The span follows on its own.
 
 Notice what the buttons do *not* do: they never touch the span. They change the model, and
-everything bound to it updates. Add a second `span({ bindText: counter.count })` anywhere and
-it keeps up too.
+everything showing it updates. Add a second `span(counter.count)` anywhere and it keeps up
+too.
 
 ## Many buttons, one function
 
@@ -71,7 +72,7 @@ function add(amount: 1) {
 const { div, button, strong } = elements
 
 preview.append(
-  div('Total: ', strong({ bindText: tally.total })),
+  div('Total: ', strong(tally.total)),
   div(...[1, 5, 10, 50].map((amount) => button({ onClick: () => add(amount) }, `+${amount}`)))
 )
 ```
@@ -82,5 +83,5 @@ Lists. Add `100` to the list and a new button appears.
 ## Try it
 
 Make a model with a `score`. Give it buttons for **+1**, **-1** and **double**, and show the
-score with `bindText`. Then add a line that shows `'You win!'` when the score reaches 100.
+score on the page. Then add a line that shows `'You win!'` when the score reaches 100.
 (Hint: a second, computed part of the model, set alongside the score.)
