@@ -298,44 +298,55 @@ function load(src: string, names: string[], withRuntime: boolean) {
 // one); plain `bun test` — the release gate — runs all of it. At 400 each the file cost ~5s
 // of `test:fast` (0.14.0 final review, m-7).
 const TRIALS = process.env.SKIP_BENCHMARKS ? 100 : 400
+/**
+ * These are CORRECTNESS oracles over random systems, not timings, so they get an explicit
+ * budget. Under bun's default 5s the full run (400 trials, ~2-4s alone) timed out whenever
+ * the machine was busy: the pre-push hook failed the rc.7 and rc.8 tag pushes at a load
+ * average near 80, with no disagreement found.
+ */
+const ORACLE_TIMEOUT = 60_000
 
 describe('the recursive checker agrees with the oracle', () => {
-  it(`on ${TRIALS} random type systems and graphs`, () => {
-    const r = rng(20260926)
-    let checks = 0
-    let accepted = 0
-    const disagreements: string[] = []
-    for (let trial = 0; trial < TRIALS; trial++) {
-      const sys = randomSystem(r)
-      const src = render(sys)
-      const types = load(
-        src,
-        sys.map((_, i) => `T${i}`),
-        trial % 2 === 1
-      )
-      for (let g = 0; g < 3; g++) {
-        const nodes = randomGraph(sys, r)
-        for (const node of nodes)
-          for (let t = 0; t < sys.length; t++) {
-            const want = oracle(sys, node, t)
-            const got = types[t].check(node) === true
-            checks++
-            if (want) accepted++
-            if (want !== got && disagreements.length < 5)
-              disagreements.push(
-                `trial ${trial}: T${t} want ${want} got ${got}\n${src}\nnode ${nodes.indexOf(
-                  node
-                )} of ${nodes.length}: ${describeGraph(nodes)}`
-              )
-          }
+  it(
+    `on ${TRIALS} random type systems and graphs`,
+    () => {
+      const r = rng(20260926)
+      let checks = 0
+      let accepted = 0
+      const disagreements: string[] = []
+      for (let trial = 0; trial < TRIALS; trial++) {
+        const sys = randomSystem(r)
+        const src = render(sys)
+        const types = load(
+          src,
+          sys.map((_, i) => `T${i}`),
+          trial % 2 === 1
+        )
+        for (let g = 0; g < 3; g++) {
+          const nodes = randomGraph(sys, r)
+          for (const node of nodes)
+            for (let t = 0; t < sys.length; t++) {
+              const want = oracle(sys, node, t)
+              const got = types[t].check(node) === true
+              checks++
+              if (want) accepted++
+              if (want !== got && disagreements.length < 5)
+                disagreements.push(
+                  `trial ${trial}: T${t} want ${want} got ${got}\n${src}\nnode ${nodes.indexOf(
+                    node
+                  )} of ${nodes.length}: ${describeGraph(nodes)}`
+                )
+            }
+        }
       }
-    }
-    expect(disagreements).toEqual([])
-    // Apparatus: both verdicts are exercised in volume, or agreement means nothing.
-    expect(checks).toBeGreaterThan(5 * TRIALS)
-    expect(accepted).toBeGreaterThan(checks / 10)
-    expect(checks - accepted).toBeGreaterThan(checks / 10)
-  })
+      expect(disagreements).toEqual([])
+      // Apparatus: both verdicts are exercised in volume, or agreement means nothing.
+      expect(checks).toBeGreaterThan(5 * TRIALS)
+      expect(accepted).toBeGreaterThan(checks / 10)
+      expect(checks - accepted).toBeGreaterThan(checks / 10)
+    },
+    ORACLE_TIMEOUT
+  )
 })
 
 describe('the oracle agrees when ONE validation covers many nodes', () => {
@@ -343,61 +354,65 @@ describe('the oracle agrees when ONE validation covers many nodes', () => {
   // same validation meets a node again — which the per-node queries above never do. Here
   // every node goes through one `{ items: [...] }` check, against each type and against a
   // union of two types (so a failed alternative's work is REUSED by the next one).
-  it(`on ${TRIALS} random systems, each checked as one batch`, () => {
-    const r = rng(9_2026)
-    let batches = 0
-    let accepted = 0
-    const disagreements: string[] = []
-    for (let trial = 0; trial < TRIALS; trial++) {
-      const sys = randomSystem(r)
-      const n = sys.length
-      const wrappers: string[] = []
-      const queries: Array<{ name: string; ok: (node: unknown) => boolean }> =
-        []
-      for (let t = 0; t < n; t++) {
-        wrappers.push(`Type W${t} { example: { items: [T${t}] } }`)
-        queries.push({ name: `W${t}`, ok: (node) => oracle(sys, node, t) })
-        // 3-way: a failed alternative's work must not leak into the next one.
-        const u = (t + 1) % n
-        const w = (t + 2) % n
-        wrappers.push(
-          `Type U${t} { example: { items: [T${t} | T${u} | T${w}] } }`
+  it(
+    `on ${TRIALS} random systems, each checked as one batch`,
+    () => {
+      const r = rng(9_2026)
+      let batches = 0
+      let accepted = 0
+      const disagreements: string[] = []
+      for (let trial = 0; trial < TRIALS; trial++) {
+        const sys = randomSystem(r)
+        const n = sys.length
+        const wrappers: string[] = []
+        const queries: Array<{ name: string; ok: (node: unknown) => boolean }> =
+          []
+        for (let t = 0; t < n; t++) {
+          wrappers.push(`Type W${t} { example: { items: [T${t}] } }`)
+          queries.push({ name: `W${t}`, ok: (node) => oracle(sys, node, t) })
+          // 3-way: a failed alternative's work must not leak into the next one.
+          const u = (t + 1) % n
+          const w = (t + 2) % n
+          wrappers.push(
+            `Type U${t} { example: { items: [T${t} | T${u} | T${w}] } }`
+          )
+          queries.push({
+            name: `U${t}`,
+            ok: (node) =>
+              oracle(sys, node, t) ||
+              oracle(sys, node, u) ||
+              oracle(sys, node, w),
+          })
+        }
+        const types = load(
+          render(sys) + '\n' + wrappers.join('\n'),
+          queries.map((q) => q.name),
+          trial % 2 === 1
         )
-        queries.push({
-          name: `U${t}`,
-          ok: (node) =>
-            oracle(sys, node, t) ||
-            oracle(sys, node, u) ||
-            oracle(sys, node, w),
-        })
+        for (let g = 0; g < 3; g++) {
+          const nodes = randomGraph(sys, r)
+          queries.forEach((q, qi) => {
+            const want = nodes.every(q.ok)
+            const got = types[qi].check({ items: nodes }) === true
+            batches++
+            if (want) accepted++
+            if (want !== got && disagreements.length < 5)
+              disagreements.push(
+                `trial ${trial}: ${q.name} want ${want} got ${got}\n${render(
+                  sys
+                )}\n${describeGraph(nodes)}`
+              )
+          })
+        }
       }
-      const types = load(
-        render(sys) + '\n' + wrappers.join('\n'),
-        queries.map((q) => q.name),
-        trial % 2 === 1
-      )
-      for (let g = 0; g < 3; g++) {
-        const nodes = randomGraph(sys, r)
-        queries.forEach((q, qi) => {
-          const want = nodes.every(q.ok)
-          const got = types[qi].check({ items: nodes }) === true
-          batches++
-          if (want) accepted++
-          if (want !== got && disagreements.length < 5)
-            disagreements.push(
-              `trial ${trial}: ${q.name} want ${want} got ${got}\n${render(
-                sys
-              )}\n${describeGraph(nodes)}`
-            )
-        })
-      }
-    }
-    expect(disagreements).toEqual([])
-    expect(batches).toBeGreaterThan(5 * TRIALS)
-    // A whole batch is valid less often than one node, so the floor is absolute.
-    expect(accepted).toBeGreaterThan((150 * TRIALS) / 400)
-    expect(batches - accepted).toBeGreaterThan(batches / 20)
-  })
+      expect(disagreements).toEqual([])
+      expect(batches).toBeGreaterThan(5 * TRIALS)
+      // A whole batch is valid less often than one node, so the floor is absolute.
+      expect(accepted).toBeGreaterThan((150 * TRIALS) / 400)
+      expect(batches - accepted).toBeGreaterThan(batches / 20)
+    },
+    ORACLE_TIMEOUT
+  )
 })
 
 describe('a success that leaned on a REFUTED assumption is not kept', () => {
