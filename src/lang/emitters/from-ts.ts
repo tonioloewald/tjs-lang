@@ -2883,6 +2883,56 @@ function initializerSource(
   )}\` — type-only, no runtime effect */`
 }
 
+/**
+ * `({ w, h }: { w: number; h?: string })` as a native TJS pattern, `({ w: 0.0, h: '' |
+ * undefined })`, or `undefined` when native syntax cannot say it, in which case the caller
+ * keeps the TypeScript spelling, which the compiler checks too (#3434).
+ *
+ * Native syntax has room for a member's EXAMPLE and nothing else, so it cannot express:
+ * - a rename (`{ w: width }`): in a pattern, a colon followed by an identifier IS a rename;
+ * - a nested or rest element;
+ * - a default in the pattern (`{ h = 2 }`), since its example would also be its type
+ *   (`2` is an integer; TypeScript's `number` is not);
+ * - a named type (`: Props`), or a member whose example is a bare identifier (a type name
+ *   reads as a rename);
+ * - a member the type does not declare.
+ */
+function nativeDestructured(
+  param: ts.ParameterDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[],
+  ctx?: TypeResolutionContext
+): string | undefined {
+  const pattern = param.name
+  if (!ts.isObjectBindingPattern(pattern)) return undefined
+  if (!param.type || !ts.isTypeLiteralNode(param.type)) return undefined
+  const declared = new Map<string, ts.PropertySignature>()
+  for (const m of param.type.members) {
+    if (!ts.isPropertySignature(m) || !m.name || !ts.isIdentifier(m.name))
+      return undefined
+    declared.set(m.name.text, m)
+  }
+  const members: string[] = []
+  for (const el of pattern.elements) {
+    if (el.dotDotDotToken || el.propertyName || el.initializer) return undefined
+    if (!ts.isIdentifier(el.name)) return undefined
+    const sig = declared.get(el.name.text)
+    if (!sig) return undefined
+    const example = typeToExample(sig.type, undefined, warnings, ctx, 'value')
+    if (example === 'any' || example === 'undefined') {
+      members.push(el.name.text)
+      continue
+    }
+    if (/^[A-Za-z_$][\w$]*$/.test(example.trim())) return undefined
+    members.push(
+      `${el.name.text}: ${
+        sig.questionToken ? `${example} | undefined` : example
+      }`
+    )
+  }
+  return `{ ${members.join(', ')} }`
+}
+
 function transformParams(
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
   sourceFile: ts.SourceFile,
@@ -2906,6 +2956,20 @@ function transformParams(
       'annotation'
     )
 
+    // A destructured parameter with an inline type becomes NATIVE TJS when every member can
+    // be said natively (#3434): `({ w, h }: { w: number; h: string })` -> `({ w: 0.0, h: '' })`.
+    if (
+      !isRest &&
+      !param.initializer &&
+      ts.isObjectBindingPattern(param.name)
+    ) {
+      const native = nativeDestructured(param, sourceFile, warnings, ctx)
+      if (native) {
+        params.push(native)
+        continue
+      }
+    }
+
     if (isRest) {
       // Rest parameter: ...args: T[] → ...args: [example]
       // typeToExample already converts T[] to [example], so use directly
@@ -2917,7 +2981,18 @@ function transformParams(
     } else if (param.initializer) {
       // Has default value - use it directly
       const defaultText = initializerSource(param.initializer, sourceFile)
-      params.push(`${name} = ${defaultText}`)
+      // A destructured parameter keeps its type too, `({ w }: T = { w: 1 })`: the compiler
+      // checks the argument (or the default) against it, then destructures (#3434). A plain
+      // `x = 1` stays untyped, as before.
+      const typed =
+        ts.isObjectBindingPattern(param.name) &&
+        typeExample !== 'any' &&
+        typeExample !== 'undefined'
+      params.push(
+        typed
+          ? `${name}: ${typeExample} = ${defaultText}`
+          : `${name} = ${defaultText}`
+      )
     } else if (typeExample === 'any' || typeExample === 'undefined') {
       // any/undefined type - no annotation in TJS (bare name means any)
       params.push(name)

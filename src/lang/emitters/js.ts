@@ -98,6 +98,7 @@ import {
   stripLineComments,
   transformExtensionCalls,
 } from '../parser'
+import { DESTRUCTURED_SHAPE_MARK } from '../parser-params'
 
 import {
   transformTypeofKeyword,
@@ -307,6 +308,8 @@ export interface TJSTypeInfo {
   destructuredShape?: Record<string, TypeDescriptor>
   /** Which fields in destructuredShape are required */
   destructuredRequired?: Set<string>
+  /** The declared type of a TS-style destructured parameter, `({ w, h }: Shape)` (#3434) */
+  destructuredArg?: TypeDescriptor
 }
 
 /**
@@ -389,7 +392,9 @@ function extractFunctionTypeInfo(
   declaredTypes?: Set<string>,
   requiredValueOffsets?: Set<number>,
   /** Bindings imported into this module — checkable at runtime, not statically. See #46. */
-  importedNames?: Set<string>
+  importedNames?: Set<string>,
+  /** The source `func`'s offsets index (to read a destructured parameter's shape marker). */
+  preprocessedSource?: string
 ): { types: TJSTypeInfo; warnings: string[] } {
   const warnings: string[] = []
 
@@ -409,6 +414,7 @@ function extractFunctionTypeInfo(
   // Build parameter type info
   const params: Record<string, ParameterDescriptor> = {}
   let isDestructuredParam = false
+  let destructuredArgKey: string | undefined
   let destructuredShape: Record<string, TypeDescriptor> | undefined
   let destructuredRequired: Set<string> | undefined
 
@@ -441,6 +447,33 @@ function extractFunctionTypeInfo(
         if (descriptor.required) {
           destructuredRequired.add(key)
         }
+      }
+    }
+    // `({ w, h }: Shape)`: the argument is checked against `Shape` (#3434). It joins the
+    // params under its pattern's text for the promotion loop below (so a named Type, a
+    // nested one and a union resolve exactly as for an ordinary parameter), and is taken
+    // back out after it.
+    const shape = preprocessedSource
+      ? destructuredShapeMarker(func, preprocessedSource)
+      : undefined
+    if (shape) {
+      try {
+        const expr: any = parseExpressionAt(
+          `(${DESTRUCTURED_ARG} = ${shape.text}) => 0`,
+          0,
+          { ecmaVersion: 'latest' }
+        )
+        const info = parseParameter(expr.params[0], new Set([DESTRUCTURED_ARG]))
+        destructuredArgKey = shape.label
+        params[destructuredArgKey] = {
+          ...info,
+          name: shape.label,
+          required: true,
+        }
+      } catch {
+        warnings.push(
+          `The type of the destructured parameter ${shape.label} could not be read ('${shape.text}'); it is unchecked.`
+        )
       }
     }
   } else {
@@ -689,6 +722,19 @@ function extractFunctionTypeInfo(
     }
   }
 
+  // The destructured parameter's declared shape, promoted above, leaves the params: the
+  // members are what a caller sees. Each member it describes takes its type from it.
+  let destructuredArg: TypeDescriptor | undefined
+  if (destructuredArgKey && params[destructuredArgKey]) {
+    destructuredArg = params[destructuredArgKey].type
+    delete params[destructuredArgKey]
+    const members = destructuredArg?.kind === 'object' && destructuredArg.shape
+    if (members)
+      for (const key of Object.keys(params))
+        if (members[key] && params[key].type?.kind === 'any')
+          params[key] = { ...params[key], type: members[key] }
+  }
+
   // Build type info object
   const types: TJSTypeInfo = {
     name: func.id?.name || 'anonymous',
@@ -698,6 +744,7 @@ function extractFunctionTypeInfo(
     isDestructuredParam,
     destructuredShape,
     destructuredRequired,
+    destructuredArg,
   }
 
   return { types, warnings }
@@ -738,7 +785,9 @@ function generateInlineValidationCode(
     const requiredFields = types.destructuredRequired || new Set()
     const fieldNames = Object.keys(shape)
 
-    if (fieldNames.length === 0) return null
+    // No members to check and no declared shape (`({ w: width }: { w: 0 })` has only a
+    // rename, which native TJS leaves unchecked, but its argument still has a type).
+    if (fieldNames.length === 0 && !types.destructuredArg) return null
 
     // (Error propagation is decided at a FAILED check — `typeError` returns an existing
     // MonadicError unchanged — not by a pre-check that skipped the body for any Error.)
@@ -1345,8 +1394,15 @@ export function transpileToJS(
       cleanSource,
       preprocessed.declaredTypes,
       preprocessed.requiredValueOffsets,
-      importedNames
+      importedNames,
+      preprocessed.source
     )
+    // The shape marker is not code: it leaves the output whether or not checks are emitted.
+    // (Inside a defaulted parameter it falls within the span a relocation replaces, and
+    // `relocateDestructured` drops it there.)
+    const shapeMark = destructuredShapeMarker(func, preprocessed.source)
+    if (shapeMark)
+      deletions.push({ start: shapeMark.start, end: shapeMark.end })
     // An unsafe (`!`) function asks for NO checks, so "this parameter could not be resolved
     // and is unchecked" tells its author nothing: every WASM example declares
     // `(! arr: Float32Array, …)` and printed it. A checked function keeps the warning.
@@ -1645,7 +1701,13 @@ export function transpileToJS(
         preprocessed.tjsModes.tjsDictDefaults,
         relocation && {
           arg: DESTRUCTURED_ARG,
-          prologue: relocation.prologue(`${sourceStr}:${displayName}`),
+          prologue: relocation.prologue(
+            `${sourceStr}:${displayName}`,
+            destructuredArgChecks(
+              types.destructuredArg,
+              `${sourceStr}:${displayName}`
+            )
+          ),
         }
       )
       if (validation && relocation) relocations.push(relocation)
@@ -3466,7 +3528,7 @@ interface DestructuredRelocation {
   dflt?: [number, number]
   patternMark: string
   defaultMark: string
-  prologue: (path: string) => string[]
+  prologue: (path: string, declared?: string[]) => string[]
 }
 
 function destructuredRelocation(
@@ -3488,9 +3550,11 @@ function destructuredRelocation(
     dflt: dflt ? [dflt.start, dflt.end] : undefined,
     patternMark,
     defaultMark,
-    prologue: (path) => [
+    prologue: (path, declared = []) => [
       ...(dflt ? [`if (${A} === undefined) ${A} = (${defaultMark});`] : []),
       `const ${cv} = ${rt('__tv')}(${A});`,
+      // `({ w, h }: Shape)`: checked against its declared type first, for the better message.
+      ...declared,
       // A monadic error is refused here and `typeError` hands it back unchanged.
       `if (typeof ${cv} !== 'object' || ${cv} === null || Array.isArray(${cv}) || __tjs.isMonadicError(${cv})) return __tjs.typeError('${path}', 'object', ${A});`,
       `var ${patternMark} = ${A};`,
@@ -3533,6 +3597,9 @@ function relocateDestructured(
     }
     marks.push([r.patternMark, moved(r.pattern)])
     if (r.dflt) marks.push([r.defaultMark, moved(r.dflt)])
+    // Anything else inside the parameter (the shape marker of `({ a }: T = {})`) goes with
+    // the text it was in; only an edit crossing the parameter's edge is a conflict.
+    rest = rest.filter((e) => !within(e, r.param))
     const stray = rest.find((e) => touches(e, r.param))
     if (stray)
       throw new Error(
@@ -3551,6 +3618,52 @@ function relocateDestructured(
     for (const [mark, value] of marks) text = text.split(mark).join(value)
     return { ...e, text }
   })
+}
+
+/**
+ * The shape marker the parser leaves after a TS-style destructured pattern,
+ * `({ w, h } <marker comment holding "__tjs_shape:Shape">)`: its text, its span, and the
+ * pattern as a label.
+ */
+function destructuredShapeMarker(
+  func: any,
+  source: string
+): { text: string; start: number; end: number; label: string } | undefined {
+  if (!func.params || func.params.length !== 1) return undefined
+  const param = func.params[0]
+  const pattern = param.type === 'AssignmentPattern' ? param.left : param
+  if (pattern?.type !== 'ObjectPattern') return undefined
+  const after = source.slice(pattern.end)
+  const m = after.match(/^\s*\/\*([^]*?)\*\//)
+  if (!m || !m[1].startsWith(DESTRUCTURED_SHAPE_MARK)) return undefined
+  const lead = m[0].indexOf('/*')
+  return {
+    text: m[1].slice(DESTRUCTURED_SHAPE_MARK.length).trim(),
+    start: pattern.end + lead,
+    end: pattern.end + m[0].length,
+    label: source.slice(pattern.start, pattern.end).replace(/\s+/g, ' '),
+  }
+}
+
+/** The checks of `({ w, h }: Shape)`'s argument against `Shape`, as for any parameter. */
+function destructuredArgChecks(
+  type: TypeDescriptor | undefined,
+  path: string
+): string[] {
+  if (!type) return []
+  const A = DESTRUCTURED_ARG
+  const cv = checkAlias(A)
+  const check = generateTypeCheckExpr(cv, type)
+  return [
+    ...(check
+      ? [
+          `if (${check}) return __tjs.typeError('${path}', '${expectedLabel(
+            type
+          )}', ${A});`,
+        ]
+      : []),
+    ...generateMemberCheckLines(cv, path, type, A),
+  ]
 }
 
 /** The name a parameter's checks read (see `__tv`): `p` → `__cv_p`. */

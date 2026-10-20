@@ -32,6 +32,42 @@ import {
 } from './inference'
 
 /**
+ * Marks the type annotation of a TypeScript-style destructured parameter,
+ * `({ w, h }: Shape)`, kept as a comment after the pattern so the emitter can check the
+ * argument against `Shape` (#3434). Read and removed by the JS emitter.
+ */
+export const DESTRUCTURED_SHAPE_MARK = '__tjs_shape:'
+
+/**
+ * The offset of a default's `=` at the top level of `text` (a type annotation followed by
+ * `= value`), or -1. Not `==`, `===`, `=>`, `<=`, `>=` or `!=`; literal-blind via masking.
+ */
+function topLevelDefaultEquals(text: string): number {
+  const m = maskLiterals(text)
+  let depth = 0
+  for (let i = 0; i < m.length; i++) {
+    const c = m[i]
+    if (c === '{' || c === '[' || c === '(' || c === '<') depth++
+    else if (
+      c === '}' ||
+      c === ']' ||
+      c === ')' ||
+      (c === '>' && m[i - 1] !== '=')
+    )
+      depth--
+    else if (
+      c === '=' &&
+      depth === 0 &&
+      m[i + 1] !== '=' &&
+      m[i + 1] !== '>' &&
+      !'=!<>'.includes(m[i - 1] ?? '')
+    )
+      return i
+  }
+  return -1
+}
+
+/**
  * Markers the parser writes INTO the rewritten parameter, between the `=` and the value.
  *
  * Two facts live only in the parser: that `n = number` came from `n?: number` (a dangling
@@ -1946,8 +1982,12 @@ function processParamString(
     // converter was producing TJS that TJS could not read. Invisible while the JS output came
     // from `ts.transpileModule` — nothing ran our parser over it (`no-ts-emitter.test.ts`).
     //
-    // The annotation is dropped here and captured separately for `__tjs` metadata, exactly as
-    // it is for a rest parameter below.
+    // The annotation is not JavaScript, so it leaves the parameter list, but it is KEPT, in a
+    // marker comment after the pattern (`DESTRUCTURED_SHAPE_MARK`): the emitter checks the
+    // argument against it and then destructures (#3434). It used to be dropped outright, with
+    // a comment claiming it was "captured separately for metadata" — nothing captured it, so
+    // `({ w, h }: { w: 0, h: 0 })` checked nothing and `d({ w: 'x' })` returned NaN. That is
+    // the shape `fromTS` emits for every typed destructured TypeScript parameter.
     if (trackRequired && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
       const open = trimmed[0]
       const masked = maskLiterals(trimmed)
@@ -1970,8 +2010,20 @@ function processParamString(
         const processedInner = processDestructuredObjectParams(inner, ctx)
         const pattern =
           open === '{' ? `{ ${processedInner} }` : `[ ${processedInner} ]`
-        // `: T` is a type annotation and is erased; `= v` is a real default and is kept.
-        if (rest.startsWith(':')) return pattern
+        // `: T` is a type annotation, kept in a marker for the emitter; `= v` is a real
+        // default and is kept as code. A `*/` inside the annotation could not ride in a
+        // comment, so that (pathological) case is erased as before.
+        if (rest.startsWith(':')) {
+          // `{ a }: T = {}` — the default after the type is CODE and stays. (Erasing the
+          // whole tail used to drop it too, so the parameter lost its default.)
+          const tail = rest.slice(1)
+          const eq = topLevelDefaultEquals(tail)
+          const annotation = (eq === -1 ? tail : tail.slice(0, eq)).trim()
+          const dflt = eq === -1 ? '' : ` ${tail.slice(eq).trim()}`
+          return annotation && !annotation.includes('*/')
+            ? `${pattern} /*${DESTRUCTURED_SHAPE_MARK}${annotation}*/${dflt}`
+            : `${pattern}${dflt}`
+        }
         return rest ? `${pattern} ${rest}` : pattern
       }
     }

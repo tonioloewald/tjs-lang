@@ -140,3 +140,167 @@ describe('what the rewrite must not change', () => {
     expect(d(o)).toBe(o)
   })
 })
+
+/**
+ * `({ w, h }: Shape)`, the TypeScript spelling, is honoured (#3434): the argument is checked
+ * against `Shape`, then destructured. The annotation used to be erased, with a comment
+ * claiming it was "captured for metadata"; nothing captured it, so `d({ w: 'x' })` returned
+ * NaN. It is the shape `fromTS` emits for every typed destructured TypeScript parameter, and
+ * it is the only spelling that can name a type (`{ w: R }` in a pattern is a RENAME).
+ */
+describe('a TS-style destructured annotation is checked', () => {
+  const load = loaders.standalone
+
+  it('an inline shape', () => {
+    const d = load(`function d({ w, h }: { w: 0, h: 0 }) { return w * h }`, 'd')
+    expect(d({ w: 2, h: 3 })).toBe(6)
+    const notARect = { w: 'x', h: 3 }
+    const err = d(notARect)
+    expect(err.path).toContain('d.w')
+    expect(err.received).toBe(notARect)
+  })
+
+  it('a named Type, which a pattern cannot express', () => {
+    const d = load(
+      `Type R { example: { x: 0 } }\nfunction d({ x }: R) { return x }`,
+      'd'
+    )
+    expect(d({ x: 4 })).toBe(4)
+    const bad = { x: 'a' }
+    expect(d(bad).received).toBe(bad)
+    expect(d(bad).message).toContain('Expected R')
+  })
+
+  it('a rename, which native TJS leaves unchecked, is checked through the shape', () => {
+    const d = load(`function d({ w: width }: { w: 0 }) { return width }`, 'd')
+    expect(d({ w: 5 })).toBe(5)
+    expect(d({ w: '5' }).name).toBe('MonadicError')
+  })
+
+  it('a default after the type is kept (it used to be erased with the type)', () => {
+    const d = load(`const d = ({ a }: { a: 0 } = { a: 1 }) => a`, 'd')
+    expect(d()).toBe(1)
+    expect(d({ a: 2 })).toBe(2)
+    expect(d({ a: 'z' }).name).toBe('MonadicError')
+  })
+
+  it('null, and a monadic error, as for any parameter', () => {
+    const d = load(`function d({ w }: { w: 0 }) { return w }`, 'd')
+    expect(d(null).name).toBe('MonadicError')
+    const dbl = load(`function dbl(n: 0) { return n * 2 }`, 'dbl')
+    const first = dbl('ten')
+    expect(d(first)).toBe(first)
+  })
+
+  it('the metadata gives each member its declared type', () => {
+    const r = tjs(`function d({ w, h }: { w: 0, h: '' }) { return w }`, {
+      runTests: false,
+    })
+    expect(r.types.d.params.w.type.kind).toBe('integer')
+    expect(r.types.d.params.h.type.kind).toBe('string')
+  })
+
+  it('the marker never reaches the output, checked or not', () => {
+    for (const src of [
+      `function d({ w }: { w: 0 }) { return w }`,
+      `function d(! { w }: { w: 0 }) { return w }`, // unsafe: no checks
+      `const d = ({ a }: { a: 0 } = { a: 1 }) => a`,
+    ]) {
+      const code = tjs(src, { runTests: false }).code
+      expect(code).not.toContain('__tjs_shape')
+    }
+  })
+
+  it('converted TypeScript is checked end to end (TjsStrict)', async () => {
+    const { fromTS } = await import('./emitters/from-ts')
+    const ts = `/* @tjs TjsStrict */
+function area({ w, h }: { w: number; h: number }): number { return w * h }`
+    const area = load(fromTS(ts, { emitTJS: true }).code, 'area')
+    expect(area({ w: 2, h: 3 })).toBe(6)
+    expect(area({ w: 'x', h: 3 }).name).toBe('MonadicError')
+  })
+})
+
+/**
+ * The converter writes GOOD TJS where native syntax can say it (#3434):
+ * `({ w, h }: { w: number; h?: string })` -> `({ w: 0.0, h: '' | undefined })`. Where it
+ * cannot (a rename, a named type, a default in the pattern), it keeps the TypeScript
+ * spelling, which the compiler checks. Either way, converted code under TjsStrict refuses a
+ * bad argument; before, every one of these was unchecked.
+ */
+describe('fromTS: destructured parameters', () => {
+  const convert = async (ts: string) => {
+    const { fromTS } = await import('./emitters/from-ts')
+    return fromTS(`/* @tjs TjsStrict */\n${ts}`, { emitTJS: true }).code
+  }
+  const signature = (code: string, name: string) =>
+    code.split('\n').find((l) => l.includes(`function ${name}(`))
+
+  const cases: Array<{
+    name: string
+    ts: string
+    emits: string
+    good: unknown[]
+    bad: unknown[]
+  }> = [
+    {
+      name: 'a',
+      ts: 'function a({ w, h }: { w: number; h: string }): number { return w }',
+      emits: `({ w: 0.0, h: '' })`,
+      good: [{ w: 1.5, h: 'x' }],
+      bad: [{ w: 'x', h: 'x' }],
+    },
+    {
+      name: 'b',
+      ts: 'function b({ w, h }: { w: number; h?: string }): number { return w }',
+      emits: `({ w: 0.0, h: '' | undefined })`,
+      good: [{ w: 1 }],
+      bad: [{ w: 1, h: 5 }],
+    },
+    {
+      name: 'f',
+      ts: 'function f({ xs, m }: { xs: number[]; m: { k: boolean } }): number { return xs.length }',
+      emits: `({ xs: [0.0], m: { k: false } })`,
+      good: [{ xs: [1.5], m: { k: true } }],
+      bad: [{ xs: ['a'], m: { k: true } }],
+    },
+    {
+      name: 'c',
+      ts: 'function c({ w: width }: { w: number }): number { return width }',
+      emits: `({ w: width }: { w: number })`, // a rename: kept as TypeScript
+      good: [{ w: 2 }],
+      bad: [{ w: '2' }],
+    },
+    {
+      name: 'd',
+      ts: 'interface R { x: number }\nfunction d({ x }: R): number { return x }',
+      emits: `({ x }: R)`, // a named type: kept as TypeScript
+      good: [{ x: 3 }],
+      bad: [{ x: 'a' }],
+    },
+    {
+      name: 'e',
+      ts: 'function e({ h = 2 }: { h?: number }): number { return h }',
+      emits: `({ h = 2 }: { h: number | undefined })`, // a pattern default: kept
+      good: [{}],
+      bad: [{ h: 'z' }],
+    },
+    {
+      name: 'g',
+      ts: 'function g({ w }: { w: number } = { w: 1 }): number { return w }',
+      emits: `({ w }: { w: number } = { w: 1 })`, // the type is no longer dropped
+      good: [],
+      bad: [{ w: 'q' }],
+    },
+  ]
+
+  for (const c of cases) {
+    it(`${c.name}: emits ${c.emits}, and refuses a bad argument`, async () => {
+      const code = await convert(c.ts)
+      expect(signature(code, c.name)).toContain(c.emits)
+      const f = loaders.standalone(code, c.name)
+      expect(f(...c.good) instanceof Error).toBe(false)
+      expect(f(...c.bad)?.name).toBe('MonadicError')
+    })
+  }
+})

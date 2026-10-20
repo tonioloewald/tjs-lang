@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`({ w, h }: Shape)` is checked, and `fromTS` writes native TJS for it where it can**
+  (#3434). The TypeScript spelling of a typed destructured parameter had its annotation
+  erased, behind a comment claiming it was "captured for metadata"; nothing captured it, so
+  `d({ w: 'x' })` returned `NaN`. It is the shape `fromTS` emitted for every typed
+  destructured TypeScript parameter, so converted code checked none of them, even under
+  `TjsStrict`. Now the argument is checked against `Shape` (an object shape, a named
+  `Type`, a union) and then destructured, renames included, and a default written after
+  the type (`({ a }: T = {})`) is kept, where it used to be erased along with the type.
+  `fromTS` now emits `({ w: 0.0, h: '' | undefined })` for an inline type whose members
+  native syntax can hold, and keeps `: Shape` for a named type, a rename or a pattern
+  default (in a pattern, `{ w: R }` is a RENAME, so a pattern cannot name a type).
 - **A destructured parameter is checked as the argument it destructures** (#3432). It is one
   parameter expecting an object, and now behaves like every other: a monadic error passes
   through unchanged, and anything else that is not an object (`null`, nothing, a string, an

@@ -254,6 +254,33 @@ function createUser(opts: { name: '', age: 0, email = '' }) {}
 
 Required properties use `:`, optional ones use `=`.
 
+### Destructured Parameters
+
+TypeScript's `function area({ width, height }: { width: number; height: number })` is, in
+TJS:
+
+```tjs
+function area({ width: 0.0, height: 0.0 }) {
+  return width * height
+}
+
+test 'the argument is checked as one thing' {
+  expect(area({ width: 2, height: 3 })).toBe(6)
+  const notASize = { width: 'two', height: 3 }
+  expect(area(notASize).received).toBe(notASize)
+  expect(area(null) instanceof Error).toBe(true)
+}
+```
+
+In TJS the members carry their examples directly. The TypeScript spelling, a pattern followed
+by `: Shape`, is accepted and checked too, and it is the one to use when the pattern cannot
+hold the type: a named type (`({ x, y }: Point)`), a rename (`({ w: width }: Size)`, since in
+a pattern a colon followed by a name IS a rename), or a default inside the pattern. Either
+way the argument is checked as one thing: `null`, a string or an `Error` you made is a type
+error whose `received` is what was passed, and a monadic error passes through unchanged.
+`fromTS` writes the native form where it can and keeps the TypeScript spelling where it
+cannot.
+
 ### Return Types
 
 <!-- tjs-doc: fragment -->
