@@ -2172,6 +2172,48 @@ function matchDeclHeader(
   }
 }
 
+/**
+ * Keeps a declaration rewrite's line count equal to its source's (#3404). A `Type`,
+ * `Generic`, `FunctionPredicate`, `Union` or `Enum` block becomes ONE line of output, so every
+ * line after it moved up, and a runtime error named the wrong line (`<source>:2:area…` for a
+ * function on line 5).
+ *
+ * Every append goes through it: `keep.emit(text)` for a replacement (or an inner copy), and
+ * `keep.copy(i)` for the main loop's copy of `source[i]`, which first pads with the newlines
+ * the replaced text consumed, so the character lands on its own line number.
+ *
+ * It counts what it is HANDED and never reads the output. The output is a rope built by
+ * appending, and reading it (`charCodeAt`, `slice`) flattens the whole string: a first version
+ * that did so per character made the transform quadratic (the dogfood conversion overran its
+ * 180s budget), and per declaration it was still superlinear (247ms vs 75ms at 718KB).
+ */
+export function lineKeeper(source: string) {
+  let srcPos = 0
+  let srcLines = 0
+  let outLines = 0
+  const countNewlines = (text: string) => {
+    let n = 0
+    for (let k = 0; k < text.length; k++) if (text.charCodeAt(k) === 10) n++
+    return n
+  }
+  return {
+    emit(text: string): string {
+      outLines += countNewlines(text)
+      return text
+    },
+    copy(i: number): string {
+      for (; srcPos < i; srcPos++)
+        if (source.charCodeAt(srcPos) === 10) srcLines++
+      let pad = ''
+      if (outLines < srcLines) {
+        pad = '\n'.repeat(srcLines - outLines)
+        outLines = srcLines
+      }
+      if (source.charCodeAt(i) === 10) outLines++
+      return pad + source[i]
+    },
+  }
+}
 export function transformTypeDeclarations(
   source: string,
   report?: PredicateVerification[],
@@ -2193,6 +2235,7 @@ export function transformTypeDeclarations(
     if (targets) aliasOf.set(name, { targets, at })
   }
   let result = ''
+  const keep = lineKeeper(source)
   let i = 0
   // Detection on the masked view; every slice from the real source. See matchDeclHeader.
   const masked = maskLiterals(source)
@@ -2258,9 +2301,11 @@ export function transformTypeDeclarations(
               locAt(source, i)
             )
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = ${rt(
-            'Type'
-          )}('${typeName}', ${markExampleKinds(ext.value)})`
+          result += keep.emit(
+            `const ${typeName} = ${rt(
+              'Type'
+            )}('${typeName}', ${markExampleKinds(ext.value)})`
+          )
           i = ext.end
           continue
         }
@@ -2313,7 +2358,7 @@ export function transformTypeDeclarations(
 
         if (depth !== 0) {
           // Unbalanced - just copy and continue
-          result += source[i]
+          result += keep.emit(source[i])
           i++
           continue
         }
@@ -2479,9 +2524,11 @@ export function transformTypeDeclarations(
             ? `(__g => { ${schemaMemo} const __f = (${params}) => (${gate} ? __g(${params}) : false);${expose} return __f })(${guard})`
             : `(() => { ${schemaMemo} const __g = (${params}) => { ${body} }; const __f = (${params}) => (${gate} ? __g(${params}) : false);${expose} return __f })()`
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = ${rt(
-            'Type'
-          )}('${description}', ${fn}, ${marked}${defaultArg})`
+          result += keep.emit(
+            `const ${typeName} = ${rt(
+              'Type'
+            )}('${description}', ${fn}, ${marked}${defaultArg})`
+          )
         } else if (predicateMatch) {
           // Predicate only: verify → fuel-bounded native guard, else raw arrow.
           const params = predicateMatch[1].trim()
@@ -2497,9 +2544,11 @@ export function transformTypeDeclarations(
           )
           const fn = guard ?? `(${params}) => { ${body} }`
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = ${rt(
-            'Type'
-          )}('${description}', ${fn}${defaultArg})`
+          result += keep.emit(
+            `const ${typeName} = ${rt(
+              'Type'
+            )}('${description}', ${fn}${defaultArg})`
+          )
         } else if (example) {
           // Example only (becomes validation schema)
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
@@ -2508,18 +2557,20 @@ export function transformTypeDeclarations(
           // (`+0 === 0`, `0.0 === 0`), so it is marked here, the only place that can see
           // it. This used to be `numericNarrowingPredicate`, which handled a top-level `+0`
           // but returned nothing for `0.0` and never looked inside an object or array.
-          result += `const ${typeName} = ${rt(
-            'Type'
-          )}('${description}', undefined, ${
-            (noteAlias(typeName, example, i), markExampleKinds(example))
-          }${defaultArg})`
+          result += keep.emit(
+            `const ${typeName} = ${rt('Type')}('${description}', undefined, ${
+              (noteAlias(typeName, example, i), markExampleKinds(example))
+            }${defaultArg})`
+          )
         } else if (defaultValue) {
           // Default only (infer schema from default)
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = ${rt('Type')}('${description}', ${
-            (noteAlias(typeName, defaultValue, i),
-            markExampleKinds(defaultValue))
-          })`
+          result += keep.emit(
+            `const ${typeName} = ${rt('Type')}('${description}', ${
+              (noteAlias(typeName, defaultValue, i),
+              markExampleKinds(defaultValue))
+            })`
+          )
         } else {
           // A block that declares NOTHING checkable — no example, no predicate, no
           // default — cannot be a type. It was emitted as `Type('Name')`, where the
@@ -2558,7 +2609,9 @@ export function transformTypeDeclarations(
           // anything" is not. Only the second is rejected.
           if (members.length === 0) {
             declaredTypes?.add(typeName)
-            result += `const ${typeName} = ${rt('Type')}('${description}')`
+            result += keep.emit(
+              `const ${typeName} = ${rt('Type')}('${description}')`
+            )
             i = blockEnd
             continue
           }
@@ -2587,9 +2640,12 @@ export function transformTypeDeclarations(
       } else if (defaultValue) {
         // Simple form with default: Type Foo = 'value' or Type Foo 'desc' = 'value'
         declaredTypes?.add(typeName)
-        result += `const ${typeName} = ${rt('Type')}('${description}', ${
-          (noteAlias(typeName, defaultValue, i), markExampleKinds(defaultValue))
-        })`
+        result += keep.emit(
+          `const ${typeName} = ${rt('Type')}('${description}', ${
+            (noteAlias(typeName, defaultValue, i),
+            markExampleKinds(defaultValue))
+          })`
+        )
         i = posAfterDefault // Use position before whitespace was consumed
         continue
       } else if (!descStringMatch) {
@@ -2602,16 +2658,16 @@ export function transformTypeDeclarations(
         if (valueMatch) {
           const example = markExampleKinds(valueMatch[0])
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = ${rt(
-            'Type'
-          )}('${typeName}', ${example})`
+          result += keep.emit(
+            `const ${typeName} = ${rt('Type')}('${typeName}', ${example})`
+          )
           i = j + valueMatch[0].length
           continue
         }
       }
     }
 
-    result += source[i]
+    result += keep.copy(i)
     i++
   }
 
@@ -2709,6 +2765,7 @@ function topLevelMemberValue(body: string, key: string): string | null {
 
 export function transformFunctionPredicateDeclarations(source: string): string {
   let result = ''
+  const keep = lineKeeper(source)
   let i = 0
 
   // Detection on the masked view; every slice from the real source. See matchDeclHeader.
@@ -2770,16 +2827,20 @@ export function transformFunctionPredicateDeclarations(source: string): string {
             const paramNames = typeParamsStr
               .split(',')
               .map((p) => p.trim().split('=')[0].trim())
-            result += `const ${fpName} = ${rt(
-              'FunctionPredicate'
-            )}('${desc}', [${typeParams.join(', ')}], (${paramNames.join(
-              ', '
-            )}) => ({ ${spec.join(', ')} }))`
+            result += keep.emit(
+              `const ${fpName} = ${rt(
+                'FunctionPredicate'
+              )}('${desc}', [${typeParams.join(', ')}], (${paramNames.join(
+                ', '
+              )}) => ({ ${spec.join(', ')} }))`
+            )
           } else {
             // Non-generic form
-            result += `const ${fpName} = ${rt(
-              'FunctionPredicate'
-            )}('${desc}', { ${spec.join(', ')} })`
+            result += keep.emit(
+              `const ${fpName} = ${rt(
+                'FunctionPredicate'
+              )}('${desc}', { ${spec.join(', ')} })`
+            )
           }
           i = k
           continue
@@ -2804,14 +2865,16 @@ export function transformFunctionPredicateDeclarations(source: string): string {
           if (commaIdx !== -1) {
             const fnRef = args.slice(0, commaIdx).trim()
             const desc = args.slice(commaIdx + 1).trim()
-            result += `const ${fpName} = ${rt(
-              'FunctionPredicate'
-            )}(${desc}, ${fnRef})`
+            result += keep.emit(
+              `const ${fpName} = ${rt('FunctionPredicate')}(${desc}, ${fnRef})`
+            )
           } else {
             // Just a function reference, name as description
-            result += `const ${fpName} = ${rt(
-              'FunctionPredicate'
-            )}('${fpName}', ${args})`
+            result += keep.emit(
+              `const ${fpName} = ${rt(
+                'FunctionPredicate'
+              )}('${fpName}', ${args})`
+            )
           }
           i = k
           continue
@@ -2819,7 +2882,7 @@ export function transformFunctionPredicateDeclarations(source: string): string {
       }
     }
 
-    result += source[i]
+    result += keep.copy(i)
     i++
   }
 
@@ -2843,6 +2906,7 @@ export function transformGenericDeclarations(
   declaredTypes?: Set<string>
 ): string {
   let result = ''
+  const keep = lineKeeper(source)
   let i = 0
 
   // Detection on the masked view; every slice from the real source. See matchDeclHeader.
@@ -2880,7 +2944,7 @@ export function transformGenericDeclarations(
 
       if (depth !== 0) {
         // Unbalanced - just copy and continue
-        result += source[i]
+        result += keep.emit(source[i])
         i++
         continue
       }
@@ -2986,9 +3050,11 @@ export function transformGenericDeclarations(
           report
         )
         const fn = guard ?? `(${paramList}) => { ${body} }`
-        result += `const ${genericName} = ${rt('Generic')}([${typeParams.join(
-          ', '
-        )}], ${fn}, '${description}')`
+        result += keep.emit(
+          `const ${genericName} = ${rt('Generic')}([${typeParams.join(
+            ', '
+          )}], ${fn}, '${description}')`
+        )
       } else {
         // No predicate: derive one from the example, which already says where each type
         // parameter goes. Falls back to always-passing only when there is nothing to
@@ -3003,16 +3069,18 @@ export function transformGenericDeclarations(
                 .filter(Boolean)
             )
           : null
-        result += `const ${genericName} = ${rt('Generic')}([${typeParams.join(
-          ', '
-        )}], ${derived ?? '() => true'}, '${description}')`
+        result += keep.emit(
+          `const ${genericName} = ${rt('Generic')}([${typeParams.join(
+            ', '
+          )}], ${derived ?? '() => true'}, '${description}')`
+        )
       }
 
       i = blockEnd
       continue
     }
 
-    result += source[i]
+    result += keep.copy(i)
     i++
   }
 
@@ -3039,6 +3107,7 @@ export function transformUnionDeclarations(
   declaredTypes?: Set<string>
 ): string {
   let result = ''
+  const keep = lineKeeper(source)
   let i = 0
 
   // Detection on the masked view; every slice from the real source. See matchDeclHeader.
@@ -3075,7 +3144,7 @@ export function transformUnionDeclarations(
         }
 
         if (depth !== 0) {
-          result += source[i]
+          result += keep.emit(source[i])
           i++
           continue
         }
@@ -3086,9 +3155,11 @@ export function transformUnionDeclarations(
         // Parse values: 'a' | 'b' | 'c' or "a" | "b" or mixed
         const values = parseUnionValues(blockBody)
         declaredTypes?.add(unionName)
-        result += `const ${unionName} = ${rt(
-          'Union'
-        )}('${description}', [${values.join(', ')}])`
+        result += keep.emit(
+          `const ${unionName} = ${rt('Union')}('${description}', [${values.join(
+            ', '
+          )}])`
+        )
         i = blockEnd
         continue
       } else {
@@ -3107,16 +3178,18 @@ export function transformUnionDeclarations(
         if (inlineValues) {
           const values = parseUnionValues(inlineValues)
           declaredTypes?.add(unionName)
-          result += `const ${unionName} = ${rt(
-            'Union'
-          )}('${description}', [${values.join(', ')}])`
+          result += keep.emit(
+            `const ${unionName} = ${rt(
+              'Union'
+            )}('${description}', [${values.join(', ')}])`
+          )
           i = lineEnd
           continue
         }
       }
     }
 
-    result += source[i]
+    result += keep.copy(i)
     i++
   }
 
@@ -3175,6 +3248,7 @@ export function transformEnumDeclarations(
   declaredTypes?: Set<string>
 ): string {
   let result = ''
+  const keep = lineKeeper(source)
   let i = 0
 
   // Detection on the masked view; every slice from the real source. See matchDeclHeader.
@@ -3207,7 +3281,7 @@ export function transformEnumDeclarations(
       }
 
       if (depth !== 0) {
-        result += source[i]
+        result += keep.emit(source[i])
         i++
         continue
       }
@@ -3222,14 +3296,14 @@ export function transformEnumDeclarations(
         .join(', ')
 
       declaredTypes?.add(enumName)
-      result += `const ${enumName} = ${rt(
-        'Enum'
-      )}('${description}', { ${membersStr} })`
+      result += keep.emit(
+        `const ${enumName} = ${rt('Enum')}('${description}', { ${membersStr} })`
+      )
       i = blockEnd
       continue
     }
 
-    result += source[i]
+    result += keep.copy(i)
     i++
   }
 
