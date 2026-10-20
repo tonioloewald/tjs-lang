@@ -847,8 +847,13 @@ if (isMonadicError(result)) {
   console.log(result.path) // "createUser.name"
   console.log(result.expected) // "string"
   console.log(result.actual) // "number"
+  console.log(result.received) // 123: the value itself
 }
 ```
+
+`received` is the value the check refused, as it arrived, so the receiver of a type error can
+see what it got and not just its type. It is not enumerable: logging the error or
+`JSON.stringify(result)` never walks it, however large or cyclic it is.
 
 No try/catch gambling. The host survives invalid inputs.
 
@@ -856,7 +861,8 @@ No try/catch gambling. The host survives invalid inputs.
 unchanged, without running the body — so an error travels down a call chain to the one place
 you check it. It is decided AT the type check, which means a function that declares it takes
 an error receives one: `describe(e: Error)`, `log(detail: any)` and `isErr(x: unknown)` run.
-A plain `Error` where something else is expected is an ordinary type error.
+A plain `Error` where something else is expected is an ordinary type error, and that `Error`
+is its `received`.
 
 For general-purpose error values (not type errors), use the `error()` helper
 which returns plain `{ $error: true, message }` objects checkable with `isError()`.

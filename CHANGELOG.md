@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A type error carries the value it refused, as `err.received`.** It said only "got
+  object", so the receiver could not see what it got: in particular an `Error` the caller
+  made, which a typed function refuses (only TJS's own errors pass along) and which was then
+  lost. `received` is non-enumerable, so logging or `JSON.stringify` of the error never walks
+  a large or cyclic value. Set at every site: the inline runtime in emitted code, the global
+  and per-instance `typeError`, and the callback-shape checks.
+
+### Fixed
+
+- **A runtime type error names the right line after a declaration block** (#3404). A `Type`,
+  `Generic`, `FunctionPredicate`, `Union` or `Enum` declaration became one line of output, so
+  every line below it moved up: a function on line 5 under a four-line `Type` reported
+  `<source>:2:…`. The rewrites now keep the source's line count (`lineKeeper`).
+
 ## [0.14.0-rc.7] — 2026-10-19
 
 On the `rc` dist-tag. TJS now works with tosijs models (typed functions, `==`, truthiness and

@@ -30,12 +30,14 @@ preview.append(result.message)
 test 'a wrong value gives back an error' {
   expect(result instanceof Error).toBe(true)
   expect(result.message).toContain('Expected integer')
+  expect(result.received).toBe('ten')
 }
 ```
 
 Read the message from left to right: what was **expected** (an integer), **where** (the
 function `double`, its parameter `n`), and what **arrived** (a string). Almost every mistake
-you meet will be one of these, and the message says which part to look at.
+you meet will be one of these, and the message says which part to look at. The error also
+keeps the value itself, as `result.received`: here, `'ten'`.
 
 ## Errors pass along
 
@@ -115,7 +117,9 @@ test 'divide reports its own mistake' {
 }
 ```
 
-Whoever calls `divide` checks for the error, as in the last section. A good message says what
+Whoever calls `divide` checks for the error, as in the last section. Only the errors TJS
+makes pass along by themselves: hand one of yours to a function that wants a number and it is
+refused like any other wrong value, but the refusal keeps it, as `received`. A good message says what
 went wrong in words the reader of the message can act on: "cannot divide by zero", not
 "error 7".
 

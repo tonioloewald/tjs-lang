@@ -351,6 +351,12 @@ class MonadicErrorImpl extends Error {
   readonly callStack?: string[]
   /** Why the check failed (from predicate reason strings) */
   readonly reason?: string
+  /**
+   * The value the check refused, as it arrived: the `Error` a caller passed where a number
+   * belonged, the object missing a member. Set by `received()`, NON-enumerable, so logging
+   * or `JSON.stringify` of the error never walks a large or cyclic value.
+   */
+  declare readonly received?: unknown
 
   constructor(
     message: string,
@@ -458,6 +464,17 @@ function describeActual(value: unknown): string {
 }
 
 /**
+ * Attach the refused value to a type error (`err.received`). A type error that says only
+ * "got object" leaves its receiver guessing; the value itself is what it needs (an `Error`
+ * the caller made, say, which a typed function refuses rather than passes along: only TJS's
+ * own errors propagate). Non-enumerable and read-only.
+ */
+function received<E extends Error>(err: E, value: unknown): E {
+  Object.defineProperty(err, 'received', { value, configurable: true })
+  return err
+}
+
+/**
  * Create a type error for inline validation.
  *
  * Called ONLY when a type check fails — no overhead on the happy path. Returns a
@@ -505,7 +522,10 @@ export function typeError(
   const msg = reason
     ? `Expected ${expected} for '${path}': ${reason}`
     : `Expected ${expected} for '${path}', got ${actual}`
-  const err = new MonadicError(msg, path, expected, actual, stack, reason)
+  const err = received(
+    new MonadicError(msg, path, expected, actual, stack, reason),
+    value
+  )
 
   // Track in the flight recorder (zero cost on happy path)
   recorder.record({
@@ -1654,12 +1674,15 @@ export function checkFnShape(
     const actualKind = actual[1]?.type?.kind
     if (!actualKind || actualKind === 'any') continue
     if (actualKind !== expectedKind) {
-      return new MonadicError(
-        `Expected (...arg${i}: ${expectedKind}, ...) for '${path}', ` +
-          `but callback declares arg${i} as ${actualKind}`,
-        `${path}(arg${i})`,
-        expectedKind,
-        actualKind
+      return received(
+        new MonadicError(
+          `Expected (...arg${i}: ${expectedKind}, ...) for '${path}', ` +
+            `but callback declares arg${i} as ${actualKind}`,
+          `${path}(arg${i})`,
+          expectedKind,
+          actualKind
+        ),
+        fn
       )
     }
   }
@@ -1673,12 +1696,15 @@ export function checkFnShape(
       actualReturnKind !== 'any' &&
       actualReturnKind !== expectedReturnKind
     ) {
-      return new MonadicError(
-        `Expected callback returning ${expectedReturnKind} for '${path}', ` +
-          `but callback returns ${actualReturnKind}`,
-        `${path}(return)`,
-        expectedReturnKind,
-        actualReturnKind
+      return received(
+        new MonadicError(
+          `Expected callback returning ${expectedReturnKind} for '${path}', ` +
+            `but callback returns ${actualReturnKind}`,
+          `${path}(return)`,
+          expectedReturnKind,
+          actualReturnKind
+        ),
+        fn
       )
     }
   }
@@ -2231,12 +2257,15 @@ export function createRuntime() {
       instanceConfig.callStacks || instanceConfig.debug
         ? instanceGetStack()
         : undefined
-    const err = new MonadicError(
-      `Expected ${expected} for '${path}', got ${actual}`,
-      path,
-      expected,
-      actual,
-      stack
+    const err = received(
+      new MonadicError(
+        `Expected ${expected} for '${path}', got ${actual}`,
+        path,
+        expected,
+        actual,
+        stack
+      ),
+      value
     )
 
     // Track in the flight recorder
