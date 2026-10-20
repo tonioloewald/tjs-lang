@@ -9,7 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.14.0-rc.8] — 2026-10-20
+
+On the `rc` dist-tag. A type error now carries what you passed (`err.received`), destructured
+parameters are checked as the one argument they are (in both the TJS and the TypeScript
+spelling), converted TypeScript gets native TJS for them, and runtime errors name the right
+line again after a declaration block. Pin `0.14.0-rc.8` exactly to test it.
+
+### Read this first: what changes since rc.7
+
+- **A destructured parameter returns an error instead of throwing** for `null` or a missing
+  argument, and passes a monadic error through. Code that caught the throw gets a value.
+- **`({ w, h }: Shape)` is now checked.** Converted TypeScript under `TjsStrict` that passed
+  ill-typed objects to a destructured parameter now gets errors back.
+- **AJS refuses `({ a }: T = d)`**, as it already refused `({ a } = d)`. It used to accept it
+  and silently drop the default.
+
+### Added since rc.7
 
 - **A type error carries the argument it refused, as `err.received`.** It said only "got
   object", so the receiver could not see what it got: in particular an `Error` the caller
@@ -19,8 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rectangle. A destructured parameter (`({ w: 0, h: 0 })`) is the same: see below. `received` is non-enumerable, so logging or `JSON.stringify` of the error never walks
   a large or cyclic value. Set at every site: the inline runtime in emitted code, the global
   and per-instance `typeError`, and the callback-shape checks.
+  The refused value is held by the error, so the flight recorder's ring (the last 64
+  errors) keeps it reachable until the ring wraps or `__tjs.clearRecords()`; mind that for
+  large or sensitive payloads.
 
-### Fixed
+### Fixed since rc.7
 
 - **`({ w, h }: Shape)` is checked, and `fromTS` writes native TJS for it where it can**
   (#3434). The TypeScript spelling of a typed destructured parameter had its annotation

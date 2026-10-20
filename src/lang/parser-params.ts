@@ -2020,7 +2020,13 @@ function processParamString(
           const eq = topLevelDefaultEquals(tail)
           const annotation = (eq === -1 ? tail : tail.slice(0, eq)).trim()
           const dflt = eq === -1 ? '' : ` ${tail.slice(eq).trim()}`
-          return annotation && !annotation.includes('*/')
+          // Only where the emitter consumes it: a lone OBJECT pattern (the parameter the
+          // emitter names and checks). Elsewhere (an array pattern, a destructured
+          // parameter beside others) the annotation is erased, unchecked, as before (#3443)
+          // rather than shipping a private marker in the output.
+          const consumed =
+            open === '{' && paramList.filter((p) => p.trim()).length === 1
+          return consumed && annotation && !annotation.includes('*/')
             ? `${pattern} /*${DESTRUCTURED_SHAPE_MARK}${annotation}*/${dflt}`
             : `${pattern}${dflt}`
         }

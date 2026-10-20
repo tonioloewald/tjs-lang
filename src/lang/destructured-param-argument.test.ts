@@ -202,6 +202,11 @@ describe('a TS-style destructured annotation is checked', () => {
 
   it('the marker never reaches the output, checked or not', () => {
     for (const src of [
+      // Not consumed by the emitter (an array pattern; a destructured parameter that is not
+      // the only one): the annotation is erased as before, never shipped as a marker.
+      `function f([a, b]: [0, 0]) { return a + b }`,
+      `function g(x: 0, { b }: { b: 0 }) { return b }`,
+      `const h = ({ a }: { a: 0 }, k = 1) => a + k`,
       `function d({ w }: { w: 0 }) { return w }`,
       `function d(! { w }: { w: 0 }) { return w }`, // unsafe: no checks
       `const d = ({ a }: { a: 0 } = { a: 1 }) => a`,
@@ -303,4 +308,38 @@ describe('fromTS: destructured parameters', () => {
       expect(f(...c.bad)?.name).toBe('MonadicError')
     })
   }
+})
+
+/**
+ * AJS shares the parameter parser. At rc.7 it accepted `({ a }: T = d)` and silently
+ * DROPPED the default (the whole tail after `:` was erased). The default is kept now, and
+ * AJS refuses a defaulted destructured argument, as it already did for `({ a } = d)`: a
+ * refusal, not a silent change of meaning. The typed form without a default still works.
+ */
+describe('AJS: a typed destructured parameter', () => {
+  it('is accepted without a default', async () => {
+    const { transpile } = await import('./index')
+    expect(() =>
+      transpile('function agent({ a }: { a: 0 }) { return { a } }')
+    ).not.toThrow()
+  })
+
+  it('with a default is refused, as the untyped form is, never silently dropped', async () => {
+    const { transpile } = await import('./index')
+    const refusal = (src: string) => {
+      try {
+        transpile(src)
+        return 'accepted'
+      } catch (e: any) {
+        return String(e.message).split(' at ')[0]
+      }
+    }
+    const typed = refusal(
+      'function agent({ a }: { a: 0 } = { a: 1 }) { return { a } }'
+    )
+    expect(typed).not.toBe('accepted')
+    expect(typed).toBe(
+      refusal('function agent({ a } = { a: 1 }) { return { a } }')
+    )
+  })
 })

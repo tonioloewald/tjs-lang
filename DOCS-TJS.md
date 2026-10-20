@@ -873,6 +873,9 @@ which returns plain `{ $error: true, message }` objects checkable with `isError(
 
 Since monadic errors don't throw, they can silently vanish if nobody checks the return value. TJS tracks recent type errors in a ring buffer so you can catch these:
 
+(Each recorded error holds its `received` value, so the ring keeps the last 64 refused
+arguments reachable until it wraps or you call `__tjs.clearRecords()`.)
+
 ```typescript
 // Errors are tracked automatically (on by default, zero cost on happy path)
 greet(42) // returns MonadicError, caller ignores it
