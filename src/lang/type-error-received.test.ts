@@ -1,5 +1,7 @@
 /**
- * A type error carries the value it refused, as `err.received`.
+ * A type error carries the ARGUMENT it refused, as `err.received`: the thing that was passed
+ * and found wanting. When a member fails (`area({ w: 3 })`, no `h`), that is the whole
+ * object, not the member's `undefined`: the error is that this is not a rect.
  *
  * Only TJS's own errors propagate through a typed function. An `Error` the caller made is
  * refused like any other wrong value, and the type error said "got object" and nothing
@@ -14,8 +16,24 @@ import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 import { createRuntime, typeError } from './runtime'
 
-const load = (src: string, name: string) =>
-  new Function(`${tjs(src, { runTests: false }).code}\nreturn ${name}`)()
+/**
+ * STANDALONE: the emitted code with no global runtime, so it binds its own inline copy. Bun's
+ * test preload installs the full runtime globally, and emitted code binds `__tjs` from it at
+ * load time, so a plain `new Function` here tests the RUNTIME, not the stub. (The first version
+ * of this file did exactly that: reverting the stub left every row green.)
+ */
+const load = (src: string, name: string) => {
+  const g = globalThis as any
+  const prev = g.__tjs
+  g.__tjs = undefined
+  try {
+    return new Function(
+      `${tjs(src, { runTests: false }).code}\nreturn ${name}`
+    )()
+  } finally {
+    g.__tjs = prev
+  }
+}
 
 const DOUBLE = `function double(n: 0) { return n * 2 }`
 
@@ -29,12 +47,44 @@ describe('err.received is the refused value', () => {
     expect(err.received.message).toBe('my own mistake')
   })
 
-  it('a missing member: received is what the member held', () => {
+  it('a missing member: received is the ARGUMENT that lacks it, not the member', () => {
+    // "You were supposed to give me a rect; this is not a rect." The failure is the thing
+    // passed, which was missing a height; the member's value is just `undefined`.
     const area = load(`function area(r: { w: 0, h: 0 }) { return 1 }`, 'area')
-    const err = area({ w: 3 })
+    const notARect = { w: 3 }
+    const err = area(notARect)
     expect(err.path).toContain('r.h')
-    expect('received' in err).toBe(true)
-    expect(err.received).toBeUndefined()
+    expect(err.received).toBe(notARect)
+  })
+
+  it('however deep the member, and whichever parameter', () => {
+    const deep = load(
+      `function deep(o: { a: { b: { c: 0 } } }) { return 1 }`,
+      'deep'
+    )
+    const o = { a: { b: {} } }
+    expect(deep(o).received).toBe(o)
+    const second = load(
+      `function second(a: 0, r: { w: 0 }) { return 1 }`,
+      'second'
+    )
+    const r = {}
+    expect(second(1, r).received).toBe(r)
+  })
+
+  it('a list, and a list of shapes: the list', () => {
+    const shapes = load(
+      `function shapes(xs: [{ t: '' }]) { return 1 }`,
+      'shapes'
+    )
+    const xs = [{ t: 'a' }, {}]
+    expect(shapes(xs).received).toBe(xs)
+  })
+
+  it('a dictionary default: the dictionary', () => {
+    const dict = load(`function dict(o = { w: 0, h: 0 }) { return 1 }`, 'dict')
+    const o = { w: 'x' }
+    expect(dict(o).received).toBe(o)
   })
 
   it('a TJS error still propagates unchanged (it is not wrapped)', () => {
@@ -44,15 +94,19 @@ describe('err.received is the refused value', () => {
     expect(double(first)).toBe(first)
   })
 
-  it('the global runtime typeError', () => {
+  it('the global runtime typeError: the argument when given, else the value', () => {
     const v = { big: [1, 2, 3] }
     expect(typeError('p', 'integer', v).received).toBe(v)
+    const arg = { a: 'x' }
+    expect(typeError('p.a', 'integer', 'x', undefined, arg).received).toBe(arg)
   })
 
   it('a createRuntime() instance', () => {
     const rt = createRuntime() as any
     const v = Symbol('v')
     expect(rt.typeError('p', 'integer', v).received).toBe(v)
+    const arg = { a: v }
+    expect(rt.typeError('p.a', 'integer', v, undefined, arg).received).toBe(arg)
   })
 
   it('the full runtime, installed, through emitted code', async () => {
@@ -61,9 +115,20 @@ describe('err.received is the refused value', () => {
     const prev = g.__tjs
     installRuntime()
     try {
-      const double = load(DOUBLE, 'double')
+      const double = new Function(
+        `${tjs(DOUBLE, { runTests: false }).code}\nreturn double`
+      )()
       const mine = new Error('x')
       expect(double(mine).received).toBe(mine)
+      const area = new Function(
+        `${
+          tjs(`function area(r: { w: 0, h: 0 }) { return 1 }`, {
+            runTests: false,
+          }).code
+        }\nreturn area`
+      )()
+      const notARect = { w: 3 }
+      expect(area(notARect).received).toBe(notARect)
     } finally {
       g.__tjs = prev
     }

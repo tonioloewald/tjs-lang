@@ -352,9 +352,11 @@ class MonadicErrorImpl extends Error {
   /** Why the check failed (from predicate reason strings) */
   readonly reason?: string
   /**
-   * The value the check refused, as it arrived: the `Error` a caller passed where a number
-   * belonged, the object missing a member. Set by `received()`, NON-enumerable, so logging
-   * or `JSON.stringify` of the error never walks a large or cyclic value.
+   * The ARGUMENT the check refused, as it arrived: the `Error` a caller passed where a number
+   * belonged, or, when a member failed, the whole object that was missing it (not the
+   * member's value, which is usually just `undefined`: the argument is what was wrong). Set by
+   * `received()`, NON-enumerable, so logging or `JSON.stringify` of the error never walks a
+   * large or cyclic value.
    */
   declare readonly received?: unknown
 
@@ -524,7 +526,7 @@ export function typeError(
     : `Expected ${expected} for '${path}', got ${actual}`
   const err = received(
     new MonadicError(msg, path, expected, actual, stack, reason),
-    value
+    root !== undefined ? root : value
   )
 
   // Track in the flight recorder (zero cost on happy path)
@@ -2265,7 +2267,7 @@ export function createRuntime() {
         actual,
         stack
       ),
-      value
+      root !== undefined ? root : value
     )
 
     // Track in the flight recorder

@@ -11,10 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A type error carries the value it refused, as `err.received`.** It said only "got
+- **A type error carries the argument it refused, as `err.received`.** It said only "got
   object", so the receiver could not see what it got: in particular an `Error` the caller
   made, which a typed function refuses (only TJS's own errors pass along) and which was then
-  lost. `received` is non-enumerable, so logging or `JSON.stringify` of the error never walks
+  lost. When a member fails, `received` is the whole argument (`{ width: 3 }` for a missing
+  `r.height`), not the member's `undefined`: the error is that the thing passed was not a
+  rectangle. A destructured parameter has no name for its argument yet, so there it is the
+  member's value (#3432, with the destructured form's other gaps). `received` is non-enumerable, so logging or `JSON.stringify` of the error never walks
   a large or cyclic value. Set at every site: the inline runtime in emitted code, the global
   and per-instance `typeError`, and the callback-shape checks.
 
