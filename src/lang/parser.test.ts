@@ -1336,7 +1336,7 @@ describe("a call's arguments are not an arrow's parameters", () => {
 })
 
 describe('a destructured parameter is not optional by itself', () => {
-  // Pins TODAY's behaviour, which is JavaScript's: `f({ a = 1 })` still requires an argument,
+  // Pins TODAY's behaviour: `f({ a = 1 })` still requires an argument, as in JavaScript,
   // and `= {}` on the pattern is what makes it omittable. Whether TJS should relax that when
   // every member is defaulted is FILED, not decided — see TODO.md. This test is here so the
   // change cannot happen by accident: it is a semantic divergence from JS with no visible
@@ -1346,10 +1346,13 @@ describe('a destructured parameter is not optional by itself', () => {
     return f(...args)
   }
 
-  it('throws when omitted, as JavaScript does', () => {
-    expect(() =>
-      call('function f({ a = 1, b = 2 }) { return { a, b } }', [])
-    ).toThrow(/destructure/)
+  it('is refused when omitted, not filled from the member defaults', () => {
+    // JavaScript throws ("Cannot destructure"); TJS refuses with a returned type error,
+    // since #3432 checks the argument before destructuring it. Either way the parameter is
+    // NOT optional: the member defaults do not quietly stand in for a missing argument.
+    const out = call('function f({ a = 1, b = 2 }) { return { a, b } }', [])
+    expect(out?.name).toBe('MonadicError')
+    expect(out.received).toBeUndefined()
   })
 
   it('fills members from a partial payload', () => {

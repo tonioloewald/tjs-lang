@@ -140,7 +140,7 @@ import {
   type RewriteOptions,
 } from '../bool-coercion'
 import { switchAdvice } from '../switch-transform'
-import { applyEdits } from '../source-edits'
+import { applyEdits, type SourceEdit } from '../source-edits'
 
 /** A key safe to emit as `base.key` (else it must be bracket-accessed). */
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
@@ -720,7 +720,12 @@ function generateInlineValidationCode(
   funcName: string,
   types: TJSTypeInfo,
   source?: string,
-  dictDefaults = false
+  dictDefaults = false,
+  /**
+   * A destructured parameter's ARGUMENT, named (#3432): its own checks (`prologue`) run first
+   * and every member check carries it as `received`. See `DestructuredRelocation`.
+   */
+  destructured?: { arg: string; prologue: string[] }
 ): { preamble: string; suffix: string } | null {
   const lines: string[] = []
   // Include source in path if available: "src/file.ts:42:funcName.param"
@@ -738,6 +743,10 @@ function generateInlineValidationCode(
     // (Error propagation is decided at a FAILED check — `typeError` returns an existing
     // MonadicError unchanged — not by a pre-check that skipped the body for any Error.)
 
+    // The argument is checked first, then destructured (the prologue ends in the `var`).
+    if (destructured) lines.push(...destructured.prologue)
+    const root = destructured ? `, undefined, ${destructured.arg}` : ''
+
     // 2. Type checks with proper error emission
     for (const [fieldName, fieldType] of Object.entries(shape)) {
       const isRequired = requiredFields.has(fieldName)
@@ -752,12 +761,14 @@ function generateInlineValidationCode(
         lines.push(`const ${cv} = ${rt('__tv')}(${fieldName});`)
         if (isRequired) {
           lines.push(
-            `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv});`
+            `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${root});`
           )
-          lines.push(...generateMemberCheckLines(cv, path, fieldType))
+          lines.push(
+            ...generateMemberCheckLines(cv, path, fieldType, destructured?.arg)
+          )
         } else {
           lines.push(
-            `if (${cv} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv});`
+            `if (${cv} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${root});`
           )
         }
       }
@@ -1245,6 +1256,7 @@ export function transpileToJS(
   // Collect deletions for | union suffixes in param defaults
   // e.g. `x = false | undefined` -> `x = false` (the `| undefined` is type-only)
   const deletions: { start: number; end: number }[] = []
+  const relocations: DestructuredRelocation[] = []
 
   // Process each function
   for (const func of functions) {
@@ -1620,12 +1632,23 @@ export function transpileToJS(
     // Skip for unsafe functions and polymorphic dispatchers (they handle routing)
     if (!isUnsafe && !isPolymorphicDispatcher) {
       const sourceStr = `${funcLoc.file}:${funcLoc.line}`
+      // A destructured parameter gets a NAME, so it can be checked as the argument it is
+      // (#3432). See `DestructuredRelocation`.
+      const relocation =
+        types.isDestructuredParam && types.destructuredShape
+          ? destructuredRelocation(func, relocations.length)
+          : undefined
       const validation = generateInlineValidationCode(
         displayName,
         types,
         sourceStr,
-        preprocessed.tjsModes.tjsDictDefaults
+        preprocessed.tjsModes.tjsDictDefaults,
+        relocation && {
+          arg: DESTRUCTURED_ARG,
+          prologue: relocation.prologue(`${sourceStr}:${displayName}`),
+        }
       )
+      if (validation && relocation) relocations.push(relocation)
       if (validation && func.body && func.body.start !== undefined) {
         if ((func as any).__exprBody) {
           // A concise arrow body has no braces to insert into, so grow one:
@@ -1889,17 +1912,20 @@ export function transpileToJS(
   //
   // `applyEdits` has no offsets to adjust, and throws on a genuine overlap rather than
   // emitting something.
-  let code = applyEdits(preprocessed.source, [
-    // A deletion is a replacement with no text; an insertion is a zero-width one. The
-    // long-standing "delete a span and insert at its start" idiom still means replace,
-    // because the sort puts the zero-width edit first.
-    ...deletions.map((d) => ({ start: d.start, end: d.end, text: '' })),
-    ...insertions.map((i) => ({
-      start: i.position,
-      end: i.position,
-      text: i.text,
-    })),
-  ])
+  let code = applyEdits(
+    preprocessed.source,
+    relocateDestructured(preprocessed.source, relocations, [
+      // A deletion is a replacement with no text; an insertion is a zero-width one. The
+      // long-standing "delete a span and insert at its start" idiom still means replace,
+      // because the sort puts the zero-width edit first.
+      ...deletions.map((d) => ({ start: d.start, end: d.end, text: '' })),
+      ...insertions.map((i) => ({
+        start: i.position,
+        end: i.position,
+        text: i.text,
+      })),
+    ])
+  )
 
   // Add __tjs reference for monadic error handling and structural equality
   // The equality, TypeOf and bool helpers are also needed by REWRITTEN test and mock bodies,
@@ -3406,6 +3432,125 @@ function elementCheckExpr(expr: string, type: TypeDescriptor): string | null {
     ? `(${expr} != null && (${anyMemberFails}))`
     : `(${anyMemberFails})`
   return own ? `(${own} || ${guarded})` : guarded
+}
+
+/** The name a destructured parameter's argument gets in emitted code (#3432). */
+const DESTRUCTURED_ARG = '__tjs_arg'
+
+/**
+ * A destructured parameter, moved into the body so its ARGUMENT has a name (#3432).
+ *
+ *     function d({ w, h }) { … }
+ *  -> function d(__tjs_arg) { <check __tjs_arg is an object>; var { w, h } = __tjs_arg; <member checks> … }
+ *
+ * In the parameter list the argument had no name, so it could not be checked as what it is:
+ * an error passed in became a new "got undefined" error instead of passing through, `null`
+ * THREW ("Cannot destructure"), and a type error could carry only a member, not the thing
+ * passed. Destructuring in the body runs after the checks.
+ *
+ * The pattern's text is MOVED, not regenerated: the emitter edits inside it (an example
+ * default is deleted, a real default kept), so `relocateDestructured` applies the edits that
+ * fall inside the pattern (and the default) to that text, and the body receives the result
+ * through a marker. `var`, so a body that reassigns a destructured name still can. The
+ * default (`({ a = 1 } = {})`) is applied in the body when the argument is `undefined`, and
+ * the parameter is written `__tjs_arg = undefined` so `.length` stays 0, as before.
+ *
+ * One difference, by construction: that default is now evaluated in the BODY's scope, so a
+ * default expression naming something the body also declares sees the body's binding (or its
+ * TDZ). And a body function declaration that shares a destructured name is overwritten by
+ * the `var`, where the parameter would have lost to it. Both are pathological shapes.
+ */
+interface DestructuredRelocation {
+  param: [number, number]
+  pattern: [number, number]
+  dflt?: [number, number]
+  patternMark: string
+  defaultMark: string
+  prologue: (path: string) => string[]
+}
+
+function destructuredRelocation(
+  func: any,
+  id: number
+): DestructuredRelocation | undefined {
+  if (!func.params || func.params.length !== 1) return undefined
+  const param = func.params[0]
+  const pattern = param.type === 'AssignmentPattern' ? param.left : param
+  if (pattern?.type !== 'ObjectPattern') return undefined
+  const dflt = param.type === 'AssignmentPattern' ? param.right : undefined
+  const A = DESTRUCTURED_ARG
+  const patternMark = `\u0000tjsPattern${id}\u0000`
+  const defaultMark = `\u0000tjsDefault${id}\u0000`
+  const cv = checkAlias(A)
+  return {
+    param: [param.start, param.end],
+    pattern: [pattern.start, pattern.end],
+    dflt: dflt ? [dflt.start, dflt.end] : undefined,
+    patternMark,
+    defaultMark,
+    prologue: (path) => [
+      ...(dflt ? [`if (${A} === undefined) ${A} = (${defaultMark});`] : []),
+      `const ${cv} = ${rt('__tv')}(${A});`,
+      // A monadic error is refused here and `typeError` hands it back unchanged.
+      `if (typeof ${cv} !== 'object' || ${cv} === null || Array.isArray(${cv}) || __tjs.isMonadicError(${cv})) return __tjs.typeError('${path}', 'object', ${A});`,
+      `var ${patternMark} = ${A};`,
+    ],
+  }
+}
+
+/**
+ * Move each relocated pattern's text into its marker (see `DestructuredRelocation`): the
+ * edits inside a pattern or default are applied to that text alone and removed from the
+ * list, and the parameter becomes `__tjs_arg`. Returns the edits for `applyEdits`, with the
+ * marker replacements appended as edits on the text that holds them.
+ */
+function relocateDestructured(
+  source: string,
+  relocations: DestructuredRelocation[],
+  edits: SourceEdit[]
+): SourceEdit[] {
+  if (relocations.length === 0) return edits
+  // A zero-width edit exactly ON a boundary belongs outside (text before or after the
+  // parameter); anything else touching the range must lie wholly inside a moved part.
+  const within = (e: SourceEdit, [s, t]: [number, number]) =>
+    e.start === e.end ? e.start > s && e.start < t : e.start >= s && e.end <= t
+  const touches = (e: SourceEdit, [s, t]: [number, number]) =>
+    e.start === e.end ? e.start > s && e.start < t : e.start < t && e.end > s
+  let rest = edits
+  const marks: Array<[string, string]> = []
+  for (const r of relocations) {
+    const moved = (range: [number, number]) => {
+      const mine = rest.filter((e) => within(e, range))
+      rest = rest.filter((e) => !within(e, range))
+      return applyEdits(
+        source.slice(range[0], range[1]),
+        mine.map((e) => ({
+          start: e.start - range[0],
+          end: e.end - range[0],
+          text: e.text,
+        }))
+      )
+    }
+    marks.push([r.patternMark, moved(r.pattern)])
+    if (r.dflt) marks.push([r.defaultMark, moved(r.dflt)])
+    const stray = rest.find((e) => touches(e, r.param))
+    if (stray)
+      throw new Error(
+        `tjs internal: an edit at ${stray.start}-${stray.end} straddles a destructured parameter being moved (${r.param[0]}-${r.param[1]})`
+      )
+    rest.push({
+      start: r.param[0],
+      end: r.param[1],
+      text: r.dflt ? `${DESTRUCTURED_ARG} = undefined` : DESTRUCTURED_ARG,
+    })
+  }
+  // The markers sit inside inserted preamble text; replace them in those edits.
+  return rest.map((e) => {
+    if (!e.text.includes('\u0000')) return e
+    let text = e.text
+    for (const [mark, value] of marks) text = text.split(mark).join(value)
+    return { ...e, text }
+  })
 }
 
 /** The name a parameter's checks read (see `__tv`): `p` → `__cv_p`. */

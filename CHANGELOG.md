@@ -16,13 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   made, which a typed function refuses (only TJS's own errors pass along) and which was then
   lost. When a member fails, `received` is the whole argument (`{ width: 3 }` for a missing
   `r.height`), not the member's `undefined`: the error is that the thing passed was not a
-  rectangle. A destructured parameter has no name for its argument yet, so there it is the
-  member's value (#3432, with the destructured form's other gaps). `received` is non-enumerable, so logging or `JSON.stringify` of the error never walks
+  rectangle. A destructured parameter (`({ w: 0, h: 0 })`) is the same: see below. `received` is non-enumerable, so logging or `JSON.stringify` of the error never walks
   a large or cyclic value. Set at every site: the inline runtime in emitted code, the global
   and per-instance `typeError`, and the callback-shape checks.
 
 ### Fixed
 
+- **A destructured parameter is checked as the argument it destructures** (#3432). It is one
+  parameter expecting an object, and now behaves like every other: a monadic error passes
+  through unchanged, and anything else that is not an object (`null`, nothing, a string, an
+  `Error` you made) is a returned type error carrying it as `received`. Before, the
+  destructuring happened in the parameter list, before any check could run: `null` or a
+  missing argument THREW ("Cannot destructure"), an error passed in became a new "got
+  undefined" error, and a member's failure could not name the object. **BREAKING, toward
+  correctness:** code that caught that throw now gets an error value. The emitted function
+  takes `__tjs_arg` and destructures it in the body after the checks; `.length`, defaults,
+  extra arguments, `this` and `arguments` are unchanged (`dialect: 'js'` is untouched).
 - **A runtime type error names the right line after a declaration block** (#3404). A `Type`,
   `Generic`, `FunctionPredicate`, `Union` or `Enum` declaration became one line of output, so
   every line below it moved up: a function on line 5 under a four-line `Type` reported

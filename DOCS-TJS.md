@@ -855,9 +855,7 @@ error can see what it got and not just its type. When a member fails, it is the 
 argument, not the member: `area(r: { width: 0, height: 0 })` called with `{ width: 3 }` gives
 an error whose `path` names `r.height` and whose `received` is `{ width: 3 }`, because the
 mistake is that this is not a rectangle. It is not enumerable: logging the error or
-`JSON.stringify(result)` never walks it, however large or cyclic it is. (A destructured
-parameter, `({ name: '' })`, has no name for its argument yet, so there `received` is the
-member's value.)
+`JSON.stringify(result)` never walks it, however large or cyclic it is.
 
 No try/catch gambling. The host survives invalid inputs.
 
