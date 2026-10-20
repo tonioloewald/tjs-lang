@@ -1,0 +1,12 @@
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 0, "parent": "ajs-basics.md"}-->
+
+# Hello World
+
+Simple greeting with template
+
+```ajs:inline
+function greet({ name = 'World' }) {
+  let message = template({ tmpl: 'Hello, {{name}}!', vars: { name } })
+  return { message }
+}
+```

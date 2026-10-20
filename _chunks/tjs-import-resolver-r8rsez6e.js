@@ -1,0 +1,4 @@
+var a={prefix:"/tfs/",defaultCdn:"jsdelivr",esmShPackages:["react","react-dom"],cacheName:"tfs-v4"};function o(n={}){let t={...a,...n},e=new URLSearchParams;return e.set("prefix",t.prefix),e.set("cdn",t.defaultCdn),e.set("esmsh",t.esmShPackages.join(",")),e.set("cache",t.cacheName),e.toString()}async function l(n={}){let{workerUrl:t="/import-resolver-worker.js",scope:e="/",reloadOnFirstInstall:s=!0,...i}=n;if(typeof navigator>"u"||!("serviceWorker"in navigator))return console.warn("Service workers not supported — import resolver unavailable"),!1;try{let r=o(i);return await navigator.serviceWorker.register(`${t}?${r}`,{scope:e}),navigator.serviceWorker.controller?!0:(s&&window.location.reload(),!1)}catch(r){return console.error("Import-resolver registration failed:",r),!1}}export{l as registerImportResolver};
+
+//# debugId=4433419284FDEFEE64756E2164756E21
+//# sourceMappingURL=tjs-import-resolver-r8rsez6e.js.map

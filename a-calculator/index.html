@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=16240da0f868" data-tosi-doc-system />
+  <title>A Calculator — tjs-lang</title>
+  <meta name="description" content="Time to build something real: a pocket calculator, with buttons you press and a display that answers." />
+  <link rel="canonical" href="https://tjs.tosijs.net/a-calculator/" />
+  <link rel="alternate" type="text/markdown" href="index.md" title="A Calculator — tjs-lang (markdown)" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="A Calculator — tjs-lang" />
+  <meta property="og:description" content="Time to build something real: a pocket calculator, with buttons you press and a display that answers." />
+  <meta property="og:url" content="https://tjs.tosijs.net/a-calculator/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"A Calculator","description":"Time to build something real: a pocket calculator, with buttons you press and a display that answers.","url":"https://tjs.tosijs.net/a-calculator/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+<script>globalThis.__TJS_LOCAL_BASE="/tjs/"</script><script>globalThis.__TOSI_EXAMPLE_POLICY="opt-in"</script><script>globalThis.__TOSI_DIALECTS=["ajs"]</script><script>globalThis.__TOSI_IMPORT_RESOLVER={"prefix":"/lib/","workerUrl":"/import-resolver-worker.js","reloadOnFirstInstall":false}</script>
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=efca90e49913" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;,&quot;projectLinks&quot;:{&quot;github&quot;:&quot;https://github.com/tonioloewald/tjs-lang&quot;,&quot;npm&quot;:&quot;https://www.npmjs.com/package/tjs-lang&quot;},&quot;bookVolumes&quot;:&quot;/epub-volumes.json&quot;,&quot;ebooks&quot;:[{&quot;title&quot;:&quot;tjs-lang&quot;,&quot;url&quot;:&quot;/tjs-lang.epub&quot;},{&quot;title&quot;:&quot;AJS and Safe Eval&quot;,&quot;url&quot;:&quot;/tjs-lang-ajs.epub&quot;},{&quot;title&quot;:&quot;The TJS Programming Language&quot;,&quot;url&quot;:&quot;/tjs-lang-language.epub&quot;},{&quot;title&quot;:&quot;TypeScript: The Good, the Bad, and the Ugly&quot;,&quot;url&quot;:&quot;/tjs-lang-ts.epub&quot;}]}">
+  <article class="doc-content" data-doc="a-calculator.md">
+<!--{"parent": "learn-to-program.md", "order": 10}--><h1 id="a-calculator">A Calculator</h1>
+<p>Time to build something real: a pocket calculator, with buttons you press and a display that
+answers. It is small enough to understand completely, and it is easy to extend: once it works,
+you will think of keys to add.</p>
+<h2 id="how-a-calculator-thinks">How a calculator thinks</h2>
+<p>A simple calculator keeps three facts:</p>
+<ul>
+<li><strong>X</strong>, the number on the display: what you are typing, or the latest answer.</li>
+<li><strong>Y</strong>, the number it is holding on to while you type the next one.</li>
+<li><strong>op</strong>, the operation waiting to happen: <code>+</code>, <code>-</code>, <code>×</code> or <code>÷</code>.</li>
+</ul>
+<p>Press <code>1</code>, <code>2</code>: X is 12. Press <code>+</code>: the calculator moves 12 into Y, remembers <code>+</code>, and waits.
+Press <code>3</code>: X is 3. Press <code>=</code>: it works out Y + X, and X becomes 15. One more fact, <strong>fresh</strong>,
+remembers whether the next digit starts a new number (after <code>+</code> or <code>=</code>) or adds to the one on
+the display.</p>
+<h2 id="the-brain">The brain</h2>
+<p>The calculator&#39;s brain is one function, <code>press</code>, that takes the calculator and a key, and
+updates it. It knows nothing about buttons or screens, so it is easy to test:</p>
+<pre data-example-mode="inline" data-example-options="{&quot;view&quot;:&quot;code&quot;}"><code class="language-tjs">function calculate(op: &#39;+&#39;, y: 0.0, x: 0.0) {
+  given op {
+    &#39;+&#39; { return y + x }
+    &#39;-&#39; { return y - x }
+    &#39;×&#39; { return y * x }
+    &#39;÷&#39; { return y / x }
+  } else {
+    return x
+  }
+}
+
+function press(calculator: { x: 0.0, y: 0.0, op: &#39;&#39;, fresh: true }, key: &#39;7&#39;) {
+  given key {
+    &#39;C&#39; {
+      calculator.x = 0
+      calculator.y = 0
+      calculator.op = &#39;&#39;
+      calculator.fresh = true
+    }
+    &#39;+&#39;, &#39;-&#39;, &#39;×&#39;, &#39;÷&#39; {
+      if (calculator.op &amp;&amp; !calculator.fresh) {
+        calculator.x = calculate(calculator.op, calculator.y, calculator.x)
+      }
+      calculator.y = calculator.x
+      calculator.op = key
+      calculator.fresh = true
+    }
+    &#39;=&#39; {
+      if (calculator.op) {
+        calculator.x = calculate(calculator.op, calculator.y, calculator.x)
+        calculator.op = &#39;&#39;
+        calculator.fresh = true
+      }
+    }
+  } else {
+    const digit = Number(key)
+    if (calculator.fresh) {
+      calculator.x = digit
+      calculator.fresh = false
+    } else {
+      calculator.x = calculator.x * 10 + digit
+    }
+  }
+}
+
+function run(keys: &#39;12+3=&#39;) {
+  const calculator = { x: 0, y: 0, op: &#39;&#39;, fresh: true }
+  for (const key of keys) {
+    press(calculator, key)
+  }
+  return calculator.x
+}
+
+preview.append(`12 + 3 = ${run(&#39;12+3=&#39;)}`)
+
+test &#39;typing a number&#39; {
+  expect(run(&#39;123&#39;)).toBe(123)
+}
+
+test &#39;one operation&#39; {
+  expect(run(&#39;12+3=&#39;)).toBe(15)
+  expect(run(&#39;7×6=&#39;)).toBe(42)
+  expect(run(&#39;1÷4=&#39;)).toBe(0.25)
+  expect(run(&#39;3-5=&#39;)).toBe(-2)
+}
+
+test &#39;each operator finishes the one before&#39; {
+  expect(run(&#39;2+3×4=&#39;)).toBe(20)
+}
+
+test &#39;clear starts over&#39; {
+  expect(run(&#39;12+3C5=&#39;)).toBe(5)
+}
+</code></pre>
+<ul>
+<li><code>calculate</code> does the arithmetic for an operation, with <code>given</code> (from Decisions).</li>
+<li><code>press</code> changes the calculator for one key: <code>C</code> clears, an operator moves X into Y (first
+finishing any operation already waiting), <code>=</code> finishes the waiting one, and anything else is a
+digit. A digit either starts a new number or, as <code>x * 10 + digit</code>, adds a digit to the end:
+12 becomes 123.</li>
+<li><code>run</code> presses a whole row of keys, which is what the tests use. <code>for … of</code> on a string goes
+through its characters one at a time.</li>
+</ul>
+<p><code>2+3×4=</code> gives 20, not 14: like a pocket calculator, it works each operation out when the next
+one is pressed. The test says so, so nobody &quot;fixes&quot; it by accident.</p>
+<h2 id="the-face">The face</h2>
+<p>Now give it buttons. The calculator becomes a tosijs model (Responding to the Reader), so its
+display can show <code>calculator.x</code>, and every button just calls <code>press</code>:</p>
+<pre data-example-mode="inline" data-example-options="{&quot;view&quot;:&quot;code&quot;}"><code class="language-tjs">import { elements, tosi } from &#39;tosijs&#39;
+
+function calculate(op: &#39;+&#39;, y: 0.0, x: 0.0) {
+  given op {
+    &#39;+&#39; { return y + x }
+    &#39;-&#39; { return y - x }
+    &#39;×&#39; { return y * x }
+    &#39;÷&#39; { return y / x }
+  } else {
+    return x
+  }
+}
+
+function press(calculator: { x: 0.0, y: 0.0, op: &#39;&#39;, fresh: true }, key: &#39;7&#39;) {
+  given key {
+    &#39;C&#39; {
+      calculator.x = 0
+      calculator.y = 0
+      calculator.op = &#39;&#39;
+      calculator.fresh = true
+    }
+    &#39;+&#39;, &#39;-&#39;, &#39;×&#39;, &#39;÷&#39; {
+      if (calculator.op &amp;&amp; !calculator.fresh) {
+        calculator.x = calculate(calculator.op, calculator.y, calculator.x)
+      }
+      calculator.y = calculator.x
+      calculator.op = key
+      calculator.fresh = true
+    }
+    &#39;=&#39; {
+      if (calculator.op) {
+        calculator.x = calculate(calculator.op, calculator.y, calculator.x)
+        calculator.op = &#39;&#39;
+        calculator.fresh = true
+      }
+    }
+  } else {
+    const digit = Number(key)
+    if (calculator.fresh) {
+      calculator.x = digit
+      calculator.fresh = false
+    } else {
+      calculator.x = calculator.x * 10 + digit
+    }
+  }
+}
+
+const { calculator } = tosi({
+  calculator: { x: 0, y: 0, op: &#39;&#39;, fresh: true },
+})
+
+const { div, button } = elements
+
+const keys = [&#39;7&#39;, &#39;8&#39;, &#39;9&#39;, &#39;÷&#39;, &#39;4&#39;, &#39;5&#39;, &#39;6&#39;, &#39;×&#39;, &#39;1&#39;, &#39;2&#39;, &#39;3&#39;, &#39;-&#39;, &#39;C&#39;, &#39;0&#39;, &#39;=&#39;, &#39;+&#39;]
+
+preview.append(
+  div(
+    { style: { fontSize: &#39;2em&#39;, textAlign: &#39;right&#39;, padding: &#39;0.25em&#39;, background: &#39;#eee&#39; } },
+    calculator.x
+  ),
+  div(
+    { style: { fontSize: &#39;0.8em&#39;, color: &#39;gray&#39; } },
+    &#39;Y: &#39;,
+    calculator.y,
+    &#39;   op: &#39;,
+    calculator.op
+  ),
+  div(
+    { style: { display: &#39;grid&#39;, gridTemplateColumns: &#39;repeat(4, 3em)&#39;, gap: &#39;4px&#39; } },
+    ...keys.map((key) =&gt; button({ onClick: () =&gt; press(calculator, key) }, key))
+  )
+)
+</code></pre>
+<p>Press <code>1</code>, <code>2</code>, <code>+</code>, <code>3</code>, <code>=</code> and watch the small line under the display: Y takes the 12 when
+you press <code>+</code>, op shows the <code>+</code> that is waiting, and op clears when <code>=</code> finishes the sum (Y
+keeps the last number it held until something replaces it). That is the calculator&#39;s whole
+mind, on screen.</p>
+<p>The buttons never touch the display. <code>press</code> changes the model, and everything showing it
+follows. This is the same <code>press</code> the tests checked: the function does not care whether it is
+given a plain object or a model on a page.</p>
+<h2 id="adding-a-key">Adding a key</h2>
+<p>New keys are easy, because each is one more case in <code>press</code> and one more button. A square root
+works on X straight away, without waiting for <code>=</code>:</p>
+<!-- tjs-doc: fragment -->
+<pre><code class="language-tjs" data-highlighted><span class="token comment">// in press, beside the other cases:</span>
+<span class="token string">'√'</span> <span class="token punctuation">{</span>
+  calculator<span class="token punctuation">.</span>x <span class="token operator">=</span> Math<span class="token punctuation">.</span><span class="token function">sqrt</span><span class="token punctuation">(</span>calculator<span class="token punctuation">.</span>x<span class="token punctuation">)</span>
+  calculator<span class="token punctuation">.</span>fresh <span class="token operator">=</span> <span class="token boolean">true</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>Add <code>&#39;√&#39;</code> to the list of keys, and to the tests: <code>run(&#39;16√&#39;)</code> should be 4.</p>
+<h2 id="try-it">Try it</h2>
+<p>Pick a key and add it, test first each time:</p>
+<ul>
+<li><strong>±</strong> changes the sign of X: <code>run(&#39;5±&#39;)</code> is -5.</li>
+<li><strong>n!</strong> (factorial) multiplies X by every whole number below it: <code>run(&#39;5!&#39;)</code> is 120. You wrote
+this kind of loop in Repetition.</li>
+<li><strong>xʸ</strong> raises Y to the power of X: <code>run(&#39;2^10=&#39;)</code> is 1024. It is an operator like <code>+</code>, so it
+belongs in <code>calculate</code> (<code>**</code> is the power operator) and in the operator case of <code>press</code>.</li>
+<li><strong>.</strong> (decimal point), the hardest: typing <code>1</code>, <code>.</code>, <code>5</code> should give 1.5. Hint: remember how
+many digits have come after the point.</li>
+</ul>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../learn-to-program/">Learn to Program</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../how-this-book-works/">How This Book Works</a></li>
+      <li><a class="doc-link" href="../hello-screen/">Hello, Screen</a></li>
+      <li><a class="doc-link" href="../values-and-names/">Values and Names</a></li>
+      <li><a class="doc-link" href="../functions/">Functions</a></li>
+      <li><a class="doc-link" href="../checking-your-work/">Checking Your Work</a></li>
+      <li><a class="doc-link" href="../decisions/">Decisions</a></li>
+      <li><a class="doc-link" href="../repetition/">Repetition</a></li>
+      <li><a class="doc-link" href="../lists/">Lists</a></li>
+      <li><a class="doc-link" href="../things-with-parts/">Things with Parts</a></li>
+      <li><a class="doc-link" href="../responding-to-the-reader/">Responding to the Reader</a></li>
+      <li><a class="doc-link current" href="../a-calculator/" aria-current="page">A Calculator</a></li>
+      <li><a class="doc-link" href="../when-things-go-wrong/">When Things Go Wrong</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — the 1.0 VM</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../vm-budgets/">VM budgets: how fuel and maxHeapBytes stay true</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../pattern/">Pattern: declarative matching for TJS and AJS, and regex as an opt-in</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script type="module" src="../hydrate-hdctj7ed.js"></script>
+</body>
+</html>

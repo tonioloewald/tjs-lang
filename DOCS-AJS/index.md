@@ -1,0 +1,1195 @@
+<!--{"section": "ajs", "group": "docs", "order": 1, "navTitle": "Documentation", "parent": "ajs.md"}-->
+
+# AJS: The Agent Language
+
+_Code as Data. Safe. Async. Sandboxed._
+
+---
+
+## What is AJS?
+
+AJS (AsyncJS) is a JavaScript subset that compiles to a **JSON AST**. It's designed for untrusted code—user scripts, LLM-generated agents, remote logic.
+
+```javascript
+function searchAndSummarize({ query }) {
+  let results = httpFetch({ url: `https://api.example.com/search?q=${query}` })
+  let summary = llmPredict({ prompt: `Summarize: ${JSON.stringify(results)}` })
+  return { query, summary }
+}
+```
+
+This compiles to JSON that can be:
+
+- Stored in a database
+- Sent over the network
+- Executed in a sandboxed VM
+- Audited before running
+
+---
+
+## The VM
+
+AJS runs in a gas-limited, isolated VM with strict resource controls.
+
+```typescript
+import { ajs, AgentVM } from 'tjs-lang'
+
+const agent = ajs`
+  function process({ url }) {
+    let data = httpFetch({ url })
+    return { fetched: data }
+  }
+`
+
+const vm = new AgentVM()
+const result = await vm.run(
+  agent,
+  { url: 'https://api.example.com' },
+  {
+    fuel: 1000, // CPU budget
+    timeoutMs: 5000, // Wall-clock limit
+  }
+)
+```
+
+### Fuel Metering
+
+Every operation costs fuel:
+
+| Operation                | Cost |
+| ------------------------ | ---- |
+| Expression evaluation    | 0.01 |
+| Variable set/get         | 0.1  |
+| Control flow (if, while) | 0.5  |
+| HTTP fetch               | 10   |
+| LLM predict              | 100  |
+
+When fuel runs out, execution stops safely:
+
+```typescript
+if (result.fuelExhausted) {
+  // Agent tried to run forever - stopped safely
+}
+```
+
+### Timeout Enforcement
+
+Fuel protects against CPU abuse. Timeouts protect against I/O abuse:
+
+```typescript
+await vm.run(agent, args, {
+  fuel: 1000,
+  timeoutMs: 5000, // Hard 5-second limit
+})
+```
+
+Slow network calls can't hang your servers.
+
+### Capability Injection
+
+The VM starts with **zero capabilities**. You grant what each agent needs:
+
+```typescript
+const capabilities = {
+  // your own wrapper (illustrative name): checks the destination, no redirects or ambient
+  // credentials. See guides/safe-eval.md for a complete, tested one.
+  fetch: createFetchCapability({
+    allowedHosts: ['api.example.com'],
+  }),
+  store: createReadOnlyStore(),
+  // No llm - this agent can't call AI
+}
+
+await vm.run(agent, args, { capabilities })
+```
+
+**Capabilities must return JSON data, plus `Date`.** Every value a capability returns crosses a
+membrane that BUILDS a fresh copy of it (0.14.0): plain objects (prototype `Object.prototype` or
+`null`), arrays, strings, numbers, booleans, `null`/`undefined`, and `Date` (copied by its internal
+time, so a disguised one cannot lie). Anything else is **rejected** at the boundary and ends the
+run: functions, `Map`, `Set`, typed arrays, `ArrayBuffer`, `RegExp`, `Error`, class instances. A
+`fetch` capability returning a live `Response` (with `.json()`/`.text()`) is rejected; return the
+fields the guest reads as a plain object (`{ ok, status, body }`), and convert a `Map` to an object
+or an array of pairs. Objects and arrays must be plain values from the VM's own realm: an `Array` or
+`Date` subclass, and an array or object from another realm (an iframe, a `node:vm` context), are
+refused rather than thinned; a JSON round-trip (`JSON.parse(JSON.stringify(v))`) makes any of them
+plain. Oversized returns are also rejected before the
+copy allocates; the cap is the `membraneMaxBytes` run option (default 4 MB), which you may
+need to raise for large-JSON or base64 `dataUrl` payloads.
+
+**Accessor properties are rejected too (0.13.0 — breaking).** A getter is host code, and a
+membrane that ran one while inspecting a payload would be executing the very thing it exists
+to keep out. The pre-walk reads own property _descriptors_ and never invokes an accessor, so
+it rejects rather than silently evaluating:
+
+```typescript
+// Rejected: `status` is a getter — code wearing a data costume.
+return { ok: res.ok, get status() { return res.status }, body }
+
+// Fine: read it once, hand over the value.
+return { ok: res.ok, status: res.status, body }
+```
+
+Spreading is not the fix and fails **silently**: a `Response` keeps `ok`/`status`/`headers`
+on its prototype, so `{ ...res }` is `{}` — it crosses the boundary cleanly and delivers
+nothing. Build the object literally, naming each field.
+
+### Live-Heap Ceiling
+
+Fuel meters _work_, so it is a **time** budget. It bounds how much a program allocates over
+its lifetime but says nothing about how much it holds **at once**: `x = x + x` charges
+honestly, yet a legitimate 100,000-fuel budget still buys roughly a gigabyte of live string.
+A run that exhausts host memory has taken the process down however honestly it paid.
+
+```typescript
+await vm.run(agent, args, {
+  fuel: 100_000,
+  maxHeapBytes: 64 * 1024 * 1024, // default 64 MB — the SPACE budget
+})
+```
+
+Accounting is **per key**, so overwriting a variable frees its budget and ordinary loops
+don't false-positive.
+
+### Per-Atom Call Quotas
+
+Fuel is denominated in VM work, so it cannot express "at most 3 model calls" — an
+`llmPredict` costing 50 fuel might cost real money, and a `httpFetch` costing 10 might
+hammer someone else's service. Quotas cap **calls**, not work:
+
+```typescript
+await vm.run(agent, args, {
+  fuel: 10_000,
+  quotas: { llmPredict: 3, httpFetch: 10 }, // an op you don't list is unlimited
+})
+```
+
+**Scope — read this before treating a quota as a spend cap.** A quota counts calls within
+**one run**. A capability that starts a _new_ `vm.run` gets a fresh counter, so an agent able
+to trigger re-entrancy can multiply its allowance. Inline sub-agents share the parent's
+context and therefore its counter; a capability calling back into the VM does not.
+
+To enforce a cap across nested runs, pass the **same `quotaUsed` object** to each:
+
+```typescript
+const quotaUsed = {} // one shared ledger
+const opts = { quotas: { llmPredict: 3 }, quotaUsed }
+await vm.run(outerAgent, args, { ...opts, capabilities })
+await vm.run(innerAgent, args, { ...opts, capabilities }) // draws from the same 3
+```
+
+Across a process or network boundary no such enforcement is possible: budget does not
+travel, only tokens and data do. The honest guarantee is over what we control — a time box
+on every run, abort on every exit path, and quotas on what we summon.
+
+---
+
+## Input/Output Contract
+
+AJS agents are composable — one agent's output feeds into another's input. To ensure this works reliably:
+
+- **Functions take a single destructured object parameter:** `function process({ input })`
+- **Functions must return a plain object:** `return { result }`, `return { summary, count }`
+- **Non-object returns produce an AgentError:** `return 42` or `return 'hello'` will fail
+- **Bare `return` is allowed** for void functions (no output)
+
+```javascript
+// CORRECT — object in, object out
+function add({ a, b }) {
+  return { sum: a + b }
+}
+
+// WRONG — non-object returns are errors
+function add({ a, b }) {
+  return a + b // AgentError: must return an object
+}
+```
+
+---
+
+## Syntax
+
+AJS is a JavaScript subset. Familiar syntax, restricted features.
+
+### What's Allowed
+
+```javascript
+// Functions
+function process({ input }) {
+  return { output: input * 2 }
+}
+
+// Variables
+let x = 10
+const y = 'hello'
+
+// Conditionals
+if (x > 5) {
+  return { size: 'big' }
+} else {
+  return { size: 'small' }
+}
+
+// Loops — `for...of` and `while`. There is NO C-style `for (;;)`.
+for (let item of items) {
+  results.push(item.name)
+}
+
+while (count > 0) {
+  count = count - 1
+}
+
+// Try/catch
+try {
+  riskyOperation()
+} catch (e) {
+  return { error: e.message }
+}
+
+// Template literals
+let message = `Hello, ${name}!`
+
+// Object/array literals
+let obj = { a: 1, b: 2 }
+let arr = [1, 2, 3]
+
+// Spread
+let merged = { ...defaults, ...overrides }
+let combined = [...arr1, ...arr2]
+
+// Ternary
+let result = x > 0 ? 'positive' : 'non-positive'
+
+// Logical operators
+let value = a && b
+let fallback = a || defaultValue
+let nullish = a ?? defaultValue
+```
+
+**Atoms take named arguments, and the transpiler checks them.** Call an atom with one object
+literal, `storeSet({ key, value })`, or with nothing, `random()`. A positional call, a spread, an
+input the atom does not declare, or a missing required input fails at transpile time and names what
+the atom takes: `storeSet('k', v)` (refused). Core atoms are always checked; pass your own atoms to
+check calls to them too: `transpile(src, { atoms: vm.atoms })`. The VM itself does not check
+parameters. It runs an AST as written, so an AST built by hand or by another front end must get
+them right. Your own functions (local helpers) and builtins (`Math.max(a, b)`, `Error('message')`) take
+positional arguments as usual.
+
+**Functions and namespaces are not values.** Call them; don't hold them. `Math.max(a, b)` and
+`s.trim()` work, but `const m = Math`, `const f = parseInt`, `items.map(parseInt)`,
+`Object.values(Math)` and `{ toJSON: encodeURIComponent }` are refused. A value in AsyncJS is data
+(numbers, strings, booleans, null, arrays, objects). A `Set` is an array of its items, and a `Date`
+or a regex is a plain object of its fields; the VM supplies their methods (see below), so reading
+one as a value (`const f = s.add`) is refused too.
+
+**Operators take primitives.** `+`, `-`, `*`, `<`, … and computed keys (`obj[k]`) need strings,
+numbers, booleans or null; an object or array operand is an error, not a silent conversion to its
+string form (`'x' + arr`, `${arr}`, `arr < 5`). Say what you mean: `arr.join(',')`,
+`JSON.stringify(obj)`. Methods follow the same rule unless they use an argument as a value
+(`arr.includes(obj)`, `arr.concat(other)`, `Object.keys(obj)`). Regex literals work as search
+patterns (`s.replace(/a+/g, '-')`, `s.split(/,\s*/)`); guest regexes run on the VM's own
+linear-time engine, so no pattern can hang a run: its work is charged as fuel like any other.
+That engine supports classes, `.`, anchors, `\b`, groups (capturing, non-capturing, named),
+alternation and every quantifier, greedy and lazy, with flags `g i m s u y`. It does NOT support
+backreferences (`\1`, `\k<n>`), lookahead or lookbehind, `\p{…}`, or the `d`/`v` flags; a regex
+literal using one is a transpile error at its source location. Counts above `{10000}` are refused, and so is a pattern that compiles to more than 20,000 instructions — an optional range costs about four per count, so `\w{0,5000}` and `.{0,10000}` are refused too.
+Methods take exactly the arguments JavaScript documents, with exactly the types they read, and
+no extra ones: `'x'.repeat('3')` is an error (a count is a number), as is `s.slice(0, 1, 2)`. Arguments must have the type the method reads (a count is a number). Why:
+[`docs/vm-budgets.md`](docs/vm-budgets.md).
+
+### Local helper functions
+
+An agent source file may declare **multiple** top-level functions. The **last**
+declaration is the entry point; the ones before it are **helpers** the entry (or
+other helpers) can call by name:
+
+```javascript
+function double(x) {
+  return x * 2
+}
+
+function addOne(x) {
+  const d = double(x) // helpers can call earlier helpers
+  return d + 1
+}
+
+function main(n) {
+  const a = double(n)
+  const b = addOne(n)
+  return { a, b } // only the entry must return an object
+}
+```
+
+Helpers behave like ordinary functions, with a few deliberate rules:
+
+- **Top-level siblings, not closures.** A helper sees only its own parameters —
+  never the caller's locals. This keeps them predictable and reusable.
+- **They may return any value** (number, string, array, object). Only the
+  _entry_ function is held to the object-return contract.
+- **Recursion is allowed.** Helpers may call themselves or each other. Runaway
+  recursion is bounded by fuel/timeout, with a hard call-depth cap (256) that
+  surfaces as a normal monadic error — never a host crash.
+- **Call them at statement level.** A helper call cannot be nested inside a larger
+  expression — lift it to a variable first:
+
+  ```javascript
+  // Fails at transpile time:
+  return { v: double(n) + 1 }
+
+  // Do this instead:
+  const d = double(n)
+  return { v: d + 1 }
+  ```
+
+Helper bodies are compiled once and dispatched by name, so calling a helper many
+times (or in a loop) doesn't bloat the agent's AST.
+
+### What's Forbidden
+
+| Feature                      | Why Forbidden                                                                                                                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C-style `for (;;)`           | Use `for...of`, or `while` with a counter                                                                                                                                          |
+| Destructuring _declarations_ | `let { a } = o` / `let [a] = xs`. Read members instead (`const a = o.a`). Destructured **parameters** — `function agent({ apiKey })` — are fine and are the documented entry shape |
+| `class`                      | Too complex for LLMs, enables prototype pollution                                                                                                                                  |
+| `new`                        | Arbitrary object construction                                                                                                                                                      |
+| `this`                       | Implicit context, hard to sandbox                                                                                                                                                  |
+| Closures                     | State escapes the sandbox                                                                                                                                                          |
+| `async`/`await`              | VM handles async internally                                                                                                                                                        |
+| `eval`, `Function`           | Code injection                                                                                                                                                                     |
+| `__proto__`, `constructor`   | Prototype pollution                                                                                                                                                                |
+| `import`/`export`            | Module system handled by host                                                                                                                                                      |
+
+AJS is intentionally simple—simple enough for 4B parameter LLMs to generate correctly.
+
+### Differences from JavaScript
+
+AJS expressions differ from standard JavaScript in a few important ways:
+
+**Null-safe member access.** All member access uses optional chaining internally. Accessing a property on `null` or `undefined` returns `undefined` instead of throwing `TypeError`:
+
+```javascript
+let x = null
+let y = x.foo.bar // undefined (no error)
+```
+
+This is a deliberate safety choice — agents shouldn't crash on missing data.
+
+**No computed member access with variables.** You can use literal indices (`items[0]`, `obj["key"]`) but not variable indices (`items[i]`). This is rejected at transpile time:
+
+```javascript
+// Works
+let first = items[0]
+let name = user['name']
+
+// Fails: "Computed member access with variables not yet supported"
+let item = items[i]
+```
+
+Workaround: use array atoms like `map`, `reduce`, or `for...of` loops instead of index-based access.
+
+**Footgun-free equality.** `==` and `!=` are footgun-free `===` (matching TJS) — no type coercion, but NOT structural. They unwrap boxed primitives and treat `null`/`undefined` (and `NaN`) as equal; distinct objects/arrays are distinct. Use `===`/`!==` for strict identity:
+
+```javascript
+'1' == 1                 // false (no coercion, unlike JS)
+null == undefined        // true (nullish equality)
+[1, 2] == [1, 2]        // false (distinct objects — NOT structural)
+{ a: 1 } == { a: 1 }    // false (distinct objects)
+[1, 2] === [1, 2]       // false (strict identity)
+```
+
+Structural (deep) comparison is an explicit operation, never `==`. In TJS that operation is the `Is`/`IsNot` function; **AJS does not have it** — it is one of the TJS constructs the AJS parser rejects. Compare the fields you care about, or do the comparison in the host.
+
+`a Is b` used to parse on the AJS path, because AJS and TJS shared one parser and the `Is` transform never checked which language it was compiling. It transformed to a call to a function AJS has no atom for, so it never worked; it merely failed later and less clearly. AJS now has its own parser and says so up front. See `src/lang/parser-agent.ts`.
+
+**A refusal at the capability boundary that is a BUG ends the run** (0.14.0); it is not
+catchable. On the way out that is every refusal, since the program built the value: an atom call
+whose input does not match what the atom declares, or a value that cannot be copied out to a
+capability (too large, too deep, not plain data). On the way in it is the host's contract broken:
+a capability returning something JSON cannot express (a function, a getter, a class instance). Nothing after it runs: no `catch`
+block, no later step, no step of a parent agent. These are bugs in the program rather than
+failures of the world, and the transpiler reports the ones it can see before the program runs.
+Failures of the world (a fetch that fails, a model that is down, a store that throws) are caught
+by `try`/`catch` as before, and so are a capability's return that is too large to copy in or that
+does not match the shape the atom declares (a server or a model got it wrong, not the program).
+Every inbound copy is billed in fuel, so retrying one in a loop pays each time. (An `agentRun` served by the host's `agent` capability is a separate
+run: its refusal ends THAT run, and the parent sees an ordinary failure, as with any capability.)
+
+---
+
+## Atoms
+
+Atoms are the built-in operations. Each atom has a defined cost, input schema, and output schema.
+
+### Flow Control
+
+| Atom     | Description                    |
+| -------- | ------------------------------ |
+| `seq`    | Execute operations in sequence |
+| `if`     | Conditional branching          |
+| `while`  | Loop with condition            |
+| `return` | Return a value                 |
+| `try`    | Error handling                 |
+
+### State Management
+
+| Atom         | Description                |
+| ------------ | -------------------------- |
+| `varSet`     | Set a variable             |
+| `varGet`     | Get a variable             |
+| `varsLet`    | Batch variable declaration |
+| `varsImport` | Import from arguments      |
+| `varsExport` | Export as result           |
+| `scope`      | Create a local scope       |
+
+### I/O
+
+| Atom        | Description                                 |
+| ----------- | ------------------------------------------- |
+| `httpFetch` | HTTP requests (requires `fetch` capability) |
+
+### Storage (Core)
+
+| Atom          | Description              |
+| ------------- | ------------------------ |
+| `storeGet`    | Get from key-value store |
+| `storeSet`    | Set in key-value store   |
+| `storeSearch` | Vector similarity search |
+
+### Storage (Battery)
+
+| Atom                    | Description                           |
+| ----------------------- | ------------------------------------- |
+| `storeVectorize`        | Generate embeddings from text         |
+| `storeCreateCollection` | Create a vector store collection      |
+| `storeVectorAdd`        | Add a document to a vector collection |
+
+### AI (Core)
+
+| Atom         | Description                                |
+| ------------ | ------------------------------------------ |
+| `llmPredict` | Simple LLM inference (`prompt` → `string`) |
+| `agentRun`   | Run a sub-agent                            |
+
+`llmPredict({ prompt, options })` takes these `options` keys only: `model`, `temperature`,
+`maxTokens` (or `max_tokens`), `topP` (or `top_p`), `stop`, `seed`, `responseFormat` and `tools`.
+Anything else is refused. A `responseFormat` is `{ type: 'json_schema', json_schema: { name,
+schema } }` (`Schema.response` builds it), `{ type: 'json_object' }` or `{ type: 'text' }`. A tool is
+`{ type: 'function', function: { name, description?, parameters?, strict? } }`. Every schema in
+them is a guest schema (the closed dialect under **Schema**).
+
+### AI (Battery)
+
+| Atom                | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `llmPredictBattery` | Chat completion (system/user → message object) |
+| `llmVision`         | Analyze images using a vision-capable model    |
+
+### Procedures
+
+| Atom                     | Description                    |
+| ------------------------ | ------------------------------ |
+| `storeProcedure`         | Store an AST as callable token |
+| `releaseProcedure`       | Delete a stored procedure      |
+| `clearExpiredProcedures` | Clean up expired tokens        |
+
+### Utilities
+
+| Atom      | Description              |
+| --------- | ------------------------ |
+| `random`  | Random number generation |
+| `uuid`    | Generate UUIDs           |
+| `hash`    | Compute hashes           |
+| `memoize` | In-memory memoization    |
+| `cache`   | Persistent caching       |
+
+---
+
+## Battery Atoms Reference
+
+Battery atoms provide LLM, embedding, and vector store capabilities. They
+require a separate import and capability setup.
+
+### Setup
+
+```javascript
+import { AgentVM } from 'tjs-lang'
+import { batteryAtoms, getBatteries } from 'tjs-lang'
+
+const vm = new AgentVM(batteryAtoms)
+const batteries = await getBatteries() // auto-detects LM Studio models
+
+const { result } = await vm.run(agent, args, {
+  fuel: 1000,
+  capabilities: batteries,
+})
+```
+
+The `getBatteries()` function auto-detects LM Studio and returns:
+
+```javascript
+{
+  vector: { embed },       // embedding function (undefined if no LM Studio)
+  store: { ... },          // key-value + vector store (always present)
+  llmBattery: { predict, embed },  // LLM chat + embeddings (null if no LM Studio)
+  models: { ... },         // detected model info (null if no LM Studio)
+}
+```
+
+**Important:** `vector` and `llmBattery` will be `undefined`/`null` if LM Studio
+isn't running or the connection is made over HTTPS (local LLM calls are blocked
+from HTTPS contexts for security). Always check for availability or handle
+the atom's "missing capability" error.
+
+### Capability Keys
+
+Battery atoms look up capabilities by specific keys that differ from the base
+`Capabilities` interface:
+
+| Capability key | Used by atoms                                            | Contains                        |
+| -------------- | -------------------------------------------------------- | ------------------------------- |
+| `llmBattery`   | `llmPredictBattery`, `llmVision`                         | `{ predict, embed }` (full LLM) |
+| `vector`       | `storeVectorize`                                         | `{ embed }` only                |
+| `store`        | `storeSearch`, `storeCreateCollection`, `storeVectorAdd` | KV + vector store operations    |
+| `llm`          | `llmPredict` (core atom)                                 | `{ predict }` (simple)          |
+| `fetch`        | `httpFetch` (core atom)                                  | fetch function                  |
+
+The split exists because `storeVectorize` only needs the embedding function,
+while `llmPredictBattery` needs the full chat API. If you're providing your own
+capabilities (not using `getBatteries()`), wire the keys accordingly.
+
+### `llmPredict` vs `llmPredictBattery`
+
+There are two LLM atoms with different interfaces:
+
+| Atom                | Input                   | Output         | Capability                |
+| ------------------- | ----------------------- | -------------- | ------------------------- |
+| `llmPredict`        | `{ prompt }`            | `string`       | `capabilities.llm`        |
+| `llmPredictBattery` | `{ system, user, ... }` | message object | `capabilities.llmBattery` |
+
+Use `llmPredict` for simple prompts. Use `llmPredictBattery` when you need
+system prompts, tool calling, or structured output.
+
+### `llmPredictBattery`
+
+Chat completion with system prompt, tool calling, and structured output support.
+
+**Input:**
+
+| Field            | Type     | Required | Description                                   |
+| ---------------- | -------- | -------- | --------------------------------------------- |
+| `system`         | `string` | No       | System prompt (defaults to helpful assistant) |
+| `user`           | `string` or messages | Yes | A string, or `{ role, content }` messages (content: a string or `text`/`image_url` parts; images follow the fetch rule) |
+| `tools`          | `any[]`  | No       | Tool definitions (OpenAI format)              |
+| `responseFormat` | `any`    | No       | Structured output format                      |
+
+**Output:** OpenAI chat message object:
+
+```javascript
+{
+  role: 'assistant',
+  content: 'The answer is 42.',    // null when using tool calls
+  tool_calls: [...]                // present when tools are invoked
+}
+```
+
+**Example:**
+
+```javascript
+let response = llmPredictBattery({
+  system: 'You are a helpful assistant.',
+  user: 'What is the capital of France?',
+})
+// response.content === 'Paris is the capital of France.'
+```
+
+**Cost:** 100 fuel
+
+### `llmVision`
+
+Analyze images using a vision-capable model.
+
+**Input:**
+
+| Field            | Type       | Required | Description                                     |
+| ---------------- | ---------- | -------- | ----------------------------------------------- |
+| `system`         | `string`   | No       | System prompt                                   |
+| `prompt`         | `string`   | Yes      | Text prompt describing what to analyze          |
+| `images`         | `string[]` | Yes      | URLs or data URIs (`data:image/...;base64,...`) |
+| `responseFormat` | `any`      | No       | Structured output format                        |
+
+**Output:** Same as `llmPredictBattery` (message object with `role`, `content`, `tool_calls`).
+
+**Example:**
+
+```javascript
+let analysis = llmVision({
+  prompt: 'Describe what you see in this image.',
+  images: ['https://example.com/photo.jpg'],
+})
+// analysis.content === 'The image shows a sunset over the ocean...'
+```
+
+**Cost:** 150 fuel | **Timeout:** 120 seconds
+
+### `storeVectorize`
+
+Generate embeddings from text using the vector battery.
+
+**Input:**
+
+| Field   | Type     | Required | Description            |
+| ------- | -------- | -------- | ---------------------- |
+| `text`  | `string` | Yes      | Text to embed          |
+| `model` | `string` | No       | Embedding model to use |
+
+**Output:** `number[]` — the embedding vector.
+
+**Example:**
+
+```javascript
+let embedding = storeVectorize({ text: 'TJS is a typed JavaScript' })
+// embedding === [0.023, -0.412, 0.891, ...]
+```
+
+**Cost:** 20 fuel | **Capability:** `vector`
+
+### `storeCreateCollection`
+
+Create a vector store collection for similarity search.
+
+**Input:**
+
+| Field        | Type     | Required | Description                      |
+| ------------ | -------- | -------- | -------------------------------- |
+| `collection` | `string` | Yes      | Collection name                  |
+| `dimension`  | `number` | No       | Vector dimension (auto-detected) |
+
+**Output:** None.
+
+**Cost:** 5 fuel | **Capability:** `store`
+
+### `storeVectorAdd`
+
+Add a document to a vector store collection. The document is automatically
+embedded and indexed.
+
+**Input:**
+
+| Field        | Type     | Required | Description       |
+| ------------ | -------- | -------- | ----------------- |
+| `collection` | `string` | Yes      | Collection name   |
+| `doc`        | `any`    | Yes      | Document to store |
+
+**Output:** None.
+
+**Example:**
+
+```javascript
+storeVectorAdd({
+  collection: 'articles',
+  doc: { title: 'Intro to TJS', content: 'TJS is...', embedding: [...] }
+})
+```
+
+**Cost:** 5 fuel | **Capability:** `store`
+
+### `storeSearch`
+
+Search a vector store collection by similarity.
+
+**Input:**
+
+| Field         | Type       | Required | Description                    |
+| ------------- | ---------- | -------- | ------------------------------ |
+| `collection`  | `string`   | Yes      | Collection name                |
+| `queryVector` | `number[]` | Yes      | Query embedding vector         |
+| `k`           | `number`   | No       | Number of results (default: 5) |
+| `filter`      | `object`   | No       | Metadata filter                |
+
+**Output:** `any[]` — array of matching documents, sorted by similarity.
+
+**Example:**
+
+```javascript
+let query = storeVectorize({ text: 'How does type checking work?' })
+let results = storeSearch({
+  collection: 'articles',
+  queryVector: query,
+  k: 3,
+})
+// results === [{ title: 'Type System', content: '...' }, ...]
+```
+
+**Cost:** 5 + k fuel (dynamic) | **Capability:** `store`
+
+---
+
+## Expression Builtins
+
+AJS expressions have access to safe built-in objects:
+
+### Math
+
+All standard math functions:
+
+```javascript
+Math.abs(-5) // 5
+Math.floor(3.7) // 3
+Math.sqrt(16) // 4
+Math.sin(Math.PI) // ~0
+Math.random() // 0-1
+Math.max(1, 2, 3) // 3
+Math.min(1, 2, 3) // 1
+```
+
+### JSON
+
+Parse and stringify:
+
+```javascript
+JSON.parse('{"a": 1}') // { a: 1 }
+JSON.stringify({ a: 1 }) // '{"a": 1}'
+```
+
+### Array
+
+Static methods:
+
+```javascript
+Array.isArray([1, 2]) // true
+Array.from('abc') // ['a', 'b', 'c']
+Array.of(1, 2, 3) // [1, 2, 3]
+```
+
+### Object
+
+Static methods:
+
+```javascript
+Object.keys({ a: 1 }) // ['a']
+Object.values({ a: 1 }) // [1]
+Object.entries({ a: 1 }) // [['a', 1]]
+Object.fromEntries([['a', 1]]) // { a: 1 }
+Object.assign({}, a, b) // merged object
+```
+
+### String
+
+Static methods:
+
+```javascript
+String.fromCharCode(65) // 'A'
+String.fromCodePoint(128512) // emoji
+```
+
+### Number
+
+Constants and checks:
+
+```javascript
+Number.MAX_VALUE
+Number.isNaN(NaN) // true
+Number.isFinite(100) // true
+Number.parseInt('42') // 42
+Number.parseFloat('3.14') // 3.14
+```
+
+### Set
+
+`Set(items)` makes a set of unique items. A set **is an array** of its items (0.14.0) — data that
+JSON and the capability boundary keep as it is — whose methods the VM supplies. `size` is its length.
+Change it with its own methods: `push` and `Object.assign` are refused on a set.
+
+```javascript
+const tags = Set(['a', 'b', 'b']) // ['a', 'b']
+tags.add('c') // in place
+tags.remove('a')
+tags.has('b') // true
+tags.size // 2
+tags.union(['d']) // a new set: ['b', 'c', 'd']
+tags.intersection(['b', 'x']) // ['b']
+tags.diff(['b']) // ['c']
+```
+
+### Date
+
+`Date(x)` (or `Date()` for now) makes a date. `x` is an ISO string, a number of ms, another
+date, or a **stored** date: an object with a numeric `timestamp`, which is what a date becomes after
+JSON, a store or a capability, so a date round-trips. `Date.parse(text)` is the same. A date is a frozen **data object** (0.14.0):
+`value` (ISO string), `timestamp` (ms), `year`, `month` (1–12), `day`, `hours`, `minutes`,
+`seconds`, `dayOfWeek`, every field in **UTC**, so a program produces the same result on every
+host. It has one form everywhere: `JSON.stringify(d)`, a capability's input and the run's result
+all see this object. For the ISO string, write `d.value`.
+
+```javascript
+const d = Date('2024-01-15T10:00:00Z')
+d.year // 2024
+d.month // 1
+const next = d.add({ days: 1 }) // a new date; also years, months, hours, minutes, seconds, ms
+next.diff(d, 'days') // 1 (also 'seconds', 'minutes', 'hours'; default ms)
+d.isBefore(next) // true
+d.format('YYYY-MM-DD') // '2024-01-15', in UTC (also 'ISO', 'date', 'time')
+d.value // '2024-01-15T10:00:00.000Z'
+Date.now() // timestamp
+```
+
+### Schema
+
+Build JSON schemas for structured LLM outputs and validation. In AsyncJS a schema is plain
+**data** (0.14.0): `Schema.string`, `Schema.email`, … are JSON schemas, and `Schema.object(…)`,
+`array`, `record`, `union`, `tuple`, `enum`, `const`, `fromExample`, `response` and `isValid` build
+or check plain JSON. There is no builder chaining (`.min()`, `.optional`): write the keyword.
+
+```javascript
+// From example
+let schema = Schema.response('person', { name: '', age: 0 })
+
+// With constraints: plain keywords
+let schema = Schema.response(
+  'user',
+  Schema.object({
+    email: Schema.email,
+    age: { type: 'integer', minimum: 0, maximum: 150 },
+    nickname: { type: ['string', 'null'] }, // a nullable field is optional
+    role: Schema.enum(['admin', 'user', 'guest']),
+  })
+)
+
+let ok = Schema.isValid(input, schema.json_schema.schema)
+```
+
+**A guest schema is a closed dialect.** It may use `type`, `properties`, `items`,
+`additionalProperties`, `anyOf`, `oneOf`, `required`, `enum`, `const`, the numeric bounds
+(`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`,
+`maxLength`, `minItems`, `maxItems`, `minProperties`, `maxProperties`), `format` (`email`, `uuid`,
+`uri`, `ipv4`, `date`, `date-time`, `emoji`), `title`, `description`, `default` and `examples` —
+nothing else, each with exactly its JSON value type, at most 10,000 nodes and 64 levels deep. A
+`pattern` would compile on the host's regex engine, so it is refused: match inside the program with
+`regexMatch`. Validation costs fuel in proportion to schema size × data size.
+
+---
+
+## JSON AST Format
+
+AJS compiles to a JSON AST. Here's what it looks like:
+
+### Sequence
+
+```json
+{
+  "$seq": [
+    { "$op": "varSet", "key": "x", "value": 10 },
+    { "$op": "varSet", "key": "y", "value": 20 },
+    {
+      "$op": "return",
+      "value": { "$expr": "binary", "op": "+", "left": "x", "right": "y" }
+    }
+  ]
+}
+```
+
+### Expressions
+
+```json
+// Literal
+{ "$expr": "literal", "value": 42 }
+
+// Identifier
+{ "$expr": "ident", "name": "varName" }
+
+// Binary operation
+{ "$expr": "binary", "op": "+", "left": {...}, "right": {...} }
+
+// Member access
+{ "$expr": "member", "object": {...}, "property": "foo" }
+
+// Template literal: `Hello, ${name}!` compiles to string concatenation
+{ "$expr": "binary", "op": "+",
+  "left": { "$expr": "literal", "value": "Hello, " },
+  "right": { "$expr": "ident", "name": "name" } }   // …then + "!"
+
+// Method call (only methods the VM's method table lists — see docs/vm-budgets.md)
+{ "$expr": "methodCall", "object": {...}, "method": "split", "arguments": [...] }
+```
+
+### Conditionals
+
+```json
+{
+  "$op": "if",
+  "cond": { "$expr": "binary", "op": ">", "left": "x", "right": 0 },
+  "then": { "$seq": [...] },
+  "else": { "$seq": [...] }
+}
+```
+
+### Loops
+
+```json
+{
+  "$op": "while",
+  "cond": { "$expr": "binary", "op": ">", "left": "count", "right": 0 },
+  "body": { "$seq": [...] }
+}
+```
+
+---
+
+## Security Model
+
+### Zero Capabilities by Default
+
+The VM can't do anything unless you allow it:
+
+```typescript
+// This agent can only compute - no I/O
+await vm.run(agent, args, { capabilities: {} })
+
+// This agent can fetch from one domain
+await vm.run(agent, args, {
+  capabilities: {
+    fetch: createFetchCapability({ allowedHosts: ['api.example.com'] }),
+  },
+})
+```
+
+### Forbidden Properties
+
+These property names are blocked to prevent prototype pollution:
+
+- `__proto__`
+- `constructor`
+- `prototype`
+
+### Fetching (httpFetch)
+
+The built-in `httpFetch` is a **demonstration** capability, highly constrained by default. A real
+deployment supplies its own `fetch` capability. Either way, the agent's REQUEST is admitted the
+same way:
+- **Methods:** GET and HEAD by default. A host enables more for a run with
+  `context.allowedFetchMethods`. CONNECT, TRACE and TRACK are never admitted.
+- **Headers:** a closed list: `Accept`, `Accept-Language`, `Authorization`, `Cache-Control`,
+  `Content-Language`, `Content-Type`, the `If-*` validators, `Range`, `User-Agent`, `X-API-Key`,
+  `X-Request-Id`, `X-Correlation-Id`, `X-Requested-With`. A host adds names with
+  `context.allowedRequestHeaders`. `X-Agent-Depth` belongs to the VM and is never admitted.
+
+The built-in client also:
+- needs `context.allowedFetchDomains`, and without it nothing is fetched. An entry admits the
+  default port only (`api.example.com`) unless it names one (`api.example.com:8443`); `*.example.com`
+  matches subdomains;
+- fetches only `http:` and `https:`;
+- **follows no redirects**: a redirect returns `{ redirect: true, status, location }` (location
+  absolute; null in a browser), and fetching it is a new, separately admitted request;
+- sends no browser cookies or HTTP auth;
+- reads the body under `membraneMaxBytes`.
+
+### Regular expressions
+
+Guest regexes run on the VM's own linear, metered engine (no backtracking, so no catastrophic
+patterns). Regex is deprecated in AsyncJS 0.14 in favour of `Pattern` (see `docs/pattern.md`).
+
+### Execution Tracing
+
+Every agent run can produce an audit trail:
+
+```typescript
+const { result, trace } = await vm.run(agent, args, { trace: true })
+
+// trace: [
+//   { op: 'varSet', key: 'x', fuelBefore: 1000, fuelAfter: 999.9 },
+//   { op: 'httpFetch', url: '...', fuelBefore: 999.9, fuelAfter: 989.9 },
+//   ...
+// ]
+```
+
+---
+
+## Use Cases
+
+### AI Agents
+
+```javascript
+function researchAgent({ topic }) {
+  let searchResults = httpFetch({
+    url: `https://api.search.com?q=${topic}`,
+  })
+
+  let summary = llmPredict({
+    system: 'You are a research assistant.',
+    user: `Summarize these results about ${topic}: ${searchResults}`,
+  })
+
+  return { topic, summary }
+}
+```
+
+### Rule Engines
+
+```javascript
+function applyDiscounts({ cart, userTier }) {
+  let discount = 0
+
+  if (userTier === 'gold') {
+    discount = 0.2
+  } else if (userTier === 'silver') {
+    discount = 0.1
+  }
+
+  if (cart.total > 100) {
+    discount = discount + 0.05
+  }
+
+  return {
+    originalTotal: cart.total,
+    discount: discount,
+    finalTotal: cart.total * (1 - discount),
+  }
+}
+```
+
+### Smart Configuration
+
+```javascript
+function routeRequest({ request, config }) {
+  for (let rule of config.rules) {
+    if (request.path.startsWith(rule.prefix)) {
+      return { backend: rule.backend, timeout: rule.timeout }
+    }
+  }
+  return { backend: config.defaultBackend, timeout: 30000 }
+}
+```
+
+### Remote Jobs
+
+```javascript
+function processDataBatch({ items, transform }) {
+  let results = []
+  for (let item of items) {
+    let processed = applyTransform(item, transform)
+    results.push(processed)
+  }
+  return { processed: results.length, results }
+}
+```
+
+---
+
+## Custom Atoms
+
+Extend the runtime with your own operations:
+
+```typescript
+import { defineAtom, AgentVM, s } from 'tjs-lang'
+
+const myScraper = defineAtom(
+  'scrape', // OpCode
+  s.object({ url: s.string }), // Input Schema
+  s.string, // Output Schema
+  async ({ url }, ctx) => {
+    const res = await ctx.capabilities.fetch(url)
+    return await res.text()
+  },
+  { cost: 5 } // Fuel cost
+)
+
+const myVM = new AgentVM({ scrape: myScraper })
+```
+
+Your atom receives its inputs as **values**: if a program calls `scrape({ url: target })`, `url`
+is the value of `target`. (Before 0.14.0 it was the string `"target"` unless the atom called
+`resolveValue` itself; the VM now resolves inputs for any atom defined with `defineAtom`. An
+atom that already resolves its own inputs keeps working — `resolveValue` is the identity on an
+input the VM resolved.) Dynamic `cost` and `timeoutMs` functions receive the same resolved
+input. An atom that takes **steps as input** (a control atom such as a custom loop) must pass
+`{ resolveInputs: false }`, or its steps arrive evaluated as values; steps an atom builds and
+runs itself — on the context it received, or a `createChildScope(ctx)` scope, which you must
+pass to `releaseScope` in a `finally` (an unreleased scope stays a heap root for the rest of the
+run) — run normally
+either way (running them on a copy of the context is refused by name).
+
+`ctx.capabilities` is the host's capabilities object exactly as it was passed to `vm.run`: the VM
+never copies or writes to it (0.14.0). To use the key-value store, call `storeOf(ctx)`, which
+returns the host's `store` or else the run's own in-memory default. `ctx.capabilities.store` is
+undefined when the host provided none.
+
+**What a capability receives is a copy (0.14.0).** An IO atom (`effects: 'io'`, the default)
+whose inputs the VM resolves gets a deep copy of them, paid for in fuel and checked against its
+declared input schema, before its body runs. So:
+
+- **Declare an input schema.** `defineAtom` refuses an IO atom without one; write
+  `s.object({})` for an atom that takes nothing.
+- **No `pattern` in it.** `defineAtom` refuses an IO atom whose input schema contains `pattern`
+  or `patternProperties`, because validation would run that regex on the host's engine over
+  strings the guest chose. Check the pattern in the atom's body.
+- **An atom defined with `{ resolveInputs: false }` makes its own copies**: pass every guest value
+  it hands a capability through `egressValue(ctx, op, value)` (exported), which charges for the
+  copy and caps it at `membraneMaxBytes`.
+
+Atoms must:
+
+- Be non-blocking (no synchronous CPU-heavy work)
+- Respect `ctx.signal` for cancellation
+- Access I/O only via `ctx.capabilities`
+
+---
+
+## Builder API
+
+For programmatic AST construction:
+
+```typescript
+import { Agent, s } from 'tjs-lang'
+
+const agent = Agent.take(s.object({ price: s.number, taxRate: s.number }))
+  .varSet({ key: 'total', value: Agent.expr('price * (1 + taxRate)') })
+  .return(s.object({ total: s.number }))
+
+const ast = agent.toJSON() // JSON-serializable AST
+```
+
+The builder is lower-level but gives full control over AST construction.
+
+---
+
+## Limitations
+
+### What AJS Doesn't Do
+
+- **No closures** - functions can't capture outer scope
+- **No classes** - use plain objects
+- **No async/await syntax** - the VM handles async internally
+- **No modules** - logic is self-contained
+- **No direct DOM access** - everything goes through capabilities
+- **No computed member access with variables** - `items[i]` is rejected; use `items[0]` (literal) or `for...of` loops
+
+### What AJS Intentionally Avoids
+
+- Complex language features that enable escape from the sandbox
+- Syntax that LLMs frequently hallucinate incorrectly
+- Patterns that make code hard to audit
+
+---
+
+## Performance
+
+- **100 agents in ~6ms** (torture test benchmark)
+- **~0.01 fuel per expression**
+- **Proportional memory charging** prevents runaway allocations
+
+AJS is interpreted (JSON AST), so it's slower than native JS. But:
+
+- Execution is predictable and bounded
+- I/O dominates most agent workloads
+- Tracing is free (built into the VM)
+
+For compute-heavy operations in your platform code, use TJS with `wasm {}` blocks.
+
+---
+
+## Learn More
+
+- [TJS Documentation](DOCS-TJS.md) — The host language
+- [Builder's Manifesto](MANIFESTO-BUILDER.md) — Why AJS is fun
+- [Enterprise Guide](MANIFESTO-ENTERPRISE.md) — Why AJS is safe
+- [Technical Context](CONTEXT.md) — Architecture deep dive

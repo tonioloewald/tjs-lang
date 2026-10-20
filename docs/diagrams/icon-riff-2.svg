@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Riff 2: "The Prism Owl" — the owl's screen/face has a prism effect
+     suggesting one input (TS) becomes multiple outputs. The three colored
+     beams represent the three pillars. Background shifts from the animation's
+     day palette to something more energetic. -->
+<svg viewBox="0 0 48 48" width="48" height="48" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .bg { fill: #181340; }
+    .screen { fill: #ffffff; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .outline { fill: none; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .wing { fill: #6e6e8e; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .body { fill: #9e9ebe; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .feet { fill: none; stroke: #fbed21; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .beam-red { stroke: #ff1c24; stroke-width: 1.5; fill: none; stroke-linecap: round; }
+    .beam-green { stroke: #006736; stroke-width: 1.5; fill: none; stroke-linecap: round; }
+    .beam-blue { stroke: #3da8f4; stroke-width: 1.5; fill: none; stroke-linecap: round; }
+    .beam-in { stroke: #ffffff; stroke-width: 1.5; fill: none; stroke-linecap: round; opacity: 0.7; }
+    .star { fill: #fbed21; }
+  </style>
+
+  <!-- Background: dark navy (night/moon from animation) -->
+  <rect width="48" height="48" rx="8" class="bg"/>
+
+  <!-- Stars -->
+  <circle cx="5" cy="6" r="1" class="star"/>
+  <circle cx="42" cy="4" r="0.8" class="star"/>
+  <circle cx="38" cy="10" r="0.6" class="star"/>
+  <circle cx="3" cy="14" r="0.7" class="star"/>
+  <circle cx="44" cy="18" r="0.5" class="star"/>
+
+  <!-- Left wing -->
+  <path d="M7.5,16 C4.5,16,2,18.5,2,21.5 C2,24,4,26,6.5,26 L6.6,26 C7.4,26,8,26.6,8,27.4 C8,29.9,10.1,32,12.6,32 L16,32 C18.6,32,20.7,29.9,20.7,27.3 L20.7,21.4 C20.7,18.4,18.3,16,15.3,16 Z" class="wing"/>
+
+  <!-- Right wing -->
+  <path d="M40.5,16 C43.5,16,46,18.5,46,21.5 C46,24,44,26,41.5,26 L41.4,26 C40.6,26,40,26.6,40,27.4 C40,29.9,37.9,32,35.4,32 L32,32 C29.4,32,27.3,29.9,27.3,27.3 L27.3,21.4 C27.3,18.4,29.7,16,32.7,16 Z" class="wing"/>
+
+  <!-- Body -->
+  <path d="M17,29 L33,29 C33,34.5,28.5,39,23,39 C19.7,39,17,36.3,17,33 Z" class="body"/>
+
+  <!-- Feet (golden like sun) -->
+  <path d="M20,43 L18,41 L16,43" class="feet"/>
+  <path d="M32,43 L30,41 L28,43" class="feet"/>
+
+  <!-- Head/Screen -->
+  <rect x="6" y="6" width="30" height="23" rx="4" class="screen"/>
+
+  <!-- Input beam (white, entering left of screen) -->
+  <line x1="2" y1="17" x2="14" y2="17" class="beam-in"/>
+
+  <!-- Prism triangle on the screen face -->
+  <polygon points="14,11 14,23 25,17" fill="none" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- Three output beams exiting right -->
+  <line x1="25" y1="14" x2="35" y2="10" class="beam-red"/>
+  <line x1="25" y1="17" x2="36" y2="17" class="beam-green"/>
+  <line x1="25" y1="20" x2="35" y2="24" class="beam-blue"/>
+
+  <!-- Tiny labels at beam ends -->
+  <text x="36" y="11" fill="#ff1c24" font-size="3.5" font-family="system-ui, sans-serif" font-weight="700">TS</text>
+  <text x="37" y="18" fill="#006736" font-size="3.5" font-family="system-ui, sans-serif" font-weight="700">TJS</text>
+  <text x="36" y="26" fill="#3da8f4" font-size="3.5" font-family="system-ui, sans-serif" font-weight="700">AJS</text>
+</svg>
