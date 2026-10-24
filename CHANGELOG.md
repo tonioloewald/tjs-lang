@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `.d.ts` declares a destructured parameter as one parameter** (#3444).
+  `export function area({ w: 0, h: 0 })` was declared `area(w: number, h: number)`, so a
+  TypeScript consumer was told to call `area(2, 3)`, which the runtime refuses, and the
+  correct `area({ w: 2, h: 3 })` did not type-check. It is now
+  `area({ w, h }: { w: number; h: number })`: a member with a default is optional, a
+  default for the whole argument makes the parameter optional, and the TypeScript spelling
+  keeps its declared type (`({ x }: R)`). A destructured parameter beside others is still
+  flattened in the metadata, and so in the `.d.ts`; see the next release.
+
 ## [0.14.0-rc.8] — 2026-10-20
 
 On the `rc` dist-tag. A type error now carries what you passed (`err.received`), destructured

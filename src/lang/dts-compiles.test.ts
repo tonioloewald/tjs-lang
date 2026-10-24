@@ -328,3 +328,42 @@ describe('braces inside method bodies', () => {
     expect(dtsFor(src)).not.toContain('Ghost')
   })
 })
+
+/**
+ * A destructured parameter is declared as ONE parameter (#3444). It came out as
+ * `area(w: number, h: number)`, so a TypeScript consumer was told to call `area(2, 3)`, which
+ * the runtime refuses, and was refused the correct `area({ w: 2, h: 3 })`. Each row compiles
+ * the declaration WITH a call, both ways.
+ */
+describe('destructured parameters are one parameter in the .d.ts', () => {
+  const calls = (src: string, call: string) =>
+    diagnose(`${dtsFor(src)}\n${call}\n`)
+
+  it('native: ({ w: 0, h = 2 })', () => {
+    const src = `export function area({ w: 0, h = 2 }): 0 { return w * h }`
+    expect(calls(src, 'area({ w: 2, h: 3 })')).toEqual([])
+    expect(calls(src, 'area({ w: 2 })')).toEqual([]) // h has a default
+    expect(calls(src, 'area(2, 3)')).not.toEqual([])
+  })
+
+  it('TS spelling with an inline shape: ({ w, h }: { w: 0, h: 0 })', () => {
+    const src = `export function area({ w, h }: { w: 0, h: 0 }): 0 { return w * h }`
+    expect(calls(src, 'area({ w: 2, h: 3 })')).toEqual([])
+    expect(calls(src, 'area(2, 3)')).not.toEqual([])
+  })
+
+  it('TS spelling with a named Type: ({ x }: R)', () => {
+    const src = `export Type R { example: { x: 0 } }\nexport function f({ x }: R): 0 { return x }`
+    expect(calls(src, 'f({ x: 1 })')).toEqual([])
+    // `f(1)`, not `f({ x: 'a' })`: an object-example Type's alias is still
+    // `Record<string, any>` (#3482), so only the ONE-parameter shape is
+    // pinned here.
+    expect(calls(src, 'f(1)')).not.toEqual([])
+  })
+
+  it('a default for the whole argument makes it optional', () => {
+    const src = `export const g = ({ x = 'a' } = {}) => x`
+    expect(calls(src, 'g()')).toEqual([])
+    expect(calls(src, "g({ x: 'b' })")).toEqual([])
+  })
+})

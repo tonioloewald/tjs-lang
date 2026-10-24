@@ -310,6 +310,8 @@ export interface TJSTypeInfo {
   destructuredRequired?: Set<string>
   /** The declared type of a TS-style destructured parameter, `({ w, h }: Shape)` (#3434) */
   destructuredArg?: TypeDescriptor
+  /** The destructured argument has a default (`({ a } = {})`), so a caller may omit it */
+  destructuredOptional?: boolean
 }
 
 /**
@@ -745,6 +747,10 @@ function extractFunctionTypeInfo(
     destructuredShape,
     destructuredRequired,
     destructuredArg,
+    destructuredOptional:
+      isDestructuredParam && func.params[0]?.type === 'AssignmentPattern'
+        ? true
+        : undefined,
   }
 
   return { types, warnings }

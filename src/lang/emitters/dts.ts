@@ -161,6 +161,28 @@ function typeDescriptorToDeepPartialTS(td: TypeDescriptor): string {
 }
 
 /**
+ * A destructured parameter as TypeScript declares one: a binding pattern and the type of the
+ * object it destructures, `{ w, h }: { w: number; h?: number }`, or the declared type of the
+ * TS spelling, `{ x }: R`. A member with a default is optional; a default for the whole
+ * argument makes the parameter optional.
+ */
+function destructuredParamToTS(info: any): string {
+  const members = Object.entries(info.params ?? {}) as Array<[string, any]>
+  const pattern = `{ ${members.map(([k]) => k).join(', ')} }`
+  const type = info.destructuredArg
+    ? typeDescriptorToTS(info.destructuredArg)
+    : `{ ${members
+        .map(
+          ([k, p]) =>
+            `${k}${
+              !p.required && p.default !== undefined ? '?' : ''
+            }: ${typeDescriptorToTS(p.type)}`
+        )
+        .join('; ')} }`
+  return `${pattern}${info.destructuredOptional ? '?' : ''}: ${type}`
+}
+
+/**
  * Generate a function declaration line for .d.ts
  */
 function functionDeclToTS(
@@ -179,6 +201,22 @@ function functionDeclToTS(
   // and (b) no required param follows it (TS forbids an optional param before a
   // required one; ts1016). Deriving optionality from `!required` leaked wild-west
   // omittability into the dts and produced INVALID TS (#11).
+  // A destructured parameter is ONE parameter (#3444). Its members are listed as params in
+  // the metadata, but a caller passes one object, so it must not be declared as
+  // `(w: number, h: number)`: that told TypeScript consumers to call `area(2, 3)`, which the
+  // runtime refuses, and refused the correct `area({ w: 2, h: 3 })`.
+  if ((info as any).isDestructuredParam) {
+    const returnType = info.returns ? typeDescriptorToTS(info.returns) : 'any'
+    const prefix = exported
+      ? isDefault
+        ? 'export default function'
+        : 'export declare function'
+      : 'declare function'
+    const declared = name === 'default' && isDefault ? '' : ` ${name}`
+    return `${prefix}${declared}(${destructuredParamToTS(
+      info
+    )}): ${returnType};`
+  }
   const entries = Object.entries(info.params)
   const optionalFlags: boolean[] = new Array(entries.length)
   let requiredFollows = false
