@@ -171,15 +171,20 @@ function destructuredParamToTS(info: any): string {
   const pattern = `{ ${members.map(([k]) => k).join(', ')} }`
   const type = info.destructuredArg
     ? typeDescriptorToTS(info.destructuredArg)
-    : `{ ${members
-        .map(
-          ([k, p]) =>
-            `${k}${
-              !p.required && p.default !== undefined ? '?' : ''
-            }: ${typeDescriptorToTS(p.type)}`
-        )
-        .join('; ')} }`
+    : membersToTS(members)
   return `${pattern}${info.destructuredOptional ? '?' : ''}: ${type}`
+}
+
+/** `{ w: number; h?: number }` from member descriptors; a defaulted member is optional. */
+function membersToTS(members: Array<[string, any]>): string {
+  return `{ ${members
+    .map(
+      ([k, p]) =>
+        `${k}${
+          !p.required && p.default !== undefined ? '?' : ''
+        }: ${typeDescriptorToTS(p.type)}`
+    )
+    .join('; ')} }`
 }
 
 /**
@@ -237,7 +242,14 @@ function functionDeclToTS(
         dictDefaults &&
         optionalFlags[i] &&
         isDictDefaultParam(p.type, pd.default)
-      const tsType = isDict
+      // A destructured parameter beside others is ONE parameter, named by its binding
+      // pattern (`{ w, h }`, valid in a declaration) (#3443/#3444).
+      const at = (info as any).destructuredAt?.[pName]
+      const tsType = at
+        ? at.declared
+          ? typeDescriptorToTS(p.type)
+          : membersToTS(Object.entries(at.members))
+        : isDict
         ? typeDescriptorToDeepPartialTS(p.type)
         : typeDescriptorToTS(p.type)
       return optionalFlags[i] ? `${pName}?: ${tsType}` : `${pName}: ${tsType}`

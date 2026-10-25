@@ -312,6 +312,22 @@ export interface TJSTypeInfo {
   destructuredArg?: TypeDescriptor
   /** The destructured argument has a default (`({ a } = {})`), so a caller may omit it */
   destructuredOptional?: boolean
+  /**
+   * Destructured parameters BESIDE others, keyed by their entry in `params` (#3443/#3444).
+   * Each is ONE parameter there, typed as the object it destructures; this records where it
+   * sits, the name its argument gets, and the members it binds, for validation and `.d.ts`.
+   */
+  destructuredAt?: Record<string, DestructuredPosition>
+}
+
+/** A destructured parameter beside others: see `TJSTypeInfo.destructuredAt`. */
+export interface DestructuredPosition {
+  index: number
+  binding: string
+  /** Member descriptors, as for a lone destructured parameter */
+  members: Record<string, ParameterDescriptor>
+  /** True when the type is the TS spelling's declared one, `({ w }: Shape)` */
+  declared: boolean
 }
 
 /**
@@ -416,6 +432,7 @@ function extractFunctionTypeInfo(
   // Build parameter type info
   const params: Record<string, ParameterDescriptor> = {}
   let isDestructuredParam = false
+  const destructuredAt: Record<string, DestructuredPosition> = {}
   let destructuredArgKey: string | undefined
   let destructuredShape: Record<string, TypeDescriptor> | undefined
   let destructuredRequired: Set<string> | undefined
@@ -456,23 +473,18 @@ function extractFunctionTypeInfo(
     // nested one and a union resolve exactly as for an ordinary parameter), and is taken
     // back out after it.
     const shape = preprocessedSource
-      ? destructuredShapeMarker(func, preprocessedSource)
+      ? destructuredShapeMarker(func.params[0], preprocessedSource)
       : undefined
     if (shape) {
-      try {
-        const expr: any = parseExpressionAt(
-          `(${DESTRUCTURED_ARG} = ${shape.text}) => 0`,
-          0,
-          { ecmaVersion: 'latest' }
-        )
-        const info = parseParameter(expr.params[0], new Set([DESTRUCTURED_ARG]))
+      const declared = annotationType(shape.text)
+      if (declared) {
         destructuredArgKey = shape.label
         params[destructuredArgKey] = {
-          ...info,
           name: shape.label,
+          type: declared,
           required: true,
         }
-      } catch {
+      } else {
         warnings.push(
           `The type of the destructured parameter ${shape.label} could not be read ('${shape.text}'); it is unchecked.`
         )
@@ -514,21 +526,49 @@ function extractFunctionTypeInfo(
           default: isRequired ? null : paramInfo.example ?? paramInfo.default,
           description: tdoc.params[param.left.name],
         }
-      } else if (param.type === 'ObjectPattern') {
-        // Handle destructured object parameters (non-single case)
-        const paramInfo = parseParameter(param, localRequired)
-        if (
-          paramInfo.type.kind === 'object' &&
-          paramInfo.type.destructuredParams
-        ) {
-          for (const [key, descriptor] of Object.entries(
-            paramInfo.type.destructuredParams
-          )) {
-            params[key] = {
-              ...descriptor,
-              description: tdoc.params[key],
-            }
-          }
+      } else if (
+        param.type === 'ObjectPattern' ||
+        (param.type === 'AssignmentPattern' &&
+          param.left.type === 'ObjectPattern')
+      ) {
+        // A destructured parameter BESIDE others is ONE parameter (#3443/#3444). Its members
+        // used to be flattened in among the positional params (`area3({ w, h }, k)` listed
+        // `w, h, k`), so everything reading the metadata by POSITION misread it: `wrap()`
+        // checked the object against `w`, and the `.d.ts` declared three parameters.
+        const index = func.params.indexOf(param)
+        const pattern: any = param.type === 'ObjectPattern' ? param : param.left
+        const paramInfo = parseParameter(pattern, localRequired)
+        const members: Record<string, ParameterDescriptor> =
+          (paramInfo.type as any).destructuredParams ?? {}
+        const shape: Record<string, TypeDescriptor> = {}
+        for (const [k, d] of Object.entries(members))
+          shape[k] = d.required
+            ? d.type
+            : ({
+                kind: 'union',
+                members: [d.type, { kind: 'undefined' }],
+              } as TypeDescriptor)
+        const label = patternLabel(pattern)
+        const key = !params[label] ? label : `__${index}`
+        const mark = preprocessedSource
+          ? destructuredShapeMarker(param, preprocessedSource)
+          : undefined
+        const declared = mark ? annotationType(mark.text) : undefined
+        if (mark && !declared)
+          warnings.push(
+            `The type of the destructured parameter ${key} could not be read ('${mark.text}'); it is unchecked.`
+          )
+        params[key] = {
+          name: key,
+          type: declared ?? ({ kind: 'object', shape } as TypeDescriptor),
+          required: param.type !== 'AssignmentPattern',
+          ...(param.type === 'AssignmentPattern' ? { default: null } : {}),
+        }
+        destructuredAt[key] = {
+          index,
+          binding: `${DESTRUCTURED_ARG}${index}`,
+          members,
+          declared: !!declared,
         }
       } else if (
         param.type === 'RestElement' &&
@@ -751,6 +791,9 @@ function extractFunctionTypeInfo(
       isDestructuredParam && func.params[0]?.type === 'AssignmentPattern'
         ? true
         : undefined,
+    destructuredAt: Object.keys(destructuredAt).length
+      ? destructuredAt
+      : undefined,
   }
 
   return { types, warnings }
@@ -778,7 +821,16 @@ function generateInlineValidationCode(
    * A destructured parameter's ARGUMENT, named (#3432): its own checks (`prologue`) run first
    * and every member check carries it as `received`. See `DestructuredRelocation`.
    */
-  destructured?: { arg: string; prologue: string[] }
+  destructured?: { arg: string; prologue: string[] },
+  /** Destructured parameters beside others, by their `params` key (#3443) */
+  positional?: Map<
+    string,
+    {
+      relocation: DestructuredRelocation
+      members: Record<string, ParameterDescriptor>
+      declared: boolean
+    }
+  >
 ): { preamble: string; suffix: string } | null {
   const lines: string[] = []
   // Include source in path if available: "src/file.ts:42:funcName.param"
@@ -800,34 +852,16 @@ function generateInlineValidationCode(
 
     // The argument is checked first, then destructured (the prologue ends in the `var`).
     if (destructured) lines.push(...destructured.prologue)
-    const root = destructured ? `, undefined, ${destructured.arg}` : ''
 
     // 2. Type checks with proper error emission
-    for (const [fieldName, fieldType] of Object.entries(shape)) {
-      const isRequired = requiredFields.has(fieldName)
-      const path = `${pathPrefix}${funcName}.${fieldName}`
-      // Checked through `__tv`, so a tosijs proxy is checked as the value it wraps (see the
-      // positional case below); the body still receives the field itself.
-      const cv = checkAlias(fieldName)
-      const typeCheck = generateTypeCheckExpr(cv, fieldType)
-
-      if (typeCheck) {
-        const expectedType = expectedLabel(fieldType)
-        lines.push(`const ${cv} = ${rt('__tv')}(${fieldName});`)
-        if (isRequired) {
-          lines.push(
-            `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${root});`
-          )
-          lines.push(
-            ...generateMemberCheckLines(cv, path, fieldType, destructured?.arg)
-          )
-        } else {
-          lines.push(
-            `if (${cv} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${root});`
-          )
-        }
-      }
-    }
+    lines.push(
+      ...destructuredMemberLines(
+        shape,
+        requiredFields,
+        `${pathPrefix}${funcName}`,
+        destructured?.arg
+      )
+    )
 
     if (lines.length === 0) return null
 
@@ -863,6 +897,33 @@ function generateInlineValidationCode(
   const dictUid = { n: 0 }
   for (const [paramName, param] of params) {
     const path = `${pathPrefix}${funcName}.${paramName}`
+
+    // A destructured parameter beside others: named, checked as one argument, then
+    // destructured (#3443). See `DestructuredRelocation`.
+    const at = positional?.get(paramName)
+    if (at) {
+      const base = `${pathPrefix}${funcName}`
+      lines.push(
+        ...at.relocation.prologue(
+          base,
+          destructuredArgChecks(
+            at.declared ? param.type : undefined,
+            base,
+            at.relocation.arg
+          )
+        )
+      )
+      const members: Record<string, TypeDescriptor> = {}
+      const required = new Set<string>()
+      for (const [k, d] of Object.entries(at.members)) {
+        members[k] = d.type
+        if (d.required) required.add(k)
+      }
+      lines.push(
+        ...destructuredMemberLines(members, required, base, at.relocation.arg)
+      )
+      continue
+    }
 
     // For array params: when the ELEMENT check fails and an element is already a
     // MonadicError, that error is what propagates ("errors propagate, not accumulate").
@@ -1312,6 +1373,7 @@ export function transpileToJS(
   // e.g. `x = false | undefined` -> `x = false` (the `| undefined` is type-only)
   const deletions: { start: number; end: number }[] = []
   const relocations: DestructuredRelocation[] = []
+  let relocationSeq = 0
 
   // Process each function
   for (const func of functions) {
@@ -1406,9 +1468,11 @@ export function transpileToJS(
     // The shape marker is not code: it leaves the output whether or not checks are emitted.
     // (Inside a defaulted parameter it falls within the span a relocation replaces, and
     // `relocateDestructured` drops it there.)
-    const shapeMark = destructuredShapeMarker(func, preprocessed.source)
-    if (shapeMark)
-      deletions.push({ start: shapeMark.start, end: shapeMark.end })
+    for (const param of func.params ?? []) {
+      const shapeMark = destructuredShapeMarker(param, preprocessed.source)
+      if (shapeMark)
+        deletions.push({ start: shapeMark.start, end: shapeMark.end })
+    }
     // An unsafe (`!`) function asks for NO checks, so "this parameter could not be resolved
     // and is unchecked" tells its author nothing: every WASM example declares
     // `(! arr: Float32Array, …)` and printed it. A checked function keeps the warning.
@@ -1698,8 +1762,33 @@ export function transpileToJS(
       // (#3432). See `DestructuredRelocation`.
       const relocation =
         types.isDestructuredParam && types.destructuredShape
-          ? destructuredRelocation(func, relocations.length)
+          ? destructuredRelocation(
+              func.params.length === 1 ? func.params[0] : undefined,
+              DESTRUCTURED_ARG,
+              relocationSeq++
+            )
           : undefined
+      const positional = new Map<
+        string,
+        {
+          relocation: DestructuredRelocation
+          members: Record<string, ParameterDescriptor>
+          declared: boolean
+        }
+      >()
+      for (const [key, at] of Object.entries(types.destructuredAt ?? {})) {
+        const r = destructuredRelocation(
+          func.params[at.index],
+          at.binding,
+          relocationSeq++
+        )
+        if (r)
+          positional.set(key, {
+            relocation: r,
+            members: at.members,
+            declared: at.declared,
+          })
+      }
       const validation = generateInlineValidationCode(
         displayName,
         types,
@@ -1714,9 +1803,12 @@ export function transpileToJS(
               `${sourceStr}:${displayName}`
             )
           ),
-        }
+        },
+        positional
       )
       if (validation && relocation) relocations.push(relocation)
+      if (validation)
+        for (const p of positional.values()) relocations.push(p.relocation)
       if (validation && func.body && func.body.start !== undefined) {
         if ((func as any).__exprBody) {
           // A concise arrow body has no braces to insert into, so grow one:
@@ -3529,6 +3621,8 @@ const DESTRUCTURED_ARG = '__tjs_arg'
  * the `var`, where the parameter would have lost to it. Both are pathological shapes.
  */
 interface DestructuredRelocation {
+  /** The name the argument gets */
+  arg: string
   param: [number, number]
   pattern: [number, number]
   dflt?: [number, number]
@@ -3538,19 +3632,19 @@ interface DestructuredRelocation {
 }
 
 function destructuredRelocation(
-  func: any,
+  param: any,
+  A: string,
   id: number
 ): DestructuredRelocation | undefined {
-  if (!func.params || func.params.length !== 1) return undefined
-  const param = func.params[0]
+  if (!param) return undefined
   const pattern = param.type === 'AssignmentPattern' ? param.left : param
   if (pattern?.type !== 'ObjectPattern') return undefined
   const dflt = param.type === 'AssignmentPattern' ? param.right : undefined
-  const A = DESTRUCTURED_ARG
   const patternMark = `\u0000tjsPattern${id}\u0000`
   const defaultMark = `\u0000tjsDefault${id}\u0000`
   const cv = checkAlias(A)
   return {
+    arg: A,
     param: [param.start, param.end],
     pattern: [pattern.start, pattern.end],
     dflt: dflt ? [dflt.start, dflt.end] : undefined,
@@ -3614,7 +3708,7 @@ function relocateDestructured(
     rest.push({
       start: r.param[0],
       end: r.param[1],
-      text: r.dflt ? `${DESTRUCTURED_ARG} = undefined` : DESTRUCTURED_ARG,
+      text: r.dflt ? `${r.arg} = undefined` : r.arg,
     })
   }
   // The markers sit inside inserted preamble text; replace them in those edits.
@@ -3632,11 +3726,10 @@ function relocateDestructured(
  * pattern as a label.
  */
 function destructuredShapeMarker(
-  func: any,
+  param: any,
   source: string
 ): { text: string; start: number; end: number; label: string } | undefined {
-  if (!func.params || func.params.length !== 1) return undefined
-  const param = func.params[0]
+  if (!param) return undefined
   const pattern = param.type === 'AssignmentPattern' ? param.left : param
   if (pattern?.type !== 'ObjectPattern') return undefined
   const after = source.slice(pattern.end)
@@ -3654,10 +3747,10 @@ function destructuredShapeMarker(
 /** The checks of `({ w, h }: Shape)`'s argument against `Shape`, as for any parameter. */
 function destructuredArgChecks(
   type: TypeDescriptor | undefined,
-  path: string
+  path: string,
+  A: string = DESTRUCTURED_ARG
 ): string[] {
   if (!type) return []
-  const A = DESTRUCTURED_ARG
   const cv = checkAlias(A)
   const check = generateTypeCheckExpr(cv, type)
   return [
@@ -3670,6 +3763,76 @@ function destructuredArgChecks(
       : []),
     ...generateMemberCheckLines(cv, path, type, A),
   ]
+}
+
+/**
+ * A destructured parameter's NAME in the metadata: its binding pattern with the names only,
+ * `{ w, h }` (a rename by its key, a rest as `...rest`). Not the source text, whose members
+ * carry examples (`{ w = 0 }` after preprocessing), which a `.d.ts` may not contain.
+ */
+function patternLabel(pattern: any): string {
+  const names = (pattern.properties ?? []).map((p: any) =>
+    p.type === 'RestElement'
+      ? `...${p.argument?.name ?? 'rest'}`
+      : p.key?.type === 'Identifier'
+      ? p.key.name
+      : JSON.stringify(String(p.key?.value))
+  )
+  return `{ ${names.join(', ')} }`
+}
+
+/**
+ * The type a TS-style destructured annotation names (`{ w: 0 }`, `R`, `R | null`), read the
+ * way an ordinary parameter's example is: `parseParameter` on `(__tjs_arg = <text>) => 0`.
+ * `undefined` when the text does not parse.
+ */
+function annotationType(text: string): TypeDescriptor | undefined {
+  try {
+    const expr: any = parseExpressionAt(
+      `(${DESTRUCTURED_ARG} = ${text}) => 0`,
+      0,
+      { ecmaVersion: 'latest' }
+    )
+    return parseParameter(expr.params[0], new Set([DESTRUCTURED_ARG])).type
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The member checks of a destructured parameter, run after its argument was checked and
+ * destructured, so the members are in scope. A failure carries the ARGUMENT (`arg`) as
+ * `received`. Shared by a lone destructured parameter and one beside others.
+ */
+function destructuredMemberLines(
+  members: Record<string, TypeDescriptor>,
+  required: Set<string>,
+  pathBase: string,
+  arg?: string
+): string[] {
+  const lines: string[] = []
+  const root = arg ? `, undefined, ${arg}` : ''
+  for (const [fieldName, fieldType] of Object.entries(members)) {
+    const path = `${pathBase}.${fieldName}`
+    // Checked through `__tv`, so a tosijs proxy is checked as the value it wraps; the body
+    // still receives the field itself.
+    const cv = checkAlias(fieldName)
+    const typeCheck = generateTypeCheckExpr(cv, fieldType)
+    if (!typeCheck) continue
+    const expectedType = expectedLabel(fieldType)
+    lines.push(`const ${cv} = ${rt('__tv')}(${fieldName});`)
+    if (required.has(fieldName)) {
+      lines.push(
+        `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${root});`,
+        ...generateMemberCheckLines(cv, path, fieldType, arg)
+      )
+    } else {
+      lines.push(
+        `if (${cv} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${root});`
+      )
+    }
+  }
+  return lines
 }
 
 /** The name a parameter's checks read (see `__tv`): `p` → `__cv_p`. */

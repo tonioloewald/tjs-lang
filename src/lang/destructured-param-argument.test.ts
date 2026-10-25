@@ -202,8 +202,8 @@ describe('a TS-style destructured annotation is checked', () => {
 
   it('the marker never reaches the output, checked or not', () => {
     for (const src of [
-      // Not consumed by the emitter (an array pattern; a destructured parameter that is not
-      // the only one): the annotation is erased as before, never shipped as a marker.
+      // An array pattern's annotation is erased, unchecked (#3497); a destructured object
+      // parameter beside others is now checked. Neither ships the marker.
       `function f([a, b]: [0, 0]) { return a + b }`,
       `function g(x: 0, { b }: { b: 0 }) { return b }`,
       `const h = ({ a }: { a: 0 }, k = 1) => a + k`,
@@ -341,5 +341,51 @@ describe('AJS: a typed destructured parameter', () => {
     expect(typed).toBe(
       refusal('function agent({ a } = { a: 1 }) { return { a } }')
     )
+  })
+})
+
+/**
+ * A destructured parameter BESIDE others is one parameter too (#3443). Its members were
+ * flattened in among the positional parameters (`area3({ w, h }, k)` listed `w, h, k`), so
+ * it was never checked as an object: `null` THREW, an error passed in was not passed through,
+ * and the TypeScript spelling's annotation was erased unchecked.
+ */
+describe('a destructured parameter beside others', () => {
+  const load = loaders.standalone
+  const SRC = `function area3({ w: 0, h = 2 }, k: 0) { return w * h + k }`
+
+  it('is one entry in the metadata, named by its binding pattern', () => {
+    const r = tjs(SRC, { runTests: false })
+    expect(Object.keys(r.types.area3.params)).toEqual(['{ w, h }', 'k'])
+  })
+
+  it('is checked as its argument, then destructured', () => {
+    const area3 = load(SRC, 'area3')
+    expect(area3({ w: 2, h: 3 }, 1)).toBe(7)
+    expect(area3({ w: 2 }, 1)).toBe(5)
+    const bad = { w: 'x' }
+    expect(area3(bad, 1).received).toBe(bad)
+    expect(area3(null, 1).name).toBe('MonadicError')
+    expect(area3({ w: 2 }, 'k').name).toBe('MonadicError')
+  })
+
+  it('passes a monadic error through', () => {
+    const area3 = load(SRC, 'area3')
+    const dbl = load(`function dbl(n: 0) { return n * 2 }`, 'dbl')
+    const first = dbl('ten')
+    expect(area3(first, 1)).toBe(first)
+  })
+
+  it('the TypeScript spelling is checked in any position', () => {
+    const g = load(`function g(x: 0, { b }: { b: 0 }) { return x + b }`, 'g')
+    expect(g(1, { b: 2 })).toBe(3)
+    expect(g(1, { b: 'z' }).name).toBe('MonadicError')
+  })
+
+  it('two destructured parameters, and a default for one', () => {
+    const f = load(`function f({ a: 0 }, { b = 1 } = {}) { return a + b }`, 'f')
+    expect(f({ a: 2 })).toBe(3)
+    expect(f({ a: 2 }, { b: 5 })).toBe(7)
+    expect(f({ a: 2 }, null).name).toBe('MonadicError')
   })
 })

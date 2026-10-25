@@ -367,3 +367,21 @@ describe('destructured parameters are one parameter in the .d.ts', () => {
     expect(calls(src, "g({ x: 'b' })")).toEqual([])
   })
 })
+
+describe('a destructured parameter beside others is one parameter in the .d.ts', () => {
+  const calls = (src: string, call: string) =>
+    diagnose(`${dtsFor(src)}\n${call}\n`)
+
+  it('({ w: 0, h = 2 }, k: 0)', () => {
+    const src = `export function area3({ w: 0, h = 2 }, k: 0): 0 { return w }`
+    expect(calls(src, 'area3({ w: 2 }, 1)')).toEqual([])
+    expect(calls(src, 'area3(2, 3, 1)')).not.toEqual([])
+  })
+
+  it('the TypeScript spelling, second, and a defaulted one', () => {
+    const src = `export function g(x: 0, { b }: { b: 0 }): 0 { return b }\nexport function o(k: 0, { a = 1 } = {}): 0 { return a }`
+    expect(calls(src, 'g(1, { b: 2 })')).toEqual([])
+    expect(calls(src, "g(1, { b: 'z' })")).not.toEqual([])
+    expect(calls(src, 'o(1)')).toEqual([])
+  })
+})

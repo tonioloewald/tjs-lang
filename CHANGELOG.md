@@ -17,8 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correct `area({ w: 2, h: 3 })` did not type-check. It is now
   `area({ w, h }: { w: number; h: number })`: a member with a default is optional, a
   default for the whole argument makes the parameter optional, and the TypeScript spelling
-  keeps its declared type (`({ x }: R)`). A destructured parameter beside others is still
-  flattened in the metadata, and so in the `.d.ts`; see the next release.
+  keeps its declared type (`({ x }: R)`).
+- **A destructured parameter beside others is one parameter, checked as one** (#3443).
+  **BREAKING (toward correctness), metadata:** `function area3({ w: 0, h = 2 }, k: 0)` listed
+  its parameters as `w, h, k`, flattening the pattern's members in among the positional
+  ones, so everything reading `__tjs.params` by position misread it (the `.d.ts` declared
+  three parameters; callback-shape checks compared the wrong positions). It is now
+  `{ w, h }, k`: one entry, keyed by its binding pattern and typed as the object it
+  destructures. A lone destructured parameter's metadata is unchanged (its members, with
+  `isDestructuredParam`). The parameter itself now behaves like a lone one: named, checked
+  as an object (a monadic error passes through; `null` is a returned error, no longer a
+  throw; a failing member carries the object as `received`), then destructured, and the
+  TypeScript spelling `(x, { b }: { b: 0 })` is checked in any position instead of erased.
+  An ARRAY pattern's annotation is still erased unchecked (#3497).
 
 ## [0.14.0-rc.8] — 2026-10-20
 
