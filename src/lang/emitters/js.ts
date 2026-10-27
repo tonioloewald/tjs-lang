@@ -1008,11 +1008,17 @@ function generateInlineValidationCode(
     if (typeCheck) {
       // A declared Type reports its NAME, a union its members — see `expectedLabel`.
       const expectedType = expectedLabel(param.type)
+      // A list whose ELEMENT failed says which one, and why (#3407). The whole-list
+      // message ("Expected array of object …, got array of object") named neither. Only on
+      // the failure path: a walk to the first bad element, then the list-level message.
+      const fail = `${listElementDiagnosis(
+        cv,
+        path,
+        param.type
+      )}return __tjs.typeError('${path}', '${expectedType}', ${cv}${rootExpr});`
       if (param.required) {
         lines.push(`const ${cv} = ${rt('__tv')}(${paramName});`)
-        lines.push(
-          `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${rootExpr});`
-        )
+        lines.push(`if (${typeCheck}) { ${fail} }`)
         // Stage 0: colon-form object params get member-level checks (the
         // object-ness line above guards these accesses).
         lines.push(...generateMemberCheckLines(cv, path, param.type))
@@ -1034,9 +1040,7 @@ function generateInlineValidationCode(
         )
       } else {
         lines.push(`const ${cv} = ${rt('__tv')}(${paramName});`)
-        lines.push(
-          `if (${cv} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${cv}${rootExpr});`
-        )
+        lines.push(`if (${cv} !== undefined && ${typeCheck}) { ${fail} }`)
       }
     }
 
@@ -3519,7 +3523,9 @@ function emitDictLevel(
       const check = generateTypeCheckExpr(v, member)
       if (check) {
         lines.push(
-          `else if (${check}) return __tjs.typeError('${mpath}', '${member.kind}', ${v}, undefined, ${root});`
+          `else if (${check}) return __tjs.typeError('${mpath}', '${expectedLabel(
+            member
+          )}', ${v}, undefined, ${root});`
         )
       }
     }
@@ -3585,10 +3591,8 @@ function generateMemberCheckLines(
     const memberPath = `${displayPath}.${key}`
     const check = generateTypeCheckExpr(memberExpr, memberType)
     if (check) {
-      const expected =
-        memberType.kind === 'union'
-          ? (memberType as any).members.map((m: any) => m.kind).join(' | ')
-          : memberType.kind
+      // The contract, not the mechanism: `Book`, not `declared` (#3407).
+      const expected = expectedLabel(memberType)
       lines.push(
         `if (${check}) return __tjs.typeError('${memberPath}', '${expected}', ${memberExpr}, undefined, ${rootExpr});`
       )
@@ -3612,6 +3616,25 @@ function generateMemberCheckLines(
     return [`if (${accessExpr} != null) {`, ...lines, '}']
   }
   return lines
+}
+
+/**
+ * The failure-path walk for a list parameter (#3407): the first element that fails, reported
+ * at `path[i]` (and, for a shape, at the member that failed), carrying the whole list as
+ * `received`. Empty when the elements need no check of their own. Runs only after the
+ * list-level check has already failed, so the happy path pays nothing.
+ */
+function listElementDiagnosis(cv: string, path: string, type: any): string {
+  const items = type?.kind === 'array' ? type.items : undefined
+  if (!items) return ''
+  const check = generateTypeCheckExpr('__e', items)
+  if (!check) return ''
+  // The index is spliced into the emitted string literal: `'f.xs[' + __i + '].t'`.
+  const at = `${path}[' + __i + ']`
+  const members = generateMemberCheckLines('__e', at, items, cv).join(' ')
+  return `if (Array.isArray(${cv})) for (let __i = 0; __i < ${cv}.length; __i++) { const __e = ${cv}[__i]; if (${check}) return __tjs.typeError('${at}', '${expectedLabel(
+    items
+  )}', __e, undefined, ${cv}); ${members} } `
 }
 
 /**

@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A type error names the contract and the place** (#3407). A member of a named Type said
+  `Expected declared`; it says `Expected Book`. A list whose ELEMENT failed said
+  `Expected array of object …, got array of object`; it now names the element and, for a
+  shape, the member: `Expected string for 'f.xs[1].t', got number` (found on the failure
+  path only, carrying the whole list as `received`). A dictionary-default member says
+  `array of string`, not `array`. **Message change:** code that matched the old list-level
+  wording for an element failure will see the element-level one.
 - **A checked return (`:?`) is checked like a parameter** (#3408). **Behaviour change,
   toward correctness:** a `:?` function returning an object with a wrong member now gets an
   error back. Named Types were resolved only for parameters, so `:? Book`, `:? [Book]` and

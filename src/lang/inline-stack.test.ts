@@ -198,8 +198,9 @@ describe('array diagnostics agree across both runtimes', () => {
   it('names the element types rather than just "array"', () => {
     // Not vacuous: two implementations agreeing on an unhelpful message would pass every
     // case above.
+    // Since #3407 the failing ELEMENT is named, with its index and its own type.
     expect(message(SRC, `[1, 'bad', 3]`, true)).toContain(
-      'array of number | string'
+      "Expected integer for 'a.tjs:1:f.xs[1]', got string"
     )
     // `[]` is deliberately NOT asserted here: an empty array satisfies `xs: [0]`
     // vacuously, so there is no message to inspect. The `empty` row above still earns its

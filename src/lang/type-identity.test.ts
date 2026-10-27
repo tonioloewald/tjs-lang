@@ -398,17 +398,20 @@ describe('array type errors are accurate in both runtimes', () => {
   }
 
   it('names the ELEMENT type, not just "array"', () => {
+    // Since #3407 an element failure names the element itself, at its index, with its
+    // own type: more exact than the list-level "array of integer … got array" it replaced.
     const msg = String(withRuntime(emit(SRC, 'sum'))(['a', 'b']))
-    expect(msg).toContain('array of integer')
+    expect(msg).toContain("Expected integer for 'ae.tjs:1:sum.xs[0]'")
   })
 
   for (const [label, run] of [
     ['shared runtime', withRuntime],
     ['standalone (inline stub)', standalone],
   ] as const) {
-    it(`${label}: a wrong ELEMENT reports "got array", not "got object"`, () => {
+    it(`${label}: a wrong ELEMENT reports what the element is, never "got object"`, () => {
       const msg = String(run(emit(SRC, 'sum'))(['a', 'b']))
-      expect(msg).toContain('got array')
+      expect(msg).toContain('sum.xs[0]')
+      expect(msg).toContain('got string')
       expect(msg).not.toContain('got object')
     })
 
@@ -422,6 +425,6 @@ describe('array type errors are accurate in both runtimes', () => {
     const msg = String(
       withRuntime(emit("function g(m: [['']]): 0 { return 0 }", 'g'))([[1]])
     )
-    expect(msg).toContain('array of array of string')
+    expect(msg).toContain("Expected array of string for 'ae.tjs:1:g.m[0]'")
   })
 })
