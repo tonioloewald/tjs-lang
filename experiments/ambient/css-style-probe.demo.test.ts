@@ -21,13 +21,16 @@ const win = new Window()
 const doc = win.document
 
 describe('probing a real CSSStyleDeclaration (host object)', () => {
-  it('Object.keys misses the host surface; typeof finds it', () => {
+  it('enumeration is not a contract; typeof is', () => {
     const style = doc.createElement('div').style
-    // The naive probe sees almost nothing — the props are on the prototype.
-    expect(Object.keys(style).length).toBeLessThan(3)
-    // ...but they're really there:
+    // How many keys a host object ENUMERATES is the host's choice, not its surface:
+    // happy-dom 20 listed fewer than 3 (the props live on the prototype, as in Chrome);
+    // happy-dom 21 lists hundreds. A probe built on `Object.keys` would have derived two
+    // different contracts for the same object. A usage-scoped `typeof` answers the same
+    // way on both:
     expect(typeof style.color).toBe('string')
     expect(typeof style.setProperty).toBe('function')
+    expect(typeof style.getPropertyValue).toBe('function')
   })
 
   it('a usage-scoped probe finds the used surface', () => {
