@@ -596,18 +596,37 @@ describe('re-review 3 repros', () => {
    * Time for two sizes 4x apart; linear is ~4x, quadratic ~16x. BEST of three at each size:
    * a single sample is GC-noisy enough that 2x the input once measured FASTER.
    */
-  const ratio = (run: (n: number) => void, small: number) => {
-    const best = (n: number) => {
-      let min = Infinity
-      for (let i = 0; i < 3; i++) {
-        const t = performance.now()
-        run(n)
-        min = Math.min(min, performance.now() - t)
-      }
-      return min
+  // Best of 7, the two sizes INTERLEAVED (#3538). Timing every small run and then every
+  // large one let a burst of machine load land on the large runs alone and inflate the
+  // ratio: these failed at load averages near 100 and passed alone. Linear predicts ~4×,
+  // quadratic ~16×; the threshold of 9 is unchanged.
+  // Each input is BUILT once, outside the timing (#3538): the claim is that CHECKING is
+  // linear, and timing the build measured allocation and GC too, which is what a busy
+  // machine disturbs most.
+  const prebuilt = (
+    T: { check: (v: unknown) => unknown },
+    build: (n: number) => unknown
+  ) => {
+    const inputs = new Map<number, unknown>()
+    return (n: number) => {
+      if (!inputs.has(n)) inputs.set(n, build(n))
+      T.check(inputs.get(n))
     }
-    run(small) // warm
-    return best(small * 4) / Math.max(best(small), 0.5)
+  }
+  const ratio = (run: (n: number) => void, small: number) => {
+    run(small) // warm both
+    run(small * 4)
+    let s = Infinity
+    let l = Infinity
+    for (let i = 0; i < 7; i++) {
+      let t = performance.now()
+      run(small)
+      s = Math.min(s, performance.now() - t)
+      t = performance.now()
+      run(small * 4)
+      l = Math.min(l, performance.now() - t)
+    }
+    return l / Math.max(s, 0.5)
   }
 
   it('B-2(a): a 128-deep spine with many first-alternative failures stays linear', () => {
@@ -624,7 +643,9 @@ describe('re-review 3 repros', () => {
       return spine
     }
     expect(T.check(build(8000))).toBe(true) // it used to REJECT this, valid, after ~12s
-    expect(ratio((k) => T.check(build(k)), 2000)).toBeLessThan(9)
+    // 8000, not 2000: checking alone (the build is outside the timing now) took ~0.36ms at
+    // 2000, under the 0.5ms floor, which understated the ratio and blunted the guard.
+    expect(ratio(prebuilt(T, build), 8000)).toBeLessThan(9)
   })
 
   it('B-2(b): many deep chains valid only via the second alternative are ACCEPTED', () => {
@@ -641,7 +662,7 @@ describe('re-review 3 repros', () => {
     }
     const build = (m: number) => ({ items: Array.from({ length: m }, chain) })
     expect(Arr.check(build(400))).toBe(true) // ~1.2MB; it used to be rejected
-    expect(ratio((m) => Arr.check(build(m)), 50)).toBeLessThan(9)
+    expect(ratio(prebuilt(Arr, build), 50)).toBeLessThan(9)
   })
 
   it('B-2(c): lists valid as B, 160 of them 129+ deep, accepted in linear time', () => {
@@ -660,6 +681,6 @@ describe('re-review 3 repros', () => {
     }
     const build = (k: number) => ({ lists: Array.from({ length: k }, list) })
     expect(L.check(build(160))).toBe(true)
-    expect(ratio((k) => L.check(build(k)), 40)).toBeLessThan(9)
+    expect(ratio(prebuilt(L, build), 40)).toBeLessThan(9)
   })
 })

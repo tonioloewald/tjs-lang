@@ -360,11 +360,18 @@ describe('the carried-error search is bounded by KEYS, in every copy', () => {
     const [nums] = load('function nums(xs: [0]):! 0 { return 1 }', ['nums'])
     const big = Array.from({ length: 1_000_000 }, (_, i) => i)
     big[999_999] = 'no' as any
-    const t = performance.now()
-    const r = nums(big)
+    // Best of 3 (#3538): one sample under a busy machine failed a 150ms ceiling that the
+    // path clears in ~3ms. The element check itself walks the array; the search must add
+    // little on top.
+    let best = Infinity
+    let r: any
+    for (let i = 0; i < 3; i++) {
+      const t = performance.now()
+      r = nums(big)
+      best = Math.min(best, performance.now() - t)
+    }
     expect(isMonadicError(r)).toBe(true)
-    // The element check itself walks the array; the search must add little on top.
-    expect(performance.now() - t).toBeLessThan(150)
+    expect(best).toBeLessThan(150)
   })
   it('an error beyond the bound is not found — a NEW error, not a hang', () => {
     const e = upstream()
