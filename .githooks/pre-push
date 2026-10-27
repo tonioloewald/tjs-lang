@@ -81,7 +81,13 @@ needs=""
 for sha in $tagged; do
   if [ "$sha" = "$stamped" ] || { [ -f "$LEDGER" ] && grep -qx "$sha" "$LEDGER"; }; then
     echo "pre-push: full suite already green for $(echo "$sha" | cut -c1-7) (release-gate record) — not re-running."
+  elif verdict="$(bun "$ROOT/scripts/attested.ts" "$sha" 2>&1)"; then
+    # The release flow tags the ATTESTATION commit: `release:ready` ran every lane, test:full
+    # included, on exactly this tree. Re-running it here took ~8 minutes, long enough for the
+    # remote to drop git's idle connection, so a green hook ended in exit 141 (#3445).
+    echo "pre-push: $(echo "$sha" | cut -c1-7) $verdict — not re-running."
   else
+    echo "pre-push: $(echo "$sha" | cut -c1-7) $verdict"
     needs="$needs $sha"
   fi
 done
@@ -149,4 +155,8 @@ for sha in $needs; do
   echo "$sha" >>"$LEDGER"
 done
 echo "pre-push: full suite green — tag cleared to ship."
+# The suite ran for minutes while git held its connection to the remote open and idle; the
+# remote may have dropped it. If git now dies with exit 141 (SIGPIPE), nothing failed: the
+# result is recorded above, and pushing the tag again skips straight through (#3445).
+echo "pre-push: if git now reports exit 141, the remote closed the idle connection during the run. Push the tag again; it is recorded as green."
 exit 0

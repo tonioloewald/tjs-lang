@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pushing a release tag no longer re-runs the full suite it was attested on** (#3445).
+  `release:ready` attests every lane on the tagged tree; the pre-push hook re-ran ~8 minutes
+  of suite anyway, git's connection to the remote sat idle until GitHub dropped it, and a
+  green hook ended in exit 141 with the tag not pushed. The hook now accepts a valid
+  attestation (`scripts/attested.ts`), and says what a 141 means if a long run still ends in
+  one.
 - **`wrap(fn, fn.__tjs)` works** (#3496). `wrap` is documented to take a function's `__tjs`
   metadata and refused every call given it, `wrap((a, b) => a + b, add.__tjs)(1, 2)`
   included: its `checkType` understood kind names (`'number'`) and Type objects, and emitted

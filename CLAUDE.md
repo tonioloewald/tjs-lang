@@ -592,8 +592,12 @@ from the tag:
 1. Release commit (version, CHANGELOG), pushed.
 2. `bun run release:ready` on the clean tree → commit `release-attestation.json` ALONE.
 3. `gh workflow run publish.yml -f tag=main -f dry_run=true` (every check, no staging).
-4. `git tag -a vX.Y.Z` on the attestation commit, push the tag (the pre-push hook still runs
-   the full suite on a tag push — redundant with the attestation, not wrong).
+4. `git tag -a vX.Y.Z` on the attestation commit, push the tag. The pre-push hook accepts
+   the attestation (`scripts/attested.ts <sha>`: that commit changes only the attestation,
+   its parent is the tested tree, `test:full` passed) and skips the suite. It used to re-run
+   ~8 minutes of suite, long enough for GitHub to drop git's idle connection, so a green hook
+   ended in exit 141 and a second push (#3445). A tag on an UNattested commit still runs the
+   full suite.
 5. `gh workflow run publish.yml -f tag=vX.Y.Z`; Tonio approves; the green run IS the
    "published and verified" statement. Then the functions/ lockfile refresh + deploy.
 
