@@ -4377,8 +4377,11 @@ export function transformPolymorphicFunctions(
         const p = v.params[k]
         args.push(`__args[${k}]`)
         if (p.defaultValue) {
+          // Tested as the value a tosijs proxy wraps (#3406); the overload still receives
+          // the argument itself. A single-signature function already did this, so adding an
+          // overload used to make `f(calculator.x)` "no matching overload".
           const check = typeCheckForDefault(
-            `__args[${k}]`,
+            `${rt('__tv')}(__args[${k}])`,
             p.defaultValue,
             declaredTypes
           )

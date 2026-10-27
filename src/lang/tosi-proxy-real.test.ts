@@ -60,6 +60,19 @@ describe('real tosijs proxies', () => {
     expect(f(calc)).toEqual([true, 'empty'])
   })
 
+  it('inside a list or plain object, and through an overload (#3406)', () => {
+    const { calc } = tosi({ calc: { x: 4, y: 5 } })
+    const sum = load('function sum(xs: [0]) { return xs.length }', 'sum')
+    expect(sum([calc.x, calc.y])).toBe(2)
+    const pt = load('function pt(p: { x: 0, y: 0 }) { return "ok" }', 'pt')
+    expect(pt({ x: calc.x, y: calc.y })).toBe('ok')
+    const f = load(
+      "function f(n: 0) { return 'num' }\nfunction f(s: '') { return 'str' }",
+      'f'
+    )
+    expect(f(calc.x)).toBe('num')
+  })
+
   it('a wrong value is still refused', () => {
     const { calc } = tosi({ calc: { x: 'not a number' } })
     const double = load('function double(n: 0) { return n * 2 }', 'double')

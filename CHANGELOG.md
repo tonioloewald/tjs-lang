@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **tosijs proxies are seen through everywhere a value is checked** (#3406). rc.7 listed three
+  places that still refused one: a proxy held inside a plain object or list
+  (`{ a: calculator.x }`, `[calculator.x]`), an overloaded function's dispatch (adding an
+  overload made `f(calculator.x)` "no matching overload"), and a `:?` return check. Each is
+  now checked as the value the proxy wraps, while the body, the chosen overload and the
+  caller still receive the proxy itself. Member and element checks pay nothing on the happy
+  path (the unwrap runs only after the raw check has failed); dispatch unwraps each argument
+  it tests, measured at a few percent on a dispatch-only micro-benchmark. A message names
+  the wrapped value's type, not "object".
 - **A type error names the contract and the place** (#3407). A member of a named Type said
   `Expected declared`; it says `Expected Book`. A list whose ELEMENT failed said
   `Expected array of object …, got array of object`; it now names the element and, for a

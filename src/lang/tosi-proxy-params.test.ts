@@ -145,3 +145,42 @@ describe("a type's own check agrees with a parameter of that type", () => {
     }
   })
 })
+
+/**
+ * The three places the rc.7 CHANGELOG said a proxy was "not yet" seen through (#3406): a
+ * proxy held inside a plain object or list, an overloaded function's dispatch, and a `:?`
+ * return. Each is checked as the value it wraps; each body or caller still gets the proxy.
+ */
+describe('proxies inside values, overloads and checked returns', () => {
+  it('a proxy inside a plain object or list', () => {
+    const m = load(`function m(o: { a: 0 }) { return 'ok' }`, 'm')
+    expect(m({ a: box(3) })).toBe('ok')
+    const wrong = m({ a: box('x') })
+    expect(isError(wrong)).toBe(true)
+    expect(wrong.message).toContain('got string') // the wrapped value, not "object"
+    const e = load(`function e(xs: [0]) { return 'ok' }`, 'e')
+    expect(e([box(3), 4])).toBe('ok')
+    expect(isError(e([box('x')]))).toBe(true)
+    const s = load(`function s(xs: [{ t: '' }]) { return 'ok' }`, 's')
+    expect(s([{ t: box('a') }])).toBe('ok')
+  })
+
+  it('overload dispatch', () => {
+    const f = load(
+      `function f(n: 0) { return 'num' }\nfunction f(s: '') { return 'str' }`,
+      'f'
+    )
+    expect(f(box(3))).toBe('num')
+    expect(f(box('a'))).toBe('str')
+    expect(isError(f(box(true)))).toBe(true)
+  })
+
+  it('a checked return: checked through, and the caller gets the proxy', () => {
+    const XV = Symbol.for('xin-value')
+    const r = load(`function r(o: { n: 0 }):? 0 { return o.n }`, 'r')
+    const out = r(box({ n: 3 }))
+    expect(out[XV]).toBe(3)
+    const bad = load(`function bad(o: { s: '' }):? 0 { return o.s }`, 'bad')
+    expect(isError(bad(box({ s: 'x' })))).toBe(true)
+  })
+})

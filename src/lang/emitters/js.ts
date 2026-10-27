@@ -3589,12 +3589,16 @@ function generateMemberCheckLines(
   for (const [key, memberType] of Object.entries(type.shape)) {
     const memberExpr = memberAccess(accessExpr, key)
     const memberPath = `${displayPath}.${key}`
-    const check = generateTypeCheckExpr(memberExpr, memberType)
+    const check = seeThrough(memberExpr, memberType)
     if (check) {
       // The contract, not the mechanism: `Book`, not `declared` (#3407).
       const expected = expectedLabel(memberType)
       lines.push(
-        `if (${check}) return __tjs.typeError('${memberPath}', '${expected}', ${memberExpr}, undefined, ${rootExpr});`
+        // Described as the value a tosijs proxy wraps (failure path only), so the message
+        // says what it really is, not "object".
+        `if (${check}) return __tjs.typeError('${memberPath}', '${expected}', ${rt(
+          '__tv'
+        )}(${memberExpr}), undefined, ${rootExpr});`
       )
     }
     if (memberType.kind === 'object' && memberType.shape) {
@@ -3627,14 +3631,14 @@ function generateMemberCheckLines(
 function listElementDiagnosis(cv: string, path: string, type: any): string {
   const items = type?.kind === 'array' ? type.items : undefined
   if (!items) return ''
-  const check = generateTypeCheckExpr('__e', items)
+  const check = seeThrough('__e', items)
   if (!check) return ''
   // The index is spliced into the emitted string literal: `'f.xs[' + __i + '].t'`.
   const at = `${path}[' + __i + ']`
   const members = generateMemberCheckLines('__e', at, items, cv).join(' ')
   return `if (Array.isArray(${cv})) for (let __i = 0; __i < ${cv}.length; __i++) { const __e = ${cv}[__i]; if (${check}) return __tjs.typeError('${at}', '${expectedLabel(
     items
-  )}', __e, undefined, ${cv}); ${members} } `
+  )}', ${rt('__tv')}(__e), undefined, ${cv}); ${members} } `
 }
 
 /**
@@ -3663,13 +3667,35 @@ function expectedLabel(t: any): string {
 }
 
 /**
+ * A member or element check that sees through a tosijs proxy (#3406), at no cost on the
+ * happy path. A parameter is unwrapped once (`__cv_<name> = __tv(name)`), but a proxy held
+ * INSIDE a plain object or list (`{ a: calculator.x }`, `[calculator.x]`) was checked raw
+ * and refused. The check is a FAILURE condition, so "fails as-is AND fails unwrapped" only
+ * reaches the unwrap after the raw check has already failed. Objects and lists need nothing:
+ * `typeof` and `Array.isArray` see through a Proxy, and their members and elements get this
+ * same treatment.
+ */
+function seeThrough(expr: string, type: TypeDescriptor): string | null {
+  const raw = generateTypeCheckExpr(expr, type)
+  if (!raw) return null
+  if (
+    type.kind === 'object' ||
+    type.kind === 'array' ||
+    type.kind === 'function'
+  )
+    return raw
+  const unwrapped = generateTypeCheckExpr('__u', type)
+  return `(${raw} && ((__u) => ${unwrapped})(${rt('__tv')}(${expr})))`
+}
+
+/**
  * A value's check INCLUDING its members, as one expression (true = invalid): for a list's
  * elements, which cannot use the per-member `if … return` lines a lone object gets
  * (`generateMemberCheckLines`). Recursive, so nested shapes and nested lists are covered; a
  * nullable shape guards its member reads, as `generateMemberCheckLines` does.
  */
 function elementCheckExpr(expr: string, type: TypeDescriptor): string | null {
-  const own = generateTypeCheckExpr(expr, type)
+  const own = seeThrough(expr, type)
   if (type.kind !== 'object' || !type.shape) return own
   const members = Object.entries(type.shape)
     .map(([key, memberType]) =>
@@ -4202,7 +4228,9 @@ function generateReturnValidationWrapper(
 ): string | null {
   if (!types.returns) return null
 
-  const check = generateTypeCheckExpr('__r', types.returns)
+  // Checked as the value a tosijs proxy wraps (#3406); the caller still receives `__r`
+  // itself, so a returned model stays live.
+  const check = generateTypeCheckExpr('__rv', types.returns)
   if (!check) return null // `any` and friends — nothing to assert
 
   // The label parameters use (`Book`, `array of Book`, a union's members), not the
@@ -4230,7 +4258,7 @@ function generateReturnValidationWrapper(
           ),
         }
       : types.returns
-  const memberLines = generateMemberCheckLines('__r', path, memberType, '__r')
+  const memberLines = generateMemberCheckLines('__rv', path, memberType, '__r')
 
   // Only unwrap for a DECLARED async function. Duck-typing any thenable would silently
   // check the resolved value of a sync function that legitimately returns a promise,
@@ -4244,7 +4272,8 @@ function generateReturnValidationWrapper(
 const _tjsret_${funcName} = ${funcName}
 function __validate_${funcName}(__r) {
   if (__tjs.isMonadicError(__r)) return __r
-  if (${check}) return __tjs.typeError('${path}', '${expected}', __r)
+  const __rv = ${rt('__tv')}(__r)
+  if (${check}) return __tjs.typeError('${path}', '${expected}', __rv, undefined, __r)
   ${memberLines.join('\n  ')}
   return __r
 }
