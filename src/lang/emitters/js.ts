@@ -797,6 +797,35 @@ function extractFunctionTypeInfo(
     }
   }
 
+  // The RETURN annotation gets the same promotion (#3408). Only parameters were promoted, so
+  // `:? Book`, `:? [Book]` and `:? { top: Book }` checked nothing and returned `5` unrefused.
+  // A union with a member that cannot be resolved stays wholly unchecked, as for parameters:
+  // checking only the members we know would refuse valid values of the ones we do not.
+  const resolvable = (t: any): boolean =>
+    !t?.unresolved ||
+    !!declaredTypes?.has(String(t.unresolved)) ||
+    !!importedNames?.has(String(t.unresolved))
+  const promoteReturn = (t: any): any => {
+    if (!t || typeof t !== 'object') return t
+    if (t.unresolved && declaredTypes?.has(String(t.unresolved)))
+      return declared(t)
+    if (t.unresolved && importedNames?.has(String(t.unresolved)))
+      return {
+        kind: 'declared-import',
+        typeName: String(t.unresolved),
+        ...(t.nullable ? { nullable: true } : {}),
+      }
+    if (t.kind === 'union' && Array.isArray(t.members)) {
+      const leaves = (u: any): any[] =>
+        u?.kind === 'union' ? u.members.flatMap(leaves) : [u]
+      if (leaves(t).every(resolvable)) t.members = t.members.map(promoteReturn)
+      return t
+    }
+    promoteNested(t)
+    return t
+  }
+  returns = promoteReturn(returns)
+
   // The destructured parameter's declared shape, promoted above, leaves the params: the
   // members are what a caller sees. Each member it describes takes its type from it.
   let destructuredArg: TypeDescriptor | undefined
@@ -1723,7 +1752,8 @@ export function transpileToJS(
             funcName,
             types,
             `${funcLoc.file}:${funcLoc.line}`,
-            Boolean((func as any).async)
+            Boolean((func as any).async),
+            Object.keys(returnDefaults ?? {})
           )
         : null
 
@@ -4143,18 +4173,41 @@ function generateReturnValidationWrapper(
   funcName: string,
   types: TJSTypeInfo,
   sourceStr: string,
-  isAsync: boolean
+  isAsync: boolean,
+  /** Keys written `key = value` in the return type: optional, may be absent */
+  defaultKeys: string[] = []
 ): string | null {
   if (!types.returns) return null
 
   const check = generateTypeCheckExpr('__r', types.returns)
   if (!check) return null // `any` and friends — nothing to assert
 
-  const expected =
-    types.returns.typeName ??
-    (types.returns.kind === 'union'
-      ? (types.returns.members ?? []).map((m) => m.kind).join(' | ')
-      : types.returns.kind)
+  // The label parameters use (`Book`, `array of Book`, a union's members), not the
+  // descriptor's kind (`declared`).
+  const expected = expectedLabel(types.returns)
+  const path = `${sourceStr}:${funcName}:return`
+  // Member checks too (#3408). The return check tested only the outer kind, so
+  // `:? { top: 0 }` returned `{ top: 'x' }` unrefused, and so did `:? { top: Book }`.
+  // A key written `key = value` (a return DEFAULT) may be absent: its type, or undefined.
+  const shape = types.returns.shape
+  const memberType =
+    shape && defaultKeys.length
+      ? {
+          ...types.returns,
+          shape: Object.fromEntries(
+            Object.entries(shape).map(([k, t]) => [
+              k,
+              defaultKeys.includes(k)
+                ? ({
+                    kind: 'union',
+                    members: [t, { kind: 'undefined' }],
+                  } as TypeDescriptor)
+                : t,
+            ])
+          ),
+        }
+      : types.returns
+  const memberLines = generateMemberCheckLines('__r', path, memberType, '__r')
 
   // Only unwrap for a DECLARED async function. Duck-typing any thenable would silently
   // check the resolved value of a sync function that legitimately returns a promise,
@@ -4168,7 +4221,8 @@ function generateReturnValidationWrapper(
 const _tjsret_${funcName} = ${funcName}
 function __validate_${funcName}(__r) {
   if (__tjs.isMonadicError(__r)) return __r
-  if (${check}) return __tjs.typeError('${sourceStr}:${funcName}:return', '${expected}', __r)
+  if (${check}) return __tjs.typeError('${path}', '${expected}', __r)
+  ${memberLines.join('\n  ')}
   return __r
 }
 ${funcName} = function (...__a) {

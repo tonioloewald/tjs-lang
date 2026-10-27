@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A checked return (`:?`) is checked like a parameter** (#3408). **Behaviour change,
+  toward correctness:** a `:?` function returning an object with a wrong member now gets an
+  error back. Named Types were resolved only for parameters, so `:? Book`, `:? [Book]` and
+  `:? { top: Book }` checked nothing; and the return check tested only the outer kind, so
+  even `:? { top: 0 }` returned `{ top: 'x' }` unrefused. Both are fixed; a key written
+  `key = value` (a return default) may still be absent, `:!` is still the opt-out, and a
+  union with a member that cannot be resolved stays unchecked, as for parameters.
 - **An array-pattern parameter is one parameter, checked as one** (#3497). `g([a, b], k)`
   had no metadata entry for its array parameter (it listed only `k`), so position-based
   readers misaligned; a TS-style annotation (`[a, b]: [0, 0]`) was erased unchecked, and
