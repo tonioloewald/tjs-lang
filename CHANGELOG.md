@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An array-pattern parameter is one parameter, checked as one** (#3497). `g([a, b], k)`
+  had no metadata entry for its array parameter (it listed only `k`), so position-based
+  readers misaligned; a TS-style annotation (`[a, b]: [0, 0]`) was erased unchecked, and
+  `null` THREW. It is now named, checked as an array (against its annotation when there is
+  one), then destructured, like an object pattern (#3443); the `.d.ts` declares it.
 - **A `Type` with an object or list example is aliased to its shape in the `.d.ts`** (#3482).
   `export Type R { example: { x: 0, y: 0 } }` was declared `type R = Record<string, any>`, and
   a list example `any[]`, so TypeScript consumers got no member types for any parameter of
