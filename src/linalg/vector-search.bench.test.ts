@@ -386,17 +386,37 @@ describe('Canonical demo: vector-search across three forms', () => {
           return { ms: performance.now() - start, idx }
         }
 
-        const inlineRun = timeSearch(inline.search, inlineCorpus, inlineQuery)
-        const composedJsRun = timeSearch(
-          composedJs.search,
-          composedJsCorpus,
-          composedJsQuery
-        )
-        const composedWasmRun = timeSearch(
-          composedWasm.search,
-          composedWasmCorpus,
-          composedWasmQuery
-        )
+        // BEST of ROUNDS, interleaved (#3500). One sample per variant, taken one after
+        // another, let a burst of machine load land on ONE variant and swing a ratio: the
+        // dogfood baseline went red at a load average near 29 while the file passed alone
+        // three times. Interleaving spreads a burst across all three; the minimum is the
+        // closest thing to an uncontended sample (as in param-markers.test.ts).
+        const ROUNDS = 5
+        const best = (
+          a: { ms: number; idx: number },
+          b: { ms: number; idx: number }
+        ) => (b.ms < a.ms ? b : a)
+        let inlineRun = { ms: Infinity, idx: -1 }
+        let composedJsRun = { ms: Infinity, idx: -1 }
+        let composedWasmRun = { ms: Infinity, idx: -1 }
+        for (let round = 0; round < ROUNDS; round++) {
+          inlineRun = best(
+            inlineRun,
+            timeSearch(inline.search, inlineCorpus, inlineQuery)
+          )
+          composedJsRun = best(
+            composedJsRun,
+            timeSearch(composedJs.search, composedJsCorpus, composedJsQuery)
+          )
+          composedWasmRun = best(
+            composedWasmRun,
+            timeSearch(
+              composedWasm.search,
+              composedWasmCorpus,
+              composedWasmQuery
+            )
+          )
+        }
 
         const inlineMs = inlineRun.ms
         const composedJsMs = composedJsRun.ms
