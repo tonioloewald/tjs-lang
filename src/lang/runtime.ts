@@ -1560,11 +1560,114 @@ export function isNativeType(value: unknown, typeName: string): boolean {
 }
 
 /**
+ * A transpiler `TypeDescriptor` (`{ kind: 'integer' }`, the form in every emitted `__tjs` and
+ * in `tjs().types`), checked STRICTLY (#3496). `wrap(fn, fn.__tjs)` refused every call,
+ * because `checkType` understood only kind NAMES and RuntimeType objects; this is what lets it
+ * read the metadata it is documented to take.
+ *
+ * Every kind is handled explicitly. The exception is a named Type (`declared`,
+ * `declared-import`): metadata carries only its NAME, not the Type, so it cannot be checked
+ * here. It passes, and the flight recorder says so once per path, because an emitted TJS
+ * function already checks it inline and refusing every call would be worse. (The other
+ * descriptor checker, `inference.ts`'s `checkType`, passes every kind it does not know;
+ * this one does not.)
+ */
+const unresolvedDeclared = new Set<string>()
+function descriptorMatches(value: unknown, d: any, path: string): boolean {
+  if (value === null || value === undefined) {
+    if (d.nullable || d.kind === 'any') return true
+    if (d.kind === 'null') return value === null
+    if (d.kind === 'undefined') return value === undefined
+    if (d.kind === 'union')
+      return (d.members ?? []).some((m: any) =>
+        descriptorMatches(value, m, path)
+      )
+    if (d.kind === 'literal-union')
+      return (d.values ?? []).some((v: unknown) => Eq(value, v))
+    return false
+  }
+  switch (d.kind) {
+    case 'any':
+      return true
+    case 'string':
+      if (typeof value !== 'string') return false
+      if (d.pattern) {
+        try {
+          return new RegExp(d.pattern, d.flags).test(value)
+        } catch {
+          return false
+        }
+      }
+      return true
+    case 'number':
+      return typeof value === 'number'
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value)
+    case 'non-negative-integer':
+      return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    case 'bigint':
+      return typeof value === 'bigint'
+    case 'boolean':
+      return typeof value === 'boolean'
+    case 'null':
+    case 'undefined':
+      return false
+    case 'function':
+      return typeof value === 'function'
+    case 'array':
+      return (
+        Array.isArray(value) &&
+        (!d.items ||
+          value.every((v, i) => descriptorMatches(v, d.items, `${path}[${i}]`)))
+      )
+    case 'object': {
+      if (typeof value !== 'object' || Array.isArray(value)) return false
+      const shape = d.shape ?? {}
+      return Object.entries(shape).every(([k, t]) =>
+        descriptorMatches((value as any)[k], t, `${path}.${k}`)
+      )
+    }
+    case 'union':
+      return (d.members ?? []).some((m: any) =>
+        descriptorMatches(value, m, path)
+      )
+    case 'literal-union':
+      return (d.values ?? []).some((v: unknown) => Eq(value, v))
+    case 'declared':
+    case 'declared-import': {
+      const key = `${path}:${d.typeName}`
+      if (!unresolvedDeclared.has(key)) {
+        unresolvedDeclared.add(key)
+        recorder.record({
+          source: 'type',
+          severity: 'notice',
+          message: `wrap() cannot check the named Type '${d.typeName}' at '${path}' from metadata alone; it is passed unchecked here (an emitted TJS function still checks it inline).`,
+        })
+      }
+      return true
+    }
+    default:
+      return false
+  }
+}
+
+/** Is `expected` a transpiler TypeDescriptor (and not a kind name or a RuntimeType)? */
+function isDescriptor(expected: unknown): boolean {
+  return (
+    typeof expected === 'object' &&
+    expected !== null &&
+    typeof (expected as any).kind === 'string' &&
+    !('check' in (expected as object))
+  )
+}
+
+/**
  * Check if a value matches an expected type
  *
  * @param value - The value to check
- * @param expected - Either a string type name ('string', 'number', etc.)
- *                   or a RuntimeType instance with .check() method
+ * @param expected - A string type name ('string', 'number', etc.), a RuntimeType instance
+ *                   with .check(), or a transpiler TypeDescriptor (`{ kind: 'integer' }`,
+ *                   as in `__tjs` metadata)
  * @param path - Optional path for error messages
  */
 export function checkType(
@@ -1576,6 +1679,21 @@ export function checkType(
 ): TJSError | null {
   // If value is already an error, propagate it
   if (isError(value)) return value
+
+  // A transpiler TypeDescriptor, as in emitted `__tjs` metadata (#3496).
+  if (isDescriptor(expected)) {
+    const d = expected as any
+    if (descriptorMatches(value, d, path ?? '')) return null
+    const label =
+      d.kind === 'declared' || d.kind === 'declared-import'
+        ? d.typeName
+        : d.kind
+    return error(`Expected ${label} for '${path}', got ${typeOf(value)}`, {
+      path,
+      expected: label,
+      actual: typeOf(value),
+    })
+  }
 
   // Handle RuntimeType instances (Type() results)
   //
@@ -1790,6 +1908,12 @@ export interface FunctionMeta {
   name?: string
   /** Polymorphic dispatcher — skip wrapping, dispatch handles validation */
   polymorphic?: boolean
+  /**
+   * The function takes ONE object whose members `params` lists (a destructured parameter).
+   * `isDestructuredParam` is the same flag as `tjs().types` spells it.
+   */
+  destructured?: boolean
+  isDestructuredParam?: boolean
 }
 
 /**
@@ -1896,8 +2020,11 @@ export function wrap<T extends (...args: any[]) => any>(
 
     // Input validation
     if (validateInputs) {
-      // Detect if single object arg (named params) vs positional
+      // Named params only when the metadata SAYS the function destructures one object
+      // (#3496). It used to be guessed from the call ("one plain-object argument"), which
+      // read `area(r: { w, h })` called with `{ w, h }` as `r: undefined`.
       const isNamedCall =
+        !!(meta.destructured || meta.isDestructuredParam) &&
         args.length === 1 &&
         typeof args[0] === 'object' &&
         args[0] !== null &&

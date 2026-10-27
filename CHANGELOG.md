@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`wrap(fn, fn.__tjs)` works** (#3496). `wrap` is documented to take a function's `__tjs`
+  metadata and refused every call given it, `wrap((a, b) => a + b, add.__tjs)(1, 2)`
+  included: its `checkType` understood kind names (`'number'`) and Type objects, and emitted
+  metadata carries transpiler descriptors (`{ kind: 'integer' }`). `checkType` now checks a
+  descriptor strictly, every kind handled. A named `Type` cannot be resolved from metadata
+  alone, so it passes and the flight recorder says so once per path. And `wrap` treats a
+  single object argument as named parameters only when the metadata says the function
+  destructures it: emitted `__tjs` now carries `destructured: true` for a lone destructured
+  parameter. It used to GUESS from the call, which read `area(r: { w, h })` called with
+  `{ w, h }` as `r: undefined`.
 - **The `.d.ts` declares a destructured parameter as one parameter** (#3444).
   `export function area({ w: 0, h: 0 })` was declared `area(w: number, h: number)`, so a
   TypeScript consumer was told to call `area(2, 3)`, which the runtime refuses, and the

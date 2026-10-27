@@ -3178,6 +3178,10 @@ function generateTypeMetadata(
   const metadata: any = {
     params: paramsObj,
   }
+  // A lone destructured parameter: `params` lists its MEMBERS, and the function takes ONE
+  // object. Said explicitly so a reader (`wrap`) need not guess from argument shapes, which
+  // cannot tell `({ w, h })` from `(r: { w, h })` (#3496).
+  if (types.isDestructuredParam) metadata.destructured = true
 
   if (types.returns) {
     metadata.returns = {
