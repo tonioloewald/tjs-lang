@@ -54,7 +54,9 @@ import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
  * There was no bundle reason for the copy: this file already imports the sibling leaves
  * `../forbidden-keys`.
  */
-import { unwrapBoxed as unwrapBoxedVM } from '../unwrap-boxed'
+// SLOT reads only (#3531): `unwrapBoxed` also sees through tosijs proxies with a property
+// GET, which runs a getter or Proxy trap. The VM's equality must run no host code.
+import { unwrapBoxedSlots as unwrapBoxedVM } from '../unwrap-boxed'
 
 function eqValue(a: unknown, b: unknown): boolean {
   // Slot reads, not `.valueOf()` — a boxed subclass must not get to run guest-supplied

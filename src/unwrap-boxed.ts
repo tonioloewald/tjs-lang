@@ -67,6 +67,35 @@ export function unwrapTosi(v: unknown): unknown {
   return v
 }
 
+/**
+ * The VM's unwrap: boxed primitives only, by SLOT reads, running no host code (#3531).
+ *
+ * `String.prototype.valueOf.call(v)` succeeds only on a real String object (it reads the
+ * internal slot) and throws on anything else WITHOUT consulting a getter, a Proxy trap or the
+ * prototype chain, which `instanceof` and a property get both do. The sandbox needs no
+ * tosijs see-through: guest values are membraned data, and a host object that reaches the
+ * VM's equality (from an atom tagged `effects: 'pure'`) must not get to run code there.
+ */
+export function unwrapBoxedSlots(v: unknown): unknown {
+  if (v === null || typeof v !== 'object') return v
+  try {
+    return String.prototype.valueOf.call(v)
+  } catch {
+    // not a String object: the brand check threw, and nothing ran
+  }
+  try {
+    return Number.prototype.valueOf.call(v)
+  } catch {
+    // not a Number object: the brand check threw, and nothing ran
+  }
+  try {
+    return Boolean.prototype.valueOf.call(v)
+  } catch {
+    // not a Boolean object: the brand check threw, and nothing ran
+  }
+  return v
+}
+
 /** The runtime implementation. */
 export function unwrapBoxed(v: unknown): unknown {
   try {

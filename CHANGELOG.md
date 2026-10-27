@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The VM's equality runs no host code on the values it compares** (#3531). rc.7's tosijs
+  see-through (`unwrapBoxed`) added a property GET of `Symbol.for('xin-value')`, and the VM's
+  `==` used it: a GET runs a getter or a Proxy trap, which the VM's equality promises never to
+  do. A guest cannot make such a value (guest values are membraned data), but a host object
+  returned by an atom tagged `effects: 'pure'`, which skips the membrane, reached the
+  comparison and its trap ran, unmetered, inside guest evaluation. The `instanceof` checks it
+  replaced also consulted a Proxy's `getPrototypeOf` trap. The VM now unwraps boxed primitives
+  by slot reads only (`unwrapBoxedSlots`) and does not see through tosijs proxies, which no
+  guest value is. Affected: 0.14.0-rc.7 and rc.8 for the GET; the `instanceof` trap reads are
+  older. Not a sandbox escape: the code that ran is the embedder's own object.
+
 ### Fixed
 
 - **The `.d.ts` declares a destructured parameter as one parameter** (#3444).
