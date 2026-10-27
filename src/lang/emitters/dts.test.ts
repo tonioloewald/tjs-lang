@@ -360,7 +360,8 @@ export class Vec {
     const result = transpileToJS(source, { runTests: false })
     const dts = generateDTS(result, source)
 
-    expect(dts).toContain('add(other: Record<string, any>): any;')
+    // its shape, not Record<string, any> (#3482)
+    expect(dts).toContain('add(other: { x: number; y: number }): any;')
   })
 
   it('should handle class exported via export { Name }', () => {

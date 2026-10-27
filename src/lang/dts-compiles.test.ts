@@ -272,10 +272,9 @@ export function fmt(list: [''], sep: ', ', wrap: '()') { return list.join(sep) }
   it('a comma example does not split the parameter list', () => {
     const dts = dtsFor(SRC)
     expect(dts).toContain('constructor(sep: string, pad: number)')
-    expect(dts).toContain('join(items: any[], sep: string)')
-    // The function form resolves the element type; the class-method path above degrades
-    // to `any[]` for the same `['']`. That divergence is real and is NOT what this test is
-    // about — recorded here so the next reader does not mistake it for the comma bug.
+    // The class-method path used to degrade `['']` to `any[]` while the function form said
+    // `string[]`; both read the example as the compiler does now (#3482), so they agree.
+    expect(dts).toContain('join(items: string[], sep: string)')
     expect(dts).toContain('fmt(list: string[], sep: string, wrap: string)')
   })
 
@@ -355,10 +354,8 @@ describe('destructured parameters are one parameter in the .d.ts', () => {
   it('TS spelling with a named Type: ({ x }: R)', () => {
     const src = `export Type R { example: { x: 0 } }\nexport function f({ x }: R): 0 { return x }`
     expect(calls(src, 'f({ x: 1 })')).toEqual([])
-    // `f(1)`, not `f({ x: 'a' })`: an object-example Type's alias is still
-    // `Record<string, any>` (#3482), so only the ONE-parameter shape is
-    // pinned here.
     expect(calls(src, 'f(1)')).not.toEqual([])
+    expect(calls(src, "f({ x: 'a' })")).not.toEqual([]) // the alias has members (#3482)
   })
 
   it('a default for the whole argument makes it optional', () => {
@@ -383,5 +380,47 @@ describe('a destructured parameter beside others is one parameter in the .d.ts',
     expect(calls(src, 'g(1, { b: 2 })')).toEqual([])
     expect(calls(src, "g(1, { b: 'z' })")).not.toEqual([])
     expect(calls(src, 'o(1)')).toEqual([])
+  })
+})
+
+/**
+ * A Type with an object or list example is aliased to its real shape (#3482). Every one was
+ * `Record<string, any>` (objects) or `any[]` (lists): the declaration finder's patterns
+ * stopped at the first `,` or `}`, and the alias was guessed from the example's first
+ * character. A TypeScript consumer got no member types for any parameter of such a Type.
+ */
+describe('object and list examples alias to their shapes', () => {
+  const calls = (src: string, call: string) =>
+    diagnose(`${dtsFor(src)}\n${call}\n`)
+  const SRC = `export Type R { example: { x: 0, tags: [''], at: { lat: 0.0 } } }
+export Type S = { a: '', b: 0 }
+export Type L { example: [0.0] }
+export function f(r: R, s: S, l: L): 0 { return 1 }`
+
+  it('the aliases carry members', () => {
+    const dts = dtsFor(SRC)
+    expect(dts).toContain(
+      'export type R = { x: number; tags: string[]; at: { lat: number } };'
+    )
+    expect(dts).toContain('export type S = { a: string; b: number };')
+    expect(dts).toContain('export type L = number[];')
+  })
+
+  it('so a consumer is told about a wrong member', () => {
+    const good =
+      "f({ x: 1, tags: ['a'], at: { lat: 1.5 } }, { a: 'x', b: 1 }, [1.5])"
+    expect(calls(SRC, good)).toEqual([])
+    expect(
+      calls(
+        SRC,
+        "f({ x: 'one', tags: [], at: { lat: 0 } }, { a: 'x', b: 1 }, [])"
+      )
+    ).not.toEqual([])
+    expect(
+      calls(
+        SRC,
+        "f({ x: 1, tags: [], at: { lat: 0 } }, { a: 'x', b: 1 }, ['a'])"
+      )
+    ).not.toEqual([])
   })
 })

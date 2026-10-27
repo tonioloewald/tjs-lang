@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `Type` with an object or list example is aliased to its shape in the `.d.ts`** (#3482).
+  `export Type R { example: { x: 0, y: 0 } }` was declared `type R = Record<string, any>`, and
+  a list example `any[]`, so TypeScript consumers got no member types for any parameter of
+  such a Type. The declaration finder's patterns stopped at the first `,` or `}`, and the
+  alias was guessed from the example's first character. The example is now read as an
+  expression (acorn decides where it ends) and inferred as a parameter's example is:
+  `type R = { x: number; y: number }`. Class methods with a list example now agree with
+  functions (`string[]`, not `any[]`).
 - **Pushing a release tag no longer re-runs the full suite it was attested on** (#3445).
   `release:ready` attests every lane on the tagged tree; the pre-push hook re-ran ~8 minutes
   of suite anyway, git's connection to the remote sat idle until GitHub dropped it, and a

@@ -21,6 +21,8 @@
  */
 
 import type { TypeDescriptor } from '../types'
+import { parseExpressionAt } from 'acorn'
+import { inferTypeFromValue } from '../inference'
 import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
 import {
@@ -626,11 +628,24 @@ function tjsParamsToTS(paramStr: string): string {
 function detectTypeDeclarations(source: string): Map<string, string> {
   const result = new Map<string, string>()
   let m
+  // The example is an EXPRESSION, so acorn says where it ends (#3482). The patterns below
+  // only FIND it: their captures stopped at the first `,` or `}`, so `{ x: 0, y: 0 }` came
+  // back as `{ x: 0` and every object-example Type was aliased `Record<string, any>`.
+  const exampleAt = (m: RegExpExecArray, group: number): string => {
+    const start = (m as any).indices?.[group]?.[0]
+    if (start === undefined) return m[group].trim()
+    try {
+      const node = parseExpressionAt(source, start, { ecmaVersion: 'latest' })
+      return source.slice(start, node.end).trim()
+    } catch {
+      return m[group].trim()
+    }
+  }
 
   // Type Name = <value>  (assignment form)
-  const assignRe = /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*=\s*(.+)$/gm
+  const assignRe = /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*=\s*(.+)$/dgm
   while ((m = assignRe.exec(source)) !== null) {
-    result.set(m[1], m[2].trim())
+    result.set(m[1], exampleAt(m, 2))
   }
 
   // Type Name <value>  (simple form, not block)
@@ -650,10 +665,10 @@ function detectTypeDeclarations(source: string): Map<string, string> {
   const DESC = String.raw`(?:\s*(?:'[^']*'|"[^"]*"))?`
   const blockRe = new RegExp(
     String.raw`^[ \t]*(?:export\s+)?Type\s+(\w+)${DESC}\s*\{[^}]*example\s*:\s*(.+?)(?:\n|\s*[,}])`,
-    'gm'
+    'dgm'
   )
   while ((m = blockRe.exec(source)) !== null) {
-    result.set(m[1], m[2].trim())
+    result.set(m[1], exampleAt(m, 2))
   }
 
   // Block with TS type body: Type Name { // TS: original type }
@@ -1220,11 +1235,19 @@ function inferTSTypeFromExample(example: string): string {
   if (/^[+-]?\d+\.\d+$/.test(s)) return 'number'
   if (/^[+-]?\d+$/.test(s)) return 'number'
 
-  // Arrays
-  if (s.startsWith('[')) return 'any[]'
-
-  // Objects
-  if (s.startsWith('{')) return 'Record<string, any>'
+  // Arrays and objects: read the example as the compiler does (#3482). Guessing from its
+  // first character gave every object-example Type the alias `Record<string, any>` and every
+  // list `any[]`, so a TypeScript consumer got no member types for any parameter of that
+  // Type. Parsed and inferred like a parameter's example, then rendered by the same
+  // `typeDescriptorToTS` the signatures use, so the alias and the signatures agree.
+  if (s.startsWith('[') || s.startsWith('{')) {
+    try {
+      const expr = parseExpressionAt(`(${s})`, 0, { ecmaVersion: 'latest' })
+      return typeDescriptorToTS(inferTypeFromValue(expr as any))
+    } catch {
+      return s.startsWith('[') ? 'any[]' : 'Record<string, any>'
+    }
+  }
 
   return 'any'
 }
