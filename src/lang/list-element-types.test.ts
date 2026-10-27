@@ -128,3 +128,30 @@ function g(b: (Bk | null)[]): string { return 'ok' }`
     expect(isError(g([5]))).toBe(true)
   })
 })
+
+/**
+ * A Type used as a DEFAULT VALUE is warned about (#3411). `function f(b = [Book])` makes the
+ * example the default too, so `f()` passes the Type object itself, which the parameter's own
+ * check refuses. `b: [Book]` (required) was meant.
+ */
+describe('a Type used as a default value', () => {
+  const warningsOf = (src: string) =>
+    tjs(src, { runTests: false }).warnings ?? []
+
+  it('is warned about, naming the fix', () => {
+    const w = warningsOf(`${BOOK}function f(b = [Book]) { return b }`)
+    expect(
+      w.some((m: string) =>
+        m.includes("uses the Type 'Book' as a DEFAULT VALUE")
+      )
+    ).toBe(true)
+    expect(w.some((m: string) => m.includes("write 'b: …'"))).toBe(true)
+  })
+
+  it('is not warned about for a required parameter or an ordinary default', () => {
+    const w = warningsOf(
+      `${BOOK}function g(c: [Book]) { return c }\nfunction h(x = 1) { return x }`
+    )
+    expect(w.some((m: string) => m.includes('DEFAULT VALUE'))).toBe(false)
+  })
+})

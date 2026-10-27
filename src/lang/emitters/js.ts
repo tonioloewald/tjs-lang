@@ -520,6 +520,24 @@ function extractFunctionTypeInfo(
         // expressions and methods alike, because it asks the parser rather than
         // re-guessing from source shape.
         const isRequired = localRequired.has(param.left.name)
+        // `b = [Book]` with `Book` a Type declared here (#3411): `=` makes the example the
+        // DEFAULT too, so `f()` hands the body a list holding the Type object, which its own
+        // check then refuses. Almost always `b: [Book]` (required) was meant. Warned, not
+        // refused: a plain JS value named like a Type is legal JavaScript.
+        if (!isRequired && declaredTypes?.size) {
+          let named: string | undefined
+          walk.full(param.right as any, (n: any) => {
+            if (!named && n.type === 'Identifier' && declaredTypes.has(n.name))
+              named = n.name
+          })
+          if (named)
+            warnings.push(
+              `'${param.left.name} = …' uses the Type '${named}' as a DEFAULT VALUE, so calling ` +
+                `without it passes the Type object itself (which the parameter's own check ` +
+                `refuses). For a parameter of that type write '${param.left.name}: …' ` +
+                `(required), or give a real default value.`
+            )
+        }
         params[param.left.name] = {
           ...paramInfo,
           required: isRequired,
