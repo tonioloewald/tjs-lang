@@ -1402,7 +1402,11 @@ export function transpileToJS(
   // It also carries the signature examples (#3375): the build checks them in runAllTests, but
   // a host running this runner on a live page never did. Only for native TJS, where a return
   // annotation is a worked example.
-  const runnerSigInfos = preprocessed.tjsModes.tjsDate
+  // ONE condition for the build and the runner (#3412): they disagreed under
+  // `dialect: 'js'`, where the build failed the transpile on a return example and the runner
+  // never ran it. A return annotation is a worked example only in native TJS.
+  const runSignatureExamples = !!preprocessed.tjsModes.tjsDate
+  const runnerSigInfos = runSignatureExamples
     ? extractSignatureTestInfos(source)
     : []
   const testRunner = generateTestRunner(
@@ -2995,8 +2999,11 @@ export function transpileToJS(
   let testResults: TestResult[] | undefined
 
   if (runTests) {
-    // Extract signature tests info (doesn't execute yet)
-    const sigTestInfos = extractSignatureTestInfos(source)
+    // Extract signature tests info (doesn't execute yet) — native TJS only, as for the
+    // runner above (#3412).
+    const sigTestInfos = runSignatureExamples
+      ? extractSignatureTestInfos(source)
+      : []
 
     // Run all tests in a single execution context
     testResults = runAllTests(

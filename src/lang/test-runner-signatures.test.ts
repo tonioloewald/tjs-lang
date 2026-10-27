@@ -156,3 +156,31 @@ describe('signature examples: page and build agree across the docs', () => {
     expect(disagree).toEqual([])
   })
 })
+
+/**
+ * The build and the runner run signature examples under the SAME condition (#3412): native
+ * TJS. Under `dialect: 'js'` the build failed the transpile on a return example while the
+ * runner never ran it; a return annotation is a worked example only in native TJS.
+ */
+describe('signature examples: build and runner agree on the dialect', () => {
+  const WRONG = 'function add(a: 2, b: 3): 0 { return a + b }'
+  const RIGHT = 'function add(a: 2, b: 3): 5 { return a + b }'
+
+  it("dialect 'js' runs neither: no failed transpile, no runner", () => {
+    const r = tjs(WRONG, { dialect: 'js' })
+    expect(r.testRunner).toBeUndefined()
+    expect(r.testResults ?? []).toEqual([])
+  })
+
+  it('native TJS runs both: the build refuses a wrong example', () => {
+    expect(() => tjs(WRONG)).toThrow(/signature example is inconsistent/)
+  })
+
+  it('native TJS runs both: a right example passes at build and is in the runner', async () => {
+    const r = tjs(RIGHT)
+    expect((r.testResults ?? []).every((t: any) => t.passed)).toBe(true)
+    const out = await runLikeAHost(RIGHT)
+    expect(out.failed).toBe(0)
+    expect(out.passed).toBeGreaterThan(0)
+  })
+})

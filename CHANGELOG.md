@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Signature examples run under one condition, at build and in the test runner** (#3412):
+  native TJS. Under `dialect: 'js'` the build ran a return example (and failed the
+  transpile on a wrong one) while `tjs().testRunner` never did. A return annotation is a
+  worked example only in native TJS, so the `js` dialect now runs neither; native TJS still
+  runs both. **Behaviour change:** a `dialect: 'js'` source with an inconsistent return
+  example now transpiles.
 - **tosijs proxies are seen through everywhere a value is checked** (#3406). rc.7 listed three
   places that still refused one: a proxy held inside a plain object or list
   (`{ a: calculator.x }`, `[calculator.x]`), an overloaded function's dispatch (adding an
