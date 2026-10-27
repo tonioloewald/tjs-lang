@@ -7,9 +7,9 @@
  * read through `__tv` (the value a proxy wraps), while the body still receives the proxy,
  * so writes inside it update the model.
  *
- * The stand-in carries tosijs's documented marker, `Symbol.for('xin-value')` (its
- * `tosiValue`); tosijs itself needs a DOM to load, so real proxies are checked on the doc
- * site.
+ * The stand-in carries the key tosijs uses for a proxy's value, `Symbol.for('xin-value')`.
+ * tosijs does not export it (tosijs#51), so `tosi-proxy-real.test.ts` checks the same
+ * behaviour against REAL tosijs proxies under happy-dom: a rename upstream fails there.
  */
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
