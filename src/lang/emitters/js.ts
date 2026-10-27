@@ -122,7 +122,7 @@ import {
   maskLiteralsKeepComments,
   hashbangOf,
 } from '../../strip-comments'
-import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
+import { UNWRAP_BOXED_SOURCE, UNWRAP_TOSI_SOURCE } from '../../unwrap-boxed'
 import { blankDocComments, trimTrailingWhitespace } from '../../strip-comments'
 import { RT_NS, rt } from '../rt-namespace'
 import { orInType, orInTypeMessage } from '../type-or'
@@ -2686,9 +2686,7 @@ export function transpileToJS(
     // __tv — what a parameter's checks read: the value a tosijs proxy wraps, else the value
     // itself. Never throws: a proxy whose key read throws is checked as itself.
     if (needsTv) {
-      inlineParts.push(
-        `const __xv=Symbol.for('xin-value');function __tv(v){if(v===null||(typeof v!=='object'&&typeof v!=='function'))return v;try{const w=v[__xv];if(w!==undefined)return w}catch(e){}return v}`
-      )
+      inlineParts.push(UNWRAP_TOSI_SOURCE)
     }
     // toBool — honest truthiness (unwraps boxed primitives)
     if (needsToBool) {

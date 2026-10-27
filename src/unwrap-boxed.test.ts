@@ -22,7 +22,13 @@
  * *supposed* to derive from is exactly what the previous six copies also believed.
  */
 import { describe, it, expect } from 'bun:test'
-import { unwrapBoxed, UNWRAP_BOXED_SOURCE } from './unwrap-boxed'
+import {
+  unwrapBoxed,
+  UNWRAP_BOXED_SOURCE,
+  unwrapTosi,
+  UNWRAP_TOSI_SOURCE,
+  tosiUnwrapSource,
+} from './unwrap-boxed'
 import { tjs } from './lang/index'
 import { Is as sharedIs, Eq as sharedEq } from './lang/runtime'
 
@@ -196,4 +202,66 @@ describe('tosijs proxies are seen through by ==, truthiness and given', () => {
     expect(eq(d, 5)).toBe(false)
     expect(eq({ valueOf: () => 5 }, 5)).toBe(false)
   })
+})
+
+/**
+ * The tosijs unwrap is ONE definition in three forms (#3409): `unwrapTosi` (what `Type.check`
+ * and the runtime read), `UNWRAP_TOSI_SOURCE` (the `__tv` emitted into standalone code) and
+ * the `expect` harness's copy derived from it. They were hand-written separately; a later
+ * edit to one could have split `Type.check` from parameter checks with no test noticing.
+ */
+describe('the tosijs unwrap agrees in every form', () => {
+  const mod = { unwrapTosi, UNWRAP_TOSI_SOURCE, tosiUnwrapSource }
+  const forms: Array<[string, (v: unknown) => unknown]> = [
+    ['unwrapTosi', mod.unwrapTosi],
+    [
+      'UNWRAP_TOSI_SOURCE (__tv)',
+      new Function(`${mod.UNWRAP_TOSI_SOURCE}\nreturn __tv`)(),
+    ],
+    [
+      'expect harness copy',
+      new Function(`${mod.tosiUnwrapSource('__e', '__s')}\nreturn __e`)(),
+    ],
+  ]
+  const XV = Symbol.for('xin-value')
+  const proxyOf = (v: unknown) =>
+    new Proxy({}, { get: (_t, k) => (k === XV ? v : undefined) })
+  const corpus: Array<[string, () => unknown]> = [
+    ['a number', () => 3],
+    ['null', () => null],
+    ['undefined', () => undefined],
+    ['a plain object', () => ({ a: 1 })],
+    ['a tosijs-like proxy', () => proxyOf(7)],
+    ['a proxy wrapping undefined', () => proxyOf(undefined)],
+    [
+      'a proxy whose key read throws',
+      () =>
+        new Proxy(
+          {},
+          {
+            get: (_t, k) => {
+              if (k === XV) throw new Error('trap')
+            },
+          }
+        ),
+    ],
+    [
+      'a function carrying the key',
+      () => Object.assign(() => 1, { [XV]: 'f' }),
+    ],
+    ['a boxed String (NOT unwrapped here)', () => new String('x')],
+    ['a Date', () => new Date(0)],
+  ]
+  for (const [label, make] of corpus) {
+    it(label, () => {
+      const results = forms.map(([name, fn]) => {
+        const input = make()
+        const out = fn(input)
+        // Same answer means: the same primitive, or the very input handed back.
+        return [name, out === input ? 'itself' : out] as const
+      })
+      const first = results[0][1]
+      for (const [name, r] of results) expect([name, r]).toEqual([name, first])
+    })
+  }
 })

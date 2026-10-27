@@ -114,6 +114,22 @@ export function unwrapBoxed(v: unknown): unknown {
 }
 
 /**
+ * `unwrapTosi` as emittable text, `__tv` (#3409). Emitted code cannot import, so the inline
+ * runtime carries this, and the test harness's `expect` derives its own copy from it
+ * (`tosiUnwrapSource`). It was hand-written in three places; `src/unwrap-boxed.test.ts` runs
+ * the function and every text form over one hostile corpus and demands identical answers.
+ */
+export const UNWRAP_TOSI_SOURCE =
+  `const __xv=Symbol.for('xin-value');` +
+  `function __tv(v){if(v===null||(typeof v!=='object'&&typeof v!=='function'))return v;` +
+  `try{const w=v[__xv];if(w!==undefined)return w}catch(e){}return v}`
+
+/** `UNWRAP_TOSI_SOURCE` under other names, for a scope that may already hold `__tv`. */
+export function tosiUnwrapSource(fn: string, sym: string): string {
+  return UNWRAP_TOSI_SOURCE.replace(/__xv/g, sym).replace(/__tv\b/g, fn)
+}
+
+/**
  * The SAME logic as an emittable source string, named `__ub`.
  *
  * Kept beside the function it mirrors so a change to one is a visibly incomplete change
