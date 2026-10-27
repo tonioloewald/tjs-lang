@@ -527,6 +527,39 @@ function extractFunctionTypeInfo(
           description: tdoc.params[param.left.name],
         }
       } else if (
+        param.type === 'ArrayPattern' ||
+        (param.type === 'AssignmentPattern' &&
+          param.left.type === 'ArrayPattern')
+      ) {
+        // An ARRAY pattern is one parameter too (#3497). It had no metadata entry at all, so
+        // `g([a, b], k)` listed only `k` and position-based readers misaligned; a bad element
+        // passed unchecked and `null` threw. Its elements carry no native examples, so the
+        // type is the TS spelling's annotation (`[a, b]: [0, 0]`), else "an array".
+        const index = func.params.indexOf(param)
+        const pattern: any = param.type === 'ArrayPattern' ? param : param.left
+        const label = patternLabel(pattern)
+        const key = !params[label] ? label : `__${index}`
+        const mark = preprocessedSource
+          ? destructuredShapeMarker(param, preprocessedSource)
+          : undefined
+        const declared = mark ? annotationType(mark.text) : undefined
+        if (mark && !declared)
+          warnings.push(
+            `The type of the destructured parameter ${key} could not be read ('${mark.text}'); it is unchecked.`
+          )
+        params[key] = {
+          name: key,
+          type: declared ?? ({ kind: 'array' } as TypeDescriptor),
+          required: param.type !== 'AssignmentPattern',
+          ...(param.type === 'AssignmentPattern' ? { default: null } : {}),
+        }
+        destructuredAt[key] = {
+          index,
+          binding: `${DESTRUCTURED_ARG}${index}`,
+          members: {},
+          declared: !!declared,
+        }
+      } else if (
         param.type === 'ObjectPattern' ||
         (param.type === 'AssignmentPattern' &&
           param.left.type === 'ObjectPattern')
@@ -3642,7 +3675,9 @@ function destructuredRelocation(
 ): DestructuredRelocation | undefined {
   if (!param) return undefined
   const pattern = param.type === 'AssignmentPattern' ? param.left : param
-  if (pattern?.type !== 'ObjectPattern') return undefined
+  if (pattern?.type !== 'ObjectPattern' && pattern?.type !== 'ArrayPattern')
+    return undefined
+  const isArray = pattern.type === 'ArrayPattern'
   const dflt = param.type === 'AssignmentPattern' ? param.right : undefined
   const patternMark = `\u0000tjsPattern${id}\u0000`
   const defaultMark = `\u0000tjsDefault${id}\u0000`
@@ -3660,7 +3695,9 @@ function destructuredRelocation(
       // `({ w, h }: Shape)`: checked against its declared type first, for the better message.
       ...declared,
       // A monadic error is refused here and `typeError` hands it back unchanged.
-      `if (typeof ${cv} !== 'object' || ${cv} === null || Array.isArray(${cv}) || __tjs.isMonadicError(${cv})) return __tjs.typeError('${path}', 'object', ${A});`,
+      isArray
+        ? `if (!Array.isArray(${cv})) return __tjs.typeError('${path}', 'array', ${A});`
+        : `if (typeof ${cv} !== 'object' || ${cv} === null || Array.isArray(${cv}) || __tjs.isMonadicError(${cv})) return __tjs.typeError('${path}', 'object', ${A});`,
       `var ${patternMark} = ${A};`,
     ],
   }
@@ -3735,7 +3772,8 @@ function destructuredShapeMarker(
 ): { text: string; start: number; end: number; label: string } | undefined {
   if (!param) return undefined
   const pattern = param.type === 'AssignmentPattern' ? param.left : param
-  if (pattern?.type !== 'ObjectPattern') return undefined
+  if (pattern?.type !== 'ObjectPattern' && pattern?.type !== 'ArrayPattern')
+    return undefined
   const after = source.slice(pattern.end)
   const m = after.match(/^\s*\/\*([^]*?)\*\//)
   if (!m || !m[1].startsWith(DESTRUCTURED_SHAPE_MARK)) return undefined
@@ -3775,6 +3813,18 @@ function destructuredArgChecks(
  * carry examples (`{ w = 0 }` after preprocessing), which a `.d.ts` may not contain.
  */
 function patternLabel(pattern: any): string {
+  if (pattern.type === 'ArrayPattern')
+    return `[ ${(pattern.elements ?? [])
+      .map((e: any) =>
+        !e
+          ? ''
+          : e.type === 'RestElement'
+          ? `...${e.argument?.name ?? 'rest'}`
+          : e.type === 'AssignmentPattern'
+          ? e.left?.name ?? '_'
+          : e.name ?? '_'
+      )
+      .join(', ')} ]`
   const names = (pattern.properties ?? []).map((p: any) =>
     p.type === 'RestElement'
       ? `...${p.argument?.name ?? 'rest'}`

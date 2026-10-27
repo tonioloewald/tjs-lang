@@ -202,8 +202,8 @@ describe('a TS-style destructured annotation is checked', () => {
 
   it('the marker never reaches the output, checked or not', () => {
     for (const src of [
-      // An array pattern's annotation is erased, unchecked (#3497); a destructured object
-      // parameter beside others is now checked. Neither ships the marker.
+      // Array and object patterns, alone or beside others, are all checked now (#3443,
+      // #3497); none ships the marker.
       `function f([a, b]: [0, 0]) { return a + b }`,
       `function g(x: 0, { b }: { b: 0 }) { return b }`,
       `const h = ({ a }: { a: 0 }, k = 1) => a + k`,
@@ -387,5 +387,40 @@ describe('a destructured parameter beside others', () => {
     expect(f({ a: 2 })).toBe(3)
     expect(f({ a: 2 }, { b: 5 })).toBe(7)
     expect(f({ a: 2 }, null).name).toBe('MonadicError')
+  })
+})
+
+/**
+ * An ARRAY pattern is one parameter too (#3497). It had no metadata entry at all
+ * (`g([a, b], k)` listed only `k`), a bad element passed, and `null` threw.
+ */
+describe('an array-pattern parameter', () => {
+  const load = loaders.standalone
+
+  it('is one entry in the metadata', () => {
+    const r = tjs('function g([a, b]: [0, 0], k: 0) { return a + b + k }', {
+      runTests: false,
+    })
+    expect(Object.keys(r.types.g.params)).toEqual(['[ a, b ]', 'k'])
+  })
+
+  it('the TS annotation is checked, alone and beside others', () => {
+    const f = load('function f([a, b]: [0, 0]) { return a + b }', 'f')
+    expect(f([1, 2])).toBe(3)
+    const bad = ['x', 2]
+    expect(f(bad).received).toBe(bad)
+    const g = load('function g(k: 0, [a, b]: [0, 0]) { return a + b + k }', 'g')
+    expect(g(1, [1, 2])).toBe(4)
+    expect(g(1, ['x', 2]).name).toBe('MonadicError')
+  })
+
+  it('null and a non-array are returned errors, not throws; a monadic error passes', () => {
+    const h = load('function h([a = 1, b = 2]) { return a + b }', 'h')
+    expect(h([5])).toBe(7)
+    expect(h(null).name).toBe('MonadicError')
+    expect(h('ab').name).toBe('MonadicError')
+    const dbl = load('function dbl(n: 0) { return n * 2 }', 'dbl')
+    const first = dbl('ten')
+    expect(h(first)).toBe(first)
   })
 })

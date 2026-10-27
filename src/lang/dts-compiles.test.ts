@@ -424,3 +424,13 @@ export function f(r: R, s: S, l: L): 0 { return 1 }`
     ).not.toEqual([])
   })
 })
+
+describe('an array-pattern parameter is one parameter in the .d.ts (#3497)', () => {
+  const calls = (src: string, call: string) =>
+    diagnose(`${dtsFor(src)}\n${call}\n`)
+  it('([a, b]: [0, 0], k: 0)', () => {
+    const src = `export function g([a, b]: [0, 0], k: 0): 0 { return a + b + k }`
+    expect(calls(src, 'g([1, 2], 3)')).toEqual([])
+    expect(calls(src, 'g(1, 2, 3)')).not.toEqual([])
+  })
+})

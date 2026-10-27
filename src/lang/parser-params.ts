@@ -2020,10 +2020,10 @@ function processParamString(
           const eq = topLevelDefaultEquals(tail)
           const annotation = (eq === -1 ? tail : tail.slice(0, eq)).trim()
           const dflt = eq === -1 ? '' : ` ${tail.slice(eq).trim()}`
-          // Only where the emitter consumes it: an OBJECT pattern, at any position (the
-          // emitter names and checks it). An array pattern's annotation is erased, unchecked,
-          // as before (#3497), rather than shipping a private marker in the output.
-          const consumed = open === '{'
+          // Consumed by the emitter for an object or array pattern at any position: it
+          // names the argument, checks it against this annotation, then destructures
+          // (#3434, #3443, #3497).
+          const consumed = open === '{' || open === '['
           return consumed && annotation && !annotation.includes('*/')
             ? `${pattern} /*${DESTRUCTURED_SHAPE_MARK}${annotation}*/${dflt}`
             : `${pattern}${dflt}`

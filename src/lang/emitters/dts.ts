@@ -248,7 +248,7 @@ function functionDeclToTS(
       // pattern (`{ w, h }`, valid in a declaration) (#3443/#3444).
       const at = (info as any).destructuredAt?.[pName]
       const tsType = at
-        ? at.declared
+        ? at.declared || p.type?.kind === 'array'
           ? typeDescriptorToTS(p.type)
           : membersToTS(Object.entries(at.members))
         : isDict
