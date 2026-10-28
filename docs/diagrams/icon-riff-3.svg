@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Riff 3: "Dawn Owl" — transitional sky (the animation goes day->storm->night)
+     This captures the sunrise moment. The owl's screen shows { } braces,
+     the most universal "code" symbol. Warm gradient background.
+     The owl is the same character but the palette says "new era." -->
+<svg viewBox="0 0 48 48" width="48" height="48" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3da8f4"/>
+      <stop offset="60%" stop-color="#fdbe52"/>
+      <stop offset="100%" stop-color="#fbed21"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .screen { fill: #ffffff; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .outline { fill: none; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .wing { fill: #9e9e9e; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .body { fill: #e4e4e4; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .feet { fill: none; stroke: #000; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .code { fill: none; stroke: #181340; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .eye-line { fill: none; stroke: #000; stroke-width: 2; stroke-linecap: round; }
+    .sun-glow { fill: #fbed21; opacity: 0.3; }
+  </style>
+
+  <!-- Background: dawn gradient -->
+  <rect width="48" height="48" rx="8" fill="url(#sky)"/>
+
+  <!-- Sun peeking up from bottom -->
+  <circle cx="24" cy="48" r="12" class="sun-glow"/>
+  <circle cx="24" cy="48" r="8" fill="#fbed21" opacity="0.5"/>
+
+  <!-- Left wing -->
+  <path d="M7.5,16 C4.5,16,2,18.5,2,21.5 C2,24,4,26,6.5,26 L6.6,26 C7.4,26,8,26.6,8,27.4 C8,29.9,10.1,32,12.6,32 L16,32 C18.6,32,20.7,29.9,20.7,27.3 L20.7,21.4 C20.7,18.4,18.3,16,15.3,16 Z" class="wing"/>
+
+  <!-- Right wing -->
+  <path d="M40.5,16 C43.5,16,46,18.5,46,21.5 C46,24,44,26,41.5,26 L41.4,26 C40.6,26,40,26.6,40,27.4 C40,29.9,37.9,32,35.4,32 L32,32 C29.4,32,27.3,29.9,27.3,27.3 L27.3,21.4 C27.3,18.4,29.7,16,32.7,16 Z" class="wing"/>
+
+  <!-- Body -->
+  <path d="M17,29 L33,29 C33,34.5,28.5,39,23,39 C19.7,39,17,36.3,17,33 Z" class="body"/>
+
+  <!-- Feet -->
+  <path d="M20,43 L18,41 L16,43" class="feet"/>
+  <path d="M32,43 L30,41 L28,43" class="feet"/>
+
+  <!-- Rain lines (the storm is passing) -->
+  <path d="M35,35 L32.2,35 L32.2,37.8" class="feet"/>
+
+  <!-- Head/Screen -->
+  <rect x="6" y="6" width="30" height="23" rx="4" class="screen"/>
+
+  <!-- Nose line -->
+  <line x1="21" y1="11" x2="21" y2="23" class="outline"/>
+
+  <!-- Eyes — simple lines, owl is calm/confident -->
+  <line x1="11" y1="16" x2="17" y2="16" class="eye-line"/>
+  <line x1="25" y1="16" x2="31" y2="16" class="eye-line"/>
+
+  <!-- Code braces on forehead — { } -->
+  <path d="M13,8 C11.5,8 11,9 11,10 C11,11 10.5,11.5 10,11.5 C10.5,11.5 11,12 11,13 C11,14 11.5,15 13,15" class="code"/>
+  <path d="M29,8 C30.5,8 31,9 31,10 C31,11 31.5,11.5 32,11.5 C31.5,11.5 31,12 31,13 C31,14 30.5,15 29,15" class="code"/>
+</svg>

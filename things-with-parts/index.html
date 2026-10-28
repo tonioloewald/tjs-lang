@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    try {
+      var p = JSON.parse(localStorage.getItem('tosi-doc-system-prefs') || '{}')
+      var t = p.theme || 'system'
+      if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('darkmode')
+      if (p.highContrast) document.documentElement.classList.add('high-contrast')
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../doc-system.css?v=9014c055ad3c" data-tosi-doc-system />
+  <title>Things with Parts — tjs-lang</title>
+  <meta name="description" content="A list keeps values in order. Often what you want instead is one thing with several named parts: a person has a name and a birth year, a rectangle has a width…" />
+  <link rel="canonical" href="https://tjs.tosijs.net/things-with-parts/" />
+  <link rel="alternate" type="text/markdown" href="index.md" title="Things with Parts — tjs-lang (markdown)" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="tjs-lang" />
+  <meta property="og:title" content="Things with Parts — tjs-lang" />
+  <meta property="og:description" content="A list keeps values in order. Often what you want instead is one thing with several named parts: a person has a name and a birth year, a rectangle has a width…" />
+  <meta property="og:url" content="https://tjs.tosijs.net/things-with-parts/" />
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Things with Parts","description":"A list keeps values in order. Often what you want instead is one thing with several named parts: a person has a name and a birth year, a rectangle has a width…","url":"https://tjs.tosijs.net/things-with-parts/","inLanguage":"en","isPartOf":{"@type":"WebSite","name":"tjs-lang","url":"https://tjs.tosijs.net"}}</script>
+  <link rel="icon" href="../favicon.svg" />
+<script>globalThis.__TJS_LOCAL_BASE="/tjs/"</script><script>globalThis.__TOSI_EXAMPLE_POLICY="opt-in"</script><script>globalThis.__TOSI_DIALECTS=["ajs"]</script><script>globalThis.__TOSI_IMPORT_RESOLVER={"prefix":"/lib/","workerUrl":"/import-resolver-worker.js","reloadOnFirstInstall":false}</script>
+</head>
+<body>
+  <tosi-doc-system docs="../docs.json?v=d9d4601f017b" config="{&quot;projectName&quot;:&quot;tjs-lang&quot;,&quot;projectLinks&quot;:{&quot;github&quot;:&quot;https://github.com/tonioloewald/tjs-lang&quot;,&quot;npm&quot;:&quot;https://www.npmjs.com/package/tjs-lang&quot;},&quot;bookVolumes&quot;:&quot;/epub-volumes.json&quot;,&quot;ebooks&quot;:[{&quot;title&quot;:&quot;tjs-lang&quot;,&quot;url&quot;:&quot;/tjs-lang.epub&quot;},{&quot;title&quot;:&quot;AJS and Safe Eval&quot;,&quot;url&quot;:&quot;/tjs-lang-ajs.epub&quot;},{&quot;title&quot;:&quot;The TJS Programming Language&quot;,&quot;url&quot;:&quot;/tjs-lang-language.epub&quot;},{&quot;title&quot;:&quot;TypeScript: The Good, the Bad, and the Ugly&quot;,&quot;url&quot;:&quot;/tjs-lang-ts.epub&quot;}]}">
+  <article class="doc-content" data-doc="things-with-parts.md">
+<!--{"parent": "learn-to-program.md", "order": 8}--><h1 id="things-with-parts">Things with Parts</h1>
+<p>A list keeps values in order. Often what you want instead is one thing with several named
+parts: a person has a name and a birth year, a rectangle has a width and a height. In TJS that
+is an <strong>object</strong>.</p>
+<h2 id="making-an-object">Making an object</h2>
+<p>An object is written in braces, as <code>name: value</code> pairs separated by commas. Each part is
+called a <strong>property</strong>, and you read one with a dot:</p>
+<pre data-example-mode="inline" data-example-options="{&quot;view&quot;:&quot;code&quot;}"><code class="language-tjs">const ada = { name: &#39;Ada Lovelace&#39;, born: 1815 }
+
+preview.append(`${ada.name} was born in ${ada.born}.`)
+
+test &#39;reading properties&#39; {
+  expect(ada.name).toBe(&#39;Ada Lovelace&#39;)
+  expect(ada.born).toBe(1815)
+}
+</code></pre>
+<p>Ask the console for <code>ada.born + 36</code>, then for <code>ada.died</code>: an object with no <code>died</code> property
+answers <code>undefined</code>, just as a list does past its end.</p>
+<h2 id="changing-and-adding-parts">Changing and adding parts</h2>
+<pre data-example-mode="inline" data-example-options="{&quot;view&quot;:&quot;code&quot;}"><code class="language-tjs">const counter = { label: &#39;clicks&#39;, count: 0 }
+counter.count = counter.count + 1
+counter.count = counter.count + 1
+counter.colour = &#39;green&#39;
+
+preview.append(`${counter.label}: ${counter.count} (${counter.colour})`)
+
+test &#39;parts can change, and new parts can be added&#39; {
+  expect(counter.count).toBe(2)
+  expect(counter.colour).toBe(&#39;green&#39;)
+}
+</code></pre>
+<p><code>const</code> means the name <code>counter</code> always points at the same object; the object&#39;s parts can
+still change.</p>
+<h2 id="lists-of-objects">Lists of objects</h2>
+<p>Most real data is a list of objects: rows in a table, people in a class, items in a basket.
+Everything from Lists works on them:</p>
+<pre data-example-mode="inline" data-example-options="{&quot;view&quot;:&quot;code&quot;}"><code class="language-tjs">const basket = [
+  { item: &#39;bread&#39;, price: 2.5, quantity: 1 },
+  { item: &#39;apples&#39;, price: 0.5, quantity: 6 },
+  { item: &#39;cheese&#39;, price: 4, quantity: 1 },
+]
+
+const lines = basket.map((row) =&gt; `${row.quantity} x ${row.item}`)
+const total = basket
+  .map((row) =&gt; row.price * row.quantity)
+  .reduce((sum, cost) =&gt; sum + cost, 0)
+
+preview.append(`${lines.join(&#39;, &#39;)}: ${total}`)
+
+test &#39;adding up a basket&#39; {
+  expect(lines[1]).toBe(&#39;6 x apples&#39;)
+  expect(total).toBe(9.5)
+}
+</code></pre>
+<p><code>reduce</code> folds a list into one value: it starts at <code>0</code> and, for each item, gives back the
+running total plus that item&#39;s cost. (You could write the same thing with <code>for … of</code> and a
+<code>let</code>, as in Lists. Both are fine.)</p>
+<h2 id="an-object-as-a-parameter">An object as a parameter</h2>
+<p>A parameter&#39;s example can be an object. Then the example says which parts the object must
+have, and what kind each part is:</p>
+<pre data-example-mode="inline" data-example-options="{&quot;view&quot;:&quot;code&quot;}"><code class="language-tjs">function area(rect: { width: 0, height: 0 }) {
+  return rect.width * rect.height
+}
+
+preview.append(`A 3 by 4 rectangle has an area of ${area({ width: 3, height: 4 })}.`)
+
+test &#39;area needs both parts&#39; {
+  expect(area({ width: 3, height: 4 })).toBe(12)
+  expect(area({ width: 3, height: 4, colour: &#39;red&#39; })).toBe(12)
+  expect(area({ width: 3 }) instanceof Error).toBe(true)
+}
+</code></pre>
+<p>Extra parts are fine (the rectangle can have a colour). A missing part is refused, and the
+error names it: <code>area({ width: 3 })</code> says that <code>rect.height</code> was expected and is missing.</p>
+<h2 id="naming-a-shape-type">Naming a shape: <code>Type</code></h2>
+<p>When the same shape turns up in several places, give it a name. A <code>Type</code> describes a shape
+with a sentence and an example:</p>
+<pre data-example-mode="inline" data-example-options="{&quot;view&quot;:&quot;code&quot;}"><code class="language-tjs">Type Point {
+  description: &#39;a position on a grid&#39;
+  example: { x: 0, y: 0 }
+}
+
+function distance(a: Point, b: Point) {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+}
+
+preview.append(`From (0, 0) to (3, 4) is ${distance({ x: 0, y: 0 }, { x: 3, y: 4 })}.`)
+
+test &#39;a Point is anything shaped like one&#39; {
+  expect(distance({ x: 0, y: 0 }, { x: 3, y: 4 })).toBe(5)
+  expect(Point.check({ x: 1, y: 2 })).toBe(true)
+  expect(Point.check({ x: &#39;one&#39;, y: 2 })).toBe(false)
+}
+</code></pre>
+<ul>
+<li><code>a: Point</code> reads &quot;a must be a Point&quot;, and is checked on every call, like any example.</li>
+<li><code>Point.check(value)</code> asks the question yourself: is this shaped like a Point?</li>
+<li><code>**</code> raises to a power: <code>3 ** 2</code> is 9. <code>Math.sqrt</code> is the square root.</li>
+</ul>
+<p>The description is for people: it turns up in the documentation TJS writes for your code.</p>
+<h2 id="try-it">Try it</h2>
+<p>Make a <code>Type Book</code> with a <code>title</code> and a number of <code>pages</code>. Write <code>longBooks(books: [Book])</code> that
+gives back the titles of the books with more than 300 pages, and test it with a list of three
+books (one short, two long), and with an empty list. <code>[Book]</code> means &quot;a list of Books&quot;, and
+every book in it is checked: test that a list with a book missing its <code>pages</code> is refused.</p>
+
+  </article>
+  <nav class="doc-nav" aria-label="Documentation">
+  <ul>
+    <li><a class="doc-link" href="../">TJS Platform</a></li>
+    <li><details open><summary><a class="doc-link" href="../learn-to-program/">Learn to Program</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../how-this-book-works/">How This Book Works</a></li>
+      <li><a class="doc-link" href="../hello-screen/">Hello, Screen</a></li>
+      <li><a class="doc-link" href="../values-and-names/">Values and Names</a></li>
+      <li><a class="doc-link" href="../functions/">Functions</a></li>
+      <li><a class="doc-link" href="../checking-your-work/">Checking Your Work</a></li>
+      <li><a class="doc-link" href="../decisions/">Decisions</a></li>
+      <li><a class="doc-link" href="../repetition/">Repetition</a></li>
+      <li><a class="doc-link" href="../lists/">Lists</a></li>
+      <li><a class="doc-link current" href="../things-with-parts/" aria-current="page">Things with Parts</a></li>
+      <li><a class="doc-link" href="../responding-to-the-reader/">Responding to the Reader</a></li>
+      <li><a class="doc-link" href="../a-calculator/">A Calculator</a></li>
+      <li><a class="doc-link" href="../when-things-go-wrong/">When Things Go Wrong</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../tjs/">TJS: Typed JavaScript</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../tjs-examples/">TJS Interactive Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../tjs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-starfield/">Starfield</a></li>
+          <li><a class="doc-link" href="../tjs-grammar-demo/">TJS Grammar Reference</a></li>
+          <li><a class="doc-link" href="../wasm-vector-search/">Vector Search Benchmark</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-tjs/">Hello TJS</a></li>
+          <li><a class="doc-link" href="../required-vs-optional/">Required vs Optional</a></li>
+          <li><a class="doc-link" href="../object-types/">Object Types</a></li>
+          <li><a class="doc-link" href="../array-types/">Array Types</a></li>
+          <li><a class="doc-link" href="../given-dispatch/">Control Flow: given</a></li>
+          <li><a class="doc-link" href="../dictionary-defaults-example/">Dictionary Defaults</a></li>
+          <li><a class="doc-link" href="../const-and-bang/">const! and Bang Access</a></li>
+          <li><a class="doc-link" href="../honest-equality/">Honest Equality</a></li>
+          <li><a class="doc-link" href="../polymorphic-functions/">Polymorphic Functions</a></li>
+          <li><a class="doc-link" href="../js-footgun-fixes/">JS Footgun Fixes</a></li>
+          <li><a class="doc-link" href="../polymorphic-constructors/">Polymorphic Constructors</a></li>
+          <li><a class="doc-link" href="../safety-validation/">Safety &amp; Validation</a></li>
+          <li><a class="doc-link" href="../better-classes/">Better Classes</a></li>
+          <li><a class="doc-link" href="../local-extensions/">Local Class Extensions</a></li>
+          <li><a class="doc-link" href="../safer-code/">Safer Code</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../higher-order-functions/">Higher-Order Functions</a></li>
+          <li><a class="doc-link" href="../async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../error-handling/">Error Handling</a></li>
+          <li><a class="doc-link" href="../error-history/">Flight Recorder</a></li>
+          <li><a class="doc-link" href="../schema-validation/">Schema Validation</a></li>
+          <li><a class="doc-link" href="../date-formatting-with-import/">Date Formatting (with import)</a></li>
+          <li><a class="doc-link" href="../local-module-imports/">Local Module Imports</a></li>
+          <li><a class="doc-link" href="../lodash-utilities-with-import/">Lodash Utilities (with import)</a></li>
+          <li><a class="doc-link" href="../wasm-basics/">Inline WASM</a></li>
+          <li><a class="doc-link" href="../wasm-simd/">WASM SIMD</a></li>
+          <li><a class="doc-link" href="../wasm-memory/">WASM Memory</a></li>
+          <li><a class="doc-link" href="../wasm-functions/">WASM Functions (reusable kernels)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../the-universal-endpoint/">The Universal Endpoint</a></li>
+          <li><a class="doc-link" href="../inline-tests-test-private-functions/">Inline Tests: Test Private Functions</a></li>
+          <li><a class="doc-link" href="../predicate-types/">Predicate Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-fullstack/">Full Stack</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../full-stack-demo-user-service/">Full-Stack Demo: User Service</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-client-app/">Full-Stack Demo: Client App</a></li>
+          <li><a class="doc-link" href="../full-stack-demo-todo-api/">Full-Stack Demo: Todo API</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-unbundled/">Unbundled</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../react-todo-comparison/">React Todo (Comparison)</a></li>
+          <li><a class="doc-link" href="../tosijs-todo/">tosijs Todo App</a></li>
+          <li><a class="doc-link" href="../cdn-hints/">CDN Hints (overriding the default)</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../tjs-wasmlib/">WASM Libraries</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../wasm-library-author/">WASM Library: SIMD Linalg</a></li>
+          <li><a class="doc-link" href="../wasm-library-consumer/">Using a WASM Library</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../DOCS-TJS/">TJS: Typed JavaScript</a></li>
+      <li><a class="doc-link" href="../TJS-FOR-JS/">TJS for JavaScript Programmers</a></li>
+      <li><a class="doc-link" href="../footguns/">JS Footguns That TJS Quietly Fixes</a></li>
+      <li><a class="doc-link" href="../DOCS-WASM/">WASM in TJS</a></li>
+      <li><a class="doc-link" href="../WASM-QUICKSTART/">WASM Quick Start</a></li>
+      <li><a class="doc-link" href="../playground-imports/">Playground Imports</a></li>
+      <li><a class="doc-link" href="../tosijs-schema/">Context: Working with tosijs-schema</a></li>
+      <li><a class="doc-link" href="../performance/">TJS Performance Guide</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../ajs/">AJS (.ajs) - A Better JavaScript for AI Agents</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../DOCS-AJS/">AJS: The Agent Language</a></li>
+      <li><a class="doc-link" href="../safe-eval/">Safe Eval</a></li>
+      <li><a class="doc-link" href="../ajs-llm-prompt/">AJS LLM System Prompt</a></li>
+      <li><details><summary><a class="doc-link" href="../ajs-examples/">AJS Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ajs-featured/">Featured</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-api-data/">LLM + API Data</a></li>
+          <li><a class="doc-link" href="../fuel-limits/">Fuel Limits</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-basics/">Basics</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../hello-world/">Hello World</a></li>
+          <li><a class="doc-link" href="../math-operations/">Math Operations</a></li>
+          <li><a class="doc-link" href="../conditional-logic/">Conditional Logic</a></li>
+          <li><a class="doc-link" href="../loop-filter/">Loop &amp; Filter</a></li>
+          <li><a class="doc-link" href="../string-processing/">String Processing</a></li>
+          <li><a class="doc-link" href="../json-processing/">JSON Processing</a></li>
+          <li><a class="doc-link" href="../ajs-error-handling/">Error Handling</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-api/">APIs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../weather-api/">Weather API</a></li>
+          <li><a class="doc-link" href="../itunes-search/">iTunes Search</a></li>
+          <li><a class="doc-link" href="../github-repos/">GitHub Repos</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-llm/">LLMs</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-chat/">LLM Chat</a></li>
+          <li><a class="doc-link" href="../llm-summarizer/">LLM Summarizer</a></li>
+          <li><a class="doc-link" href="../llm-structured-output/">LLM Structured Output</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ajs-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../llm-with-tool/">LLM with Tool</a></li>
+          <li><a class="doc-link" href="../multi-agent-pipeline/">Multi-Agent Pipeline</a></li>
+          <li><a class="doc-link" href="../vision-ocr/">Vision: OCR</a></li>
+          <li><a class="doc-link" href="../vision-classification/">Vision: Classification</a></li>
+          <li><a class="doc-link" href="../llm-code-solver/">LLM Code Solver</a></li>
+          <li><a class="doc-link" href="../llm-code-generator/">LLM Code Generator</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+      <li><a class="doc-link" href="../patterns/">AJS Patterns</a></li>
+      <li><a class="doc-link" href="../universal-endpoint/">The universal endpoint: isomorphic atoms, one security model</a></li>
+      <li><a class="doc-link" href="../ajs-native-vm/">AJS Native VM (Rust → wasm) — the 1.0 VM</a></li>
+      <li><a class="doc-link" href="../lm-studio-setup/">Running the LLM test suite (LM Studio setup)</a></li>
+      <li><a class="doc-link" href="../vm-budgets/">VM budgets: how fuel and maxHeapBytes stay true</a></li>
+      <li><a class="doc-link" href="../mlx-setup/">MLX as the local-AI harness</a></li>
+      <li><a class="doc-link" href="../pattern/">Pattern: declarative matching for TJS and AJS, and regex as an opt-in</a></li>
+      <li><a class="doc-link" href="../runtime/">seq (Sequence)</a></li>
+      <li><a class="doc-link" href="../index/">Store Module</a></li>
+      <li><a class="doc-link" href="../interface/">Store Interface</a></li>
+      <li><a class="doc-link" href="../memory/">In-Memory Store</a></li>
+      <li><a class="doc-link" href="../indexeddb/">IndexedDB Store</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../TJS-FOR-TS/">TJS for TypeScript Programmers</a></summary>
+    <ul>
+      <li><details><summary><a class="doc-link" href="../ts-examples/">TypeScript Examples</a></summary>
+      <ul>
+        <li><details><summary><a class="doc-link" href="../ts-intro/">Introduction</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-hello-typescript/">Hello TypeScript</a></li>
+          <li><a class="doc-link" href="../ts-multiple-functions/">Multiple Functions</a></li>
+          <li><a class="doc-link" href="../ts-type-transformation/">Type Transformation</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-validation/">Validation</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-embedded-tests/">Embedded Tests</a></li>
+          <li><a class="doc-link" href="../ts-runtime-validation/">Runtime Validation</a></li>
+          <li><a class="doc-link" href="../ts-object-validation/">Object Validation</a></li>
+          <li><a class="doc-link" href="../ts-optional-parameters/">Optional Parameters</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-patterns/">Patterns</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-array-operations/">Array Operations</a></li>
+          <li><a class="doc-link" href="../ts-nested-objects/">Nested Objects</a></li>
+          <li><a class="doc-link" href="../ts-union-types/">Union Types</a></li>
+        </ul>
+        </details></li>
+        <li><details><summary><a class="doc-link" href="../ts-advanced/">Advanced</a></summary>
+        <ul>
+          <li><a class="doc-link" href="../ts-generic-functions/">Generic Functions</a></li>
+          <li><a class="doc-link" href="../ts-async-functions/">Async Functions</a></li>
+          <li><a class="doc-link" href="../ts-classes/">Classes</a></li>
+          <li><a class="doc-link" href="../ts-the-full-picture/">The Full Picture</a></li>
+        </ul>
+        </details></li>
+      </ul>
+      </details></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../the-tjs-language/">The TJS Language</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../why-tjs/">Why TJS</a></li>
+      <li><a class="doc-link" href="../PRINCIPLES/">Design Principles &amp; Invariants</a></li>
+      <li><a class="doc-link" href="../declarations/">Declarations</a></li>
+      <li><a class="doc-link" href="../TJS-SYNTAX/">TJS Syntax Reference</a></li>
+      <li><a class="doc-link" href="../dictionary-defaults/">Dictionary Defaults (Merge-on-Partial Object Arguments)</a></li>
+      <li><a class="doc-link" href="../type-identity/">Type identity: who answers "does this value satisfy this type?"</a></li>
+      <li><a class="doc-link" href="../runtime-fusion/">Runtime fusion: what may be shared between TJS modules, and what may not</a></li>
+      <li><a class="doc-link" href="../type-system-north-star/">North star: JSON-Schema + predicates as the single source of truth for types</a></li>
+      <li><a class="doc-link" href="../function-predicate-design/">FunctionPredicate: Design Notes</a></li>
+      <li><a class="doc-link" href="../case-study-switch/">Case study: fixing switch</a></li>
+      <li><a class="doc-link" href="../parser-primitives/">Small scoped parsers, not a rewrite</a></li>
+      <li><a class="doc-link" href="../ambient-contracts/">Ambient Contracts — probe reality, derive verified predicate contracts</a></li>
+      <li><a class="doc-link" href="../native-engine-integration/">Native Engine Integration: TJS in V8 or JavaScriptCore</a></li>
+      <li><a class="doc-link" href="../CONTEXT/">tjs-lang Technical Context</a></li>
+    </ul>
+    </details></li>
+    <li><details><summary><a class="doc-link" href="../typescript-good-bad-ugly/">TypeScript: The Good, the Bad, and the Ugly</a></summary>
+    <ul>
+      <li><a class="doc-link" href="../tjs-vs-typescript/">TJS vs TypeScript vs JavaScript</a></li>
+      <li><a class="doc-link" href="../generic-dts-design/">Generic .d.ts Emission: Design Notes</a></li>
+      <li><a class="doc-link" href="../postmortem-ts-emitter/">Post-mortem: we spent seven months testing TypeScript's compiler</a></li>
+    </ul>
+    </details></li>
+    <li><a class="doc-link" href="../CHANGELOG/">Changelog</a></li>
+    <li><a class="doc-link" href="../PLAN/">TJS Roadmap</a></li>
+    <li><a class="doc-link" href="../ASSUMPTIONS/">Assumptions ledger</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-BUILDER/">Applied Laziness: The "Zero-Infrastructure" Stack</a></li>
+    <li><a class="doc-link" href="../MANIFESTO-ENTERPRISE/">Governance: Safe Execution of Untrusted Logic</a></li>
+    <li><a class="doc-link" href="../benchmarks/">TJS Benchmarks</a></li>
+  </ul>
+  </nav>
+
+  </tosi-doc-system>
+  <script type="module" src="../hydrate-hhkyj888.js"></script>
+</body>
+</html>
