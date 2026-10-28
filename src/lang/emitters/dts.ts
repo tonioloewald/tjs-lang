@@ -84,7 +84,10 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
       if (td.items) {
         const inner = typeDescriptorToTS(td.items)
         // Wrap union types in parens for array: (A | B)[]
-        base = inner.includes('|') ? `(${inner})[]` : `${inner}[]`
+        base =
+          inner.includes('|') || inner.includes('=>')
+            ? `(${inner})[]`
+            : `${inner}[]`
       } else {
         base = 'any[]'
       }
@@ -177,6 +180,16 @@ function destructuredParamToTS(info: any): string {
   return `${pattern}${info.destructuredOptional ? '?' : ''}: ${type}`
 }
 
+/** Is `text` a parameter TypeScript (and JavaScript) will accept, e.g. `{ w, h }`? */
+function isValidParam(text: string): boolean {
+  try {
+    parseExpressionAt(`(${text}) => 0`, 0, { ecmaVersion: 'latest' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** `{ w: number; h?: number }` from member descriptors; a defaulted member is optional. */
 function membersToTS(members: Array<[string, any]>): string {
   return `{ ${members
@@ -231,7 +244,10 @@ function functionDeclToTS(
     const p = entries[i][1] as (typeof entries)[number][1] & {
       default?: unknown
     }
-    const deliberateOptional = !p.required && p.default !== undefined
+    // `hasDefault`: a default that is not a literal (`t = Book`, `x = now()`) has no
+    // `default` value to record, but it is still optional.
+    const deliberateOptional =
+      !p.required && (p.default !== undefined || !!(p as any).hasDefault)
     optionalFlags[i] = deliberateOptional && !requiredFollows
     if (!optionalFlags[i]) requiredFollows = true
   }
@@ -254,7 +270,14 @@ function functionDeclToTS(
         : isDict
         ? typeDescriptorToDeepPartialTS(p.type)
         : typeDescriptorToTS(p.type)
-      return optionalFlags[i] ? `${pName}?: ${tsType}` : `${pName}: ${tsType}`
+      // A destructured parameter's metadata key is a readable label (`{ w, h }`); it is
+      // declared under that name only when it is a valid binding pattern. `[ _, _ ]` (two
+      // nested elements) and `{ "a-b" }` (a quoted key) are not, and made the whole `.d.ts`
+      // fail to compile, so those get a positional name.
+      const declaredName = at && !isValidParam(pName) ? `__${at.index}` : pName
+      return optionalFlags[i]
+        ? `${declaredName}?: ${tsType}`
+        : `${declaredName}: ${tsType}`
     })
     .join(', ')
 

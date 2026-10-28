@@ -530,6 +530,7 @@ function extractFunctionTypeInfo(
         params[param.left.name] = {
           ...paramInfo,
           required: isRequired,
+          ...(isRequired ? {} : { hasDefault: true }),
           default: isRequired ? null : paramInfo.example ?? paramInfo.default,
           description: tdoc.params[param.left.name],
         }
@@ -3889,9 +3890,14 @@ function destructuredArgChecks(
   return [
     ...(check
       ? [
-          `if (${check}) return __tjs.typeError('${path}', '${expectedLabel(
+          // A failing list names its element, as an ordinary list parameter does (#3407).
+          `if (${check}) { ${listElementDiagnosis(
+            cv,
+            path,
             type
-          )}', ${A});`,
+          )}return __tjs.typeError('${path}', '${expectedLabel(
+            type
+          )}', ${A}); }`,
         ]
       : []),
     ...generateMemberCheckLines(cv, path, type, A),

@@ -434,3 +434,27 @@ describe('an array-pattern parameter is one parameter in the .d.ts (#3497)', () 
     expect(calls(src, 'g(1, 2, 3)')).not.toEqual([])
   })
 })
+
+/**
+ * rc.9 review: a destructured parameter whose label is not a valid parameter (nested
+ * elements, a quoted key) made the WHOLE `.d.ts` fail to compile; it is now declared under a
+ * positional name. A non-literal default (`t = Book`) is optional, and a list of functions is
+ * parenthesized.
+ */
+describe('awkward destructured shapes and Type-valued defaults compile', () => {
+  it('nested elements, a quoted key, and holes', () => {
+    const src = `export function b(k: 0, [{ x }, { y }]) { return 1 }
+export function a(k: 0, { 'a-b': x = 0 }) { return x }
+export function c(k: 0, [p, , q]) { return 1 }`
+    expect(diagnose(dtsFor(src))).toEqual([])
+  })
+
+  it('a Type as a default value is an optional parameter', () => {
+    const src = `export Type Book { example: { t: '' } }
+export function d(xs = [Book], t = Book): 0 { return 1 }`
+    const dts = dtsFor(src)
+    expect(diagnose(dts)).toEqual([])
+    expect(dts).toContain('xs?: (() => any)[]')
+    expect(diagnose(`${dts}\nd()\n`)).toEqual([])
+  })
+})

@@ -322,3 +322,11 @@ Kept as one line each; the full write-ups are in git history.
 - Workaround: `src/unwrap-boxed.ts` and the emitted inline `__tv`/`__ub` hardcode
   `Symbol.for('xin-value')`. Remove nothing when it lands; switch the tests to assert the
   exported symbol is the same registered key. Card #3413.
+
+## tosijs-coding-practices: verify an attestation at any commit (filed 2026-10-28)
+
+- Card: #3546 (tosijs-coding-practices board).
+- Workaround: `scripts/attested.ts` copies `attest.ts`'s `verifyAttestation` checks for an
+  arbitrary commit (the practices tool checks HEAD only), used by `.githooks/pre-push` to
+  skip re-running the full suite on an attested tag (#3445). Delete it when the practices
+  tool can verify a given sha: #3547.

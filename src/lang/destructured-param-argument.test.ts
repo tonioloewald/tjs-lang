@@ -424,3 +424,13 @@ describe('an array-pattern parameter', () => {
     expect(h(first)).toBe(first)
   })
 })
+
+describe('a failing destructured list names its element (rc.9 review)', () => {
+  it('[a, b]: [0] given [1, "x"]', () => {
+    const f = loaders.standalone('function f([a, b]: [0]) { return a }', 'f')
+    const list = [1, 'x']
+    const err = f(list)
+    expect(err.message).toMatch(/^Expected integer for '.*f\[1\]', got string/)
+    expect(err.received).toBe(list)
+  })
+})

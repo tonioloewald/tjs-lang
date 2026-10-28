@@ -9,7 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
+## [0.14.0-rc.9] — 2026-10-28
+
+On the `rc` dist-tag. A VM security fix (#3531), destructured and array-pattern parameters
+checked as the one argument they are at any position, `wrap()` working with emitted
+metadata, `:?` returns checked like parameters, tosijs proxies seen through everywhere, Type
+values as defaults, and sharper error messages. Pin `0.14.0-rc.9` exactly to test it.
+
+### Read this first: what changes since rc.8
+
+- **Published metadata (BREAKING, toward correctness):** a destructured or array-pattern
+  parameter beside others is ONE entry in `__tjs.params`, keyed by its binding pattern
+  (`{ w, h }, k`, not `w, h, k`); a lone destructured parameter's `__tjs` gains
+  `destructured: true`.
+- **A `:?` return with a wrong member now returns an error** (#3408).
+- **A list element failure names the element** (`f.xs[1].t`), not the list (#3407).
+- **`function f(xs = [Book])` takes a list of Types**, not of Books (#3411).
+- **`dialect: 'js'` no longer runs return examples** (#3412).
+
+### Security since rc.8
 
 - **The VM's equality runs no host code on the values it compares** (#3531). rc.7's tosijs
   see-through (`unwrapBoxed`) added a property GET of `Symbol.for('xin-value')`, and the VM's
@@ -22,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guest value is. Affected: 0.14.0-rc.7 and rc.8 for the GET; the `instanceof` trap reads are
   older. Not a sandbox escape: the code that ran is the embedder's own object.
 
-### Fixed
+### Fixed since rc.8
 
 - **A Type in a default is a value: functions can take Types** (#3411). In
   `function shelf(types = [Book])` or `function accepts(t = Book)`, the default is the Type
@@ -30,7 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   EXAMPLE ("a list of Book-shaped values"), so the parameter refused its own default and
   every other Type passed in. A declared Type named in a default (including a
   dictionary default's members) is now checked as a Type (`Expected Type for …` when it is
-  not one). The colon form keeps its meaning: `b: [Book]` is a list of Books.
+  not one). The colon form keeps its meaning: `b: [Book]` is a list of Books. **Behaviour change:**
+  `function f(xs = [Book])` used to check its argument as a list of Books (and refuse its
+  own default); it now takes a list of Types. For a list of Books write `xs: [Book]`.
+- **The `.d.ts` declares a parameter with a non-literal default as optional** (`t = Book`,
+  `x = now()` were required), and parenthesizes a list of functions (`(() => any)[]`, not
+  `() => any[]`).
 - **Signature examples run under one condition, at build and in the test runner** (#3412):
   native TJS. Under `dialect: 'js'` the build ran a return example (and failed the
   transpile on a wrong one) while `tjs().testRunner` never did. A return annotation is a
@@ -107,7 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as an object (a monadic error passes through; `null` is a returned error, no longer a
   throw; a failing member carries the object as `received`), then destructured, and the
   TypeScript spelling `(x, { b }: { b: 0 })` is checked in any position instead of erased.
-  An ARRAY pattern's annotation is still erased unchecked (#3497).
+  An ARRAY pattern is now one parameter too (#3497).
 
 ## [0.14.0-rc.8] — 2026-10-20
 
