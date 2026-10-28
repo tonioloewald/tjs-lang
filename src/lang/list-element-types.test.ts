@@ -130,28 +130,43 @@ function g(b: (Bk | null)[]): string { return 'ok' }`
 })
 
 /**
- * A Type used as a DEFAULT VALUE is warned about (#3411). `function f(b = [Book])` makes the
- * example the default too, so `f()` passes the Type object itself, which the parameter's own
- * check refuses. `b: [Book]` (required) was meant.
+ * A Type in a DEFAULT is a value: the Type itself (#3411). Functions may take Types and
+ * operate on them. Read as an example (`[Book]` = "a list of Books"), the parameter refused
+ * its own default and every other Type passed in. The colon form keeps its meaning.
  */
 describe('a Type used as a default value', () => {
-  const warningsOf = (src: string) =>
-    tjs(src, { runTests: false }).warnings ?? []
+  const SRC = `${BOOK}Type Point { example: { x: 0, y: 0 } }
+function shelf(types = [Book]) { return types.length }
+function accepts(t = Book, v = { title: 'a', pages: 1 }) { return t.check(v) }
+function needsBooks(b: [Book]) { return b.length }
+function opts(o = { types: [Book] }) { return o.types.length }
+const __P = Point`
+  const [shelf, accepts, needsBooks, opts, Point] = new Function(
+    `${
+      tjs(SRC, { runTests: false }).code
+    }\nreturn [shelf, accepts, needsBooks, opts, __P]`
+  )()
 
-  it('is warned about, naming the fix', () => {
-    const w = warningsOf(`${BOOK}function f(b = [Book]) { return b }`)
-    expect(
-      w.some((m: string) =>
-        m.includes("uses the Type 'Book' as a DEFAULT VALUE")
-      )
-    ).toBe(true)
-    expect(w.some((m: string) => m.includes("write 'b: …'"))).toBe(true)
+  it('the default is accepted, and so is any other Type', () => {
+    expect(shelf()).toBe(1)
+    expect(shelf([Point])).toBe(1)
+    expect(accepts()).toBe(true)
+    expect(accepts(Point, { x: 1, y: 2 })).toBe(true)
+    expect(opts()).toBe(1)
   })
 
-  it('is not warned about for a required parameter or an ordinary default', () => {
-    const w = warningsOf(
-      `${BOOK}function g(c: [Book]) { return c }\nfunction h(x = 1) { return x }`
-    )
-    expect(w.some((m: string) => m.includes('DEFAULT VALUE'))).toBe(false)
+  it('a value that is not a Type is refused, and the message says Type', () => {
+    expect(isError(shelf([5]))).toBe(true)
+    expect(accepts(5).message).toMatch(/^Expected Type for /)
+    expect(isError(opts({ types: [5] }))).toBe(true)
+  })
+
+  it('the colon form still means a value of that Type', () => {
+    expect(needsBooks([{ title: 'a', pages: 1 }])).toBe(1)
+    expect(isError(needsBooks([Point]))).toBe(true)
+  })
+
+  it('no warning: taking a Type is not a mistake', () => {
+    expect(tjs(SRC, { runTests: false }).warnings ?? []).toEqual([])
   })
 })

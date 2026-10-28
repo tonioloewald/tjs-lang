@@ -24,12 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A Type used as a default value is warned about** (#3411). `function f(b = [Book])`,
-  with `Book` a Type declared in the module, makes the example the DEFAULT too, so `f()`
-  handed the body a list holding the Type object, which the parameter's own check then
-  refused, with no hint why. The transpiler now warns and names the fix (`b: [Book]`,
-  required, or a real default). Warned rather than refused, since a plain JavaScript value
-  named like a Type is legal.
+- **A Type in a default is a value: functions can take Types** (#3411). In
+  `function shelf(types = [Book])` or `function accepts(t = Book)`, the default is the Type
+  itself, and a function may take Types and operate on them. The default was read as an
+  EXAMPLE ("a list of Book-shaped values"), so the parameter refused its own default and
+  every other Type passed in. A declared Type named in a default (including a
+  dictionary default's members) is now checked as a Type (`Expected Type for …` when it is
+  not one). The colon form keeps its meaning: `b: [Book]` is a list of Books.
 - **Signature examples run under one condition, at build and in the test runner** (#3412):
   native TJS. Under `dialect: 'js'` the build ran a return example (and failed the
   transpile on a wrong one) while `tjs().testRunner` never did. A return annotation is a

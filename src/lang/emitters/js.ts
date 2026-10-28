@@ -520,24 +520,13 @@ function extractFunctionTypeInfo(
         // expressions and methods alike, because it asks the parser rather than
         // re-guessing from source shape.
         const isRequired = localRequired.has(param.left.name)
-        // `b = [Book]` with `Book` a Type declared here (#3411): `=` makes the example the
-        // DEFAULT too, so `f()` hands the body a list holding the Type object, which its own
-        // check then refuses. Almost always `b: [Book]` (required) was meant. Warned, not
-        // refused: a plain JS value named like a Type is legal JavaScript.
-        if (!isRequired && declaredTypes?.size) {
-          let named: string | undefined
-          walk.full(param.right as any, (n: any) => {
-            if (!named && n.type === 'Identifier' && declaredTypes.has(n.name))
-              named = n.name
-          })
-          if (named)
-            warnings.push(
-              `'${param.left.name} = …' uses the Type '${named}' as a DEFAULT VALUE, so calling ` +
-                `without it passes the Type object itself (which the parameter's own check ` +
-                `refuses). For a parameter of that type write '${param.left.name}: …' ` +
-                `(required), or give a real default value.`
-            )
-        }
+        // In a DEFAULT (`t = Book`, `types = [Book]`) a declared Type is a VALUE: the Type
+        // itself, which functions may take and operate on (#3411). Read as an example it
+        // meant "Book-shaped", so the parameter refused its own default and every other
+        // Type passed in. A Type is a callable predicate, so it is checked as a function.
+        // The colon form (`b: [Book]`) still means "a list of Books".
+        if (!isRequired && declaredTypes?.size)
+          paramInfo.type = typeValuesIn(paramInfo.type, declaredTypes)
         params[param.left.name] = {
           ...paramInfo,
           required: isRequired,
@@ -3989,6 +3978,40 @@ function destructuredMemberLines(
     }
   }
   return lines
+}
+
+/**
+ * A default's declared Types as VALUES (#3411): each `{ unresolved: 'Book' }` naming a Type
+ * declared in this module becomes "a Type" (checked as a function, which a Type is), through
+ * lists, shapes and unions. Everything else is left as it was.
+ */
+function typeValuesIn(t: any, declaredTypes: Set<string>): any {
+  if (!t || typeof t !== 'object') return t
+  if (t.unresolved && declaredTypes.has(String(t.unresolved)))
+    // `typeName` is only the label ("Expected Type"); the check is the function check.
+    return {
+      kind: 'function',
+      typeName: 'Type',
+      ...(t.nullable ? { nullable: true } : {}),
+    }
+  if (t.kind === 'array' && t.items)
+    return { ...t, items: typeValuesIn(t.items, declaredTypes) }
+  if (t.kind === 'object' && t.shape)
+    return {
+      ...t,
+      shape: Object.fromEntries(
+        Object.entries(t.shape).map(([k, v]) => [
+          k,
+          typeValuesIn(v, declaredTypes),
+        ])
+      ),
+    }
+  if (t.kind === 'union' && Array.isArray(t.members))
+    return {
+      ...t,
+      members: t.members.map((m: any) => typeValuesIn(m, declaredTypes)),
+    }
+  return t
 }
 
 /** The name a parameter's checks read (see `__tv`): `p` → `__cv_p`. */
