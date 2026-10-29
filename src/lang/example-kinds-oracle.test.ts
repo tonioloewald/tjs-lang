@@ -294,6 +294,36 @@ function load(src: string, names: string[], withRuntime: boolean) {
   }
 }
 
+/**
+ * The recursive solver's step count (`S.w`) for one check, read from a test-only copy of the
+ * emitted code (#3542). Fails loudly when the emitted text no longer has the place it
+ * patches, rather than measuring nothing.
+ */
+function solverWork(src: string, name: string) {
+  const saved = (globalThis as any).__tjs
+  delete (globalThis as any).__tjs
+  try {
+    const code = tjs(src).code
+    const at = 'if(!ran&&!S.f.length&&!S.d.length)return root.ok'
+    if (!code.includes(at))
+      throw new Error('solverWork: the solver text changed')
+    const patched = code.replace(
+      at,
+      'if(!ran&&!S.f.length&&!S.d.length){globalThis.__solverWork=S.w;return root.ok}'
+    )
+    const T = new Function(`${patched}\nreturn ${name}`)()
+    return (value: unknown) => {
+      ;(globalThis as any).__solverWork = 0
+      T.check(value)
+      const w = (globalThis as any).__solverWork
+      delete (globalThis as any).__solverWork
+      return w as number
+    }
+  } finally {
+    ;(globalThis as any).__tjs = saved
+  }
+}
+
 // The fast lane runs a quarter of the sweep with the same fixed seeds (a prefix of the full
 // one); plain `bun test` — the release gate — runs all of it. At 400 each the file cost ~5s
 // of `test:fast` (0.14.0 final review, m-7).
@@ -662,7 +692,19 @@ describe('re-review 3 repros', () => {
     }
     const build = (m: number) => ({ items: Array.from({ length: m }, chain) })
     expect(Arr.check(build(400))).toBe(true) // ~1.2MB; it used to be rejected
-    expect(ratio(prebuilt(Arr, build), 50)).toBeLessThan(9)
+    // The claim is linear WORK, and that is counted exactly (#3542): wall time grows ~2-3x
+    // faster than the input here (100 -> 800 chains) from allocating ~0.5M solver nodes,
+    // which made a timing ratio flaky, while the solver's own step count is exactly 600 per
+    // chain at every size. Counted on a test-only copy of the emitted code, so nothing ships.
+    const work = solverWork(
+      'Type C { example: { next: C | null, k: 0 } }\n' +
+        'Type Arr { example: { items: [C | { alt: 0 }] } }',
+      'Arr'
+    )
+    const w50 = work(build(50))
+    const w200 = work(build(200))
+    expect(w50).toBeGreaterThan(0)
+    expect(w200 / w50).toBeLessThan(4.1) // 4x the input, 4x the work
   })
 
   it('B-2(c): lists valid as B, 160 of them 129+ deep, accepted in linear time', () => {
