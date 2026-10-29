@@ -224,7 +224,34 @@
     ],
     "advisoryLanes": {
       "test:grok": "measures whether a small pinned LIVE model can write AJS — model variance, not our code; advisory by design and never a release blocker (CLAUDE.md, the three lanes)"
-    }
+    },
+    "securityEntries": [
+      "src/vm/ast.ts",
+      "src/vm/index.ts",
+      "src/lang/eval.ts"
+    ],
+    "securityGuards": [
+      "src/vm/regex-doors.test.ts",
+      "src/vm/regex-doors-behaviour.test.ts",
+      "src/vm/membrane-doors.test.ts",
+      "src/vm/membrane-invariant.test.ts",
+      "src/vm/membrane-halt.test.ts",
+      "src/budget-funnel.test.ts",
+      "src/vm/guest-key-writes.test.ts",
+      "src/vm/egress-doors.test.ts",
+      "src/vm/guest-values.test.ts",
+      "src/vm/guest-fuzz.test.ts",
+      "src/vm/atom-effects.test.ts",
+      "src/vm/atom-effects-scan.test.ts",
+      "src/vm/heap-roots.test.ts",
+      "src/vm/equality-no-host-code.test.ts"
+    ],
+    "securityDocs": [
+      "DOCS-AJS.md",
+      "guides/ajs.md",
+      "guides/patterns.md",
+      "docs/vm-budgets.md"
+    ]
   },
   "sideEffects": [
     "./src/index.ts",
@@ -396,7 +423,11 @@
     "",
     "   body-parser ^2.4.0  GHSA-27r3-jxmh-p828 (>=2.0.0 <2.4.0, high: DoS via trailing bytes",
     "                       after a compressed request body). firebase-functions > express.",
-    "   qs ^6.17.0          GHSA-6pq8-jhm2-2vcw (<=6.16.0, moderate: stringify DoS); was ^6.16.0."
+    "   qs ^6.17.0          GHSA-6pq8-jhm2-2vcw (<=6.16.0, moderate: stringify DoS); was ^6.16.0.",
+    "   re2js ^2.8.7        GHSA-gg6h-894w-4m9c (>=2.2.0 <2.8.7, high: quadratic-time",
+    "                       lookbehind). firebase > @firebase/firestore > re2js (the client SDK);",
+    "                       NOT the VM's guest-regex engine, which is our own src/vm/regex.ts.",
+    "                       Inside firestore's ^2.8.3, so this only holds the floor."
   ],
   "overrides": {
     "@codemirror/state": "$@codemirror/state",
@@ -405,6 +436,7 @@
     "form-data": "^2.5.6",
     "qs": "^6.17.0",
     "body-parser": "^2.4.0",
+    "re2js": "^2.8.7",
     "uuid": "^11.1.1",
     "protobufjs": "^7.6.5",
     "@grpc/grpc-js": "^1.14.5",
