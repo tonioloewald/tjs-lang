@@ -39,6 +39,9 @@ values as defaults, and sharper error messages. Pin `0.14.0-rc.9` exactly to tes
   by slot reads only (`unwrapBoxedSlots`) and does not see through tosijs proxies, which no
   guest value is. Affected: 0.14.0-rc.7 and rc.8 for the GET; the `instanceof` trap reads are
   older. Not a sandbox escape: the code that ran is the embedder's own object.
+  **0.14.0-rc.7 and rc.8 are deprecated on npm** (2026-10-29), pointing at 0.14.0-rc.9 or
+  later. No GitHub advisory: a guest program cannot trigger it, only a host object returned
+  by an embedder's own `effects: 'pure'` atom.
 
 ### Fixed since rc.8
 
