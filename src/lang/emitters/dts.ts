@@ -21,7 +21,8 @@
  */
 
 import type { TypeDescriptor } from '../types'
-import { parseExpressionAt } from 'acorn'
+import { parseExpressionAt, parse as parseModule } from 'acorn'
+import { emittedSpecifier } from '../emitted-specifiers'
 import { inferTypeFromValue } from '../inference'
 import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
@@ -30,6 +31,62 @@ import {
   splitTopLevelTrimmed,
   matchingBrace,
 } from '../../strip-comments'
+
+/**
+ * The Type names the module being declared knows: declared in it, or imported into it. Set
+ * for the duration of one `generateDTS` call, so `typeDescriptorToTS` (which has no module
+ * context of its own) can name them instead of erasing them to `any`.
+ */
+let KNOWN_TYPE_NAMES: Set<string> = new Set()
+
+/** Imports and re-exports of a module, read from its EMITTED JavaScript. */
+function moduleLinks(code: string): {
+  imports: Map<string, { source: string; imported: string }>
+  reexports: string[]
+} {
+  const imports = new Map<string, { source: string; imported: string }>()
+  const reexports: string[] = []
+  let ast: any
+  try {
+    ast = parseModule(code, { ecmaVersion: 'latest', sourceType: 'module' })
+  } catch {
+    return { imports, reexports }
+  }
+  const name = (n: any) =>
+    n.type === 'Literal' ? JSON.stringify(n.value) : n.name
+  for (const node of ast.body) {
+    if (node.type === 'ImportDeclaration' && node.importKind !== 'type') {
+      for (const sp of node.specifiers) {
+        imports.set(sp.local.name, {
+          source: node.source.value,
+          imported:
+            sp.type === 'ImportSpecifier'
+              ? name(sp.imported)
+              : sp.type === 'ImportDefaultSpecifier'
+              ? 'default'
+              : '*',
+        })
+      }
+    } else if (node.type === 'ExportNamedDeclaration' && node.source) {
+      const specs = node.specifiers
+        .map((sp: any) => {
+          const local = name(sp.local)
+          const exported = name(sp.exported)
+          return local === exported ? local : `${local} as ${exported}`
+        })
+        .join(', ')
+      reexports.push(
+        `export { ${specs} } from '${emittedSpecifier(node.source.value)}';`
+      )
+    } else if (node.type === 'ExportAllDeclaration') {
+      const as = node.exported ? ` as ${name(node.exported)}` : ''
+      reexports.push(
+        `export *${as} from '${emittedSpecifier(node.source.value)}';`
+      )
+    }
+  }
+  return { imports, reexports }
+}
 
 /**
  * Convert a TypeDescriptor to a TypeScript type string.
@@ -45,7 +102,22 @@ import {
 export function typeDescriptorToTS(td: TypeDescriptor): string {
   let base: string
 
+  // A name left UNRESOLVED by inference (`[Product]` inside another Type's example, #3589)
+  // is a Type when this module declares or imports one by that name.
+  if (
+    (td as any).unresolved &&
+    KNOWN_TYPE_NAMES.has(String((td as any).unresolved))
+  ) {
+    const name = String((td as any).unresolved)
+    return td.nullable ? `${name} | null` : name
+  }
+
   switch (td.kind) {
+    case 'declared-import':
+      // A Type IMPORTED from another module (#3588): its name, made available by the
+      // `import type` that `generateDTS` adds for every imported name a declaration uses.
+      base = (td.typeName ?? 'unknown').split('(')[0].trim()
+      break
     case 'declared':
       // A `Type`/`Type<T>` declared in this module. Emit the NAME, so `.d.ts` consumers
       // see `n: Even` rather than `n: any` — the type exists, it is checked at runtime,
@@ -156,6 +228,11 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
  * partialized.
  */
 function typeDescriptorToDeepPartialTS(td: TypeDescriptor): string {
+  // A `null` member of a dictionary default admits ANY value at runtime
+  // (docs/dictionary-defaults.md §5.2: it is how "absent means use the global" is spelled), so
+  // the declaration says `any`. `storage?: null` refused a TypeScript caller's real storage
+  // object (tosijs-native finding 4). A plain `x: null` parameter still means only null.
+  if (td.kind === 'null') return 'any'
   if (td.kind === 'object' && td.shape && Object.keys(td.shape).length > 0) {
     const fields = Object.entries(td.shape)
       .map(([k, v]) => `${k}?: ${typeDescriptorToDeepPartialTS(v)}`)
@@ -914,319 +991,352 @@ export function generateDTS(
   const lines: string[] = []
   const exports = detectExports(source)
   const typeDecls = detectTypeDeclarations(source)
-  const classes = detectClasses(source)
-  const generics = detectGenerics(source)
+  // Imports and re-exports (#3587, #3588), and the Type names this module knows (#3589).
+  const links = moduleLinks(result.code ?? '')
+  const savedKnown = KNOWN_TYPE_NAMES
+  KNOWN_TYPE_NAMES = new Set([...typeDecls.keys(), ...links.imports.keys()])
+  try {
+    const classes = detectClasses(source)
+    const generics = detectGenerics(source)
 
-  // If no exports detected, treat all top-level declarations as exported
-  // (CommonJS / script-mode files)
-  const hasAnyExport = exports.size > 0
+    // If no exports detected, treat all top-level declarations as exported
+    // (CommonJS / script-mode files)
+    const hasAnyExport = exports.size > 0
 
-  // Track names we've already emitted
-  const emitted = new Set<string>()
+    // Track names we've already emitted
+    const emitted = new Set<string>()
 
-  // Emit function declarations (from transpiler metadata — best type info)
-  for (const [name, info] of Object.entries(result.types)) {
-    // Skip polymorphic variants (name$0, name$1, etc.)
-    if (name.includes('$')) continue
+    // Emit function declarations (from transpiler metadata — best type info)
+    for (const [name, info] of Object.entries(result.types)) {
+      // Skip polymorphic variants (name$0, name$1, etc.)
+      if (name.includes('$')) continue
 
-    const exportInfo = exports.get(name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    const isDefault = exportInfo?.isDefault ?? false
+      const exportInfo = exports.get(name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+      const isDefault = exportInfo?.isDefault ?? false
 
-    if (!isExported) continue
+      if (!isExported) continue
 
-    if (info.description) {
-      lines.push(`/** ${info.description} */`)
+      if (info.description) {
+        lines.push(`/** ${info.description} */`)
+      }
+
+      lines.push(
+        functionDeclToTS(
+          name,
+          info,
+          true,
+          isDefault,
+          !!result.tjsModes?.tjsDictDefaults
+        )
+      )
+      emitted.add(name)
     }
 
-    lines.push(
-      functionDeclToTS(
-        name,
-        info,
-        true,
-        isDefault,
-        !!result.tjsModes?.tjsDictDefaults
-      )
-    )
-    emitted.add(name)
-  }
+    // Emit class declarations as callable functions returning any.
+    // TJS wraps classes to be callable without `new`, so this matches
+    // the actual runtime API. Returning `any` means TS won't fight
+    // the developer on instance property access.
+    for (const [name, classInfo] of classes) {
+      if (emitted.has(name)) continue
 
-  // Emit class declarations as callable functions returning any.
-  // TJS wraps classes to be callable without `new`, so this matches
-  // the actual runtime API. Returning `any` means TS won't fight
-  // the developer on instance property access.
-  for (const [name, classInfo] of classes) {
-    if (emitted.has(name)) continue
+      const exportInfo = exports.get(name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+      if (!isExported) continue
 
-    const exportInfo = exports.get(name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    if (!isExported) continue
+      const tsParams = classInfo.constructorParams
+        ? tjsParamsToTS(classInfo.constructorParams)
+        : ''
 
-    const tsParams = classInfo.constructorParams
-      ? tjsParamsToTS(classInfo.constructorParams)
-      : ''
+      // Emit as callable function (matches TJS wrapClass behavior)
+      lines.push(`export declare function ${name}(${tsParams}): any;`)
 
-    // Emit as callable function (matches TJS wrapClass behavior)
-    lines.push(`export declare function ${name}(${tsParams}): any;`)
+      // Also emit as a class with `new` for the rare case someone uses it
+      if (tsParams || classInfo.methods.length > 0) {
+        lines.push(`export declare class ${name} {`)
+        if (classInfo.constructorParams) {
+          lines.push(`  constructor(${tsParams});`)
+        }
+        for (const method of classInfo.methods) {
+          const mParams = method.params ? tjsParamsToTS(method.params) : ''
+          const mReturn = method.returnType
+            ? inferTSTypeFromExample(method.returnType)
+            : 'any'
 
-    // Also emit as a class with `new` for the rare case someone uses it
-    if (tsParams || classInfo.methods.length > 0) {
-      lines.push(`export declare class ${name} {`)
-      if (classInfo.constructorParams) {
-        lines.push(`  constructor(${tsParams});`)
+          if (method.kind === 'get') {
+            // `get value(): ''` → `get value(): string`
+            lines.push(`  get ${method.name}(): ${mReturn};`)
+          } else if (method.kind === 'set') {
+            // The setter's parameter type is whatever the author declared, INDEPENDENT of
+            // the getter's — which is the whole point. TypeScript has allowed this since
+            // 4.3 for hand-written properties, and a generated declaration is hand-written
+            // as far as TS is concerned. An untyped setter param stays `any`, which is
+            // exactly right for the `input.value = 42` shape: reads narrow, writes wide.
+            lines.push(`  set ${method.name}(${mParams || 'value: any'});`)
+          } else {
+            lines.push(`  ${method.name}(${mParams}): ${mReturn};`)
+          }
+        }
+        lines.push(`}`)
       }
-      for (const method of classInfo.methods) {
-        const mParams = method.params ? tjsParamsToTS(method.params) : ''
-        const mReturn = method.returnType
-          ? inferTSTypeFromExample(method.returnType)
-          : 'any'
 
-        if (method.kind === 'get') {
-          // `get value(): ''` → `get value(): string`
-          lines.push(`  get ${method.name}(): ${mReturn};`)
-        } else if (method.kind === 'set') {
-          // The setter's parameter type is whatever the author declared, INDEPENDENT of
-          // the getter's — which is the whole point. TypeScript has allowed this since
-          // 4.3 for hand-written properties, and a generated declaration is hand-written
-          // as far as TS is concerned. An untyped setter param stays `any`, which is
-          // exactly right for the `input.value = 42` shape: reads narrow, writes wide.
-          lines.push(`  set ${method.name}(${mParams || 'value: any'});`)
-        } else {
-          lines.push(`  ${method.name}(${mParams}): ${mReturn};`)
+      emitted.add(name)
+    }
+
+    // Emit Type declarations as type guard functions.
+    // Type('Name', example) returns an object with .check(), .default, etc.
+    // For TS consumers, the useful thing is knowing it's a callable type guard.
+    for (const [name, exampleStr] of typeDecls) {
+      if (emitted.has(name)) continue
+
+      const exportInfo = exports.get(name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+
+      if (exampleStr.startsWith('__ts__:')) {
+        // Preserved TS type body — emit verbatim as type alias
+        const tsBody = exampleStr.slice(7)
+        if (!isExported) continue
+        lines.push(`export type ${name} = ${tsBody};`)
+      } else if (exampleStr === '') {
+        // Empty Type {} — degraded from TS type alias, emit as type = any
+        if (!isExported) continue
+        lines.push(`export type ${name} = any;`)
+      } else {
+        const tsType = inferTSTypeFromExample(exampleStr)
+        // BOTH a type and a value, because function signatures reference the name in TYPE
+        // position (`half(n: Even)`) while the runtime guard is a VALUE.
+        //
+        // Only the value was emitted, so the generated `.d.ts` did not compile — verified
+        // against `ts.createProgram` with `skipLibCheck: false`:
+        //   exported   -> TS2749 'Even' refers to a value, but is being used as a type
+        //   unexported -> TS2552 Cannot find name 'Odd'
+        // Before this release the same input produced `n: any` — lossy, but VALID, which is
+        // strictly better than a declaration file that fails to compile.
+        //
+        // The alias is the underlying primitive, not a brand: TypeScript cannot express
+        // "even number", so branding would reject every plain `number` a caller has. The
+        // predicate is enforced at runtime; the alias carries what TS can actually check.
+        //
+        // A NON-EXPORTED type still gets its alias, unexported, because an exported
+        // signature in the same file names it. Skipping it was what produced TS2552.
+        lines.push(`${isExported ? 'export ' : ''}type ${name} = ${tsType};`)
+        if (isExported) {
+          lines.push(
+            `export declare const ${name}: {` +
+              ` check(value: any): boolean;` +
+              ` default: ${tsType};` +
+              ` (value: any): boolean;` +
+              ` };`
+          )
         }
       }
-      lines.push(`}`)
+      emitted.add(name)
     }
 
-    emitted.add(name)
-  }
-
-  // Emit Type declarations as type guard functions.
-  // Type('Name', example) returns an object with .check(), .default, etc.
-  // For TS consumers, the useful thing is knowing it's a callable type guard.
-  for (const [name, exampleStr] of typeDecls) {
-    if (emitted.has(name)) continue
-
-    const exportInfo = exports.get(name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-
-    if (exampleStr.startsWith('__ts__:')) {
-      // Preserved TS type body — emit verbatim as type alias
-      const tsBody = exampleStr.slice(7)
-      if (!isExported) continue
-      lines.push(`export type ${name} = ${tsBody};`)
-    } else if (exampleStr === '') {
-      // Empty Type {} — degraded from TS type alias, emit as type = any
-      if (!isExported) continue
-      lines.push(`export type ${name} = any;`)
-    } else {
-      const tsType = inferTSTypeFromExample(exampleStr)
-      // BOTH a type and a value, because function signatures reference the name in TYPE
-      // position (`half(n: Even)`) while the runtime guard is a VALUE.
-      //
-      // Only the value was emitted, so the generated `.d.ts` did not compile — verified
-      // against `ts.createProgram` with `skipLibCheck: false`:
-      //   exported   -> TS2749 'Even' refers to a value, but is being used as a type
-      //   unexported -> TS2552 Cannot find name 'Odd'
-      // Before this release the same input produced `n: any` — lossy, but VALID, which is
-      // strictly better than a declaration file that fails to compile.
-      //
-      // The alias is the underlying primitive, not a brand: TypeScript cannot express
-      // "even number", so branding would reject every plain `number` a caller has. The
-      // predicate is enforced at runtime; the alias carries what TS can actually check.
-      //
-      // A NON-EXPORTED type still gets its alias, unexported, because an exported
-      // signature in the same file names it. Skipping it was what produced TS2552.
-      lines.push(`${isExported ? 'export ' : ''}type ${name} = ${tsType};`)
+    // Emit Enum and Union declarations.
+    //
+    // Neither produced ANY declaration, so `export function paint(c: Color)` referenced a
+    // name that did not exist in the file — TS2304, the generated `.d.ts` simply not
+    // compiling. They are the two declaration forms most likely to appear in a signature,
+    // because naming a closed set is exactly what people reach for them to do.
+    //
+    // An Enum becomes the union of its member VALUES, which is what TypeScript can check and
+    // is more precise than the underlying primitive. The runtime guard is emitted as a value
+    // beside it (same name, different namespace) so `Color.check(x)` still type-checks.
+    for (const [name, members] of detectEnums(source)) {
+      if (emitted.has(name)) continue
+      const exportInfo = exports.get(name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+      const valueUnion = members.length
+        ? members.map((v) => JSON.stringify(v)).join(' | ')
+        : 'never'
+      lines.push(`${isExported ? 'export ' : ''}type ${name} = ${valueUnion};`)
       if (isExported) {
         lines.push(
           `export declare const ${name}: {` +
             ` check(value: any): boolean;` +
-            ` default: ${tsType};` +
-            ` (value: any): boolean;` +
+            ` values: ${name}[];` +
+            ` members: Record<string, ${name}>;` +
+            ` names: Record<string, string>;` +
+            ` keys: string[];` +
             ` };`
         )
       }
+      emitted.add(name)
     }
-    emitted.add(name)
-  }
 
-  // Emit Enum and Union declarations.
-  //
-  // Neither produced ANY declaration, so `export function paint(c: Color)` referenced a
-  // name that did not exist in the file — TS2304, the generated `.d.ts` simply not
-  // compiling. They are the two declaration forms most likely to appear in a signature,
-  // because naming a closed set is exactly what people reach for them to do.
-  //
-  // An Enum becomes the union of its member VALUES, which is what TypeScript can check and
-  // is more precise than the underlying primitive. The runtime guard is emitted as a value
-  // beside it (same name, different namespace) so `Color.check(x)` still type-checks.
-  for (const [name, members] of detectEnums(source)) {
-    if (emitted.has(name)) continue
-    const exportInfo = exports.get(name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    const valueUnion = members.length
-      ? members.map((v) => JSON.stringify(v)).join(' | ')
-      : 'never'
-    lines.push(`${isExported ? 'export ' : ''}type ${name} = ${valueUnion};`)
-    if (isExported) {
-      lines.push(
-        `export declare const ${name}: {` +
-          ` check(value: any): boolean;` +
-          ` values: ${name}[];` +
-          ` members: Record<string, ${name}>;` +
-          ` names: Record<string, string>;` +
-          ` keys: string[];` +
-          ` };`
-      )
-    }
-    emitted.add(name)
-  }
-
-  for (const [name, tsType] of detectUnions(source)) {
-    if (emitted.has(name)) continue
-    const exportInfo = exports.get(name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    lines.push(`${isExported ? 'export ' : ''}type ${name} = ${tsType};`)
-    if (isExported) {
-      lines.push(
-        `export declare const ${name}: { check(value: any): boolean; };`
-      )
-    }
-    emitted.add(name)
-  }
-
-  // Emit Generic declarations.
-  // If a declaration block is present, emit a proper TS interface.
-  // Otherwise, emit an any-based factory stub.
-  for (const [name, info] of generics) {
-    if (emitted.has(name)) continue
-
-    const exportInfo = exports.get(name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    if (!isExported) continue
-
-    const typeParamStr =
-      info.typeParams.length > 0 ? `<${info.typeParams.join(', ')}>` : ''
-
-    if (info.declaration) {
-      const declContent = info.declaration.trim()
-
-      // Check if this is a verbatim TS type (conditional, mapped, etc.)
-      // These start with "// TS:" and should be emitted as `export type`
-      const tsMatch = declContent.match(/^\/\/\s*TS:\s*(.+)$/s)
-      if (tsMatch) {
-        lines.push(`export type ${name}${typeParamStr} = ${tsMatch[1].trim()};`)
-      } else {
-        // Structured declaration — emit as interface
-        const declLines = declContent
-          .split('\n')
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0)
-          .map((l) => `  ${l}`)
-          .join('\n')
-        lines.push(`export interface ${name}${typeParamStr} {\n${declLines}\n}`)
+    for (const [name, tsType] of detectUnions(source)) {
+      if (emitted.has(name)) continue
+      const exportInfo = exports.get(name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+      lines.push(`${isExported ? 'export ' : ''}type ${name} = ${tsType};`)
+      if (isExported) {
+        lines.push(
+          `export declare const ${name}: { check(value: any): boolean; };`
+        )
       }
-    } else {
-      // No declaration block — emit any-based factory stub
-      lines.push(
-        `export declare function ${name}(` +
-          `...args: any[]` +
-          `): { check(value: any): boolean; (value: any): boolean; };`
-      )
+      emitted.add(name)
     }
-    emitted.add(name)
-  }
 
-  // Emit FunctionPredicate declarations as TS function types.
-  // FunctionPredicate Callback { params: { x: 0 } returns: '' }
-  // → export type Callback = (x: number) => string;
-  const funcPreds = detectFunctionPredicates(source)
-  for (const [name, fpInfo] of funcPreds) {
-    if (emitted.has(name)) continue
+    // Emit Generic declarations.
+    // If a declaration block is present, emit a proper TS interface.
+    // Otherwise, emit an any-based factory stub.
+    for (const [name, info] of generics) {
+      if (emitted.has(name)) continue
 
-    const exportInfo = exports.get(name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    if (!isExported) continue
+      const exportInfo = exports.get(name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+      if (!isExported) continue
 
-    // Collect type param names for passthrough (don't convert T to any)
-    const tpNames = new Set(
-      fpInfo.typeParams?.map((tp) => tp.split('=')[0].trim()) ?? []
-    )
-    const typeParamStr = fpInfo.typeParams
-      ? `<${fpInfo.typeParams.join(', ')}>`
-      : ''
+      const typeParamStr =
+        info.typeParams.length > 0 ? `<${info.typeParams.join(', ')}>` : ''
 
-    const tsParams = fpInfo.params
-      .map((p, idx) => {
-        // Array example [X] on the LAST param → rest param ...name: X[]
-        // Non-last array params are regular array params
-        const isLast = idx === fpInfo.params.length - 1
-        if (p.example.startsWith('[') && p.example.endsWith(']') && isLast) {
-          const inner = p.example.slice(1, -1).trim()
-          const innerType =
-            !inner || inner === 'null'
-              ? 'any'
-              : tpNames.has(inner)
-              ? inner
-              : inferTSTypeFromExample(inner)
-          return `...${p.name}: ${innerType}[]`
+      if (info.declaration) {
+        const declContent = info.declaration.trim()
+
+        // Check if this is a verbatim TS type (conditional, mapped, etc.)
+        // These start with "// TS:" and should be emitted as `export type`
+        const tsMatch = declContent.match(/^\/\/\s*TS:\s*(.+)$/s)
+        if (tsMatch) {
+          lines.push(
+            `export type ${name}${typeParamStr} = ${tsMatch[1].trim()};`
+          )
+        } else {
+          // Structured declaration — emit as interface
+          const declLines = declContent
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0)
+            .map((l) => `  ${l}`)
+            .join('\n')
+          lines.push(
+            `export interface ${name}${typeParamStr} {\n${declLines}\n}`
+          )
         }
-        // Non-last array param → regular array type
-        if (p.example.startsWith('[') && p.example.endsWith(']')) {
-          const inner = p.example.slice(1, -1).trim()
-          const innerType =
-            !inner || inner === 'null'
+      } else {
+        // No declaration block — emit any-based factory stub
+        lines.push(
+          `export declare function ${name}(` +
+            `...args: any[]` +
+            `): { check(value: any): boolean; (value: any): boolean; };`
+        )
+      }
+      emitted.add(name)
+    }
+
+    // Emit FunctionPredicate declarations as TS function types.
+    // FunctionPredicate Callback { params: { x: 0 } returns: '' }
+    // → export type Callback = (x: number) => string;
+    const funcPreds = detectFunctionPredicates(source)
+    for (const [name, fpInfo] of funcPreds) {
+      if (emitted.has(name)) continue
+
+      const exportInfo = exports.get(name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+      if (!isExported) continue
+
+      // Collect type param names for passthrough (don't convert T to any)
+      const tpNames = new Set(
+        fpInfo.typeParams?.map((tp) => tp.split('=')[0].trim()) ?? []
+      )
+      const typeParamStr = fpInfo.typeParams
+        ? `<${fpInfo.typeParams.join(', ')}>`
+        : ''
+
+      const tsParams = fpInfo.params
+        .map((p, idx) => {
+          // Array example [X] on the LAST param → rest param ...name: X[]
+          // Non-last array params are regular array params
+          const isLast = idx === fpInfo.params.length - 1
+          if (p.example.startsWith('[') && p.example.endsWith(']') && isLast) {
+            const inner = p.example.slice(1, -1).trim()
+            const innerType =
+              !inner || inner === 'null'
+                ? 'any'
+                : tpNames.has(inner)
+                ? inner
+                : inferTSTypeFromExample(inner)
+            return `...${p.name}: ${innerType}[]`
+          }
+          // Non-last array param → regular array type
+          if (p.example.startsWith('[') && p.example.endsWith(']')) {
+            const inner = p.example.slice(1, -1).trim()
+            const innerType =
+              !inner || inner === 'null'
+                ? 'any'
+                : tpNames.has(inner)
+                ? inner
+                : inferTSTypeFromExample(inner)
+            return `${p.name}: ${innerType}[]`
+          }
+          // In FunctionPredicate params, null means "any" (not literal null)
+          const tsType =
+            p.example === 'null'
               ? 'any'
-              : tpNames.has(inner)
-              ? inner
-              : inferTSTypeFromExample(inner)
-          return `${p.name}: ${innerType}[]`
-        }
-        // In FunctionPredicate params, null means "any" (not literal null)
-        const tsType =
-          p.example === 'null'
+              : tpNames.has(p.example)
+              ? p.example
+              : inferTSTypeFromExample(p.example)
+          return `${p.name}: ${tsType}`
+        })
+        .join(', ')
+      const tsReturn =
+        fpInfo.returns !== undefined
+          ? fpInfo.returns === 'null'
             ? 'any'
-            : tpNames.has(p.example)
-            ? p.example
-            : inferTSTypeFromExample(p.example)
-        return `${p.name}: ${tsType}`
-      })
-      .join(', ')
-    const tsReturn =
-      fpInfo.returns !== undefined
-        ? fpInfo.returns === 'null'
-          ? 'any'
-          : tpNames.has(fpInfo.returns)
-          ? fpInfo.returns
-          : inferTSTypeFromExample(fpInfo.returns)
-        : 'void'
-    lines.push(
-      `export type ${name}${typeParamStr} = (${tsParams}) => ${tsReturn};`
+            : tpNames.has(fpInfo.returns)
+            ? fpInfo.returns
+            : inferTSTypeFromExample(fpInfo.returns)
+          : 'void'
+      lines.push(
+        `export type ${name}${typeParamStr} = (${tsParams}) => ${tsReturn};`
+      )
+      emitted.add(name)
+    }
+
+    // Emit exported const/let/var declarations
+    const varDecls = detectVarDeclarations(source)
+    for (const decl of varDecls) {
+      if (emitted.has(decl.name)) continue
+
+      const exportInfo = exports.get(decl.name)
+      const isExported = hasAnyExport ? !!exportInfo?.exported : true
+      if (!isExported) continue
+
+      const tsType = inferConstType(decl.value)
+      lines.push(`export declare const ${decl.name}: ${tsType};`)
+      emitted.add(decl.name)
+    }
+
+    // Re-exports pass through (#3587): a barrel `index.tjs` of `export { … } from './x.tjs'`
+    // emitted an EMPTY index.d.ts, so a package's entry point had no types at all.
+    lines.push(...links.reexports)
+    // Imported names a declaration USES come in as types (#3588); `import type` because a
+    // declaration file needs only the type side.
+    const body = lines.join('\n')
+    const bySource = new Map<string, string[]>()
+    for (const [local, { source, imported }] of links.imports) {
+      if (imported === '*' || imported === 'default') continue
+      if (!new RegExp(`\\b${local.replace(/\$/g, '\\$')}\\b`).test(body))
+        continue
+      const spec = emittedSpecifier(source)
+      const list = bySource.get(spec) ?? []
+      list.push(imported === local ? local : `${imported} as ${local}`)
+      bySource.set(spec, list)
+    }
+    const importLines = [...bySource].map(
+      ([spec, names]) => `import type { ${names.join(', ')} } from '${spec}';`
     )
-    emitted.add(name)
+    lines.unshift(...importLines)
+
+    if (options.moduleName) {
+      const indented = lines.map((l) => `  ${l}`).join('\n')
+      return `declare module '${options.moduleName}' {\n${indented}\n}\n`
+    }
+
+    return lines.join('\n') + '\n'
+  } finally {
+    KNOWN_TYPE_NAMES = savedKnown
   }
-
-  // Emit exported const/let/var declarations
-  const varDecls = detectVarDeclarations(source)
-  for (const decl of varDecls) {
-    if (emitted.has(decl.name)) continue
-
-    const exportInfo = exports.get(decl.name)
-    const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    if (!isExported) continue
-
-    const tsType = inferConstType(decl.value)
-    lines.push(`export declare const ${decl.name}: ${tsType};`)
-    emitted.add(decl.name)
-  }
-
-  if (options.moduleName) {
-    const indented = lines.map((l) => `  ${l}`).join('\n')
-    return `declare module '${options.moduleName}' {\n${indented}\n}\n`
-  }
-
-  return lines.join('\n') + '\n'
 }
 
 /**

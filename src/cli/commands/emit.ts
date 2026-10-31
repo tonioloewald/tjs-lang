@@ -12,6 +12,7 @@
  *   tjs emit --jfdi <file.tjs>          Emit even if tests fail (just fucking do it)
  */
 
+import { rewriteTjsSpecifiers } from '../../lang/emitted-specifiers'
 import { readEntries, shouldDescend, writeEmitted } from '../walk'
 import { readFileSync, statSync, existsSync } from 'fs'
 import { join, basename, extname } from 'path'
@@ -180,6 +181,10 @@ async function emitFile(
     }
 
     if (outputPath) {
+      // Emitted files name each other by what was emitted (`./x.js`), so the output loads
+      // without a `.tjs` loader (tosijs-native finding 5). Only when WRITING files: stdout
+      // output is for piping, where the source's specifiers are the honest ones.
+      code = rewriteTjsSpecifiers(code)
       // `writeEmitted` — re-attaches the `#!` line and refuses to write THROUGH a symlink.
       writeEmitted(outputPath, code, result.hashbang, root)
       if (options.verbose) {

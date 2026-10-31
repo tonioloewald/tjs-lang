@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A package written in `.tjs` emits as a package TypeScript and plain Node can use**
+  (#3587, #3588, #3589, #2749; found by tosijs-native, the first project written natively in
+  `.tjs`). Five defects, each a reason such a package could not be published:
+  - a barrel `index.tjs` of `export { … } from './x.tjs'` emitted an EMPTY `index.d.ts`, so
+    the package's entry point had no types (re-exports now pass through);
+  - a Type imported from another file was declared `any` (it is now named, and imported
+    with `import type`);
+  - a Type named inside another Type's example was `any[]` (`products: Product[]`);
+  - a `null` dictionary-default member, which admits any value at runtime, was declared
+    `null`, so a TypeScript caller passing a real value failed to compile (now `any`);
+  - `tjs emit` wrote `./x.tjs` imports into the `.js` it emitted beside `x.js`, so the
+    output loaded only where a `.tjs` loader was installed. Relative `.tjs` specifiers are
+    now rewritten to `.js` in emitted files (JavaScript and `.d.ts`; found by parsing, so a
+    mention in a string or comment is untouched), which `moduleResolution: nodenext` also
+    requires. The library's `tjs()` keeps source specifiers, since its output runs where
+    `.tjs` sources do.
+  Pinned end to end: a multi-file package is emitted with the CLI, a consumer is compiled
+  against it with TypeScript (`nodenext`, strict, skipLibCheck off), and the `.js` runs in
+  plain `node`.
+
 ## [0.14.0-rc.9] — 2026-10-28
 
 On the `rc` dist-tag. A VM security fix (#3531), destructured and array-pattern parameters
