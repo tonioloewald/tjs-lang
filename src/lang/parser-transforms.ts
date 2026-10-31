@@ -4813,11 +4813,15 @@ export function wrapClassDeclarations(
     const classStart = match.index
     const bodyStart = classStart + match[0].length - 1 // position of {
 
-    // Find matching closing brace
+    // Find the matching closing brace over the MASKED view (offsets are preserved), so a `}`
+    // in a string, template or regex inside a method is not the end of the class. Counting
+    // raw characters put the wrapper inside the class body after `brace(s) { return s + '}' }`,
+    // where `Fmt = new Proxy(…)` parsed by accident as a class FIELD: the class was never
+    // made callable. Found when the wrapper grew a statement a class body cannot hold (#3608).
     let depth = 1
     let i = bodyStart + 1
-    while (i < source.length && depth > 0) {
-      const char = source[i]
+    while (i < maskedSource.length && depth > 0) {
+      const char = maskedSource[i]
       if (char === '{') depth++
       else if (char === '}') depth--
       i++
@@ -4833,9 +4837,9 @@ export function wrapClassDeclarations(
 
       if (polyCtorClasses.has(className)) {
         // Polymorphic constructor: use dispatcher function for apply trap
-        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return ${className}$dispatch(t, a) }, construct(t, a) { return ${className}$dispatch(t, a) } });`
+        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return ${className}$dispatch(t, a) }, construct(t, a) { return ${className}$dispatch(t, a) } }); Object.defineProperty(${className}, '__tjs_callable', { value: ${className} });`
       } else {
-        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } });`
+        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } }); Object.defineProperty(${className}, '__tjs_callable', { value: ${className} });`
       }
       lastIndex = classEnd
     }

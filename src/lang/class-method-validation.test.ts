@@ -49,8 +49,7 @@ describe('class method parameters are validated', () => {
     expect(Box(5).set(7).v).toBe(7)
     expect(isError(Box(5).set('x'))).toBe(true)
     expect(isError(Box.of('q'))).toBe(true) // refused before the body runs
-    // (Box.of(3) cannot construct: inside the class body the name is the raw class, not the
-    // callable wrapper, so \`Box(v)\` there throws. A separate defect, #3608.)
+    expect(Box.of(3).v).toBe(3) // a class constructing itself from its own body (#3608)
   })
 
   it('a destructured method parameter is checked as its argument', () => {
@@ -74,5 +73,80 @@ describe('class method parameters are validated', () => {
       'js'
     )
     expect(new JsBox('s').v).toBe('s')
+  })
+})
+
+/**
+ * A class can call itself from its own body (#3608): inside the body the name is the raw
+ * class, not the callable wrapper, so `Box(v)` threw. It now goes through the wrapper, which
+ * also keeps an overloaded constructor dispatching.
+ */
+describe('a class calling itself from its own body', () => {
+  it('from a static and an instance method', () => {
+    const Box = load(`class Box { constructor(v: 0) { this.v = v }
+  static of(v: 0) { return Box(v) }
+  twice() { return Box(this.v * 2) } }`)
+    expect(Box.of(3).v).toBe(3)
+    expect(Box(4).twice().v).toBe(8)
+    expect(Box.of(3) instanceof Box).toBe(true)
+    expect(Object.keys(Box)).toEqual([]) // the back-reference is not enumerable
+  })
+
+  it('with overloaded constructors, through the dispatcher', () => {
+    const g = globalThis as any
+    const prev = g.__tjs
+    g.__tjs = undefined
+    const P = new Function(
+      `${
+        tjs(
+          `class P {
+  constructor(x: 0, y: 0) { this.x = x; this.y = y }
+  constructor(s: '') { const [a, b] = s.split(','); this.x = +a; this.y = +b }
+  static parse(s: '') { return P(s) }
+  static at(x: 0, y: 0) { return P(x, y) } }`,
+          { runTests: false }
+        ).code
+      }\nreturn P`
+    )()
+    g.__tjs = prev
+    expect({ ...P.parse('3,4') }).toEqual({ x: 3, y: 4 })
+    expect({ ...P.at(1, 2) }).toEqual({ x: 1, y: 2 })
+  })
+
+  it('a parameter of the same name is left alone', () => {
+    const Box = load(`class Box { constructor(v: 0) { this.v = v }
+  static run(Box) { return Box(5) } }`)
+    expect(Box.run((n: number) => n * 10)).toBe(50)
+  })
+})
+
+/**
+ * The callable-class wrapper finds the class's end over the MASKED source (literal
+ * blindness): a `}` in a string or regex inside a method put the wrapper inside the class
+ * body, where it parsed as a class FIELD, so the class was never made callable.
+ */
+describe('a brace inside a string or regex does not end the class', () => {
+  it('the class is callable and grows no stray field', () => {
+    const g = globalThis as any
+    const prev = g.__tjs
+    g.__tjs = undefined
+    const Fmt = new Function(
+      `${
+        tjs(
+          `class Fmt {
+  brace(s: '') { return s + '}' }
+  regex(s: '') { return /[}]/.test(s) }
+  after(n: 0) { return n }
+}`,
+          { runTests: false }
+        ).code
+      }\nreturn Fmt`
+    )()
+    g.__tjs = prev
+    const f = Fmt()
+    expect(f.brace('a')).toBe('a}')
+    expect(f.regex('x}')).toBe(true)
+    expect(f.after(3)).toBe(3)
+    expect(Object.keys(f)).toEqual([])
   })
 })

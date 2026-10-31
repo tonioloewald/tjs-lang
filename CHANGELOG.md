@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A class can call itself from its own body** (#3608): `static of(v) { return Box(v) }`
+  threw "Cannot call a class constructor without new". TJS makes a class callable by
+  rebinding its outer name to a wrapper; inside the body the name is the raw class. The call
+  now goes through the wrapper (recorded on the class as a non-enumerable
+  `__tjs_callable`), so overloaded constructors still dispatch.
+- **A `}` in a string or regex inside a method no longer ends the class** for the
+  callable-class wrapper (literal blindness). The wrapper landed inside the class body, where
+  it parsed by accident as a class field named after the class, so that class was never made
+  callable.
+
 - **A dictionary default may have an `undefined` member** (#3591, from tosijs-native),
   meaning "any value, defaulting to undefined", as a `null` member already did. It was
   refused as "not a clonable literal value", so "absent means use the global" had to be

@@ -2062,6 +2062,44 @@ export function transpileToJS(
     },
   })
 
+  // A class calling ITSELF from its own body (#3608): `static of(v) { return Box(v) }`.
+  // TJS makes a class callable by rebinding its OUTER name to a Proxy; inside the body the
+  // name is the class's own immutable binding, the raw class, so the call threw "Cannot call
+  // a class constructor without new" (and `new Box` is refused in TJS source). The wrapper
+  // records itself on the raw class as `__tjs_callable`, and the call goes through it, so an
+  // overloaded constructor still dispatches. Not when a parameter shadows the name, and only
+  // where the wrapper exists (native TJS).
+  walk.ancestor(program as any, {
+    CallExpression(node: any, _state: unknown, ancestors: any[]) {
+      const callee = node.callee
+      if (callee?.type !== 'Identifier' || node.optional) return
+      const name = callee.name
+      let inBody = false
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        const a = ancestors[i]
+        if (
+          (a.type === 'FunctionExpression' ||
+            a.type === 'FunctionDeclaration' ||
+            a.type === 'ArrowFunctionExpression') &&
+          a.params?.some((p: any) => p.type === 'Identifier' && p.name === name)
+        )
+          return
+        if (a.type === 'ClassBody') inBody = true
+        if (
+          (a.type === 'ClassDeclaration' || a.type === 'ClassExpression') &&
+          a.id?.name === name
+        ) {
+          if (
+            inBody &&
+            preprocessed.source.includes(`${name}, '__tjs_callable'`)
+          )
+            insertions.push({ position: callee.end, text: '.__tjs_callable' })
+          return
+        }
+      }
+    },
+  })
+
   // Class METHODS validate their parameters, the constructor included (#3598, from
   // tosijs-native). They were only stripped of annotations (below), so `class Box {
   // constructor(v: 0) }` built a Box from `Box('s')` and `box.set('x')` was accepted, where the
