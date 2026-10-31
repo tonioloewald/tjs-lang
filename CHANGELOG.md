@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A function-valued member of a Type's example means "a function here"** (#3595, from
+  tosijs-native). `Type Bridge { example: { call: (a) => 1 } }` refused every value, one of
+  exactly that shape included, in both checkers: the inline one compared a function example
+  by identity, and the runtime `Type`'s inference has no schema for a function. Both now
+  check `typeof === 'function'` there (a Type, which is also callable, is still a Type).
+
 - **A package written in `.tjs` emits as a package TypeScript and plain Node can use**
   (#3587, #3588, #3589, #2749; found by tosijs-native, the first project written natively in
   `.tjs`). Five defects, each a reason such a package could not be published:

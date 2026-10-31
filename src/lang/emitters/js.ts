@@ -2566,7 +2566,7 @@ export function transpileToJS(
           needsSolver
             ? '__kS&&!ex.__k&&(ex.__ex===undefined||ex.__pred)?__kExact(ex,v,()=>ex.check(v)):'
             : ''
-        }ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v)||(v instanceof Error&&v.name==='MonadicError'))return false;const ks=${
+        }ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(t==='function')return typeof v==='function';if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v)||(v instanceof Error&&v.name==='MonadicError'))return false;const ks=${
           needsSolver ? '__kKeys(ex)' : 'Object.keys(ex)'
         };return ks.every(k=>${
           needsKind

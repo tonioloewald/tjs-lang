@@ -255,6 +255,12 @@ interface NestedTypeEntry {
   type: RuntimeType
 }
 
+/** A function-valued example member's check, applied by path (#3595). */
+const FUNCTION_MEMBER = {
+  description: 'a function',
+  check: (v: unknown) => typeof v === 'function',
+} as unknown as RuntimeType
+
 /** A stand-in that infers to the right SHAPE; the real constraint is applied by path. */
 function representativeOf(t: RuntimeType): unknown {
   const vals = (t as { values?: unknown[] }).values
@@ -281,6 +287,15 @@ function splitNestedTypes(example: unknown): {
     if (v && typeof v === 'object' && (v as object).constructor === Object) {
       const out: Record<string, unknown> = {}
       for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        // A FUNCTION member means "a function here" (#3595), as it does for a parameter.
+        // Inference has no schema for a function, so the member left the shape unsatisfiable
+        // and the Type refused every value, one of exactly that shape included. It is checked
+        // by path instead, and left out of the skeleton (objects are open, so its absence
+        // there constrains nothing). A Type is itself callable, hence `isRuntimeType` first.
+        if (typeof val === 'function' && !isRuntimeType(val)) {
+          entries.push({ path: [...path, k], type: FUNCTION_MEMBER })
+          continue
+        }
         out[k] = walk(val, [...path, k])
       }
       return out
