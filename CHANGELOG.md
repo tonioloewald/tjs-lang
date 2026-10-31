@@ -9,7 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.14.0-rc.10] — 2026-10-31
+
+On the `rc` dist-tag. Mostly what tosijs-native found building natively in `.tjs` from the
+first line: typed parameters with defaults, class methods that validate, `.d.ts` that
+compiles across files, a `Bun.build` plugin and an optional shared runtime per bundle. Pin
+`0.14.0-rc.10` exactly to test it.
+
+### Read this first: what changes since rc.9
+
+- **Class methods and constructors validate their parameters (BREAKING, toward
+  correctness).** `Box('s')` for `constructor(v: 0)` returns a MonadicError. A platform
+  callback whose return value is discarded silently skips its body on a refused call:
+  `attributeChangedCallback(name = '', old = '', value = '')` refuses the platform's
+  `old = null`. Spell `old = null`.
+- **`name: Type = default`** works in TJS (#3596), and is REFUSED on the AJS path with a
+  remedy, until the type can reach the agent's input schema.
+- **A bare `null` default accepts any value** (#3609), as a null dictionary member did.
+- **Emitted `__tjs` names a parameter's Type** (`typeName`) and keeps a function type's
+  signature; a consumer reading `__tjs` sees more fields.
+- **New entry points:** `tjs-lang/bun-build-plugin` (`tjsPlugin()` for `Bun.build`) and
+  `tjs-lang/prelude` (with `prelude: 'import'` / `sharedPrelude`; only for a bundle built by
+  the same tjs-lang).
+- **`tjs emit` rewrites relative `./x.tjs` imports to `./x.js`** (#3592), in the `.js` and
+  the `.d.ts`.
+- **Doc comments:** `findDocCommentSpans` / `extractDocComments` are exported (#3604), and the
+  scan is linear (it was quadratic before fuel on the AJS path).
+
+### Added since rc.9
 
 - **A shared prelude: `prelude: 'import'` and `tjsPlugin({ sharedPrelude: true })`** (#3594,
   from tosijs-native). Every emitted module carries its own inline runtime, so a bundle of N
@@ -52,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documentation the way the language does. tosijs-ui feature-detects them, and a `.tjs` file
   documented the TJS way gets a page.
 
-### Fixed
+### Fixed since rc.9
 
 - **Explaining a rejected value costs a bounded multiple of checking it** (#3619, rc.10
   review). The explainer behind "where did it fail" (#3597) asked whether each named Type's
