@@ -65,6 +65,58 @@ describe('tjsPlugin with Bun.build', () => {
   })
 })
 
+describe('sharedPrelude: a bundle carries ONE prelude (#3594)', () => {
+  it('five modules, one prelude, same results as inline', async () => {
+    const mods = ['a', 'b', 'c', 'd', 'e']
+    for (const m of mods)
+      writeFileSync(
+        join(root, `${m}.tjs`),
+        `export function ${m}(n: 0, s: ''): '' { return s + (n == 1 ? 'one' : n) }\n`
+      )
+    writeFileSync(
+      join(root, 'all.tjs'),
+      mods.map((m) => `import { ${m} } from './${m}.tjs'`).join('\n') +
+        `\nexport const run = () => [${mods
+          .map((m) => `${m}(1, '${m}')`)
+          .join(', ')}, a('x', 'y') instanceof Error]\n`
+    )
+    const build = async (sharedPrelude: boolean) => {
+      const outdir = join(root, `dist-prelude-${sharedPrelude}`)
+      const out = await Bun.build({
+        entrypoints: [join(root, 'all.tjs')],
+        outdir,
+        format: 'esm',
+        target: 'node',
+        plugins: [tjsPlugin({ sharedPrelude })],
+      })
+      expect(out.success).toBe(true)
+      const text = await Bun.file(join(outdir, 'all.js')).text()
+      const p = Bun.spawnSync(
+        [
+          'node',
+          '-e',
+          `import('./all.js').then(m => console.log(JSON.stringify(m.run())))`,
+        ],
+        { cwd: outdir, stdout: 'pipe', stderr: 'pipe' }
+      )
+      return {
+        preludes: text.match(/class MonadicError\b/g)?.length ?? 0,
+        bytes: text.length,
+        result: new TextDecoder().decode(p.stdout).trim(),
+      }
+    }
+    const inline = await build(false)
+    const shared = await build(true)
+    expect(inline.preludes).toBe(5) // the entry module checks nothing, so it carries none
+    expect(shared.preludes).toBe(1)
+    expect(shared.result).toBe(inline.result)
+    expect(JSON.parse(shared.result).at(-1)).toBe(true)
+    console.log(
+      `      five modules: ${inline.bytes} bytes inline, ${shared.bytes} shared`
+    )
+  })
+})
+
 describe('the preload plugin opts in with TJS_RUN_TESTS=1 (#3599)', () => {
   const preload = join(import.meta.dir, 'tjs-plugin.ts')
   const run = (env: Record<string, string>) =>

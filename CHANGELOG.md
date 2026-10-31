@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A shared prelude: `prelude: 'import'` and `tjsPlugin({ sharedPrelude: true })`** (#3594,
+  from tosijs-native). Every emitted module carries its own inline runtime, so a bundle of N
+  modules carried N copies. Opted in, a module instead imports a factory from the new
+  `tjs-lang/prelude` and builds its own instance: the code is in the bundle once, the state
+  (the `extend` projection table, the call-stack ring) stays per module. The behaviour is the
+  inline runtime's, checked by a differential corpus run both ways. A module compiled by a
+  different tjs-lang is refused at load, by content hash. Measured on tosijs-native (seven
+  modules): 102.6 KB → 72.3 KB raw, one prelude instead of seven; gzip is unchanged
+  (15.4 → 15.6 KB), because compression had already been folding the copies. So the win is
+  parse size, not transfer. Default output is unchanged and still standalone.
+
 - **`name: Type = default`** (#3596, from tosijs-native): a type and a separate default,
   TypeScript's spelling. The parameter is checked against the type, optional, and defaults to
   the default; it is how a literal union gets a default (`mode: 'grant' | 'deny' = 'grant'`),

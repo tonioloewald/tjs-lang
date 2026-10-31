@@ -132,6 +132,10 @@
       "default": "./dist/tjs-import-resolver.js"
     },
     "./import-resolver/worker": "./dist/import-resolver-worker.js",
+    "./prelude": {
+      "types": "./src/lang/prelude.generated.d.ts",
+      "default": "./src/lang/prelude.generated.js"
+    },
     "./runtime": {
       "bun": "./src/lang/runtime.ts",
       "types": "./dist/src/lang/runtime.d.ts",
@@ -343,6 +347,7 @@
     "deploy": "bun run build:demo && bun run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev",
     "docs:differences": "bun scripts/build-differences.ts",
+    "build:prelude": "bun scripts/build-prelude.ts",
     "build:regex-folds": "bun scripts/build-regex-folds.ts",
     "test:compat": "bun scripts/compat-all.ts",
     "test:compat-scan": "bun scripts/compat-scan.ts"

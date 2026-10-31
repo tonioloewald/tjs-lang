@@ -165,6 +165,14 @@ export interface TJSTranspileOptions {
   /** Mode: 'dev' | 'strict' | 'production' */
   mode?: 'dev' | 'strict' | 'production'
   /**
+   * Where the inline runtime's functions live (#3594). `'inline'` (the default): in this file,
+   * which then runs with no setup. `'import'`: in `tjs-lang/prelude`, shared by every module
+   * of a bundle, so a bundle carries one copy. Each module still builds its own instance, so
+   * nothing a module records leaks into another. The output is then an ES module that needs
+   * the SAME tjs-lang that compiled it (checked at load, by content hash).
+   */
+  prelude?: 'inline' | 'import'
+  /**
    * Source dialect — what kind of source this string is:
    * - `'tjs'` (default for a bare string): native TJS, footgun-removal modes ON
    *   (structural `==`, `TjsStandard`, etc.).
@@ -1341,6 +1349,58 @@ function extractLineAnnotation(
  * - Inline validation (no wrappers)
  * - __tjs metadata inserted immediately after each function
  */
+/** Where `prelude: 'import'` output finds the shared prelude factory. */
+export const PRELUDE_SPECIFIER = 'tjs-lang/prelude'
+
+// The full-prelude switch: while set, every `needs*` flag in `transpileToJS` is on, so the
+// inline runtime it builds is the one with every feature, which is what `tjs-lang/prelude`
+// ships. Module state, set and cleared only by `fullPrelude()`, which is synchronous.
+let FULL_PRELUDE = false
+let capturedPrelude: { inline: string; exports: string[] } | null = null
+let fullPreludeMemo: {
+  inline: string
+  exports: string[]
+  hash: string
+} | null = null
+
+/**
+ * The inline runtime with every feature on: its declarations, the names it hands back, and a
+ * content hash identifying exactly this code. `tjs-lang/prelude` is generated from it, and
+ * `prelude: 'import'` output asks the factory for this hash, so a module compiled by one copy
+ * of the emitter refuses to run on a prelude from another (#3594).
+ */
+export function fullPrelude(): {
+  inline: string
+  exports: string[]
+  hash: string
+} {
+  if (fullPreludeMemo) return fullPreludeMemo
+  FULL_PRELUDE = true
+  capturedPrelude = null
+  try {
+    transpileToJS('', { runTests: false })
+  } finally {
+    FULL_PRELUDE = false
+  }
+  const got = capturedPrelude as { inline: string; exports: string[] } | null
+  if (!got)
+    throw new Error('tjs internal error: the full prelude was not built')
+  const text = got.inline + '\0' + got.exports.join(',')
+  // FNV-1a, 32 bits twice (two offsets): an identity for code, not a security property.
+  let a = 0x811c9dc5
+  let b = 0x01000193 ^ 0x5bd1e995
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    a = Math.imul(a ^ c, 0x01000193)
+    b = Math.imul(b ^ c, 0x01000193)
+  }
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0')
+  fullPreludeMemo = { ...got, hash: hex(a) + hex(b) }
+  return fullPreludeMemo
+}
+
+const preludeHash = () => fullPrelude().hash
+
 export function transpileToJS(
   source: string,
   options: TJSTranspileOptions = {}
@@ -2395,9 +2455,9 @@ export function transpileToJS(
     ...mocks.map((m) => m.body),
   ].join('\n')
   // Use createRuntime() for isolated state per-module
-  const needsTypeError = code.includes('__tjs.typeError(')
-  const needsStack = code.includes('__tjs.pushStack(')
-  const needsIsNot = helperUse.includes('IsNot(')
+  const needsTypeError = FULL_PRELUDE || code.includes('__tjs.typeError(')
+  const needsStack = FULL_PRELUDE || code.includes('__tjs.pushStack(')
+  const needsIsNot = FULL_PRELUDE || helperUse.includes('IsNot(')
   // `IsNot` is implemented AS `!Is(a,b)`, so it needs `Is` emitted — and `'IsNot('` does
   // not contain `'Is('`, so the substring test missed it. An emitted module using `IsNot`
   // without also using `Is` threw `ReferenceError: Is is not defined` on first call, in
@@ -2406,52 +2466,60 @@ export function transpileToJS(
   //
   // Set before the `__ub` gate below, which is keyed on `needsIs` — otherwise `Is` gets
   // emitted referencing an undefined `__ub` and the crash just moves.
-  const needsIs = helperUse.includes('Is(') || needsIsNot
-  const needsEq = helperUse.includes('Eq(')
-  const needsNotEq = helperUse.includes('NotEq(')
+  const needsIs = FULL_PRELUDE || helperUse.includes('Is(') || needsIsNot
+  const needsEq = FULL_PRELUDE || helperUse.includes('Eq(')
+  const needsNotEq = FULL_PRELUDE || helperUse.includes('NotEq(')
   // Legacy equality bridges — emitted only when the author reached for one, which is the
   // point: they are deliberate, greppable escapes back to JavaScript's semantics.
-  const needsLegacyEquals = code.includes('DangerousLegacyEquals(')
-  const needsLegacyNot = code.includes('DangerousLegacyNot(')
-  const needsLegacyExactly = code.includes('LegacyExactly(')
-  const needsLegacyNotExactly = code.includes('LegacyNotExactly(')
-  const needsLegacyDefault = code.includes('LegacyDefault(')
-  const needsLegacyDate = code.includes('LegacyDate(')
-  const needsTypeOf = helperUse.includes('TypeOf(')
+  const needsLegacyEquals =
+    FULL_PRELUDE || code.includes('DangerousLegacyEquals(')
+  const needsLegacyNot = FULL_PRELUDE || code.includes('DangerousLegacyNot(')
+  const needsLegacyExactly = FULL_PRELUDE || code.includes('LegacyExactly(')
+  const needsLegacyNotExactly =
+    FULL_PRELUDE || code.includes('LegacyNotExactly(')
+  const needsLegacyDefault = FULL_PRELUDE || code.includes('LegacyDefault(')
+  const needsLegacyDate = FULL_PRELUDE || code.includes('LegacyDate(')
+  const needsTypeOf = FULL_PRELUDE || helperUse.includes('TypeOf(')
   // A `set` marker checks membership with `__oneOf` — the language's `==`, exactly as a
   // literal-union parameter does.
   const needsOneOf =
-    code.includes('__oneOf(') || code.includes(`${RT_NS}.__k('set'`)
+    FULL_PRELUDE ||
+    code.includes('__oneOf(') ||
+    code.includes(`${RT_NS}.__k('set'`)
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
-  const needsType = /\bType\(/.test(code)
-  const needsGeneric = /\bGeneric\(/.test(code)
-  const needsFunctionPredicate = /\bFunctionPredicate\(/.test(code)
-  const needsEnum = /\bEnum\(/.test(code)
-  const needsUnion = /\bUnion\(/.test(code)
+  const needsType = FULL_PRELUDE || /\bType\(/.test(code)
+  const needsGeneric = FULL_PRELUDE || /\bGeneric\(/.test(code)
+  const needsFunctionPredicate =
+    FULL_PRELUDE || /\bFunctionPredicate\(/.test(code)
+  const needsEnum = FULL_PRELUDE || /\bEnum\(/.test(code)
+  const needsUnion = FULL_PRELUDE || /\bUnion\(/.test(code)
   // Example-kind markers (`markExampleKinds`): what a Type example means where its runtime
   // value cannot say it — `0.0`, `+0`, `a | b`, `string`, a forward reference. Only files
   // that contain one pay for the helpers, and only they get the unwrapping `Type` and the
   // optional-key `__match` — every other file's output is unchanged.
-  const needsKind = code.includes(`${RT_NS}.__k(`)
+  const needsKind = FULL_PRELUDE || code.includes(`${RT_NS}.__k(`)
   // The recursive-Type SOLVER is needed only where an example can recurse, and recursion is
   // reachable only through a NAMED reference (a `ref` marker): an example without one is a
   // finite tree. Gating the solver on markers in general inlined ~6 KB into every file with a
   // TS `number` field — 4.4x a two-field interface (0.14.0 final review, M-3).
-  const needsSolver = needsKind && code.includes(`${RT_NS}.__k('ref'`)
+  const needsSolver =
+    FULL_PRELUDE || (needsKind && code.includes(`${RT_NS}.__k('ref'`))
   // `.toJSONSchema()` / `.strip()` on a runtime type — only inline the
   // example→schema helper for files that actually call them.
-  const needsExampleSchema = /\.(toJSONSchema|strip)\(/.test(code)
-  const needsBang = code.includes('__tjs.bang(')
+  const needsExampleSchema =
+    FULL_PRELUDE || /\.(toJSONSchema|strip)\(/.test(code)
+  const needsBang = FULL_PRELUDE || code.includes('__tjs.bang(')
   // checkFnShape and bang both build MonadicErrors, so they pull in the core too
   const needsMonadicCore =
+    FULL_PRELUDE ||
     needsTypeError ||
     code.includes('__tjs.checkFnShape(') ||
     code.includes('__tjs.bang(')
-  const needsToBool = helperUse.includes('__tjs.toBool(')
+  const needsToBool = FULL_PRELUDE || helperUse.includes('__tjs.toBool(')
   /** `switch` in native .tjs keys its discriminant — see swKey / switch-transform.ts. */
-  const needsSwKey = code.includes('__tjs.swKey(')
+  const needsSwKey = FULL_PRELUDE || code.includes('__tjs.swKey(')
   /** `Exactly(…)` used as a value — a nested discriminant inside a Type example (#45). */
-  const needsExactly = /\bExactly\s*\(/.test(code)
+  const needsExactly = FULL_PRELUDE || /\bExactly\s*\(/.test(code)
   /**
    * Whether this file emits the `__ac` projection table and its `__proj` reader.
    *
@@ -2460,13 +2528,19 @@ export function transpileToJS(
    * `==`, `Is` and `if (x)` reading ONE table rather than disagreeing about a value.
    */
   const needsProjection =
-    needsEq || needsIs || needsOneOf || needsToBool || needsSwKey
-  const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
+    FULL_PRELUDE ||
+    needsEq ||
+    needsIs ||
+    needsOneOf ||
+    needsToBool ||
+    needsSwKey
+  const needsCheckFnShape = FULL_PRELUDE || code.includes('__tjs.checkFnShape(')
   /** Parameter checks read through `__tv`, so a tosijs proxy is checked as its value. */
   // ... and every type predicate (`__pred`) checks through it too, so `Point.check(model)`
   // agrees with a `Point` parameter given the same model.
-  const needsWhy = code.includes(`${RT_NS}.__why(`)
+  const needsWhy = FULL_PRELUDE || code.includes(`${RT_NS}.__why(`)
   const needsTv =
+    FULL_PRELUDE ||
     code.includes(`${RT_NS}.__tv(`) ||
     needsType ||
     needsGeneric ||
@@ -3040,9 +3114,19 @@ export function transpileToJS(
     if (needsCheckFnShape) rtExports.push('checkFnShape')
     if (needsBang) rtExports.push('bang')
 
-    const rtBlock = `const ${RT_NS} = (() => {\n${inlineBlock}return {${rtExports.join(
-      ','
-    )}};\n})();\n`
+    if (FULL_PRELUDE)
+      capturedPrelude = { inline: inlineBlock, exports: rtExports }
+    // `prelude: 'import'` (#3594): the CODE comes from the shared factory, once per bundle,
+    // and this module still gets its own instance, so per-file state (`__ac`) stays per file.
+    // Everything below (aliases, the `__tjs` fallback) is built from this file's flags as
+    // before; only where the functions live changes. See docs/runtime-fusion.md §8.
+    const rtBlock =
+      options.prelude === 'import'
+        ? `import { createPrelude as __tjs_createPrelude } from '${PRELUDE_SPECIFIER}';\n` +
+          `const ${RT_NS} = __tjs_createPrelude('${preludeHash()}');\n`
+        : `const ${RT_NS} = (() => {\n${inlineBlock}return {${rtExports.join(
+            ','
+          )}};\n})();\n`
 
     // Bare aliases for the ambient surface — emitted ONLY for names this module does not
     // already bind at top level.
