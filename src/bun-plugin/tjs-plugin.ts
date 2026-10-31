@@ -11,7 +11,7 @@
  */
 
 import { plugin } from 'bun'
-import { basename } from 'path'
+import { tjsPlugin } from './build-plugin'
 import { installRuntime } from '../lang/runtime'
 
 // Install TJS runtime before any modules evaluate.
@@ -22,37 +22,10 @@ import { installRuntime } from '../lang/runtime'
 // below does not.
 installRuntime()
 
-await plugin({
-  name: 'tjs-loader',
-  async setup(build) {
-    // Handle .tjs files
-    build.onLoad({ filter: /\.tjs$/ }, async (args) => {
-      // Imported lazily, INSIDE onLoad. This used to be a top-level
-      // `import { tjs } from '../lang'`, which loaded the whole transpiler
-      // (parser, emitters, linter, wasm, acorn) on every `bun` invocation in
-      // this repo — because bunfig.toml preloads this file — merely to register
-      // a hook that most invocations never fire. It cost ~22ms per launch and
-      // turned bun's biggest structural advantage into a deficit: bun starts in
-      // ~11ms cold but took ~34ms here, i.e. slower than node. Now it is ~18ms,
-      // and a run that never touches a .tjs file never pays for the transpiler.
-      // (A run that DOES import one pays the same total, just later.)
-      const { tjs } = await import('../lang')
-
-      const source = await Bun.file(args.path).text()
-      const filename = basename(args.path)
-
-      // Use tjs() which handles everything: preprocess, transpile, classes, etc.
-      const result = tjs(source, {
-        filename,
-        runTests: false, // Don't run tests during import
-      })
-
-      return {
-        contents: result.code,
-        loader: 'js',
-      }
-    })
-  },
-})
+// The loader itself is the shared `tjsPlugin` (also what `Bun.build` uses, #3593).
+// `TJS_RUN_TESTS=1` opts in to running each file's signature examples and `test` blocks as it
+// is imported (#3599), so a wrong return example fails under `bun test` too; a preload takes
+// no options, so it is an environment variable. Off by default.
+await plugin(tjsPlugin({ runTests: process.env.TJS_RUN_TESTS === '1' }))
 
 export {}

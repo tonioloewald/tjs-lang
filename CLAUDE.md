@@ -381,6 +381,9 @@ import { registerImportResolver, rewriteImports } from 'tjs-lang/import-resolver
 import { createRuntime, Eq, isMonadicError } from 'tjs-lang/runtime' // TJS runtime (for emitted .tjs / integrations)
 // Bun: enable native .tjs imports — `preload = ["tjs-lang/bun-plugin"]` in bunfig.toml, or:
 import 'tjs-lang/bun-plugin' // registers the .tjs onLoad plugin + installs __tjs (bun-only)
+//   TJS_RUN_TESTS=1 runs each file's signature examples + test blocks on import (opt-in, #3599)
+// Bun.build: the preload is a runtime registration Bun.build ignores, so bundles use this:
+import { tjsPlugin } from 'tjs-lang/bun-build-plugin' // Bun.build({ plugins: [tjsPlugin({ runTests? })] })
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
 // Prism language definitions (GENERATED from editors/tjs-syntax.ts by
 // `bun run build:grammars`): 'tjs-lang/editors/prism/tjs', '/prism/ajs'. These render

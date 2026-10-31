@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tjs-lang/bun-build-plugin`: `tjsPlugin()` for `Bun.build`** (#3593, from tosijs-native).
+  `tjs-lang/bun-plugin` is a runtime registration (Bun's `plugin()`), which `Bun.build`
+  ignores, so a project bundling `.tjs` had to write its own. `Bun.build({ plugins:
+  [tjsPlugin()] })` bundles a `.tjs` graph that runs in plain Node; the preload now uses the
+  same plugin.
+- **Return examples can run on load, opt-in** (#3599, from tosijs-native): `tjsPlugin({
+  runTests: true })`, or `TJS_RUN_TESTS=1` with the preload. A wrong return example (or a
+  failing `test` block) then fails the build or the import, instead of passing `bun test` and
+  failing only `tjs check`. Off by default, since it runs a file's tests on every load.
+
 - **`findDocCommentSpans` and `extractDocComments` are exported** from `tjs-lang`,
   `tjs-lang/lang` and `tjs-lang/browser` (#3604). They are TJS's own doc-comment grammar
   (`/# … #/`: literal-masked and nestable), so a doc system can read a `.tjs` file's

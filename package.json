@@ -145,6 +145,9 @@
     "./bun-plugin": {
       "bun": "./src/bun-plugin/tjs-plugin.ts"
     },
+    "./bun-build-plugin": {
+      "bun": "./src/bun-plugin/build-plugin.ts"
+    },
     "./editors": {
       "bun": "./editors/index.ts",
       "types": "./editors/index.d.ts",
