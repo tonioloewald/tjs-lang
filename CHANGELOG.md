@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An emitted function's `__tjs` says WHICH named Type a parameter has.** `serializeType`
+  copied a fixed field list that left out `typeName`, so a `declared` parameter serialized as
+  `{ kind: 'declared' }` and `wrap(fn, fn.__tjs)` reported "named Type 'undefined'". A
+  function-typed parameter lost its signature (`params`, `returns`) the same way, and a
+  degraded `any` lost its `unresolved` text. The test meant to catch it had been passing on
+  another row's record; CI's test order exposed it.
+
+- **The flight recorder's module-level ring mirrors into an installed instance.** With
+  `globalThis.__tjs = createRuntime()` (the documented setup), what the runtime module itself
+  records, such as a `wrap()` notice, went to a ring nothing read. Instances already mirrored
+  into the global; the module recorder was the one sink without. `installRuntime()` (the
+  module itself on the global) is skipped, so nothing loops.
+
 - **A bare `null` or `undefined` parameter default means any value** (#3609, from
   tosijs-native): `function render(doc = null)` accepted ONLY null, refusing ordinary
   callers, while a null dictionary member accepted anything. It now means "any value,

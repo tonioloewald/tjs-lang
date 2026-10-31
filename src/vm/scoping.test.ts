@@ -143,6 +143,9 @@ describe('guest-built source is admitted before it is transpiled (0.14.0 final r
   } as any
   it('oversized source is refused quickly, and never reaches the transpiler', async () => {
     const src = 'function f() { return { a: 1 } }\n' + '// pad\n'.repeat(20_000)
+    // A delta, not an absolute: the counter is shared with the row below, and test order is
+    // not fixed (a randomized run put that row first).
+    const before = transpiled
     const t = performance.now()
     const r = await vmc.run(
       ast,
@@ -150,7 +153,7 @@ describe('guest-built source is admitted before it is transpiled (0.14.0 final r
       { fuel: 10_000, capabilities: { code } }
     )
     expect(r.error?.message).toMatch(/over the 8192-byte limit/)
-    expect(transpiled).toBe(0)
+    expect(transpiled - before).toBe(0)
     expect(performance.now() - t).toBeLessThan(100)
   })
   it('ordinary source still runs', async () => {

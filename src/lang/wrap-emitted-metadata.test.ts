@@ -9,7 +9,14 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
-import { wrap, isError } from './runtime'
+import {
+  wrap,
+  isError,
+  createRuntime,
+  installRuntime,
+  record,
+  records,
+} from './runtime'
 
 const metaOf = (src: string, name: string) => {
   const r = tjs(src, { runTests: false })
@@ -76,17 +83,85 @@ for (const source of ['types', 'emitted'] as const) {
     })
 
     it('a named Type cannot be resolved from metadata: passed, and recorded', () => {
-      const g = globalThis as any
       const f = wrapped(
-        'Type P { example: { x: 0 } }\nfunction usesP(p: P) { return 1 }',
+        // A name per variant: the notice is recorded once per site per PROCESS, so a shared
+        // name let whichever row ran first take the only record (randomized order found it).
+        `Type P_${source} { example: { x: 0 } }\nfunction usesP(p: P_${source}) { return 1 }`,
         'usesP',
         () => 'ok'
       )
       expect(f({ x: 1 })).toBe('ok')
-      const notes = (g.__tjs?.records?.({ severity: 'notice' }) ?? []).map(
-        (r: any) => r.message
-      )
-      expect(notes.some((m: string) => m.includes("named Type 'P'"))).toBe(true)
+      // The module's own ring: it always has the notice, whatever another test left on
+      // the global (the mirror into an installed instance is pinned below).
+      const notes = records({ severity: 'notice' }).map((r: any) => r.message)
+      expect(
+        notes.some((m: string) => m.includes(`named Type 'P_${source}'`))
+      ).toBe(true)
     })
   })
 }
+
+/**
+ * The module-level recorder mirrors into an installed instance (CI found this by test order):
+ * `wrap()` records into the runtime module's own ring, and with `globalThis.__tjs =
+ * createRuntime()` (the documented setup) nothing read that ring, so the notice was lost.
+ * Instances already mirrored into the global; the module recorder was the one sink without.
+ */
+describe('a module-level notice reaches an installed runtime instance', () => {
+  it('is visible through globalThis.__tjs.records()', () => {
+    const g = globalThis as any
+    const prev = g.__tjs
+    g.__tjs = createRuntime()
+    try {
+      const f = wrap(
+        () => 'ok',
+        metaOf(
+          'Type Q { example: { x: 0 } }\nfunction usesQ(q: Q) { return 1 }',
+          'usesQ'
+        ).types
+      )
+      expect(f({ x: 1 })).toBe('ok')
+      const notes = g.__tjs
+        .records({ severity: 'notice' })
+        .map((r: any) => r.message)
+      expect(notes.some((m: string) => m.includes("named Type 'Q'"))).toBe(true)
+    } finally {
+      g.__tjs = prev
+    }
+  })
+
+  it('and installRuntime() (the module itself on the global) does not loop', () => {
+    const g = globalThis as any
+    const prev = g.__tjs
+    g.__tjs = undefined
+    try {
+      installRuntime()
+      record({ source: 'app', severity: 'notice', message: 'once' })
+      expect(
+        records({ source: 'app' }).filter((r) => r.message === 'once').length
+      ).toBe(1)
+    } finally {
+      g.__tjs = prev
+    }
+  })
+})
+
+/**
+ * The emitted `__tjs` keeps what a descriptor says, not only its kind: `serializeType` copied
+ * a fixed field list that left out `typeName` (so a `declared` type did not say which), the
+ * `unresolved` text, and a function type's signature.
+ */
+describe("emitted __tjs keeps a descriptor's content", () => {
+  it('matches tjs().types for named, function and degraded types', () => {
+    const { types, emitted } = metaOf(
+      `Type R { example: { x: 0 } }
+function f(r: R, cb: (n: 0) => '', s: Foo.Bar) { return 1 }`,
+      'f'
+    )
+    const strip = (t: any): any =>
+      JSON.parse(JSON.stringify(t, (k, v) => (k === 'loc' ? undefined : v)))
+    for (const k of ['r', 'cb', 's'])
+      expect(strip(emitted.params[k].type)).toEqual(strip(types.params[k].type))
+    expect(emitted.params.r.type.typeName).toBe('R')
+  })
+})

@@ -3505,6 +3505,18 @@ function serializeType(t: TypeDescriptor): any {
   // the closed set lives (`types.ts`), and it is the only field that distinguishes
   // `'yes' | 'no'` from any other union.
   if (t.values) result.values = t.values
+  // What a `declared` / `declared-import` type IS, and what a degraded `any` was. Without
+  // `typeName` the emitted `__tjs` said "some named Type" and nothing about which, so
+  // `wrap(fn, fn.__tjs)` reported "named Type 'undefined'" (CI found it: the test row had been
+  // passing on the OTHER row's record). Function types keep their signature too.
+  if (t.typeName) result.typeName = t.typeName
+  if (t.unresolved) result.unresolved = t.unresolved
+  if (t.params)
+    result.params = t.params.map((p) => ({
+      name: p.name,
+      type: serializeType(p.type),
+    }))
+  if (t.returns) result.returns = serializeType(t.returns)
   return result
 }
 

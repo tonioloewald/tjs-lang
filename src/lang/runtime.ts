@@ -878,8 +878,22 @@ function createRecorder(readConfig: () => TJSConfig, mirror?: Mirror) {
   return api
 }
 
-/** The module-level recorder. No mirror — it IS the sink instances mirror to. */
-const recorder = createRecorder(() => config)
+/**
+ * The module-level recorder. It mirrors into the installed global too, unless that global IS
+ * this module (`installRuntime()`): with `globalThis.__tjs = createRuntime()`, the documented
+ * setup, what the module itself records (a `wrap()` notice) went into a ring nothing read.
+ * Instances already mirrored; this was the one sink without.
+ */
+const moduleMirror: Mirror = (entry) => {
+  const g = (globalThis as any).__tjs
+  if (!g || typeof g.record !== 'function' || g.record === record) return
+  try {
+    g.record(entry)
+  } catch {
+    // Never let recording break the program it is recording.
+  }
+}
+const recorder = createRecorder(() => config, moduleMirror)
 
 /** Unsafe mode depth - when > 0, skip validation in wrap() */
 let unsafeDepth = 0
