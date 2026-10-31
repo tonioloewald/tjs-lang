@@ -336,6 +336,7 @@ function functionDeclToTS(
       const isDict =
         dictDefaults &&
         optionalFlags[i] &&
+        !(pd as any).typedDefault && // `opts: T = d` (#3596) takes T whole, not partial
         isDictDefaultParam(p.type, pd.default)
       // A destructured parameter beside others is ONE parameter, named by its binding
       // pattern (`{ w, h }`, valid in a declaration) (#3443/#3444).

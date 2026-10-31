@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`name: Type = default`** (#3596, from tosijs-native): a type and a separate default,
+  TypeScript's spelling. The parameter is checked against the type, optional, and defaults to
+  the default; it is how a literal union gets a default (`mode: 'grant' | 'deny' = 'grant'`),
+  which no other spelling could express. It was a bare `Unexpected token`. A passed object
+  must satisfy the type whole (not merge-on-partial, which stays the untyped `opts = { … }`),
+  a literal default that fails its own type is a compile error, and the `.d.ts` declares the
+  parameter optional with its type. TypeScript conformance's "param with default" row passes.
+
 - **`tjs-lang/bun-build-plugin`: `tjsPlugin()` for `Bun.build`** (#3593, from tosijs-native).
   `tjs-lang/bun-plugin` is a runtime registration (Bun's `plugin()`), which `Bun.build`
   ignores, so a project bundling `.tjs` had to write its own. `Bun.build({ plugins:
@@ -28,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented the TJS way gets a page.
 
 ### Fixed
+
+- **A bare `null` or `undefined` parameter default means any value** (#3609, from
+  tosijs-native): `function render(doc = null)` accepted ONLY null, refusing ordinary
+  callers, while a null dictionary member accepted anything. It now means "any value,
+  defaulting to null", the usual JavaScript meaning. `doc: null` still means only null.
+  **Behaviour change** for code relying on the refusal.
 
 - **A class can call itself from its own body** (#3608): `static of(v) { return Box(v) }`
   threw "Cannot call a class constructor without new". TJS makes a class callable by

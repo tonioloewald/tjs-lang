@@ -98,7 +98,7 @@ import {
   stripLineComments,
   transformExtensionCalls,
 } from '../parser'
-import { DESTRUCTURED_SHAPE_MARK } from '../parser-params'
+import { DESTRUCTURED_SHAPE_MARK, TYPED_DEFAULT_MARK } from '../parser-params'
 
 import {
   transformTypeofKeyword,
@@ -115,6 +115,7 @@ import {
   inferTypeFromValue,
   parseParameter,
   typeNameExample,
+  checkType as valueMatchesDescriptor,
 } from '../inference'
 import { FORBIDDEN_KEYS } from '../../forbidden-keys'
 import {
@@ -527,10 +528,56 @@ function extractFunctionTypeInfo(
         // The colon form (`b: [Book]`) still means "a list of Books".
         if (!isRequired && declaredTypes?.size)
           paramInfo.type = typeValuesIn(paramInfo.type, declaredTypes)
+        // `name: Type = default` (#3596): the TYPE is the annotation, not the default's.
+        const typedMark = preprocessedSource
+          ? typedDefaultMarker(param, preprocessedSource)
+          : undefined
+        if (typedMark) {
+          const declared = annotationType(typedMark.text)
+          // A literal default that contradicts its own type is refused at build, as
+          // TypeScript does (`n: 0 = 'x'`). Non-literal defaults are checked at call time.
+          const dv = param.right
+          const literal =
+            dv?.type === 'Literal' ||
+            (dv?.type === 'UnaryExpression' && dv.argument?.type === 'Literal')
+          if (
+            declared &&
+            literal &&
+            paramInfo.example !== undefined &&
+            !(declared.kind === 'literal-union'
+              ? (declared.values ?? []).includes(paramInfo.example)
+              : valueMatchesDescriptor(paramInfo.example, declared))
+          )
+            throw new TJSSyntaxError(
+              `The default of '${param.left.name}: ${
+                typedMark.text
+              } = ${preprocessedSource!.slice(
+                dv.start,
+                dv.end
+              )}' does not satisfy its own type. Change the default, or the type.`,
+              locAt(preprocessedSource!, param.start),
+              originalSource
+            )
+          if (declared) paramInfo.type = declared
+          else
+            warnings.push(
+              `The type of '${param.left.name}: ${typedMark.text} = …' could not be read; it is unchecked.`
+            )
+        } else if (
+          !isRequired &&
+          (paramInfo.type?.kind === 'null' ||
+            paramInfo.type?.kind === 'undefined')
+        ) {
+          // `doc = null` (#3609, from tosijs-native): "optional, defaulting to null", the usual
+          // JavaScript meaning, and what a null dictionary member already meant. It accepted
+          // ONLY null, refusing ordinary callers. The colon form `doc: null` still means null.
+          paramInfo.type = { kind: 'any' }
+        }
         params[param.left.name] = {
           ...paramInfo,
           required: isRequired,
           ...(isRequired ? {} : { hasDefault: true }),
+          ...(typedMark ? { typedDefault: true } : {}),
           default: isRequired ? null : paramInfo.example ?? paramInfo.default,
           description: tdoc.params[param.left.name],
         }
@@ -1043,6 +1090,7 @@ function generateInlineValidationCode(
         lines.push(...generateMemberCheckLines(cv, path, param.type))
       } else if (
         dictDefaults &&
+        !(param as any).typedDefault &&
         isDictDefaultParam(param.type, param.default)
       ) {
         // Stage 1 (TjsDictDefaults): `= {object literal}` params get
@@ -1060,6 +1108,14 @@ function generateInlineValidationCode(
       } else {
         lines.push(`const ${cv} = ${rt('__tv')}(${paramName});`)
         lines.push(`if (${cv} !== undefined && ${typeCheck}) { ${fail} }`)
+        // `opts: { n: 0 } = { n: 1 }` (#3596): a value PASSED must satisfy the annotation,
+        // members included, as in TypeScript; only an omitted argument gets the default.
+        // (Not merge-on-partial: that is the untyped `opts = { n: 1 }` spelling.)
+        if ((param as any).typedDefault) {
+          const members = generateMemberCheckLines(cv, path, param.type)
+          if (members.length)
+            lines.push(`if (${cv} !== undefined) {`, ...members, `}`)
+        }
       }
     }
 
@@ -1558,7 +1614,9 @@ export function transpileToJS(
     // (Inside a defaulted parameter it falls within the span a relocation replaces, and
     // `relocateDestructured` drops it there.)
     for (const param of func.params ?? []) {
-      const shapeMark = destructuredShapeMarker(param, preprocessed.source)
+      const shapeMark =
+        destructuredShapeMarker(param, preprocessed.source) ??
+        typedDefaultMarker(param, preprocessed.source)
       if (shapeMark)
         deletions.push({ start: shapeMark.start, end: shapeMark.end })
     }
@@ -4048,6 +4106,27 @@ function destructuredShapeMarker(
     start: pattern.end + lead,
     end: pattern.end + m[0].length,
     label: source.slice(pattern.start, pattern.end).replace(/\s+/g, ' '),
+  }
+}
+
+/**
+ * The marker the parser leaves for `name: Type = default` (#3596), between the name and its
+ * default: its text and span.
+ */
+function typedDefaultMarker(
+  param: any,
+  source: string
+): { text: string; start: number; end: number } | undefined {
+  if (param?.type !== 'AssignmentPattern' || param.left?.type !== 'Identifier')
+    return undefined
+  const between = source.slice(param.left.end, param.right.start)
+  const m = between.match(/\/\*([^]*?)\*\//)
+  if (!m || !m[1].startsWith(TYPED_DEFAULT_MARK)) return undefined
+  const start = param.left.end + (m.index ?? 0)
+  return {
+    text: m[1].slice(TYPED_DEFAULT_MARK.length).trim(),
+    start,
+    end: start + m[0].length,
   }
 }
 

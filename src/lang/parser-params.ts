@@ -39,6 +39,13 @@ import {
 export const DESTRUCTURED_SHAPE_MARK = '__tjs_shape:'
 
 /**
+ * Marks the TYPE of `name: Type = default` (#3596), kept as a comment between the name and
+ * its default so the emitter checks the parameter against Type. Read and removed by the JS
+ * emitter.
+ */
+export const TYPED_DEFAULT_MARK = '__tjs_type:'
+
+/**
  * The offset of a default's `=` at the top level of `text` (a type annotation followed by
  * `= value`), or -1. Not `==`, `===`, `=>`, `<=`, `>=` or `!=`; literal-blind via masking.
  */
@@ -2110,6 +2117,33 @@ function processParamString(
       return `${name} = ${type}`
     }
 
+    // `name: Type = default` (#3596, from tosijs-native): a TYPE and a separate DEFAULT,
+    // TypeScript's spelling. Checked against Type, optional, defaulting to `default`. It was a
+    // bare "Unexpected token" (the default branch below expects `name =`), and a literal union
+    // could not have a default at all (`mode = 'grant'` makes the type `string`). The type
+    // rides to the emitter in a marker (`TYPED_DEFAULT_MARK`), as a destructured annotation
+    // does; the default stays JavaScript.
+    if (trackRequired) {
+      const tColon = findTopLevelColon(trimmed)
+      const tName = tColon === -1 ? '' : trimmed.slice(0, tColon).trim()
+      if (tColon !== -1 && /^[A-Za-z_$][\w$]*$/.test(tName)) {
+        const afterColon = trimmed.slice(tColon + 1)
+        const eq = topLevelDefaultEquals(afterColon)
+        if (eq !== -1) {
+          const annotation = rewriteTypeArguments(
+            afterColon.slice(0, eq).trim(),
+            ctx
+          )
+          const dflt = afterColon.slice(eq + 1).trim()
+          if (annotation && dflt && !annotation.includes('*/')) {
+            checkDuplicate(tName)
+            sawOptional = true
+            return `${tName} /*${TYPED_DEFAULT_MARK}${annotation}*/ = ${dflt}`
+          }
+        }
+      }
+    }
+
     // Check if param already has a default value (x = value)
     if (!hasColonNotEquals(trimmed)) {
       // Has equals sign (default value) - this is optional
@@ -2126,7 +2160,9 @@ function processParamString(
     const colonPos = findTopLevelColon(trimmed)
     if (colonPos !== -1) {
       const name = trimmed.slice(0, colonPos).trim()
-      const type = rewriteTypeArguments(trimmed.slice(colonPos + 1).trim(), ctx)
+      const afterColon = trimmed.slice(colonPos + 1)
+
+      const type = rewriteTypeArguments(afterColon.trim(), ctx)
 
       checkDuplicate(name)
 

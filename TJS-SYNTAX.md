@@ -149,6 +149,17 @@ function f(s: string, n: number, b: boolean, u: string | null) { }
 // Optional param with default
 function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice'
 
+// A type AND a separate default: TypeScript's spelling (#3596). Checked against the
+// type, optional, defaulting to the default. The way to give a literal union a default:
+function grant(mode: 'grant' | 'deny' = 'grant') { }  // grant('maybe') -> MonadicError
+function count(n: number = 5) { }
+function at(p: Point = { x: 1, y: 2 }) { }  // a passed value must be a whole Point:
+// an object default here is NOT merge-on-partial (that is `opts = { … }`, below)
+// A literal default that fails its own type is a compile error: `n: 0 = 'x'`.
+
+// A bare null or undefined default means ANY value, defaulting to it (#3609)
+function render(doc = null) { }          // render({}) is fine; `doc: null` means only null
+
 // Object-literal default = a dictionary (merge-on-partial), NOT an atomic default
 function place(args = { x: 0, y: 0 }) { }
 // place({ x: 5 })      -> { x: 5, y: 0 }   each member defaulted individually

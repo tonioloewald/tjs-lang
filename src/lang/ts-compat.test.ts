@@ -160,7 +160,7 @@ const CASES: Array<{ name: string; src: string; supported: boolean }> = [
   {
     name: 'param with default',
     src: `function f(n: number = 5) { return n }`,
-    supported: false,
+    supported: true, // `name: Type = default` (#3596)
   },
 ]
 
