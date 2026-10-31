@@ -383,6 +383,14 @@ describe('TJS constructs the AJS path does not accept (ratchet)', () => {
     ['test block', "function f() { test 'x' { return 1 } return 1 }"],
     ['given', "function f(x) { given x { 'a' { return 1 } } return 0 }"],
     ['class', 'class C { m() { return 1 } }\nfunction f() { return 1 }'],
+    // `name: Type = default` (#3596) reached AJS through the SHARED parser-params and was
+    // accepted with the type DROPPED: `n: number = 5` admitted 'x' (rc.10 review). Refused
+    // until the AST emitter can carry the type into the input schema.
+    ['typed default', 'function f(n: 0 = 5) { return n }'],
+    [
+      'typed default, literal union',
+      "function f(m: 'r' | 'w' = 'r') { return m }",
+    ],
   ]
 
   it('accepts exactly the known leaks, and nothing more', () => {

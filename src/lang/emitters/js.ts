@@ -169,7 +169,9 @@ export interface TJSTranspileOptions {
    * which then runs with no setup. `'import'`: in `tjs-lang/prelude`, shared by every module
    * of a bundle, so a bundle carries one copy. Each module still builds its own instance, so
    * nothing a module records leaks into another. The output is then an ES module that needs
-   * the SAME tjs-lang that compiled it (checked at load, by content hash).
+   * the SAME tjs-lang that compiled it (checked at load, by content hash). Meant for a bundle
+   * built by that tjs-lang (`tjsPlugin({ sharedPrelude: true })`); do not publish such files
+   * unless the package pins tjs-lang exactly.
    */
   prelude?: 'inline' | 'import'
   /**
@@ -2187,36 +2189,48 @@ export function transpileToJS(
   // records itself on the raw class as `__tjs_callable`, and the call goes through it, so an
   // overloaded constructor still dispatches. Not when a parameter shadows the name, and only
   // where the wrapper exists (native TJS).
-  walk.ancestor(program as any, {
-    CallExpression(node: any, _state: unknown, ancestors: any[]) {
-      const callee = node.callee
-      if (callee?.type !== 'Identifier' || node.optional) return
-      const name = callee.name
-      let inBody = false
-      for (let i = ancestors.length - 1; i >= 0; i--) {
-        const a = ancestors[i]
-        if (
-          (a.type === 'FunctionExpression' ||
-            a.type === 'FunctionDeclaration' ||
-            a.type === 'ArrowFunctionExpression') &&
-          a.params?.some((p: any) => p.type === 'Identifier' && p.name === name)
-        )
-          return
-        if (a.type === 'ClassBody') inBody = true
-        if (
-          (a.type === 'ClassDeclaration' || a.type === 'ClassExpression') &&
-          a.id?.name === name
-        ) {
+  // Which classes the wrapper made callable: read from the wrapper's own statements in the
+  // AST (`Object.defineProperty(Name, '__tjs_callable', …)`), never from source text, which a
+  // string can spell (rc.10 review: literal blindness).
+  const callableClasses = new Set<string>()
+  for (const st of (program as any).body ?? []) {
+    const e = st.type === 'ExpressionStatement' ? st.expression : null
+    if (
+      e?.type === 'CallExpression' &&
+      e.callee?.type === 'MemberExpression' &&
+      e.callee.object?.name === 'Object' &&
+      e.callee.property?.name === 'defineProperty' &&
+      e.arguments[0]?.type === 'Identifier' &&
+      e.arguments[1]?.value === '__tjs_callable'
+    )
+      callableClasses.add(e.arguments[0].name)
+  }
+  if (callableClasses.size > 0)
+    walk.ancestor(program as any, {
+      CallExpression(node: any, _state: unknown, ancestors: any[]) {
+        const callee = node.callee
+        if (callee?.type !== 'Identifier' || node.optional) return
+        const name = callee.name
+        if (!callableClasses.has(name)) return
+        // Walk out from the call. Any scope on the way that binds `name` shadows the class
+        // (rc.10 review: a local `const Box`, a destructured or default param, `catch (Box)`,
+        // an inner `function Box` all called `Box.__tjs_callable`, which the local lacks).
+        let inBody = false
+        for (let i = ancestors.length - 2; i >= 0; i--) {
+          const a = ancestors[i]
+          if (a.type === 'ClassBody') inBody = true
           if (
-            inBody &&
-            preprocessed.source.includes(`${name}, '__tjs_callable'`)
-          )
-            insertions.push({ position: callee.end, text: '.__tjs_callable' })
-          return
+            (a.type === 'ClassDeclaration' || a.type === 'ClassExpression') &&
+            a.id?.name === name
+          ) {
+            if (inBody)
+              insertions.push({ position: callee.end, text: '.__tjs_callable' })
+            return
+          }
+          if (scopeBinds(a, name)) return
         }
-      }
-    },
-  })
+      },
+    })
 
   // Class METHODS validate their parameters, the constructor included (#3598, from
   // tosijs-native). They were only stripped of annotations (below), so `class Box {
@@ -2576,6 +2590,8 @@ export function transpileToJS(
     needsTv
 
   let runtimePrelude = ''
+  /** `prelude: 'import'`: [the import block, the inline block it stands for], for tests. */
+  let testPreludeSwap: [string, string] | null = null
   if (needsRuntime) {
     // Build standalone preamble — emitted JS must work without any setup.
     // Use globalThis.__tjs if available (shared runtime), otherwise inline
@@ -3120,13 +3136,18 @@ export function transpileToJS(
     // and this module still gets its own instance, so per-file state (`__ac`) stays per file.
     // Everything below (aliases, the `__tjs` fallback) is built from this file's flags as
     // before; only where the functions live changes. See docs/runtime-fusion.md §8.
+    const inlineRtBlock = `const ${RT_NS} = (() => {\n${inlineBlock}return {${rtExports.join(
+      ','
+    )}};\n})();\n`
     const rtBlock =
       options.prelude === 'import'
         ? `import { createPrelude as __tjs_createPrelude } from '${PRELUDE_SPECIFIER}';\n` +
           `const ${RT_NS} = __tjs_createPrelude('${preludeHash()}');\n`
-        : `const ${RT_NS} = (() => {\n${inlineBlock}return {${rtExports.join(
-            ','
-          )}};\n})();\n`
+        : inlineRtBlock
+    // Transpile-time tests run beside the module text, where an `import` cannot resolve, so
+    // they get the inline form. Same functions either way (prelude.test.ts's differential
+    // corpus); without this every example was inconclusive and a wrong one passed the build.
+    if (rtBlock !== inlineRtBlock) testPreludeSwap = [rtBlock, inlineRtBlock]
 
     // Bare aliases for the ambient surface — emitted ONLY for names this module does not
     // already bind at top level.
@@ -3328,7 +3349,9 @@ export function transpileToJS(
       tests,
       mocks,
       sigTestInfos,
-      code,
+      testPreludeSwap
+        ? code.replace(testPreludeSwap[0], () => testPreludeSwap![1])
+        : code,
       resolvedImports,
       preprocessed.extensions
     )
@@ -3485,38 +3508,71 @@ function findAllFunctions(program: Program): FunctionDeclaration[] {
  * Serialize a TypeDescriptor to JSON-compatible object
  * Preserves full type structure (shape, items, members)
  */
+/**
+ * How each TypeDescriptor field reaches the emitted `__tjs`. Keyed by `keyof TypeDescriptor`, so
+ * a field added to the descriptor fails to COMPILE here until someone decides. It was a hand
+ * list, which dropped `typeName`, `params` and `returns` without anyone deciding (rc.10 review:
+ * the second fix of that class).
+ */
+const SERIALIZED_FIELDS: Record<
+  keyof TypeDescriptor,
+  'copy' | 'type' | 'types' | 'shape' | 'params' | 'omit'
+> = {
+  // Iteration order is emission order: the original fields first, as they always were.
+  kind: 'copy',
+  nullable: 'copy',
+  pattern: 'copy',
+  flags: 'copy',
+  items: 'type',
+  shape: 'shape',
+  members: 'types',
+  values: 'copy',
+  typeName: 'copy',
+  unresolved: 'copy',
+  params: 'params',
+  returns: 'type',
+  // A destructured parameter's members are emitted as the parameter's own `destructured`
+  // metadata (see generateTypeMetadata), not inside its type.
+  destructuredParams: 'omit',
+}
+
 function serializeType(t: TypeDescriptor): any {
-  const result: any = { kind: t.kind }
-  if (t.nullable) result.nullable = true
-  if (t.pattern) {
-    result.pattern = t.pattern
-    if (t.flags) result.flags = t.flags
+  const result: any = {}
+  for (const key of Object.keys(
+    SERIALIZED_FIELDS
+  ) as (keyof TypeDescriptor)[]) {
+    const v = (t as any)[key]
+    // Falsy values were never written (`nullable: false`, an empty pattern), and readers
+    // test presence; kept so the emitted metadata is unchanged.
+    if (!v && key !== 'kind') continue
+    switch (SERIALIZED_FIELDS[key]) {
+      case 'copy':
+        result[key] = v
+        break
+      case 'type':
+        result[key] = serializeType(v)
+        break
+      case 'types':
+        result[key] = v.map(serializeType)
+        break
+      case 'shape':
+        result[key] = Object.fromEntries(
+          Object.entries(v).map(([k, x]) => [
+            k,
+            serializeType(x as TypeDescriptor),
+          ])
+        )
+        break
+      case 'params':
+        result[key] = v.map((p: any) => ({
+          name: p.name,
+          type: serializeType(p.type),
+        }))
+        break
+    }
   }
-  if (t.items) result.items = serializeType(t.items)
-  if (t.shape) {
-    result.shape = Object.fromEntries(
-      Object.entries(t.shape).map(([k, v]) => [k, serializeType(v)])
-    )
-  }
-  if (t.members) result.members = t.members.map(serializeType)
-  // The union's MEMBERS. Without this a literal union serialized as a bare
-  // `{"kind":"literal-union"}` — the kind survived and the whole content did not — so
-  // every downstream consumer of `__tjs` saw a type it could not act on. `values` is where
-  // the closed set lives (`types.ts`), and it is the only field that distinguishes
-  // `'yes' | 'no'` from any other union.
-  if (t.values) result.values = t.values
-  // What a `declared` / `declared-import` type IS, and what a degraded `any` was. Without
-  // `typeName` the emitted `__tjs` said "some named Type" and nothing about which, so
-  // `wrap(fn, fn.__tjs)` reported "named Type 'undefined'" (CI found it: the test row had been
-  // passing on the OTHER row's record). Function types keep their signature too.
-  if (t.typeName) result.typeName = t.typeName
-  if (t.unresolved) result.unresolved = t.unresolved
-  if (t.params)
-    result.params = t.params.map((p) => ({
-      name: p.name,
-      type: serializeType(p.type),
-    }))
-  if (t.returns) result.returns = serializeType(t.returns)
+  // `flags` only ever travelled with a `pattern`.
+  if (!t.pattern) delete result.flags
   return result
 }
 
@@ -4973,4 +5029,76 @@ function addSafeEvalImports(code: string): string {
   return needed.length
     ? `import { ${needed.join(', ')} } from 'tjs-lang';\n` + code
     : code
+}
+
+/** Names a binding pattern declares: `a`, `{ a, b: c }`, `[a, ...b]`, `a = 1`. */
+function patternNames(p: any, out: Set<string>): Set<string> {
+  if (!p) return out
+  if (p.type === 'Identifier') out.add(p.name)
+  else if (p.type === 'ObjectPattern')
+    for (const prop of p.properties)
+      patternNames(
+        prop.type === 'RestElement' ? prop.argument : prop.value,
+        out
+      )
+  else if (p.type === 'ArrayPattern')
+    for (const el of p.elements) patternNames(el, out)
+  else if (p.type === 'RestElement') patternNames(p.argument, out)
+  else if (p.type === 'AssignmentPattern') patternNames(p.left, out)
+  return out
+}
+
+/** Does this one scope node bind `name` (params, its own name, declarations in it)? */
+function scopeBinds(a: any, name: string): boolean {
+  switch (a.type) {
+    case 'FunctionDeclaration':
+    case 'FunctionExpression':
+    case 'ArrowFunctionExpression': {
+      if (a.type === 'FunctionExpression' && a.id?.name === name) return true
+      const params = new Set<string>()
+      for (const p of a.params) patternNames(p, params)
+      // Declarations in the body are its BlockStatement's, checked as that ancestor. No
+      // `var` hoisting to model: native TJS refuses `var`, and only native TJS wraps classes.
+      return params.has(name)
+    }
+    case 'CatchClause':
+      return patternNames(a.param, new Set()).has(name)
+    case 'ForStatement':
+    case 'ForInStatement':
+    case 'ForOfStatement': {
+      const d = a.type === 'ForStatement' ? a.init : a.left
+      return (
+        d?.type === 'VariableDeclaration' &&
+        d.declarations.some((x: any) => patternNames(x.id, new Set()).has(name))
+      )
+    }
+    case 'BlockStatement':
+    case 'StaticBlock':
+    case 'Program':
+      return a.body.some(
+        (st: any) =>
+          (st.type === 'VariableDeclaration' &&
+            st.declarations.some((x: any) =>
+              patternNames(x.id, new Set()).has(name)
+            )) ||
+          ((st.type === 'FunctionDeclaration' ||
+            st.type === 'ClassDeclaration') &&
+            st.id?.name === name)
+      )
+    case 'SwitchStatement':
+      return a.cases.some((c: any) =>
+        c.consequent.some(
+          (st: any) =>
+            (st.type === 'VariableDeclaration' &&
+              st.declarations.some((x: any) =>
+                patternNames(x.id, new Set()).has(name)
+              )) ||
+            ((st.type === 'FunctionDeclaration' ||
+              st.type === 'ClassDeclaration') &&
+              st.id?.name === name)
+        )
+      )
+    default:
+      return false
+  }
 }

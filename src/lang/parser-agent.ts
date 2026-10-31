@@ -141,6 +141,9 @@ export function preprocessAgentSource(
       typeNameOptionals,
       unsafeFunctions: new Set<string>(),
       safeFunctions: new Set<string>(),
+      // The AST emitter cannot carry `name: Type = default`'s type into the input schema
+      // yet, and dropping it fails open (rc.10 review). Refused, as rc.9 did, with a remedy.
+      refuseTypedDefaults: true,
     }
   )
   source = transformed

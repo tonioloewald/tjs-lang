@@ -63,6 +63,18 @@ describe('tjsPlugin with Bun.build', () => {
     expect((await build()).success).toBe(true) // the default: off
     expect((await build(true)).success).toBe(false)
   })
+
+  it('with sharedPrelude too: a wrong example still fails the build (rc.10 review)', async () => {
+    const out = await Bun.build({
+      entrypoints: [join(root, 'wrong.tjs')],
+      outdir: join(root, 'dist-tests-shared'),
+      plugins: [tjsPlugin({ runTests: true, sharedPrelude: true })],
+      throw: false,
+    })
+    // The tests used to run against the IMPORT form, where the factory is not in scope:
+    // every example came back inconclusive and the build passed.
+    expect(out.success).toBe(false)
+  })
 })
 
 describe('sharedPrelude: a bundle carries ONE prelude (#3594)', () => {

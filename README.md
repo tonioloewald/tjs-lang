@@ -203,7 +203,7 @@ a standalone entry point, not an increment (import only what you need):
 | `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 305 KB | 93 KB |
 | `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 185 KB | 58 KB |
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
-| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 370 KB | 118 KB    |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 403 KB | 128 KB    |
 | `tjs-lang` (full, TS support) | index.js         | 508 KB | 164 KB    |
 
 The transpiler grew ~11% in 0.14.0 — `Type` examples are now read for what they mean

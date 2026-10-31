@@ -372,6 +372,11 @@ export function transformParenExpressions(
     parenDepth?: number
     /** Work budget shared by the whole transform (AJS). See TransformWork. */
     work?: TransformWork
+    /**
+     * Refuse `name: Type = default` (AJS). The branch below writes the type into a marker
+     * only the JS emitter reads, so on the AJS path the type was silently DROPPED.
+     */
+    refuseTypedDefaults?: boolean
   }
 ): {
   source: string
@@ -1940,6 +1945,7 @@ function processParamString(
     work?: TransformWork
     /** For locating an error in a parameter (every caller passes it). */
     originalSource?: string
+    refuseTypedDefaults?: boolean
   },
   trackRequired: boolean
 ): string {
@@ -1955,6 +1961,7 @@ function processParamString(
     maxParenDepth: ctx.maxParenDepth,
     parenDepth: (ctx.parenDepth ?? 0) + 1,
     work: ctx.work,
+    refuseTypedDefaults: ctx.refuseTypedDefaults,
   }).source
 
   // Now split and process each parameter
@@ -2136,6 +2143,16 @@ function processParamString(
           )
           const dflt = afterColon.slice(eq + 1).trim()
           if (annotation && dflt && !annotation.includes('*/')) {
+            if (ctx.refuseTypedDefaults)
+              throw new SyntaxError(
+                `AJS does not support a typed parameter with a default yet ` +
+                  `(\`${tName}: ${annotation} = ${dflt}\`): the type would not reach the ` +
+                  `agent's input schema, so it would check nothing.\n\n` +
+                  `  Use the default as the example:  ${tName} = ${dflt}\n\n` +
+                  `That declares the parameter optional, typed by its default.`,
+                locAt(ctx.originalSource ?? params, 0),
+                ctx.originalSource ?? params
+              )
             checkDuplicate(tName)
             sawOptional = true
             return `${tName} /*${TYPED_DEFAULT_MARK}${annotation}*/ = ${dflt}`

@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   modules): 102.6 KB → 72.3 KB raw, one prelude instead of seven; gzip is unchanged
   (15.4 → 15.6 KB), because compression had already been folding the copies. So the win is
   parse size, not transfer. Default output is unchanged and still standalone.
+  **This output is for a bundle built by the same tjs-lang**, which is what the plugin does:
+  it names an exact prelude, so do not publish `prelude: 'import'` files unless the package
+  pins tjs-lang to that exact version. A consumer's tree resolving a different copy gets
+  "compiled against prelude X" at load. Signature examples and `test` blocks still run under
+  it (they run against the inline form: the rc.10 review found every one inconclusive, so a
+  wrong example passed the build).
 
 - **`name: Type = default`** (#3596, from tosijs-native): a type and a separate default,
   TypeScript's spelling. The parameter is checked against the type, optional, and defaults to
@@ -48,6 +54,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The doc-comment scan is linear** (rc.10 review). `findDocCommentSpans` (public since
+  #3604) and `blankDocComments` run before any fuel on the AJS path, and were quadratic:
+  `'/#'.repeat(k)` took 28s at 128 KB, 11.6ms now. The new scan returns exactly the old one's
+  spans, checked against the old implementation over 20,000 generated sources, and a
+  work-counting row fails if it stops being linear. Exposure was bounded by the 8 KB default
+  source cap (about 60ms); a host that raised `maxSourceBytes`, or called `transpile()`
+  directly, got super-linear work before any budget.
+
+- **AJS refuses `name: Type = default`, with a remedy** (rc.10 review). The new spelling
+  (#3596) reached AJS through the parameter code it shares with TJS and was accepted with the
+  type dropped, so `n: number = 5` admitted `'x'` into the agent: a declared input contract
+  silently unenforced. rc.9 refused it as a syntax error; it is refused again, now saying
+  what to write (`n = 5`), until the AST emitter carries the type into the input schema. The
+  AJS construct ratchet lists it, so the next leak through the shared code fails by name.
+
 - **An emitted function's `__tjs` says WHICH named Type a parameter has.** `serializeType`
   copied a fixed field list that left out `typeName`, so a `declared` parameter serialized as
   `{ kind: 'declared' }` and `wrap(fn, fn.__tjs)` reported "named Type 'undefined'". A
@@ -71,7 +92,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   threw "Cannot call a class constructor without new". TJS makes a class callable by
   rebinding its outer name to a wrapper; inside the body the name is the raw class. The call
   now goes through the wrapper (recorded on the class as a non-enumerable
-  `__tjs_callable`), so overloaded constructors still dispatch.
+  `__tjs_callable`), so overloaded constructors still dispatch. The callee is resolved by
+  scope: a method that binds its own `Box` (a local, a destructured or default parameter, an
+  inner function, `catch (Box)`, a loop binding) calls its own (rc.10 review: those threw
+  `Box.__tjs_callable is not a function`), and whether a class is wrapped is read from the
+  wrapper's statements, not from source text a string can spell.
 - **A `}` in a string or regex inside a method no longer ends the class** for the
   callable-class wrapper (literal blindness). The wrapper landed inside the class body, where
   it parsed by accident as a class field named after the class, so that class was never made
@@ -98,6 +123,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameters are covered; a derived constructor's checks run before `super()`, which
   JavaScript allows since they return only on failure. Setters are NOT checked (their return
   value is discarded, so a refusal would silently drop the write), nor is `dialect: 'js'`.
+  **BREAKING for platform callbacks whose return value the platform discards.** A refused
+  call returns a MonadicError instead of running the body, and the host never looks:
+  `attributeChangedCallback(name = '', old = '', value = '')` is called with `old = null` the
+  first time an attribute is set, so the body silently does not run. The refusal is recorded
+  in the flight recorder (`__tjs.records()`). Spell what the platform actually passes:
+  `old = null` (a null default accepts any value), or mark the method `/* unsafe */`.
 
 - **A function-valued member of a Type's example means "a function here"** (#3595, from
   tosijs-native). `Type Bridge { example: { call: (a) => 1 } }` refused every value, one of

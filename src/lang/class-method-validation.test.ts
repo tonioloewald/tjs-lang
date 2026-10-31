@@ -150,3 +150,55 @@ describe('a brace inside a string or regex does not end the class', () => {
     expect(Object.keys(f)).toEqual([])
   })
 })
+
+/**
+ * The self-call rewrite resolves the callee by SCOPE (rc.10 review): it fired on any `Box(…)`
+ * inside the class body, so a method that bound its own `Box` called `Box.__tjs_callable`, which
+ * its local does not have. Every binding form between the call and the class body shadows.
+ */
+describe('a shadowed class name inside the body is left alone', () => {
+  const run = (method: string) =>
+    load(`class Box { constructor(v: 0) { this.v = v }\n  ${method} }`)(1).m()
+  const cases: [string, string][] = [
+    ['a local const', 'm() { const Box = (x) => x * 10; return Box(2) }'],
+    ['a let in a block', 'm() { { let Box = (x) => x * 10; return Box(2) } }'],
+    // No `var` row: native TJS refuses `var`, and only native TJS wraps classes.
+    [
+      'an inner function declaration',
+      'm() { function Box(x) { return x * 10 } return Box(2) }',
+    ],
+    [
+      'a destructured param',
+      'm({ Box } = { Box: (x) => x * 10 }) { return Box(2) }',
+    ],
+    ['a default param', 'm(Box = (x) => x * 10) { return Box(2) }'],
+    ['a rest param', 'm(...Box) { return 20 }'],
+    [
+      'a catch param',
+      'm() { try { throw (x) => x * 10 } catch (Box) { return Box(2) } }',
+    ],
+    [
+      'a for-of binding',
+      'm() { for (const Box of [(x) => x * 10]) return Box(2) }',
+    ],
+    ['an arrow param', 'm() { return ((Box) => Box(2))((x) => x * 10) }'],
+  ]
+  for (const [what, method] of cases)
+    it(what, () => expect(run(method)).toBe(20))
+
+  it('a string naming the wrapper does not make an unwrapped class look wrapped', () => {
+    // Literal blindness: the gate was a substring test over the source, and under
+    // dialect 'js' a class is never wrapped, so the rewrite would call a property it lacks.
+    const out = tjs(
+      `const note = "Box, '__tjs_callable'"\nclass Box { static of(v) { return Box(v) } }`,
+      { runTests: false, dialect: 'js' }
+    ).code
+    expect(out).not.toContain('__tjs_callable(')
+  })
+
+  it('an unshadowed self-call still goes through the wrapper', () => {
+    const Box = load(`class Box { constructor(v: 0) { this.v = v }
+  static of(v: 0) { const other = 1; return Box(v + other - 1) } }`)
+    expect(Box.of(3).v).toBe(3)
+  })
+})

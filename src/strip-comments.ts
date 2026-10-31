@@ -683,6 +683,12 @@ export function stripComments(source: string): string {
  * which is the whole point: a TJS doc comment can quote `/*`, `*\/`, `/*# … *\/`, and other
  * doc comments, with no escaping at all.
  */
+/**
+ * Characters the doc-comment scan has visited, for the linearity test
+ * (`doc-comment-scan.test.ts`): work counted, not timed. Cheap enough to leave on.
+ */
+export const docScanWork = { steps: 0 }
+
 export function findDocCommentSpans(source: string): Array<[number, number]> {
   // Scanned on RAW text, with only the OPENING position validated against the lexer.
   //
@@ -697,46 +703,127 @@ export function findDocCommentSpans(source: string): Array<[number, number]> {
   // must already know where the doc comment is, which is the thing being computed. So the
   // only lexing that happens here is on the OPENER: a `/#` that sits inside a string,
   // template or comment is not an opener.
+  //
+  // LINEAR (0.14.0-rc.10 review). It used to rescan from every opener: a failed one scanned
+  // toward EOF and the outer loop advanced by one, so `'/#'.repeat(k)` was quadratic, and
+  // pre-fuel on the AJS path. Now the scan that STARTS at a position is computed once:
+  // `match(p)` is what scanning from just after an opener finds, and a nested opener's scan is
+  // the same scan as its parent's from that point, so the parent reuses it rather than walking
+  // it again. The result is identical to the old one (oracle in doc-comment-scan.test.ts).
   const regions = scanLiterals(source)
-  const insideLiteral = (offset: number): boolean =>
-    regions.some((r) => offset >= r.start && offset < r.end)
+  // Queries arrive in increasing offset order, so a cursor replaces `regions.some`.
+  let cursor = 0
+  const insideLiteral = (offset: number): boolean => {
+    while (cursor < regions.length && regions[cursor].end <= offset) {
+      cursor++
+      docScanWork.steps++
+    }
+    const r = regions[cursor]
+    return r !== undefined && offset >= r.start && offset < r.end
+  }
+
+  /** Scanning from `p` (just after an opener) to the close that ends it. */
+  type Match = { end: number; newline: boolean; earlyClose: boolean } | null
+  const memo = new Map<number, Match>()
+  const last = source.length - 1
+  const match = (start: number): Match => {
+    if (memo.has(start)) return memo.get(start)!
+    // An explicit stack: nesting depth is input-controlled.
+    type Frame = {
+      p: number
+      j: number
+      newline: boolean
+      closed: boolean
+      early: boolean
+    }
+    const stack: Frame[] = [
+      { p: start, j: start, newline: false, closed: false, early: false },
+    ]
+    let result: Match = null
+    let returning = false
+    while (stack.length) {
+      const f = stack[stack.length - 1]
+      if (returning) {
+        // A nested scan just finished: continue the parent after it.
+        returning = false
+        if (result === null) {
+          memo.set(f.p, null)
+          stack.pop()
+          returning = true
+          continue
+        }
+        // The FIRST close of the whole scan is the nested scan's first close, unless one was
+        // already seen; it was single-line if no newline came before it.
+        if (!f.closed) {
+          f.closed = true
+          f.early = !f.newline && result.earlyClose
+        }
+        f.newline = f.newline || result.newline
+        f.j = result.end
+      }
+      let pushed = false
+      while (f.j < last) {
+        docScanWork.steps++
+        const c = source[f.j]
+        if (c === '\n') f.newline = true
+        if (c === '/' && source[f.j + 1] === '#') {
+          const sub = f.j + 2
+          if (memo.has(sub)) {
+            result = memo.get(sub)!
+            returning = true
+            pushed = true
+            break
+          }
+          stack.push({
+            p: sub,
+            j: sub,
+            newline: false,
+            closed: false,
+            early: false,
+          })
+          pushed = true
+          break
+        }
+        if (c === '#' && source[f.j + 1] === '/') {
+          if (!f.closed) {
+            f.closed = true
+            f.early = !f.newline
+          }
+          result = { end: f.j + 2, newline: f.newline, earlyClose: f.early }
+          memo.set(f.p, result)
+          stack.pop()
+          returning = true
+          pushed = true
+          break
+        }
+        f.j++
+      }
+      if (!pushed) {
+        // EOF before the close: this scan, and every scan waiting on it, fails.
+        result = null
+        memo.set(f.p, null)
+        stack.pop()
+        returning = true
+      }
+    }
+    return memo.get(start)!
+  }
 
   const spans: Array<[number, number]> = []
   let i = 0
-  while (i < source.length - 1) {
+  while (i < last) {
+    docScanWork.steps++
     if (source[i] !== '/' || source[i + 1] !== '#' || insideLiteral(i)) {
       i++
       continue
     }
-    let depth = 1
-    let j = i + 2
-    let sawNewline = false
-    let firstCloseWasSingleLine = false
-    while (j < source.length - 1 && depth > 0) {
-      if (source[j] === '\n') sawNewline = true
-      if (source[j] === '/' && source[j + 1] === '#') {
-        depth++
-        j += 2
-        continue
-      }
-      if (source[j] === '#' && source[j + 1] === '/') {
-        // A close reached without ever crossing a newline means this was a single-line
-        // `/#…#/` — a REGEX LITERAL, valid JavaScript, and not ours to claim. That rule is
-        // the whole subset-preservation argument (a regex cannot contain a raw newline), so
-        // it is checked at the first close rather than over the whole span.
-        if (!sawNewline) firstCloseWasSingleLine = true
-        depth--
-        j += 2
-        continue
-      }
-      j++
-    }
-    if (depth !== 0 || !sawNewline || firstCloseWasSingleLine) {
+    const m = match(i + 2)
+    if (m === null || !m.newline || m.earlyClose) {
       i++
       continue
     }
-    spans.push([i, j])
-    i = j
+    spans.push([i, m.end])
+    i = m.end
   }
   return spans
 }
@@ -806,12 +893,20 @@ export function trimTrailingWhitespace(code: string): string {
 export function blankDocComments(source: string): string {
   const spans = findDocCommentSpans(source)
   if (!spans.length) return source
-  let out = source
-  for (const [start, end] of spans.reverse()) {
-    const blanked = source.slice(start, end).replace(/[^\n]/g, ' ')
-    out = out.slice(0, start) + blanked + out.slice(end)
+  // One pass (rc.10 review): rebuilding the string once per span was quadratic in the number
+  // of doc comments.
+  const parts: string[] = []
+  let at = 0
+  for (const [start, end] of spans) {
+    docScanWork.steps += end - at
+    parts.push(
+      source.slice(at, start),
+      source.slice(start, end).replace(/[^\n]/g, ' ')
+    )
+    at = end
   }
-  return out
+  parts.push(source.slice(at))
+  return parts.join('')
 }
 
 export function maskLiterals(source: string): string {
