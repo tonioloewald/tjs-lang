@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Explaining a rejected value costs a bounded multiple of checking it** (#3619, rc.10
+  review). The explainer behind "where did it fail" (#3597) asked whether each named Type's
+  whole subtree passed before descending into it, so a rejected recursive value cost
+  subtree × depth: 37× the accept at depth 60. It now walks the shape first and asks only
+  where the walk found nothing (a predicate refusing a well-shaped value), at most 16 times;
+  past that it stops explaining and the error keeps its plain message. About 3× the accept at
+  any depth or width, counted in property reads. The messages are the old explainer's,
+  checked against it over every leaf of a nested config broken nine ways.
+
 - **The doc-comment scan is linear** (rc.10 review). `findDocCommentSpans` (public since
   #3604) and `blankDocComments` run before any fuel on the AJS path, and were quadratic:
   `'/#'.repeat(k)` took 28s at 128 KB, 11.6ms now. The new scan returns exactly the old one's
