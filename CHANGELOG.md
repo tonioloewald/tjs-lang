@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`findDocCommentSpans` and `extractDocComments` are exported** from `tjs-lang`,
+  `tjs-lang/lang` and `tjs-lang/browser` (#3604). They are TJS's own doc-comment grammar
+  (`/# … #/`: literal-masked and nestable), so a doc system can read a `.tjs` file's
+  documentation the way the language does. tosijs-ui feature-detects them, and a `.tjs` file
+  documented the TJS way gets a page.
+
 ### Fixed
 
 - **A package written in `.tjs` emits as a package TypeScript and plain Node can use**

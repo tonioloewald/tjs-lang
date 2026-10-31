@@ -15,3 +15,8 @@ export * from './transpiler'
 // Doc generation (the signature IS the docs). tosijs-ui's built-in `tjs` dialect feature-detects
 // `generateDocsMarkdown` here to show an example's Docs tab (tosijs-ui 1.16.3, #184 part 3).
 export { generateDocs, generateDocsMarkdown } from './docs'
+
+// TJS's own doc-comment grammar (`/# … #/`): literal-masked and nestable, so a doc system
+// reads a .tjs file's documentation the way the language does, not with a second scanner
+// that reads a `/#/` regex and a later "#/" string as one comment (#3604, for tosijs-ui).
+export { findDocCommentSpans, extractDocComments } from '../strip-comments'

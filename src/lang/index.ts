@@ -483,3 +483,8 @@ export { graduate } from './graduate'
 export type { GraduateResult } from './graduate'
 export { switchToGiven } from './switch-to-given'
 export type { SwitchToGivenResult } from './switch-to-given'
+
+// TJS's own doc-comment grammar (`/# … #/`): literal-masked and nestable, so a doc system
+// reads a .tjs file's documentation the way the language does, not with a second scanner
+// that reads a `/#/` regex and a later "#/" string as one comment (#3604, for tosijs-ui).
+export { findDocCommentSpans, extractDocComments } from '../strip-comments'
