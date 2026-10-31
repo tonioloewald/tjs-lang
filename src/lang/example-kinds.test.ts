@@ -757,8 +757,12 @@ describe('the solver is emitted only where an example can recurse (0.14.0 final 
     expect(code).toContain('function __k(')
     expect(code).not.toContain('__kSolve')
     expect(code).not.toContain('__kjs')
-    // 10,400 bytes with the solver; 5,797 without (4,115 for the same Type with `''` fields).
-    expect(code.length).toBeLessThan(7000)
+    // The ceiling's job is to see the SOLVER (~4.6KB) emitted where it is not needed. 5,797
+    // bytes without it; since #3597 a file naming a declared Type also carries `__why` (the
+    // failure-path explainer, ~1.95KB raw / ~750 gzip), so 8,808 now, and with the solver
+    // ~13.4KB. 9,500 still separates the two. Per-module prelude size is #3594 (share one
+    // runtime per bundle), not something to win back here.
+    expect(code.length).toBeLessThan(9500)
   })
   it('a named reference brings the solver, and it still works', () => {
     const src = 'Type T { example: { next: T | null, n: 0.0 } }'

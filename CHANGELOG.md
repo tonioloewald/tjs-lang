@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A declared Type's failure says where** (#3597, from tosijs-native). A config type whose
+  one bad field was deep inside reported `Expected Config for '…config', got object`; it now
+  says `Expected Config for '…config': products[1].kind: expected string, got number`
+  (missing members, nested shapes, the integer rule, function members and recursive Types
+  included). The explanation runs only after the check has failed, and never throws.
+  **Size:** it adds ~1.95KB (~750 bytes gzipped) to each emitted module that names a
+  declared Type; sharing one runtime per bundle is #3594.
+
 - **Class methods validate their parameters, the constructor included** (#3598, from
   tosijs-native). **Behaviour change:** a method or constructor with typed parameters now
   returns a MonadicError for a wrong argument (`Box('s')` for `constructor(v: 0)`, which used

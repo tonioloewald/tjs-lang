@@ -1019,11 +1019,22 @@ function generateInlineValidationCode(
       // A list whose ELEMENT failed says which one, and why (#3407). The whole-list
       // message ("Expected array of object …, got array of object") named neither. Only on
       // the failure path: a walk to the first bad element, then the list-level message.
+      // A declared Type says WHERE it failed (#3597): `__why` explains on this path only.
+      const T =
+        (param.type.kind === 'declared' ||
+          param.type.kind === 'declared-import') &&
+        param.type.typeName &&
+        /^[A-Za-z_$][\w$]*$/.test(param.type.typeName)
+          ? param.type.typeName
+          : null
+      const reason = T ? `, ${rt('__why')}(${T}, ${cv})` : ''
       const fail = `${listElementDiagnosis(
         cv,
         path,
         param.type
-      )}return __tjs.typeError('${path}', '${expectedType}', ${cv}${rootExpr});`
+      )}return __tjs.typeError('${path}', '${expectedType}', ${cv}${
+        reason || rootExpr
+      });`
       if (param.required) {
         lines.push(`const ${cv} = ${rt('__tv')}(${paramName});`)
         lines.push(`if (${typeCheck}) { ${fail} }`)
@@ -2358,6 +2369,7 @@ export function transpileToJS(
   /** Parameter checks read through `__tv`, so a tosijs proxy is checked as its value. */
   // ... and every type predicate (`__pred`) checks through it too, so `Point.check(model)`
   // agrees with a `Point` parameter given the same model.
+  const needsWhy = code.includes(`${RT_NS}.__why(`)
   const needsTv =
     code.includes(`${RT_NS}.__tv(`) ||
     needsType ||
@@ -2811,6 +2823,12 @@ export function transpileToJS(
     if (needsTv) {
       inlineParts.push(UNWRAP_TOSI_SOURCE)
     }
+    // __why — on the FAILURE path of a declared Type's check, where the value and the
+    // example first disagree: `products[1].kind: expected string, got number` (#3597). The
+    // check answers only yes or no, so a config type whose one bad field was deep inside
+    // reported `Expected Config …, got object` and nothing about where. Never throws (an
+    // explanation must not become a second error), and depth-capped.
+    if (needsWhy) inlineParts.push(WHY_SOURCE)
     // toBool — honest truthiness (unwraps boxed primitives)
     if (needsToBool) {
       inlineParts.push(`function toBool(v){return Boolean(__ub(__proj(v)))}`)
@@ -2892,6 +2910,7 @@ export function transpileToJS(
     // `__proj` is reached from OUTSIDE the IIFE by the two `__tjs` rebindings below.
     if (needsProjection) rtExports.push('__ubxv', '__ub', '__proj', '__ac')
     if (needsTv) rtExports.push('__xv', '__tv')
+    if (needsWhy) rtExports.push('__why')
     if (needsEq) rtExports.push('Eq')
     if (needsNotEq) rtExports.push('NotEq')
     if (needsLegacyEquals) rtExports.push('DangerousLegacyEquals')
@@ -4130,6 +4149,10 @@ function typeValuesIn(t: any, declaredTypes: Set<string>): any {
     }
   return t
 }
+
+/** `__why` and its helpers, inlined into emitted code that names a declared Type (#3597). */
+const WHY_SOURCE =
+  "function __gotK(v){return v===null?'null':Array.isArray(v)?'array':typeof v}function __why(T,v){try{if(!T||typeof T.check!=='function')return;const r=T.check(v);if(r===true)return;if(typeof r==='string')return r;return T.__ex!==undefined?__whyEx(v,T.__ex,'',0):undefined}catch(e){return}}function __whyEx(v,ex,at,d){const no=m=>at?at+': '+m:undefined;if(d>64||ex===undefined)return;if(ex===null)return v===null?undefined:no('expected null, got '+__gotK(v));if(ex&&typeof ex==='object'&&ex.__k){if(__match(v,ex))return;if(ex.__k==='ref'){const t=typeof ex.peek==='function'?ex.peek():undefined;return t&&(typeof t==='object'||typeof t==='function')&&t!==ex?__whyEx(v,t,at,d+1)||no('expected '+ex.name):no('expected '+ex.name)}return no('no alternative matched, got '+__gotK(v))}if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType){if(__match(v,ex))return;return(ex.__ex!==undefined?__whyEx(v,ex.__ex,at,d+1):undefined)||no('expected '+(ex.description||'a matching value'))}const t=typeof ex;if(t==='number'){if(typeof v!=='number')return no('expected number, got '+__gotK(v));if(Number.isInteger(ex)&&!Number.isInteger(v))return no('expected integer, got '+v);return}if(t==='string'||t==='boolean')return typeof v===t?undefined:no('expected '+t+', got '+__gotK(v));if(t==='function')return typeof v==='function'?undefined:no('expected function, got '+__gotK(v));if(Array.isArray(ex)){if(!Array.isArray(v))return no('expected array, got '+__gotK(v));if(!ex.length)return;for(let i=0;i<v.length;i++){const w=__whyEx(v[i],ex[0],at+'['+i+']',d+1);if(w)return w}return}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return no('expected object, got '+__gotK(v));for(const k of Object.keys(ex)){const kat=at?at+'.'+k:k;if(!(k in v)){if(typeof __kOpt==='function'&&__kOpt(ex[k]))continue;return kat+': missing'}const w=__whyEx(v[k],ex[k],kat,d+1);if(w)return w}return}return v===ex?undefined:no('expected '+JSON.stringify(ex))}"
 
 /** The name a parameter's checks read (see `__tv`): `p` → `__cv_p`. */
 function checkAlias(name: string): string {
