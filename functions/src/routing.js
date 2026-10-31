@@ -1,8 +1,8 @@
 const __tjs_rt = (() => {
-function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
+const __ubxv=Symbol.for('xin-value');function __ub(v){try{if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[__ubxv];if(w!==undefined)return w}if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
-function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-return {__ub,__proj,__ac,toBool};
+function toBool(v){return Boolean(__ub(__proj(v)))};
+return {__ubxv,__ub,__proj,__ac,toBool};
 })();
 const toBool = __tjs_rt.toBool;
 const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {toBool:__tjs_rt.toBool};
@@ -15,6 +15,7 @@ URL pattern matching and stored functions cache for the page endpoint.
 
 import { getFirestore } from 'firebase-admin/firestore'
 
+
 let _db = null
 function db() {
   if (__tjs.toBool(!__tjs.toBool(_db))) _db = getFirestore()
@@ -23,7 +24,7 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "routing.tjs:10"
+  "source": "routing.tjs:11"
 }
 
 /*#
@@ -33,7 +34,7 @@ Matches URL paths against patterns like `/user/:id` or `/api/v1/:resource/:actio
 Returns extracted parameters if match succeeds, null otherwise.
 */
 export function matchUrlPattern(pattern, path) {
-                                              
+
   const normalizedPattern = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('/'))(pattern.replace(/\/+$/, ''))
   const normalizedPath = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('/'))(path.replace(/\/+$/, ''))
 
@@ -51,11 +52,11 @@ export function matchUrlPattern(pattern, path) {
     const pathPart = pathParts[i]
 
     if (__tjs.toBool(patternPart.startsWith(':'))) {
-                                  
+
       const paramName = patternPart.slice(1)
       params[paramName] = decodeURIComponent(pathPart)
     } else if (__tjs.toBool(patternPart !== pathPart)) {
-                         
+
       return null
     }
   }
@@ -78,7 +79,7 @@ matchUrlPattern.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "routing.tjs:21"
+  "source": "routing.tjs:22"
 }
 
 /*#
@@ -90,7 +91,7 @@ Cache entries expire after 60 seconds.
 const storedFunctionsCache = {
   data: null,
   timestamp: 0,
-  ttl: 60000              
+  ttl: 60000
 }
 
 export async function getStoredFunctions() {
@@ -115,5 +116,5 @@ export async function getStoredFunctions() {
 getStoredFunctions.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "routing.tjs:64"
+  "source": "routing.tjs:65"
 }

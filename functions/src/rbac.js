@@ -1,10 +1,10 @@
 import { Eval } from 'tjs-lang';
 const __tjs_rt = (() => {
-function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
+const __ubxv=Symbol.for('xin-value');function __ub(v){try{if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[__ubxv];if(w!==undefined)return w}if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
 function TypeOf(v){return v===null?'null':typeof v};
-function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-return {__ub,__proj,__ac,TypeOf,toBool};
+function toBool(v){return Boolean(__ub(__proj(v)))};
+return {__ubxv,__ub,__proj,__ac,TypeOf,toBool};
 })();
 const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
 const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
@@ -86,6 +86,7 @@ plainData.__tjs = {
   "source": "rbac.tjs:40"
 }
 
+
 let _db = null
 function db() {
   if (__tjs.toBool(!__tjs.toBool(_db))) _db = getFirestore()
@@ -94,26 +95,30 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "rbac.tjs:60"
+  "source": "rbac.tjs:61"
 }
+
 
 const securityRulesCache = {
   data: new Map(),
   timestamp: 0,
-  ttl: 60000              
+  ttl: 60000
 }
 
 export async function getSecurityRule(collection) {
   const now = Date.now()
+
 
   if (__tjs.toBool((now - securityRulesCache.timestamp) >= securityRulesCache.ttl)) {
     securityRulesCache.data.clear()
     securityRulesCache.timestamp = now
   }
 
+
   if (__tjs.toBool(securityRulesCache.data.has(collection))) {
     return securityRulesCache.data.get(collection)
   }
+
 
   const doc = await db().collection('securityRules').doc(collection).get()
   const rule = __tjs.toBool(doc.exists)?(doc.data()):(null)
@@ -131,7 +136,7 @@ getSecurityRule.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:71"
+  "source": "rbac.tjs:73"
 }
 
 /*#
@@ -171,7 +176,7 @@ export function evaluateAccessShortcut(accessRule, context) {
       return __tjs.toBool(_roles?.includes('author'))?({ allowed: true }):({ allowed: false, reason: 'Author role required' })
 
     default:
-                                
+
       if (__tjs.toBool(accessRule.startsWith('owner:'))) {
         const field = accessRule.slice(6)
         const checkDoc = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(newData))(doc)
@@ -187,12 +192,13 @@ export function evaluateAccessShortcut(accessRule, context) {
         return { allowed: false, reason: `Must be owner (${field})` }
       }
 
+
       if (__tjs.toBool(accessRule.startsWith('role:'))) {
         const role = accessRule.slice(5)
         return __tjs.toBool(_roles?.includes(role))?({ allowed: true }):({ allowed: false, reason: `Role '${role}' required` })
       }
 
-      return null                             
+      return null
   }
 }
 evaluateAccessShortcut.__tjs = {
@@ -211,7 +217,7 @@ evaluateAccessShortcut.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:105"
+  "source": "rbac.tjs:110"
 }
 
 /*#
@@ -230,13 +236,13 @@ export async function evaluateSecurityRule(rule, context) {
   const { _method, newData } = context
 
   try {
-                                                         
-    let accessRule = rule.code                                               
+
+    let accessRule = rule.code
 
     if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(rule.read !== undefined):__tjs__t)(_method === 'read'))) {
       accessRule = rule.read
     } else if (__tjs.toBool(_method === 'write')) {
-                                     
+
       if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(rule.create !== undefined):__tjs__t)(!__tjs.toBool(context.doc)))) {
         accessRule = rule.create
       } else if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(rule.update !== undefined):__tjs__t)(context.doc))) {
@@ -248,6 +254,7 @@ export async function evaluateSecurityRule(rule, context) {
       accessRule = rule.delete
     }
 
+
     if (__tjs.toBool(__tjs_rt.TypeOf(accessRule) === 'string')) {
       const shortcutResult = evaluateAccessShortcut(accessRule, context)
       if (__tjs.toBool(shortcutResult)) {
@@ -255,6 +262,7 @@ export async function evaluateSecurityRule(rule, context) {
         return { ...shortcutResult, evalTimeMs, fuelUsed: 0, type: 'shortcut' }
       }
     }
+
 
     if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(newData):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(rule.schema):__tjs__t)(_method === 'write')))) {
       const schemaResult = validateSchema(rule.schema, newData)
@@ -270,6 +278,7 @@ export async function evaluateSecurityRule(rule, context) {
       }
     }
 
+
     const codeToRun = __tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.code):__tjs__t)(__tjs_rt.TypeOf(accessRule) === 'object'))?(accessRule.code):(rule.code)
 
     if (__tjs.toBool(codeToRun)) {
@@ -279,13 +288,15 @@ export async function evaluateSecurityRule(rule, context) {
       const result = await Eval({
         code: codeToRun,
 
+
         context: { ...context, doc: plainData(context.doc) },
         fuel,
         timeoutMs,
-        capabilities: {}                                      
+        capabilities: {}
       })
 
       const evalTimeMs = performance.now() - startTime
+
 
       let allowed = false
       let reason = null
@@ -300,10 +311,12 @@ export async function evaluateSecurityRule(rule, context) {
       return { allowed, reason, evalTimeMs, fuelUsed: result.fuelUsed, type: 'code' }
     }
 
+
     if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(!__tjs.toBool(rule.code)):__tjs__t)(rule.schema))) {
       const evalTimeMs = performance.now() - startTime
       return { allowed: true, evalTimeMs, fuelUsed: 0, type: 'schema-only' }
     }
+
 
     const evalTimeMs = performance.now() - startTime
     return { allowed: false, reason: 'No access rule defined', evalTimeMs, fuelUsed: 0, type: 'default' }
@@ -330,7 +343,7 @@ evaluateSecurityRule.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:171"
+  "source": "rbac.tjs:177"
 }
 
 /*#
@@ -361,5 +374,5 @@ loadUserRoles.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:268"
+  "source": "rbac.tjs:281"
 }

@@ -1,8 +1,8 @@
 const __tjs_rt = (() => {
-function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
+const __ubxv=Symbol.for('xin-value');function __ub(v){try{if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[__ubxv];if(w!==undefined)return w}if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
-function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-return {__ub,__proj,__ac,toBool};
+function toBool(v){return Boolean(__ub(__proj(v)))};
+return {__ubxv,__ub,__proj,__ac,toBool};
 })();
 const toBool = __tjs_rt.toBool;
 const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {toBool:__tjs_rt.toBool};
@@ -19,6 +19,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getSecurityRule, evaluateSecurityRule, loadUserRoles } from './rbac.js'
 import { updateIndexes, removeFromIndexes } from './indexes.js'
 
+
 let _db = null
 function db() {
   if (__tjs.toBool(!__tjs.toBool(_db))) _db = getFirestore()
@@ -27,11 +28,11 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "store.tjs:14"
+  "source": "store.tjs:15"
 }
 
 export function createStoreCapability(uid) {
-                                                           
+
   let cachedRoles = null
 
   async function getRoles() {
@@ -45,15 +46,19 @@ export function createStoreCapability(uid) {
     async get(collection, docId) {
       const rule = await getSecurityRule(collection)
 
+
       if (__tjs.toBool(!__tjs.toBool(rule))) {
         return { error: `No security rule for collection: ${collection}` }
       }
+
 
       const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = __tjs.toBool(docSnap.exists)?(docSnap.data()):(null)
 
+
       const roles = await getRoles()
+
 
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
@@ -65,6 +70,7 @@ export function createStoreCapability(uid) {
         _docId: docId,
         doc
       })
+
 
       console.log(`RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
 
@@ -82,11 +88,14 @@ export function createStoreCapability(uid) {
         return { error: `No security rule for collection: ${collection}` }
       }
 
+
       const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = __tjs.toBool(docSnap.exists)?(docSnap.data()):(null)
 
+
       const roles = await getRoles()
+
 
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
@@ -106,7 +115,9 @@ export function createStoreCapability(uid) {
         return { error: 'Permission denied', reason: ruleResult.reason }
       }
 
+
       await docRef.set(data, { merge: true })
+
 
       if (__tjs.toBool(rule.indexes)) {
         await updateIndexes(collection, docId, doc, data, rule.indexes)
@@ -122,6 +133,7 @@ export function createStoreCapability(uid) {
         return { error: `No security rule for collection: ${collection}` }
       }
 
+
       const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = __tjs.toBool(docSnap.exists)?(docSnap.data()):(null)
@@ -130,7 +142,9 @@ export function createStoreCapability(uid) {
         return { error: 'Document not found' }
       }
 
+
       const roles = await getRoles()
+
 
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
@@ -149,6 +163,7 @@ export function createStoreCapability(uid) {
         return { error: 'Permission denied', reason: ruleResult.reason }
       }
 
+
       if (__tjs.toBool(rule.indexes)) {
         await removeFromIndexes(collection, docId, doc, rule.indexes)
       }
@@ -164,7 +179,9 @@ export function createStoreCapability(uid) {
         return { error: `No security rule for collection: ${collection}` }
       }
 
+
       const roles = await getRoles()
+
 
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
@@ -184,6 +201,7 @@ export function createStoreCapability(uid) {
       if (__tjs.toBool(!__tjs.toBool(ruleResult.allowed))) {
         return { error: 'Permission denied', reason: ruleResult.reason }
       }
+
 
       let query = db().collection(collection)
 
@@ -219,5 +237,5 @@ createStoreCapability.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "store.tjs:19"
+  "source": "store.tjs:20"
 }

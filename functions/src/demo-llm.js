@@ -1,10 +1,10 @@
 const __tjs_rt = (() => {
-function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
+const __ubxv=Symbol.for('xin-value');function __ub(v){try{if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[__ubxv];if(w!==undefined)return w}if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
 function LegacyDate(...a){return new Date(...a)};
 function TypeOf(v){return v===null?'null':typeof v};
-function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-return {__ub,__proj,__ac,LegacyDate,TypeOf,toBool};
+function toBool(v){return Boolean(__ub(__proj(v)))};
+return {__ubxv,__ub,__proj,__ac,LegacyDate,TypeOf,toBool};
 })();
 const LegacyDate = __tjs_rt.LegacyDate;const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
 const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
@@ -123,6 +123,7 @@ export async function claimQuota(db, uid, now, limits = {}) {
 
   return db.runTransaction(async (tx) => {
 
+
     const userSnap = await tx.get(userRef)
     const globalSnap = await tx.get(globalRef)
     const used = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(userSnap.data().count):__tjs__t)(userSnap.exists))
@@ -132,6 +133,7 @@ export async function claimQuota(db, uid, now, limits = {}) {
       return { ok: false, reason: 'per-user', used, remaining: 0 }
     }
     if (__tjs.toBool(globalUsed >= global)) {
+
 
       return { ok: false, reason: 'global', used, remaining: perUser - used }
     }
@@ -211,6 +213,8 @@ export const demoPredict = onCall(
 
     const db = getFirestore()
 
+
+
     const quota = await claimQuota(db, uid, Date.now())
 
     if (__tjs.toBool(!__tjs.toBool(quota.ok))) {
@@ -219,6 +223,9 @@ export const demoPredict = onCall(
         __tjs.toBool(quota.reason === 'per-user')?(`Daily limit reached (${DAILY_PER_USER} calls). It resets at 00:00 UTC. Add your own API key in settings to keep going.`):('The demo model has hit its daily limit across all users. Try again tomorrow, or add your own API key in settings.')
       )
     }
+
+
+
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY.value()}`,
@@ -235,6 +242,7 @@ export const demoPredict = onCall(
     )
 
     if (__tjs.toBool(!__tjs.toBool(res.ok))) {
+
 
       const detail = await res.text().catch(() => '')
       console.error('demoPredict upstream error', res.status, detail.slice(0, 500))

@@ -1,8 +1,8 @@
 const __tjs_rt = (() => {
-function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
+const __ubxv=Symbol.for('xin-value');function __ub(v){try{if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[__ubxv];if(w!==undefined)return w}if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
-function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-return {__ub,__proj,__ac,toBool};
+function toBool(v){return Boolean(__ub(__proj(v)))};
+return {__ubxv,__ub,__proj,__ac,toBool};
 })();
 const toBool = __tjs_rt.toBool;
 const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {toBool:__tjs_rt.toBool};
@@ -39,6 +39,7 @@ indexes: [
 
 import { getFirestore } from 'firebase-admin/firestore'
 
+
 let _db = null
 function db() {
   if (__tjs.toBool(!__tjs.toBool(_db))) _db = getFirestore()
@@ -47,8 +48,9 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "indexes.tjs:34"
+  "source": "indexes.tjs:35"
 }
+
 
 function matchesFilter(doc, filter) {
   if (__tjs.toBool(!__tjs.toBool(filter))) return true
@@ -73,8 +75,9 @@ matchesFilter.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:39"
+  "source": "indexes.tjs:41"
 }
+
 
 function extractFields(doc, fields, docId) {
   const entry = { _id: docId, _updated: Date.now() }
@@ -110,8 +113,9 @@ extractFields.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:47"
+  "source": "indexes.tjs:50"
 }
+
 
 function getIndexPath(collection, indexName, partitionKey = null) {
   const base = `${collection}_indexes`
@@ -136,15 +140,16 @@ getIndexPath.__tjs = {
     },
     "partitionKey": {
       "type": {
-        "kind": "null"
+        "kind": "any"
       },
       "required": false,
       "default": null
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:60"
+  "source": "indexes.tjs:64"
 }
+
 
 export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) {
   const startTime = performance.now()
@@ -157,9 +162,10 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
     const newMatches = matchesFilter(newDoc, filter)
 
     if (__tjs.toBool(partitionByArray)) {
-                                                                   
+
       const oldPartitions = __tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(oldMatches):__tjs__t)(oldDoc))?(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:([]))(oldDoc[partitionByArray])):([])
       const newPartitions = __tjs.toBool(newMatches)?(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:([]))(newDoc[partitionByArray])):([])
+
 
       for (const partition of oldPartitions) {
         if (__tjs.toBool(!__tjs.toBool(newPartitions.includes(partition)))) {
@@ -169,6 +175,7 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
         }
       }
 
+
       for (const partition of newPartitions) {
         const indexPath = getIndexPath(collection, name, partition)
         const entry = extractFields(newDoc, fields, docId)
@@ -176,15 +183,17 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
         updated++
       }
     } else if (__tjs.toBool(partitionBy)) {
-                                  
+
       const oldPartition = __tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(oldMatches):__tjs__t)(oldDoc))?(oldDoc[partitionBy]):(null)
       const newPartition = __tjs.toBool(newMatches)?(newDoc[partitionBy]):(null)
+
 
       if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(oldPartition !== newPartition):__tjs__t)(oldPartition))) {
         const indexPath = getIndexPath(collection, name, oldPartition)
         await db().collection(indexPath).doc(docId).delete()
         updated++
       }
+
 
       if (__tjs.toBool(newPartition)) {
         const indexPath = getIndexPath(collection, name, newPartition)
@@ -193,15 +202,15 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
         updated++
       }
     } else {
-                                       
+
       const indexPath = getIndexPath(collection, name)
 
       if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(!__tjs.toBool(newMatches)):__tjs__t)(oldMatches))) {
-                            
+
         await db().collection(indexPath).doc(docId).delete()
         updated++
       } else if (__tjs.toBool(newMatches)) {
-                              
+
         const entry = extractFields(newDoc, fields, docId)
         await db().collection(indexPath).doc(docId).set(entry)
         updated++
@@ -248,8 +257,9 @@ updateIndexes.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:68"
+  "source": "indexes.tjs:73"
 }
+
 
 export async function removeFromIndexes(collection, docId, doc, indexes) {
   const startTime = performance.now()
@@ -314,5 +324,5 @@ removeFromIndexes.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:137"
+  "source": "indexes.tjs:147"
 }

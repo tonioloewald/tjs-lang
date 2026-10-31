@@ -1,10 +1,10 @@
 import { Eval } from 'tjs-lang';
 const __tjs_rt = (() => {
-function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
+const __ubxv=Symbol.for('xin-value');function __ub(v){try{if(v!==null&&(typeof v==='object'||typeof v==='function')){const w=v[__ubxv];if(w!==undefined)return w}if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
 function TypeOf(v){return v===null?'null':typeof v};
-function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-return {__ub,__proj,__ac,TypeOf,toBool};
+function toBool(v){return Boolean(__ub(__proj(v)))};
+return {__ubxv,__ub,__proj,__ac,TypeOf,toBool};
 })();
 const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
 const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
@@ -32,6 +32,7 @@ import { TJS_LANG_VERSION } from './version.js'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
+
 import { decrypt } from './crypto.js'
 import { createLlmCapability } from './llm.js'
 import { createStoreCapability } from './store.js'
@@ -45,6 +46,7 @@ is not deployed at all — it builds cleanly and simply never exists. `demoPredi
 `demo-llm.tjs`; this is what puts it on the wire.
 */
 export { demoPredict } from './demo-llm.js'
+
 
 initializeApp()
 
@@ -93,7 +95,7 @@ getUserApiKeys.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:47"
+  "source": "index.tjs:49"
 }
 
 /*#
@@ -102,6 +104,10 @@ getUserApiKeys.__tjs = {
 Simple endpoint to verify functions are deployed and running.
 */
 export const health = onRequest((req, res) => {
+
+
+
+
 
   res.json({
     status: 'ok',
@@ -117,6 +123,7 @@ export const health = onRequest((req, res) => {
 Universal AJS endpoint - accepts code, args, and fuel limit.
 Executes the code in a sandboxed VM with user's API keys as capabilities.
 */
+
 
 function hashPayload(payload) {
   const str = JSON.stringify(payload)
@@ -137,8 +144,9 @@ hashPayload.__tjs = {
       "required": false
     }
   },
+  "description": "## Agent Run Endpoint\n\nUniversal AJS endpoint - accepts code, args, and fuel limit.\nExecutes the code in a sandboxed VM with user's API keys as capabilities.",
   "unsafe": true,
-  "source": "index.tjs:98"
+  "source": "index.tjs:105"
 }
 
 export const agentRun = onCall(async (request) => {
@@ -152,6 +160,9 @@ export const agentRun = onCall(async (request) => {
   if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
     throw new HttpsError('invalid-argument', 'code must be a non-empty string')
   }
+
+
+
 
   if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))(__tjs_rt.TypeOf(fuel) !== 'number'))))) {
     throw new HttpsError('invalid-argument', 'fuel must be a number from 1 to 10000')
@@ -168,6 +179,12 @@ export const agentRun = onCall(async (request) => {
 
     result = await Eval({
 
+
+
+
+
+
+
       maxSourceBytes: 8 * 1024,
       code,
       context: args,
@@ -179,6 +196,7 @@ export const agentRun = onCall(async (request) => {
     console.error('Agent execution error:', err)
     error = { message: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('Execution failed'))(err.message) }
   }
+
 
   const fuelUsed = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(result?.fuelUsed)
   const duration = Date.now() - startTime
@@ -220,7 +238,7 @@ Same as agentRun but as a simple POST endpoint.
 Auth via Bearer token (Firebase ID token).
 */
 export const run = onRequest(async (req, res) => {
-         
+
   res.set('Access-Control-Allow-Origin', '*')
   if (__tjs.toBool(req.method === 'OPTIONS')) {
     res.set('Access-Control-Allow-Methods', 'POST')
@@ -232,6 +250,7 @@ export const run = onRequest(async (req, res) => {
   if (__tjs.toBool(req.method !== 'POST')) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
+
 
   const authHeader = req.headers.authorization
   if (__tjs.toBool(!__tjs.toBool(authHeader?.startsWith('Bearer ')))) {
@@ -254,6 +273,7 @@ export const run = onRequest(async (req, res) => {
     return res.status(400).json({ error: 'code must be a non-empty string' })
   }
 
+
   if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))(__tjs_rt.TypeOf(fuel) !== 'number'))))) {
     return res.status(400).json({ error: 'fuel must be a number from 1 to 10000' })
   }
@@ -269,6 +289,12 @@ export const run = onRequest(async (req, res) => {
 
     result = await Eval({
 
+
+
+
+
+
+
       maxSourceBytes: 8 * 1024,
       code,
       context: args,
@@ -280,6 +306,7 @@ export const run = onRequest(async (req, res) => {
     console.error('Agent execution error:', err)
     error = { message: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('Execution failed'))(err.message) }
   }
+
 
   const fuelUsed = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(result?.fuelUsed)
   const duration = Date.now() - startTime
@@ -322,7 +349,7 @@ Matches incoming path against stored function URL patterns.
 Executes matched function's AJS code and returns with appropriate content-type.
 */
 export const page = onRequest(async (req, res) => {
-         
+
   res.set('Access-Control-Allow-Origin', '*')
   if (__tjs.toBool(req.method === 'OPTIONS')) {
     res.set('Access-Control-Allow-Methods', 'GET, POST')
@@ -335,6 +362,7 @@ export const page = onRequest(async (req, res) => {
 
   try {
     const storedFunctions = await getStoredFunctions()
+
 
     let matchedFunction = null
     let params = null
@@ -354,6 +382,7 @@ export const page = onRequest(async (req, res) => {
       return res.status(404).json({ error: 'Not found', path })
     }
 
+
     let uid = null
     if (__tjs.toBool(!__tjs.toBool(matchedFunction.public))) {
       const authHeader = req.headers.authorization
@@ -371,6 +400,7 @@ export const page = onRequest(async (req, res) => {
       }
     }
 
+
     const args = {
       ...params,
       ...req.query,
@@ -379,6 +409,7 @@ export const page = onRequest(async (req, res) => {
       _method: req.method,
       _uid: uid
     }
+
 
     let result = null
     let error = null
@@ -406,6 +437,7 @@ export const page = onRequest(async (req, res) => {
       const errorMessage = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('Unknown error'))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(result?.error?.message))(error?.message))
       return res.status(500).json({ error: errorMessage })
     }
+
 
     const contentType = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('application/json'))(matchedFunction.contentType)
     res.set('Content-Type', contentType)
