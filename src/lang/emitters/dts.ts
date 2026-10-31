@@ -232,7 +232,7 @@ function typeDescriptorToDeepPartialTS(td: TypeDescriptor): string {
   // (docs/dictionary-defaults.md §5.2: it is how "absent means use the global" is spelled), so
   // the declaration says `any`. `storage?: null` refused a TypeScript caller's real storage
   // object (tosijs-native finding 4). A plain `x: null` parameter still means only null.
-  if (td.kind === 'null') return 'any'
+  if (td.kind === 'null' || td.kind === 'undefined') return 'any'
   if (td.kind === 'object' && td.shape && Object.keys(td.shape).length > 0) {
     const fields = Object.entries(td.shape)
       .map(([k, v]) => `${k}?: ${typeDescriptorToDeepPartialTS(v)}`)

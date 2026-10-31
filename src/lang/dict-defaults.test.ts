@@ -400,3 +400,26 @@ describe('a destructuring RENAME is not a dictionary member', () => {
     }
   })
 })
+
+/**
+ * An `undefined` member is allowed and means "any value, defaulting to undefined" (#3591, from
+ * tosijs-native), as a `null` member already did. It was refused as "not a clonable literal
+ * value", which forced `null` to spell "absent means use the global".
+ */
+describe('a dictionary default with an undefined member', () => {
+  it('defaults to undefined, keeps any value passed, and still checks the others', async () => {
+    const { tjs } = await import('./index')
+    const make = new Function(
+      `${
+        tjs(
+          'function make(opts = { storage: undefined, size: 0 }) { return [opts.storage, opts.size] }',
+          { runTests: false }
+        ).code
+      }\nreturn make`
+    )()
+    expect(make()).toEqual([undefined, 0])
+    const store = new Map()
+    expect(make({ storage: store })[0]).toBe(store)
+    expect(make({ size: 'x' }) instanceof Error).toBe(true)
+  })
+})

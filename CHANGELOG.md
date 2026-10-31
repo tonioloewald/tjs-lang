@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A dictionary default may have an `undefined` member** (#3591, from tosijs-native),
+  meaning "any value, defaulting to undefined", as a `null` member already did. It was
+  refused as "not a clonable literal value", so "absent means use the global" had to be
+  spelled `null`. The `.d.ts` declares it `any`.
+
 - **A declared Type's failure says where** (#3597, from tosijs-native). A config type whose
   one bad field was deep inside reported `Expected Config for '…config', got object`; it now
   says `Expected Config for '…config': products[1].kind: expected string, got number`

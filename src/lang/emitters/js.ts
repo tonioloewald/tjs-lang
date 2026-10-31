@@ -3547,6 +3547,10 @@ function assertPureDictTemplate(
     'bigint',
     'boolean',
     'null',
+    // `undefined` is as clonable as `null` (#3591, from tosijs-native): it is how "absent
+    // means use the global" is spelled, and refusing it forced `null`, which then read as
+    // "a null value" to every other tool.
+    'undefined',
     'array',
     'object',
   ])
@@ -3660,8 +3664,9 @@ function emitDictLevel(
         root
       )
       lines.push(`}`)
-    } else if (member.kind === 'null') {
-      // §5.2: example-null member admits any value (nullable any) — no check.
+    } else if (member.kind === 'null' || member.kind === 'undefined') {
+      // §5.2: example-null member admits any value (nullable any) — no check. An
+      // `undefined` member means the same (#3591): any value, defaulting to undefined.
     } else {
       const check = generateTypeCheckExpr(v, member)
       if (check) {
