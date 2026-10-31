@@ -261,7 +261,7 @@ const report = (label: string, st: Stage, total: number) => {
  * 0.14.0-rc.6 equality and annotation work) and every addition graduates. Promoted because
  * the ratchet asked.
  */
-const GRADUATION_FLOOR = 129
+const GRADUATION_FLOOR = 131
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2
