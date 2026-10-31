@@ -2051,6 +2051,117 @@ export function transpileToJS(
     },
   })
 
+  // Class METHODS validate their parameters, the constructor included (#3598, from
+  // tosijs-native). They were only stripped of annotations (below), so `class Box {
+  // constructor(v: 0) }` built a Box from `Box('s')` and `box.set('x')` was accepted, where the
+  // same signature on a function returns a MonadicError. The same preamble a function gets:
+  // a constructor that RETURNS an object makes it the result of `new`, so `new Box('s')` is
+  // the error; in a derived class the preamble returns only on failure, before `super()`,
+  // which JavaScript allows. Getters take no parameters. SETTERS are left alone too: their
+  // return value is discarded, so a refusal would silently DROP the assignment, which is
+  // worse than accepting it.
+  walk.ancestor(program as any, {
+    MethodDefinition(node: any, _state: unknown, ancestors: any[]) {
+      const fn = node.value
+      if (
+        !fn?.body ||
+        node.kind === 'get' ||
+        node.kind === 'set' ||
+        !fn.params?.length
+      )
+        return
+      if (preprocessed.moduleSafety === 'none') return
+      const paramsSrc = maskLiteralsKeepComments(preprocessed.source).slice(
+        fn.start,
+        fn.body.start
+      )
+      if (paramsSrc.includes('/* unsafe */')) return
+      const cls = [...ancestors]
+        .reverse()
+        .find(
+          (a: any) =>
+            a.type === 'ClassDeclaration' || a.type === 'ClassExpression'
+        )
+      const key =
+        node.key?.type === 'Identifier'
+          ? node.key.name
+          : node.key?.type === 'PrivateIdentifier'
+          ? `#${node.key.name}`
+          : 'method'
+      const displayName = `${cls?.id?.name ?? 'class'}.${key}`
+      const { types } = extractFunctionTypeInfo(
+        fn,
+        originalSource,
+        requiredParams,
+        null,
+        cleanSource,
+        preprocessed.declaredTypes,
+        preprocessed.requiredValueOffsets,
+        importedNames,
+        preprocessed.source
+      )
+      const relocation =
+        types.isDestructuredParam && types.destructuredShape
+          ? destructuredRelocation(
+              fn.params.length === 1 ? fn.params[0] : undefined,
+              DESTRUCTURED_ARG,
+              relocationSeq++
+            )
+          : undefined
+      const positional = new Map<
+        string,
+        {
+          relocation: DestructuredRelocation
+          members: Record<string, ParameterDescriptor>
+          declared: boolean
+        }
+      >()
+      for (const [k, at] of Object.entries(types.destructuredAt ?? {})) {
+        const r = destructuredRelocation(
+          fn.params[at.index],
+          at.binding,
+          relocationSeq++
+        )
+        if (r)
+          positional.set(k, {
+            relocation: r,
+            members: at.members,
+            declared: at.declared,
+          })
+      }
+      const sourceStr = `${effectiveFilename}:${fn.loc?.start.line ?? 0}`
+      const validation = generateInlineValidationCode(
+        displayName,
+        types,
+        sourceStr,
+        preprocessed.tjsModes.tjsDictDefaults,
+        relocation && {
+          arg: DESTRUCTURED_ARG,
+          prologue: relocation.prologue(
+            `${sourceStr}:${displayName}`,
+            destructuredArgChecks(
+              types.destructuredArg,
+              `${sourceStr}:${displayName}`
+            )
+          ),
+        },
+        positional
+      )
+      if (!validation) return
+      if (relocation) relocations.push(relocation)
+      for (const q of positional.values()) relocations.push(q.relocation)
+      insertions.push({
+        position: fn.body.start + 1,
+        text: `\n  ${validation.preamble}\n`,
+      })
+      if (validation.suffix)
+        insertions.push({
+          position: fn.body.end - 1,
+          text: `\n  ${validation.suffix}\n`,
+        })
+    },
+  })
+
   walk.simple(program as any, {
     MethodDefinition(node: any) {
       stripMethodAnnotations(node.value?.params)

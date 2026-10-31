@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Class methods validate their parameters, the constructor included** (#3598, from
+  tosijs-native). **Behaviour change:** a method or constructor with typed parameters now
+  returns a MonadicError for a wrong argument (`Box('s')` for `constructor(v: 0)`, which used
+  to build a Box with `v = 's'`), as the same signature on a function always did. Methods
+  were only stripped of their annotations. Static methods and destructured method
+  parameters are covered; a derived constructor's checks run before `super()`, which
+  JavaScript allows since they return only on failure. Setters are NOT checked (their return
+  value is discarded, so a refusal would silently drop the write), nor is `dialect: 'js'`.
+
 - **A function-valued member of a Type's example means "a function here"** (#3595, from
   tosijs-native). `Type Bridge { example: { call: (a) => 1 } }` refused every value, one of
   exactly that shape included, in both checkers: the inline one compared a function example
