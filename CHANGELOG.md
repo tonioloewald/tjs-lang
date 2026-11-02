@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Graduating a converted file no longer changes what it does** (#1992, #2022, #2040).
+  `fromTS` output carries a `tjs <- …` annotation meaning JavaScript semantics; `graduate()`
+  removes it and every native-TJS rule switches on. A differential test found nine ways that
+  changed behaviour: `'5' == 5` turned false, `typeof null` turned `'null'` (so a
+  `typeof v === 'object'` branch skipped null), `f(n = 5)` refused `2.5`, an object-literal
+  default started merging, and `var` and `new Date()` made the graduated file fail to compile.
+  Conversion now writes each reliance in a spelling that means the same under both semantics:
+  `DangerousLegacyEquals(a, b)` (not against `null`, where TJS agrees), `LegacyTypeOf(x)`
+  (not where the answer cannot be `'object'`), `LegacyDate(…)`, `n = 5.0`,
+  `LegacyDefault({…})`, and `var` hoisted to a `let` at the top of its function (the same
+  scoping, closures over a loop variable included). `graduate()` now REFUSES what nothing can
+  preserve (`eval`, `new Function`), naming it and returning the input unchanged. The one
+  accepted change: truthiness unwraps boxed primitives. `TjsStrict` files are not rewritten.
+  **New:** `LegacyTypeOf(x)`, JavaScript's `typeof`, in the family of named escapes.
+
+- **Every named escape works when it is a file's only runtime use.** The emitter's list of what
+  needs the inline runtime had `LegacyDate` but not `DangerousLegacyEquals`, `DangerousLegacyNot`,
+  `LegacyExactly`, `LegacyNotExactly` or `LegacyDefault`, so a file using only one of those threw
+  a ReferenceError. Each is now tested alone, in both dialects.
+
 ## [0.14.0-rc.10] — 2026-10-31
 
 On the `rc` dist-tag. Mostly what tosijs-native found building natively in `.tjs` from the

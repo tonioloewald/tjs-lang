@@ -31,6 +31,7 @@
  */
 
 import ts from 'typescript'
+import { faithfulForGraduation } from './from-ts-faithful'
 import {
   maskLiteralsKeepComments,
   scanLiterals,
@@ -3699,6 +3700,12 @@ export function fromTS(
   }
   const emitTJS = true
   const { filename = 'input.ts' } = options
+  // Write every site whose meaning native TJS would change in a spelling that means the same
+  // under both semantics, so GRADUATION (removing the annotation) cannot change behaviour or
+  // produce a file native TJS rejects (#1992, #2022, #2040; see from-ts-faithful.ts). Not for
+  // `TjsStrict`, whose author has asked for TJS semantics, not JavaScript's.
+  if (!extractTjsModes(source).includes('TjsStrict'))
+    source = faithfulForGraduation(source, filename).code
   const warnings: string[] = []
 
   // Extract embedded test comments before TS parsing (they need to be preserved)

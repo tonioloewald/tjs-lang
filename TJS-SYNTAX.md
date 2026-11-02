@@ -78,6 +78,7 @@ you can document the language in the language. Both `.tjs` and `.ajs` have them.
 | `DangerousLegacyNot(a, b)` | `a != b` |
 | `LegacyExactly(a, b)` | `a === b` (NaN is not itself; a boxed primitive is not its value) |
 | `LegacyNotExactly(a, b)` | `a !== b` |
+| `LegacyTypeOf(x)` | `typeof x`, where `typeof null` is `'object'` (TJS says `'null'`) |
 
 <!-- tjs-doc: fragment -->
 
@@ -448,6 +449,7 @@ construct:
 | a raw `Date`, deliberately           | `LegacyDate(x)` (`var` and `eval` have no escape)          |
 | JavaScript's `==` / `!=`              | `DangerousLegacyEquals(a, b)` / `DangerousLegacyNot(a, b)` |
 | JavaScript's `===` / `!==`            | `LegacyExactly(a, b)` / `LegacyNotExactly(a, b)`           |
+| JavaScript's `typeof` (null is object) | `LegacyTypeOf(x)`                                          |
 | JavaScript's atomic parameter default | `args = LegacyDefault({ x: 0, y: 0 })`                     |
 | any of the above, from a `.ts` file   | `/* @tjs-unsafe */`                                        |
 

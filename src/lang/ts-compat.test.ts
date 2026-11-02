@@ -288,16 +288,19 @@ describe('the rename seam: acceptance is necessary but NOT sufficient', () => {
     ).toBe(false)
   })
 
-  it('dropping the marker flips `==` to TJS equality — a SILENT semantic change', () => {
+  it('dropping the marker no longer changes `==`: conversion rewrote it (#2040 class)', () => {
+    // This row used to pin the defect: without the marker `==` compiled to `Eq`, the same
+    // source with a different meaning. Its message named the cure ("the conversion must
+    // rewrite comparisons"), which from-ts-faithful.ts now does: `a == b` converts to
+    // `DangerousLegacyEquals(a, b)`, which means JavaScript's `==` under both semantics.
     const converted = fromTS(FOOTGUNS, { emitTJS: true }).code
+    expect(converted).toContain('DangerousLegacyEquals(a, b)')
     const stripped = converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, '')
     const js = compile(stripped).code
-    expect(
-      js.includes('Eq('),
-      'without the marker `==` compiles to Eq — same source, different meaning. This is ' +
-        'the seam: the conversion must rewrite comparisons rather than leave them to ' +
-        'change meaning based on a header comment.'
-    ).toBe(true)
+    expect(js).toContain('DangerousLegacyEquals(a, b)')
+    expect(js.includes('Eq(a, b)') && !js.includes('LegacyEquals(a, b)')).toBe(
+      false
+    )
   })
 
   it('GAP: conversion emits no warning about semantics that will change', () => {

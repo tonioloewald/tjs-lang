@@ -139,14 +139,17 @@ describe('/* @tjs-unsafe */ — the bridge for TypeScript source', () => {
     ).not.toThrow()
   })
 
-  it('an UNannotated new Date() in the same file is still caught', () => {
-    // The reason this is per-construct rather than per-file: the accidental one must
-    // still fail.
+  it('an UNannotated new Date() in converted code becomes LegacyDate, visibly', () => {
+    // It used to survive conversion as `new Date(x)` and break the file the moment it
+    // graduated. Conversion now writes the reliance out (from-ts-faithful.ts): graduation
+    // keeps it working, and the escape is greppable at the site. The per-construct rule is
+    // untouched for hand-written TJS (the 'rule still applies everywhere else' row).
     const ts = `export function f(x: number): number {\n  return new Date(x).getTime()\n}\n`
     const converted = fromTS(ts, { emitTJS: true }).code
+    expect(converted).toContain('LegacyDate(x)')
     expect(() =>
       compile(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, ''))
-    ).toThrow(/`?new Date\(\)`? is not allowed/)
+    ).not.toThrow()
   })
 })
 

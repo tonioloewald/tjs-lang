@@ -2493,6 +2493,9 @@ export function transpileToJS(
     FULL_PRELUDE || code.includes('LegacyNotExactly(')
   const needsLegacyDefault = FULL_PRELUDE || code.includes('LegacyDefault(')
   const needsLegacyDate = FULL_PRELUDE || code.includes('LegacyDate(')
+  // JavaScript's own `typeof` (null is 'object'), written out: what conversion emits where a
+  // converted file relies on it, so graduation does not change its meaning (#2040's class).
+  const needsLegacyTypeOf = FULL_PRELUDE || code.includes('LegacyTypeOf(')
   const needsTypeOf = FULL_PRELUDE || helperUse.includes('TypeOf(')
   // A `set` marker checks membership with `__oneOf` — the language's `==`, exactly as a
   // literal-union parameter does.
@@ -2564,7 +2567,17 @@ export function transpileToJS(
     needsFunctionPredicate
 
   const needsRuntime =
+    // Every named escape, each on its own. Only `LegacyDate` was listed, so a file whose one
+    // runtime use was `DangerousLegacyEquals(…)` (exactly what a converted file with `==` in it
+    // is) got no definition and threw a ReferenceError. `runtime-helpers-alone.test.ts` runs
+    // each escape alone, in both dialects, so the next omission fails by name.
+    needsLegacyEquals ||
+    needsLegacyNot ||
+    needsLegacyExactly ||
+    needsLegacyNotExactly ||
+    needsLegacyDefault ||
     needsLegacyDate ||
+    needsLegacyTypeOf ||
     needsTypeError ||
     needsStack ||
     needsIs ||
@@ -2715,6 +2728,9 @@ export function transpileToJS(
     // escape in the language. See PRINCIPLES.md, "Make stupid stuff stand out".
     if (needsLegacyDate) {
       inlineParts.push(`function LegacyDate(...a){return new Date(...a)}`)
+    }
+    if (needsLegacyTypeOf) {
+      inlineParts.push(`function LegacyTypeOf(v){return typeof v}`)
     }
 
     // TypeOf (honest typeof)
@@ -3105,6 +3121,7 @@ export function transpileToJS(
     if (needsLegacyNotExactly) rtExports.push('LegacyNotExactly')
     if (needsLegacyDefault) rtExports.push('LegacyDefault')
     if (needsLegacyDate) rtExports.push('LegacyDate')
+    if (needsLegacyTypeOf) rtExports.push('LegacyTypeOf')
     if (needsTypeOf) rtExports.push('TypeOf')
     if (needsIs) rtExports.push('Is', 'tjsEquals')
     if (needsIsNot) rtExports.push('IsNot')

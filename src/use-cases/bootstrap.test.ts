@@ -30,6 +30,7 @@ const STRIP_COMMENTS_VALUES = STRIP_COMMENTS_EXPORTS.map(
 )
 import { fromTS as fromTSToTJS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
+import { fullPrelude } from '../lang/emitters/js'
 import { emitVerifiedPredicate } from '../lang/predicate'
 import * as acorn from 'acorn'
 
@@ -62,26 +63,61 @@ import * as path from 'path'
 const ANNOTATION = /\/\* tjs <- [^*]*\*\//
 
 function flattenModules(files: string[], langDir: string): string {
-  let combined = ''
-  files.forEach((file, i) => {
+  // ONE runtime for the whole bundle: the full prelude (every helper, `fullPrelude()`), the
+  // UNION of the modules' helper aliases, and one `__tjs`. Keeping only the first module's
+  // preamble assumed every module needs the same helpers; a later module that alone used
+  // `LegacyDefault` (as converted code now does for an object default) found it undefined.
+  const full = fullPrelude()
+  const aliases = new Set<string>()
+  const rebinds = new Set<string>()
+  let tjsLine = ''
+  let bodies = ''
+  for (const file of files) {
     const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
     // fromTSToTJS, NOT the composing `fromTS` shim below — that one already runs `tjs()`,
     // so going through it here transpiled twice and emitted a second runtime preamble.
-    let code = tjs(fromTSToTJS(src, { filename: file }).code, {
+    const r = tjs(fromTSToTJS(src, { filename: file }).code, {
       runTests: false,
-    }).code
-    if (i > 0) {
-      // Drop this module's copy of the shared runtime preamble.
-      const m = ANNOTATION.exec(code)
-      if (m) code = code.slice(m.index + m[0].length)
+    })
+    // The runtime block ends at its LAST `})();` line: the helpers inside can contain one.
+    const rtEnd = r.prelude.lastIndexOf('\n})();\n')
+    for (const line of r.prelude.slice(rtEnd < 0 ? 0 : rtEnd + 7).split('\n')) {
+      if (line.startsWith('const __tjs = ')) tjsLine ||= line
+      else if (/^const __tjs(ToBool|SwKey) = /.test(line)) rebinds.add(line)
+      else if (line.startsWith('const ') && line.includes('__tjs_rt.')) {
+        for (const st of line.split(';')) if (st.trim()) aliases.add(st.trim())
+      } else if (line.trim()) rebinds.add(line)
     }
-    combined +=
-      code
+    bodies +=
+      r.body
+        .replace(ANNOTATION, '')
         .replace(/^import\s+.*$/gm, '')
         .replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '')
         .replace(/^export\s+/gm, '') + '\n'
-  })
-  return combined
+  }
+  const runtime =
+    `const __tjs_rt = (() => {\n${full.inline}return {${full.exports.join(
+      ','
+    )}};\n})();\n` +
+    // An alias only where no module binds the name itself (the emitter's own per-file rule,
+    // applied to the whole bundle): one module declaring `Type` and another aliasing it
+    // would declare it twice.
+    [...aliases]
+      .filter((a) => {
+        const name = a.slice('const '.length, a.indexOf(' ='))
+        return !new RegExp(
+          `^(?:const|let|var|class|function\\*?|async function)\\s+${name}\\b`,
+          'm'
+        ).test(bodies)
+      })
+      .map((a) => `${a};`)
+      .join('') +
+    '\n' +
+    // Every helper the fallback could name is on the full prelude itself.
+    tjsLine.replace(/\?\? (\{[^\n]*\}|undefined);$/, '?? __tjs_rt;') +
+    '\n' +
+    [...rebinds].join('\n')
+  return runtime + '\n' + bodies
 }
 
 /**

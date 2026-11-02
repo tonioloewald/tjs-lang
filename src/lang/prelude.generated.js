@@ -6,7 +6,7 @@
 // (the projection table `extend` writes, the call-stack ring) stays per module.
 /* eslint-disable */
 // @ts-nocheck
-export const PRELUDE_HASH = 'acf2663941d59294'
+export const PRELUDE_HASH = 'eabac14e43e4e60f'
 
 export function createPrelude(hash) {
   if (hash !== PRELUDE_HASH)
@@ -30,6 +30,7 @@ function LegacyExactly(a,b){return a===b};
 function LegacyNotExactly(a,b){return a!==b};
 function LegacyDefault(v){return v};
 function LegacyDate(...a){return new Date(...a)};
+function LegacyTypeOf(v){return typeof v};
 function TypeOf(v){return v===null?'null':typeof v};
 const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){return __goIs(a,b,0,null)}function __goIs(a,b,d,m){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);a=__ub(__proj(a));b=__ub(__proj(b));if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(d>=8){if(m===null)m=new WeakMap();let s=m.get(a);if(s){if(s.has(b))return true}else{s=new WeakSet();m.set(a,s)}s.add(b)}if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!__goIs(v,b.get(k),d+1,m))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>__goIs(v,b[i],d+1,m))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>__goIs(a[k],b[k],d+1,m))};
 function IsNot(a,b){return!Is(a,b)};
@@ -54,5 +55,5 @@ function toBool(v){return Boolean(__ub(__proj(v)))};
 const __swNaN=Symbol.for('tjs.switch.NaN');function swKey(v){v=__ub(__proj(v));if(v===undefined)return null;if(typeof v==='number'&&v!==v)return __swNaN;return v};
 function __rcvd(x,v){Object.defineProperty(x,'received',{value:v,configurable:true});return x}function checkFnShape(fn,expectedParams,expectedReturn,path){if(typeof fn!=='function')return fn;const meta=fn.__tjs;if(!meta||!meta.params)return fn;const entries=Object.entries(meta.params);for(let i=0;i<expectedParams.length;i++){const e=expectedParams[i];if(e==='any')continue;const a=entries[i];if(!a)continue;const ak=a[1]&&a[1].type&&a[1].type.kind;if(!ak||ak==='any')continue;if(ak!==e)return __rcvd(new MonadicError("Expected (...arg"+i+": "+e+", ...) for '"+path+"', but callback declares arg"+i+" as "+ak,path+"(arg"+i+")",e,ak),fn)}if(expectedReturn!=='any'&&meta.returns){const ar=(meta.returns.type&&meta.returns.type.kind)||meta.returns.kind;if(ar&&ar!=='any'&&ar!==expectedReturn)return __rcvd(new MonadicError("Expected callback returning "+expectedReturn+" for '"+path+"', but callback returns "+ar,path+"(return)",expectedReturn,ar),fn)}return fn};
 function bang(o,p){if(o===null||o===undefined)return typeError('bang.'+p,'non-null',o);if(isMonadicError(o))return o;return o[p]};
-return {MonadicError,typeError,isMonadicError,pushStack,popStack,getStack,__ubxv,__ub,__proj,__ac,__xv,__tv,__why,Eq,NotEq,DangerousLegacyEquals,DangerousLegacyNot,LegacyExactly,LegacyNotExactly,LegacyDefault,LegacyDate,TypeOf,Is,tjsEquals,IsNot,__ex2js,__oneOf,__match,Type,__k,__unk,__kjs,Generic,FunctionPredicate,Enum,Union,Exactly,toBool,swKey,checkFnShape,bang};
+return {MonadicError,typeError,isMonadicError,pushStack,popStack,getStack,__ubxv,__ub,__proj,__ac,__xv,__tv,__why,Eq,NotEq,DangerousLegacyEquals,DangerousLegacyNot,LegacyExactly,LegacyNotExactly,LegacyDefault,LegacyDate,LegacyTypeOf,TypeOf,Is,tjsEquals,IsNot,__ex2js,__oneOf,__match,Type,__k,__unk,__kjs,Generic,FunctionPredicate,Enum,Union,Exactly,toBool,swKey,checkFnShape,bang};
 }
