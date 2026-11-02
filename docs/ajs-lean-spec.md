@@ -5,6 +5,12 @@
 **Status (2026-11-01): PROPOSED.** A spike after 0.14 ships and Pattern lands, so it can shape
 the 1.0 VM ([`ajs-native-vm.md`](ajs-native-vm.md)) rather than arrive after it.
 
+**Pattern goes first (owner, 2026-11-03).** The same approach is proposed for Pattern, in
+tosijs-pattern (`docs-src/formal.md`, board #2813's parts): it is smaller and pure, every claim it
+makes is precise, and it becomes this VM's matching builtin, so its proofs are a component of
+these. Prior art for the regex side of both: Warblre, an executable Rocq mechanization of
+ECMAScript 2023 regexes (De Santo, Barrière and Pit-Claudel, ICFP 2024).
+
 The AJS VM makes promises: a program can do nothing except call the capabilities it was given,
 every run halts, and nothing is allocated before it is paid for. Today those promises are held by
 tests, review rounds and ratchets. Most of the 0.14 release candidates went to finding doors
