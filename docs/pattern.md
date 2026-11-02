@@ -2,6 +2,11 @@
 
 # Pattern: declarative matching for TJS and AJS, and regex as an opt-in
 
+> **Moved (2026-11-02):** Pattern is now its own library, **tosijs-pattern** (repo beside this
+> one; board project `tosijs-pattern`, umbrella #2813). Its `CLAUDE.md` and `DECISIONS.md` are
+> current where they differ from this note, which stays as the design history and as the record
+> of what the AsyncJS builtin must do.
+
 **Status: proposed (Tonio, 2026-10-02); priorities and packaging settled 2026-10-03, see below.** Regex is deprecated in AJS in 0.14 and removed from the
 core VM in 0.15. Hosts that want it opt back in. Its replacement is `Pattern`: a grammar built as
 DATA by a fluent builder and run by one engine. This note began as an imperative `Scanner`
