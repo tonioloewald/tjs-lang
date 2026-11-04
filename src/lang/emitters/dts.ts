@@ -643,11 +643,17 @@ function detectClasses(source: string): Map<string, ClassInfo> {
           // consumer's `Box.of(2)` failed with TS2339. `async` and a generator's `*` change
           // nothing in the declaration's shape and are skipped. (`static {` is a static
           // initialization block, not a modifier: the brace scan handles it.)
-          const modifiers = classBody
-            .slice(pos)
-            .match(/^((?:static|async)\s+|\*\s*)+(?=[A-Za-z_$*])/)
-          const isStatic = !!modifiers && /\bstatic\b/.test(modifiers[0])
-          if (modifiers) pos += modifiers[0].length
+          // A loop over single modifiers, not one repeated group: a nested quantifier is the
+          // shape src/self-redos.test.ts keeps out of our own regexes.
+          let isStatic = false
+          for (;;) {
+            const mod = classBody
+              .slice(pos)
+              .match(/^(static|async)\s+(?=[A-Za-z_$*])|^\*\s*/)
+            if (!mod) break
+            if (mod[1] === 'static') isStatic = true
+            pos += mod[0].length
+          }
           const accessorMatch = classBody
             .slice(pos)
             .match(/^(get|set)\s+(\w+)\s*\(/)

@@ -32,8 +32,14 @@ function lowered(expr: string): string {
 }
 
 describe('typeof lowers the whole operand', () => {
+  it('typeof x (a bare name) is guarded for an undeclared x, then lowered (#3822)', () => {
+    // The parts, not the exact text: the truthiness pass rewrites the guard's condition.
+    const code = tjs(`export function t(x) { return typeof x === 'z' }\n`).code
+    expect(code).toContain("typeof x === 'undefined'")
+    expect(code).toContain('__tjs_rt.TypeOf(x)')
+  })
+
   const CASES: Array<[string, string]> = [
-    ['typeof x', 'TypeOf(x)'],
     ['typeof x.foo', 'TypeOf(x.foo)'],
     ['typeof x?.foo', 'TypeOf(x?.foo)'],
     // Every one of these was broken.
