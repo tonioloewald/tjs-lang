@@ -458,3 +458,41 @@ export function d(xs = [Book], t = Book): 0 { return 1 }`
     expect(diagnose(`${dts}\nd()\n`)).toEqual([])
   })
 })
+
+/**
+ * Class members keep what they are (#3620, rc.10 review): the method scan matched `name(`, so
+ * `static of(…)` lost `static` and was declared an INSTANCE method (TS2339 on `Box.of(2)`), and
+ * a typed default (`scale(k: 0 = 1)`) went through the text converter as a REQUIRED parameter
+ * whose example was `0 = 1`. Each row calls the class the way a TypeScript consumer would.
+ */
+describe('class members in the declaration', () => {
+  const src = `
+export class Box {
+  constructor(v: 0) { this.v = v }
+  static of(v: 0) { return Box(v) }
+  static async load(id: '') { return Box(id.length) }
+  scale(k: 0 = 1) { return Box(this.v * k) }
+  label(text: '' = 'box', upper = false) { return upper ? text.toUpperCase() : text }
+}`
+  it('static methods are static, typed defaults are optional and typed', () => {
+    const dts = dtsFor(src)
+    expect(dts).toMatch(/static of\(v: number\)/)
+    expect(dts).toMatch(/static load\(id: string\)/)
+    expect(dts).toMatch(/scale\(k\?: number\)/)
+    expect(dts).toMatch(/label\(text\?: string, upper\?: boolean\)/)
+  })
+
+  it('a TypeScript consumer can call them', () => {
+    const dts = dtsFor(src)
+    expect(
+      diagnose(`${dts}
+const a = Box.of(2)
+const b = new Box(1).scale()
+const c = new Box(1).scale(3)
+const d: string = new Box(1).label()
+`)
+    ).toEqual([])
+    // ...and the types still mean something: a string where a number goes is an error.
+    expect(diagnose(`${dts}\nnew Box(1).scale('x')\n`).join()).toMatch(/TS2345/)
+  })
+})

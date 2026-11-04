@@ -49,7 +49,7 @@ export const TYPED_DEFAULT_MARK = '__tjs_type:'
  * The offset of a default's `=` at the top level of `text` (a type annotation followed by
  * `= value`), or -1. Not `==`, `===`, `=>`, `<=`, `>=` or `!=`; literal-blind via masking.
  */
-function topLevelDefaultEquals(text: string): number {
+export function topLevelDefaultEquals(text: string): number {
   const m = maskLiterals(text)
   let depth = 0
   for (let i = 0; i < m.length; i++) {

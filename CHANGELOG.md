@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Generated `.d.ts` keeps `static` and typed defaults on class members** (#3620). The method
+  scan matched `name(`, so `static of(…)` lost `static` and was declared an instance method
+  (`Box.of(2)` failed with TS2339 in a consumer), and `scale(k: 0 = 1)` was declared a REQUIRED
+  `k: any`. Now `static of(v: number)` and `scale(k?: number)`.
+
 - **Graduating a converted file no longer changes what it does** (#1992, #2022, #2040).
   `fromTS` output carries a `tjs <- …` annotation meaning JavaScript semantics; `graduate()`
   removes it and every native-TJS rule switches on. A differential test found nine ways that

@@ -23,6 +23,7 @@
 import type { TypeDescriptor } from '../types'
 import { parseExpressionAt, parse as parseModule } from 'acorn'
 import { emittedSpecifier } from '../emitted-specifiers'
+import { topLevelDefaultEquals } from '../parser-params'
 import { inferTypeFromValue } from '../inference'
 import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
@@ -540,6 +541,8 @@ interface ClassInfo {
     returnType: string | null
     /** `get`/`set` emit as accessors; anything else is an ordinary method. */
     kind: 'get' | 'set' | 'method'
+    /** Declared `static`: on the class, not its instances. */
+    isStatic: boolean
   }[]
 }
 
@@ -635,6 +638,16 @@ function detectClasses(source: string): Map<string, ClassInfo> {
           // carry it (microsoft/TypeScript#43826, open five years), so anything DERIVED
           // loses it. Generated declarations are hand-written as far as TS is concerned,
           // so codegen walks straight around the hole.
+          // Modifiers before a member's name (#3620): the scan matched `name(`, so
+          // `static of(…)` skipped `static` and declared `of` an INSTANCE method, and a
+          // consumer's `Box.of(2)` failed with TS2339. `async` and a generator's `*` change
+          // nothing in the declaration's shape and are skipped. (`static {` is a static
+          // initialization block, not a modifier: the brace scan handles it.)
+          const modifiers = classBody
+            .slice(pos)
+            .match(/^((?:static|async)\s+|\*\s*)+(?=[A-Za-z_$*])/)
+          const isStatic = !!modifiers && /\bstatic\b/.test(modifiers[0])
+          if (modifiers) pos += modifiers[0].length
           const accessorMatch = classBody
             .slice(pos)
             .match(/^(get|set)\s+(\w+)\s*\(/)
@@ -672,7 +685,7 @@ function detectClasses(source: string): Map<string, ClassInfo> {
               const afterParen = classBody.slice(j).match(/^\s*:\s*(.+?)\s*\{/)
               const returnType = afterParen ? afterParen[1].trim() : null
 
-              methods.push({ name, params, returnType, kind })
+              methods.push({ name, params, returnType, kind, isStatic })
               pos = j
               continue
             }
@@ -709,7 +722,15 @@ function tjsParamsToTS(paramStr: string): string {
       const colonMatch = trimmed.match(/^(\w+)\s*:\s*(.+)$/)
       if (colonMatch) {
         const name = colonMatch[1]
-        const tsType = inferTSTypeFromExample(colonMatch[2].trim())
+        // `name: Type = default` (#3596): optional, typed by the TYPE, not by `Type = default`
+        // read as one example (which declared it required, of whatever that inferred to).
+        const annotation = colonMatch[2].trim()
+        const eq = topLevelDefaultEquals(annotation)
+        if (eq !== -1)
+          return `${name}?: ${inferTSTypeFromExample(
+            annotation.slice(0, eq).trim()
+          )}`
+        const tsType = inferTSTypeFromExample(annotation)
         return `${name}: ${tsType}`
       }
       const eqMatch = trimmed.match(/^(\w+)\s*=\s*(.+)$/)
@@ -1064,18 +1085,19 @@ export function generateDTS(
             ? inferTSTypeFromExample(method.returnType)
             : 'any'
 
+          const st = method.isStatic ? 'static ' : ''
           if (method.kind === 'get') {
             // `get value(): ''` → `get value(): string`
-            lines.push(`  get ${method.name}(): ${mReturn};`)
+            lines.push(`  ${st}get ${method.name}(): ${mReturn};`)
           } else if (method.kind === 'set') {
             // The setter's parameter type is whatever the author declared, INDEPENDENT of
             // the getter's — which is the whole point. TypeScript has allowed this since
             // 4.3 for hand-written properties, and a generated declaration is hand-written
             // as far as TS is concerned. An untyped setter param stays `any`, which is
             // exactly right for the `input.value = 42` shape: reads narrow, writes wide.
-            lines.push(`  set ${method.name}(${mParams || 'value: any'});`)
+            lines.push(`  ${st}set ${method.name}(${mParams || 'value: any'});`)
           } else {
-            lines.push(`  ${method.name}(${mParams}): ${mReturn};`)
+            lines.push(`  ${st}${method.name}(${mParams}): ${mReturn};`)
           }
         }
         lines.push(`}`)
