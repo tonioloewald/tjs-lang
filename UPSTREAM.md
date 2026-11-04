@@ -152,6 +152,16 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
+## tosijs-ui — `<tosi-lottie>` hides its placeholder as soon as it upgrades
+
+**Virta:** #3817
+
+**Filed 2026-11-04.** The element renders into a shadow root with no slot, so its child
+`<img>` disappears the moment it is registered and the logo area is blank until lottie loads
+from cdnjs. **Worked around** in `site/entry.ts` (`keepPlaceholder`: the child image as the
+element's background until the shadow root has an `<svg>`). **Delete when:** the element
+slots its children until the animation has drawn.
+
 ## tosijs-ui — live-example gaps found by sweeping the site (tosijs-ui#210)
 
 **Virta:** #3081
