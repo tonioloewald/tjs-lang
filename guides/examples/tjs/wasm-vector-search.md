@@ -286,3 +286,146 @@ btn.addEventListener('click', async () => {
 
 status.textContent = 'Click "Run Benchmark" to start.'
 ```
+
+<!-- TODO review -->
+## What the benchmark measures
+
+Vector search answers one question: of all the vectors in a corpus, which points most nearly
+the same way as the query? The usual measure is **cosine similarity**, the dot product of the
+two vectors divided by the product of their lengths. Every embedding search, from semantic
+search to RAG, spends nearly all its time computing that, row after row.
+
+`simdSearch` and `jsSearch` compute exactly the same thing and must agree on the winner; the
+**match** column checks it on every run. The difference is how:
+
+- **One WASM call for the whole corpus.** The loop over rows is inside the `wasm { }` block,
+  so a search of 50,000 vectors crosses from JavaScript into WebAssembly once, not 50,000
+  times.
+- **Four dimensions per instruction.** The inner loop loads four floats of the query and four
+  of the row, and keeps three running sums (the dot product and both squared lengths) in
+  three `f32x4` registers.
+- **The corpus is packed into one `wasmBuffer`.** Row `v` starts at element `v * dim`, so the
+  kernel reaches any row by arithmetic, and nothing is copied per call. The buffers are sized
+  for the largest configuration and allocated once, because `wasmBuffer` never frees.
+- **The timing is honest.** Each search runs repeatedly for at least 25ms and the total is
+  divided, after a warm-up, so neither a coarse browser clock nor a cold JIT decides the
+  result.
+
+The speed-up you see depends on your machine and browser, and it grows with `dim`, where more
+of the time is spent in the SIMD inner loop.
+
+<!-- TODO review -->
+## The kernel on its own
+
+Here is the same idea small enough to read and check by eye: four 4-dimensional rows, and
+three queries whose nearest row is obvious. It also makes one improvement the benchmark
+leaves out: the query's length is the same for every row, so it is computed once, before the
+loop.
+
+```tjs:inline
+// The search kernel on its own: which of `count` packed vectors is most like `query`?
+function nearest(! corpus: Float32Array, query: Float32Array, count: 0, dim: 0):! 0 {
+  return wasm {
+    // The query's length is the same for every row: compute it once
+    let qAcc = f32x4_splat(0.0)
+    for (let j = 0; j < dim; j += 4) {
+      let q = f32x4_load(query, j * 4)
+      qAcc = f32x4_add(qAcc, f32x4_mul(q, q))
+    }
+    let qLen = Math.sqrt(f32x4_extract_lane(qAcc, 0) + f32x4_extract_lane(qAcc, 1)
+      + f32x4_extract_lane(qAcc, 2) + f32x4_extract_lane(qAcc, 3))
+
+    let bestIdx = -1
+    let bestScore = -2.0
+    for (let v = 0; v < count; v++) {
+      let dotAcc = f32x4_splat(0.0)
+      let lenAcc = f32x4_splat(0.0)
+      for (let j = 0; j < dim; j += 4) {
+        let q = f32x4_load(query, j * 4)
+        let c = f32x4_load(corpus, (v * dim + j) * 4)
+        dotAcc = f32x4_add(dotAcc, f32x4_mul(q, c))
+        lenAcc = f32x4_add(lenAcc, f32x4_mul(c, c))
+      }
+      let dot = f32x4_extract_lane(dotAcc, 0) + f32x4_extract_lane(dotAcc, 1)
+        + f32x4_extract_lane(dotAcc, 2) + f32x4_extract_lane(dotAcc, 3)
+      let cLen = Math.sqrt(f32x4_extract_lane(lenAcc, 0) + f32x4_extract_lane(lenAcc, 1)
+        + f32x4_extract_lane(lenAcc, 2) + f32x4_extract_lane(lenAcc, 3))
+      if (qLen * cLen > 0.0) {
+        let score = dot / (qLen * cLen)
+        if (score > bestScore) {
+          bestScore = score
+          bestIdx = v
+        }
+      }
+    }
+    return bestIdx
+  }
+}
+
+// Four 4-dimensional vectors, packed row after row into one buffer
+const rows = [
+  [1, 0, 0, 0],
+  [0, 1, 0, 0],
+  [0.7, 0.7, 0, 0],
+  [0, 0, 0, 0],
+]
+const DIM = 4
+const corpus = wasmBuffer(Float32Array, rows.length * DIM)
+rows.forEach((row, v) => row.forEach((x, j) => (corpus[v * DIM + j] = x)))
+
+const query = wasmBuffer(Float32Array, DIM)
+for (const [label, q] of [['east', [1, 0.1, 0, 0]], ['north', [0.1, 1, 0, 0]], ['north-east', [1, 1, 0, 0]]]) {
+  q.forEach((x, j) => (query[j] = x))
+  console.log(`${label} is nearest to row`, nearest(corpus, query, rows.length, DIM))
+}
+```
+
+The zero row never wins: its length is 0, so its score would divide by zero, and the kernel
+skips it. `nearest` returns `-1` if no row has a usable length at all.
+
+<!-- TODO review -->
+## Inline block or library calls?
+
+The same search can be written with `dot` and `norm_sq` from `tjs-lang/linalg`, with the loop
+over rows in JavaScript:
+
+```tjs:static
+import { dot_at, norm_sq, norm_sq_at } from 'tjs-lang/linalg'
+
+function search(! corpus: Float32Array, query: Float32Array, count: 0, dim: 0) {
+  const qLen = Math.sqrt(norm_sq(query, dim))
+  let bestIdx = -1
+  let bestScore = -2
+  for (let v = 0; v < count; v++) {
+    const cLen = Math.sqrt(norm_sq_at(corpus, v * dim, dim))
+    if (qLen * cLen > 0) {
+      const score = dot_at(corpus, v * dim, query, dim) / (qLen * cLen)
+      if (score > bestScore) {
+        bestScore = score
+        bestIdx = v
+      }
+    }
+  }
+  return bestIdx
+}
+```
+
+That version is shorter and reuses tested kernels, but every row now costs two calls from
+JavaScript into WebAssembly, and for small `dim` those crossings dominate: the
+repository's benchmark measures it at roughly 1.5 to 10 times
+slower than the single inline block. Prefer the library for clarity and reuse, and
+move the loop into one kernel when the search itself is the hot path.
+
+<!-- TODO review -->
+## Limits
+
+- **`dim` must be a multiple of 4.** Pad embeddings with zeros, which change neither dot
+  products nor lengths.
+- **This is exhaustive search.** It compares the query with every row, which is exact and
+  simple and fine up to hundreds of thousands of vectors. Beyond that, approximate indexes
+  (such as HNSW) trade exactness for speed.
+- **Memory is finite.** The largest configuration uses 25.6MB of the file's 64MB of WASM
+  memory, and that memory is never returned.
+- **In `simdSearch`, `corpus: Float32Array` is not checked at the call.** TJS cannot turn `Float32Array` into a
+  runtime type, so the transpiler warns that the annotation is unchecked; the integer `count`
+  and `dim` are checked.

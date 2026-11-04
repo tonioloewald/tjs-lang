@@ -23,7 +23,9 @@ level deep, and fails SILENTLY in sloppy mode.
     LIMITS.max = 99          // Cannot mutate immutable binding 'LIMITS'
 
 The error arrives when you compile, not when a test happens to exercise that
-line. And because the check is entirely at compile time, the emitted
+line. (Like `Object.freeze`, the check is shallow for now: it guards the
+binding's own members, not objects nested inside them. See the end of this
+chapter.) And because the check is entirely at compile time, the emitted
 JavaScript is **exactly** what you would have written by hand:
 
     const LIMITS = { max: 10 }
@@ -116,3 +118,59 @@ test 'a chain fails at the first missing link' {
   expect(isMonadicError(deep({ a: null }))).toBe(true)
 }
 ```
+
+<!-- TODO review -->
+
+## What to notice
+
+The two features answer different questions at different times.
+
+`const!` is a **compile-time** promise about a name: nothing written through `LIMITS` may
+change it. The compiler rejects assignment (`LIMITS.max = 99`), compound assignment
+(`LIMITS.max += 1`), `++`/`--`, `delete`, and the mutating array methods (`push`, `pop`,
+`splice`, `shift`, `unshift`, `sort`, `reverse`, `fill`) on a `const!` binding. The emitted
+JavaScript is a plain `const`, so there is nothing to pay at runtime.
+
+`x!.y` is a **runtime** check on a value: if `x` is `null` or `undefined`, the expression
+becomes a `MonadicError` instead of throwing a `TypeError`. When `x` is present it is exactly
+`x.y`, with no wrapper and no copy.
+
+## Bang access in practice
+
+Bang access is most useful at the edge of a program, where data arrives with holes in it.
+Use it to reach into the data, then check once:
+
+```tjs:inline
+function cityOf(user: { name: '', profile: { address: { city: '' } } | null }) {
+  const city = user.profile!.address!.city
+  return isMonadicError(city) ? `${user.name}: no address on file` : `${user.name}: ${city}`
+}
+
+console.log(cityOf({ name: 'Ada', profile: { address: { city: 'London' } } }))
+console.log(cityOf({ name: 'Bob', profile: null }))
+
+// Compare optional chaining: same data, but the error has become a bare undefined
+const bob = { name: 'Bob', profile: null }
+console.log(bob.profile?.address?.city)
+
+// The runtime remembers the bang failure even if nobody checks the result
+__tjs.clearErrors()
+const ignored = bob.profile!.address
+console.log('errors recorded:', __tjs.errors().length)
+```
+
+## Things that trip people up
+
+- **`const!` is shallow.** It guards the members of the binding itself. `LIMITS.max = 99` is
+  an error, but a write one level further down (`SETTINGS.theme.color = 'red'`, or
+  `SETTINGS.tags.push('x')`) is not caught, and neither is a write through another name
+  (`const alias = SETTINGS; alias.theme = null`) or inside a function you pass it to. Treat
+  `const!` as a guard against the obvious slip, not as a frozen value.
+- **`!.` checks the left side only.** `user.profile!.address` checks `user.profile`. If `user`
+  itself might be missing, write `user!.profile!.address`.
+- **The error's path is generic.** The message says `Expected non-null for 'bang.address'`:
+  it names the member you tried to read, not the variable it was read from.
+- **`!` on a parameter is something else.** In a parameter list, a leading `!`
+  (`function f(! x: 0)`) marks the function as unchecked; see
+  [Safety & Validation](/safety-validation/). Only `!.`, a bang directly before a dot, is
+  bang access.

@@ -80,3 +80,82 @@ test 'mean of empty' {
   expect(mean()).toBe(0)
 }
 ```
+
+<!-- TODO review -->
+
+## What to notice
+
+**The colon introduces an example, not a type.** `name: 'World'` does not mean "the string
+`'World'` and nothing else", as it would in TypeScript. It means "a required parameter; here
+is a value it might hold". TJS reads the type off the example (`'World'` is a string), and
+keeps the example as documentation. `count: 42` is an integer, `rate: 3.14` is any number,
+and `index: +0` is an integer that cannot be negative, because that is what the literal says.
+
+**The return annotation is a worked example, and it runs.** `greet(name: 'World'): 'Hello,
+World!'` claims that `greet('World')` returns `'Hello, World!'`. When the file is
+transpiled, TJS calls `greet` with the parameter examples and compares the result by deep
+equality. If the claim is false, the file does not build.
+
+**Errors are values.** `greet(42)` does not throw. It returns a `MonadicError` naming the
+parameter that was wrong, and the program carries on. That is why the second test checks
+`err instanceof Error` instead of wrapping the call in `try`.
+
+**Tests live in the file.** A `test '…' { … }` block runs when the file is transpiled and is
+stripped from the output, so it costs nothing at runtime.
+
+## Run it
+
+This is the same function, run instead of tested. Change the arguments and run it again.
+
+```tjs:inline
+function greet(name: 'World'): 'Hello, World!' {
+  return `Hello, ${name}!`
+}
+
+console.log(greet('TJS'))
+
+// A wrong argument is returned as an error, not thrown
+const oops = greet(42)
+console.log(oops instanceof Error) // true
+console.log(oops.message)
+
+// The signature is still there at runtime
+console.log(JSON.stringify(greet.__tjs.params))
+```
+
+## When the example is wrong
+
+A return example that does not match what the function computes stops the build:
+
+<!-- tjs-doc: expect-error -->
+
+```tjs:static
+function add(a: 2, b: 3): 0 {
+  return a + b // add(2, 3) is 5, so the example `: 0` is false
+}
+```
+
+`tjs check` reports `Expected 0 at 'add', got 5`. This is deliberate: the example is part
+of the documentation, and documentation that lies should not ship. If you want to say only
+what *type* a function returns, without claiming a particular result, use `:!`:
+
+```tjs:static
+function add(a: 2, b: 3):! 0 {
+  return a + b // `:! 0` means "returns an integer"; no test runs
+}
+```
+
+## Things that trip people up
+
+- **`name: string` also works.** The names `string`, `number`, `boolean`, `int`, `float` and
+  `unsigned` are understood, so `function f(s: string)` validates exactly like
+  `function f(s: '')`. Examples are preferred because they double as documentation and as
+  the test input.
+- **`:` means required, `=` means optional.** `name: 'World'` must be passed;
+  `name = 'World'` defaults to `'World'`. To give a parameter both a type and a separate
+  default, write the type first: `n: number = 5`. The next chapter covers this.
+- **A bare `null` default accepts anything.** `function render(doc = null)` takes any value
+  and defaults to `null`. To accept *only* `null`, write `doc: null`.
+- **`0` is an integer, not a number.** `function half(x: 0)` rejects `1.5`. Write
+  `x: 0.0` (or `x: number`) when fractions are allowed. This is the most common surprise
+  for people coming from TypeScript, where `number` is the only numeric type.

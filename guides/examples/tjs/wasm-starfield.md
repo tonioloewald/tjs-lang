@@ -256,7 +256,7 @@ function animate() {
   // HUD
   ctx.fillStyle = '#fff'
   ctx.font = 'bold 16px monospace'
-  const simdLabel = typeof globalThis.__tjs_wasm_0 === 'function' ? 'SIMD' : 'JS'
+  const simdLabel = typeof WebAssembly === 'object' && globalThis.__tjs_wasm_enabled !== false ? 'SIMD' : 'JS'
   ctx.fillText(`FPS: ${fps} | ${simdLabel} | Stars: ${NUM_STARS.toLocaleString()} | Speed: ${speedMultiplier.toFixed(1)}x`, 10, 24)
   ctx.font = '14px monospace'
   ctx.fillText('Steer: mouse | Speed: scroll/click', 10, height - 12)
@@ -266,3 +266,53 @@ function animate() {
 
 animate()
 ```
+
+<!-- TODO review -->
+## How it works
+
+Each frame moves 55,000 particles and draws them. The moving is the part that runs in WASM,
+and it is the simplest possible SIMD kernel: `moveParticles` adds a steering offset to every
+`x` and `y` and subtracts the forward speed from every `z`, four particles per instruction.
+
+The design choices are the interesting part:
+
+- **Positions live in WASM memory; colours do not.** `starX`, `starY` and `starZ` are
+  `wasmBuffer`s because `moveParticles` reads and writes them every frame, and copying 50,000
+  floats three times in and three times out per frame would cost more than the arithmetic.
+  The nebula colours are plain `Float32Array`s because no WASM ever touches them.
+- **Everything is allocated once.** `wasmBuffer` is a bump allocator with no free, so
+  allocating inside `animate` would leak memory 60 times a second. The buffers are created
+  when the example loads and reused for its lifetime.
+- **Structure of arrays, not array of structures.** Keeping `x`, `y` and `z` in separate arrays
+  is what lets one `f32x4_load` pick up four particles' `x` values at once. An array of
+  `{ x, y, z }` objects cannot be loaded into a SIMD register at all.
+- **Only the uniform work is in WASM.** Respawning a particle depends on its own `z` and calls
+  `Math.random()`, which a WASM block cannot call, so `respawnStars` stays in JavaScript.
+  Projection and drawing go through the canvas API, which is JavaScript too.
+- **`NUM_STARS` and `NUM_NEBULA` are multiples of 4**, as every SIMD loop here requires.
+
+<!-- TODO review -->
+## Things to try
+
+- Open the browser console and set `globalThis.__tjs_wasm_enabled = false`. Every block now
+  runs its `fallback`, the HUD says `JS`, and the FPS counter shows what the SIMD path was
+  buying you on your machine. Delete the flag to switch back.
+- Raise `NUM_STARS` until the frame rate drops, then compare the two paths again. The gap
+  grows with the particle count, because the per-call overhead is fixed and the per-particle
+  work is not.
+- Move the respawn test into the kernel with `f32x4_lt` and `f32x4_select` (see
+  [WASM SIMD](/wasm-simd/)). The random new positions still have to come from JavaScript,
+  which is a good lesson in where the WASM boundary belongs.
+
+<!-- TODO review -->
+## Limits
+
+This example needs a page: it draws into a canvas and runs on `requestAnimationFrame`, so it
+cannot run from the command line, and the test suite does not execute it. It stops itself
+when the canvas leaves the page, so re-running the example does not leave old animation loops
+behind.
+
+The frame rate is a rough guide, not a benchmark: drawing 55,000 canvas circles usually
+costs more than moving them, so the SIMD speed-up you see on screen understates the speed-up
+of the kernel itself. For a measured comparison, see [Vector Search
+Benchmark](/wasm-vector-search/).

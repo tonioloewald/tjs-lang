@@ -202,6 +202,77 @@ test 'a FunctionPredicate checks callability and carries the contract' {
 }
 ```
 
+<!-- TODO review -->
+## Using a declaration in a signature
+
+A declared name can stand wherever an example can. Write it after the colon and the
+parameter is checked against the declaration, so the shape is stated once and every
+function that takes it agrees:
+
+```tjs:static
+Type Point {
+  example: { x: 0.0, y: 0.0 }
+}
+
+function dist(a: Point, b: Point): 0 {
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+test 'a declared type checks a parameter' {
+  expect(dist({ x: 0, y: 0 }, { x: 3, y: 4 })).toBe(5)
+  expect(isMonadicError(dist({ x: 0 }, { x: 3, y: 4 }))).toBe(true)
+}
+```
+
+A `Type` with a parameter needs no predicate when its example says where the parameter
+goes; `{ value: T }` checks `T` at `value`. Apply it in an annotation with angle brackets,
+and a primitive type name such as `int` becomes the check for that slot:
+
+```tjs:static
+Type Box<T> {
+  example: { value: T }
+}
+
+function unbox(b: Box<int>) {
+  return b.value
+}
+
+test 'a parameterised Type applied in a signature' {
+  expect(unbox({ value: 1 })).toBe(1)
+  expect(isMonadicError(unbox({ value: 1.5 }))).toBe(true)
+}
+```
+
+<!-- TODO review -->
+## What an example can say
+
+A `Type` example is read by the transpiler as _source_ before it is evaluated, with the same
+rules as a parameter. So `0.0` means a float (even though `0.0 === 0` as a value), `+0` a
+non-negative integer, `'' | undefined` an optional member, and an all-literal union such as
+`'fast' | 'slow'` a closed set:
+
+```tjs:static
+Type Order {
+  example: {
+    price: 0.0,
+    qty: +0,
+    note: '' | undefined,
+    mode: 'fast' | 'slow',
+  }
+}
+
+test 'an example is read as source, not just as a value' {
+  expect(Order({ price: 9.99, qty: 2, mode: 'fast' })).toBe(true)
+  expect(Order({ price: 9.99, qty: -1, mode: 'fast' })).toBe(false)
+  expect(Order({ price: 9.99, qty: 2, mode: 'medium' })).toBe(false)
+  expect(Order({ price: 9.99, qty: 2, mode: 'slow', note: 'gift' })).toBe(true)
+}
+```
+
+This is also why an example written as a computed value loses its meaning: only type
+positions (object values, array elements, union members) are read this way. A call inside
+an example, such as `f(1.0)`, is evaluated, and its result is the example.
+
 ## One thing that differs by where the type comes from
 
 Types declared in a `.tjs` file, like every one above, come from the file's own small

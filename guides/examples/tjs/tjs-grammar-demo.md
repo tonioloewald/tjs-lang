@@ -2,27 +2,8 @@
 
 # TJS Grammar Reference
 
-Comprehensive reference covering all major TJS syntax features.
-
-**Type declarations** (require full `tjs-lang` runtime — shown here for reference):
-
-    Type Name = 'Alice'
-
-    Type Age 'a non-negative age' {
-      example: 25
-      predicate(x) { return typeof x === 'number' && x >= 0 }
-    }
-
-    Generic Pair<A, B> {
-      description: 'a pair of values'
-      predicate(obj, A, B) { ... }
-    }
-
-    Enum Direction 'cardinal direction' { North, East, South, West }
-    Enum Color 'CSS color' { Red = 'red', Green = 'green', Blue = 'blue' }
-    Union Status 'task status' 'pending' | 'active' | 'done'
-
-All other features are exercised in the runnable code below:
+Comprehensive reference covering all major TJS syntax features. Each section is exercised by
+a test in the runnable code below; the type declarations have their own example after it.
 
 ```tjs:inline
 // ═══════════════════════════════════════════════════════════
@@ -49,7 +30,7 @@ feature with a test proving it works.
 | Numeric narrowing | `42` int, `3.14` float, `+0` non-negative |
 | Return types | `:`, `:?`, `:!` |
 | Safety markers | `(! ...)` unsafe, `(? ...)` safe |
-| Type/Generic/Enum/Union | See above (requires full runtime) |
+| Type/Generic/Enum/Union | The declarations example below |
 | Bare assignments | `Uppercase = ...` |
 | Classes | Callable without `new` |
 | Polymorphic functions | Same name, different signatures |
@@ -58,7 +39,7 @@ feature with a test proving it works.
 | Equality | `==` honest, `===` identity, `Is`/`IsNot` |
 | Try without catch | Monadic error conversion |
 | Inline tests | Test blocks |
-| TDoc comments | Slash-star-hash markdown blocks |
+| Doc comments | Slash-hash markdown blocks |
 #/
 
 // ═══════════════════════════════════════════════════════════
@@ -136,7 +117,8 @@ test 'return types' {
 ## Safety Markers
 
 `!` = unsafe (skip input validation). Fast path for trusted callers.
-`?` = safe (force validation even inside `unsafe` blocks).
+`?` = safe (states that inputs are validated, which under the default
+`safety inputs` every function already does).
 #/
 
 function fastAdd(! a: 0, b: 0): 0 {
@@ -292,7 +274,7 @@ Honest equality is on by default in native TJS:
 
     const a = { x: 1, y: [2, 3] }
     const b = { x: 1, y: [2, 3] }
-    a == b       // true  (structural: same shape)
+    a == b       // false (objects compare by reference; == is NOT structural)
     a === b      // false (identity: different objects)
     a Is b       // true  (explicit structural)
     a IsNot b    // false
@@ -360,11 +342,13 @@ export function publicHelper(x: 0): 1 {
 // ═══════════════════════════════════════════════════════════
 
 /#
-## TDoc Comments
+## Doc Comments
 
-These comment blocks (opened with slash-star-hash) contain
-markdown that becomes rich documentation in the playground
-and API docs. Every such block you've seen above is a TDoc.
+These comment blocks (opened with slash-hash on a line of its
+own, closed with hash-slash) contain markdown that becomes rich
+documentation in the playground and API docs. They nest, so a
+doc comment can quote any syntax. Every such block you've seen
+above is one.
 #/
 
 // ═══════════════════════════════════════════════════════════
@@ -376,9 +360,84 @@ console.log('Features demonstrated:', [
   'safety directive', 'colon params', 'optional params',
   'destructured params', 'numeric narrowing',
   'return types (: :? :!)', 'safety markers (! ?)',
-  'Type', 'Generic', 'Enum', 'Union', 'bare assignments',
+  'bare assignments',
   'classes', 'polymorphic functions', 'polymorphic constructors',
-  'local extensions', 'structural equality', 'Is/IsNot',
-  'try without catch', 'inline tests', 'module exports', 'TDoc'
+  'local extensions', 'honest equality', 'Is/IsNot',
+  'try without catch', 'inline tests', 'module exports', 'doc comments'
 ].join(', '))
 ```
+
+<!-- TODO review -->
+## Declarations: types that exist at run time
+
+`Type`, `Generic`, `Enum` and `Union` declare values you can call at run time, not
+annotations that disappear. They need nothing beyond the inline runtime every emitted file
+carries:
+
+```tjs:inline
+Type Name 'Alice'
+
+Type Age {
+  description: 'a non-negative age'
+  example: 25
+  predicate(x) { return typeof x === 'number' && x >= 0 }
+}
+
+Generic Pair<A, B> {
+  description: 'a pair of values'
+  predicate(obj, A, B) { return A(obj.first) && B(obj.second) }
+}
+
+Enum Color 'CSS color' {
+  Red = 'red'
+  Green = 'green'
+  Blue = 'blue'
+}
+
+Union Status 'task status' 'pending' | 'active' | 'done'
+
+console.log('Name:   ', Name.check('Bob'), Name.check(3))
+console.log('Age:    ', Age.check(30), Age.check(-1))
+console.log('Pair:   ', Pair(Name, Age).check({ first: 'Ann', second: 41 }))
+console.log('Color:  ', Color('red'), Color.members.Blue, Color.names['green'])
+console.log('Status: ', Status('done'), Status('lost'))
+
+// A declared type is a parameter type like any other.
+function birthday(age: Age): 26 {
+  return age + 1
+}
+console.log('birthday(25) ->', birthday(25))
+console.log('birthday(-3) ->', birthday(-3) instanceof Error ? 'MonadicError' : '?')
+```
+
+The [Declarations](/declarations/) chapter covers each form in detail.
+
+<!-- TODO review -->
+## How to read this reference
+
+Treat the big example as a checklist rather than a tutorial. Each numbered section shows the
+shortest form of one feature, and the `test` beneath it is the proof that the feature behaves
+as the comment says; if you change a line and a test goes red, you have found the edge of
+that feature. The [Basics](/tjs-basics/) chapters explain each one at a slower pace.
+
+Three things trip people up most often, and every one of them is in the example:
+
+- **The colon value is an example, not a literal type.** `greet(name: 'Alice')` accepts any
+  string. `'Alice'` is what a reader (and the signature test) uses as a sample input.
+- **A return annotation is a worked example.** `double(x: 5): 10` is a test: the transpiler
+  calls `double(5)` and requires exactly `10`. When the result is not a fixed function of the
+  example inputs, write `:!` (type-only, no test).
+- **`==` is honest, not structural.** It never coerces (`0 == ''` is false) and treats
+  `null` and `undefined` as equal, but two distinct objects are never `==`. Use `Is` / `IsNot`
+  for deep comparison.
+
+<!-- TODO review -->
+## Limits
+
+- **`safety inputs` is the default**, so the directive at the top of the example only makes
+  it explicit. `safety none` keeps metadata but skips validation; `safety all`
+  validates everything (a debugging setting).
+- **The local-extensions section is shown, not run**, inside a doc comment. The
+  [Local Class Extensions](/local-extensions/) chapter runs it.
+- **Bare assignment only declares on first use.** `Greeting = 'Hello'` becomes a `const`, so
+  a later `Greeting = 'Hi'` in the same file throws. Declare with `let` if it must change.

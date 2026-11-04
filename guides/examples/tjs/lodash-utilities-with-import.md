@@ -13,8 +13,9 @@ Demonstrates using lodash-es with TJS runtime validation.
 
 import { groupBy, sortBy, uniqBy, debounce, chunk } from 'lodash-es'
 
-// Group items by a key
-function groupUsers(users: [{ name: '', dept: '' }], key: 'dept'): { [key: '']: [{ name: '', dept: '' }] } {
+// Group items by a key. The result's keys are data, so the return is
+// type-only (`:!`): "an object", with no worked example to run
+function groupUsers(users: [{ name: '', dept: '' }], key: 'dept'):! {} {
   return groupBy(users, key)
 }
 
@@ -28,17 +29,16 @@ function uniqueByEmail(users: [{ email: '', name: '' }]): [{ email: '', name: ''
   return uniqBy(users, 'email')
 }
 
-// Chunk array into smaller arrays
-// Note: nested array types like [['']] aren't supported yet, so we omit return type
-function paginate(items: [''], pageSize: 10) {
+// Chunk array into smaller arrays: [['']] is an array of arrays of strings
+function paginate(items: [''], pageSize: 10): [['']] {
   return chunk(items, pageSize)
 }
 
 // Process data pipeline
 function processUserData(input: {
   users: [{ id: 0, name: '', email: '', dept: '' }]
-}): {
-  byDept: { [key: '']: [{ id: 0, name: '', email: '', dept: '' }] },
+}):! {
+  byDept: {},
   unique: [{ id: 0, name: '', email: '', dept: '' }],
   count: 0
 } {
@@ -105,3 +105,38 @@ console.log('Unique users:', result.count)
 console.log('Departments:', Object.keys(result.byDept))
 console.log('Engineering team:', result.byDept['Engineering']?.map(u => u.name))
 ```
+
+<!-- TODO review -->
+## What to notice
+
+Lodash is untyped JavaScript, and it stays that way. What TJS adds is a typed _boundary_:
+each wrapper states, by example, what it accepts and what it gives back, so
+`sortByAge('not an array')` is refused at the wrapper with a message naming
+`sortByAge.users`, instead of failing somewhere inside lodash or, worse, quietly returning
+an empty array.
+
+The return annotations come in two kinds, and the difference matters:
+
+- `sortByAge(...): [{ name: '', age: 0 }]` is a **worked example**. When the file is
+  transpiled, TJS calls `sortByAge` with its parameter example and checks the result equals
+  the return example. That is a free test of the wrapper _and_ of the library call inside
+  it.
+- `groupUsers(...):! {}` is **type-only** (`:!`). A grouped result's keys are data (`'eng'`,
+  `'sales'`), so there is no single example result worth asserting; `:!` says "an object"
+  and runs no test. `processUserData` uses `:!` for the same reason.
+
+`[['']]` on `paginate` is an array of arrays of strings: array examples nest.
+
+<!-- TODO review -->
+## Gotchas
+
+- **Worked examples need the import.** At build time, if `lodash-es` cannot be loaded, the
+  signature examples and `test` blocks in this file are reported as _inconclusive_: not
+  passed, not failed. Run the file where the import resolves (the playground does) to get a
+  real answer.
+- **A wrapper's types are only as good as its example.** `[{ name: '', dept: '' }]` checks
+  that every element has a string `name` and `dept`; it does not check that `key` names a
+  field that exists. `groupUsers(users, 'nope')` is well-typed and groups everything under
+  the key `'undefined'`. Rules like that belong in the function body, or in a `Type` with a predicate.
+- **Excess keys pass.** An element with extra fields still matches `{ name: '', dept: '' }`,
+  which is what lets `processUserData` accept the full user records.

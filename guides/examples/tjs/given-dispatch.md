@@ -129,3 +129,75 @@ test 'matches with == so boxed primitives work' {
   expect(boxedStillMatches()).toBe('pet')
 }
 ```
+
+<!-- TODO review -->
+
+## What to notice
+
+Read the three functions with the three `switch` problems in mind.
+
+- **`describe`** lists two values on one arm (`'cat', 'dog'`) where `switch` would need two
+  stacked `case` labels relying on fallthrough. Nothing falls through in `given`, so there is
+  no `break` to forget.
+- **`greet`** declares `label` in two arms. Each arm is its own block, so that is two
+  different variables, not a redeclaration.
+- **`boxedStillMatches`** shows the comparison. An arm matches when the value `==` the arm's
+  value, using TJS's honest equality: a boxed string matches its plain value, but nothing is
+  coerced, so the number `200` does not match the string `'200'`.
+
+The `else` arm is optional. Without one, a value that matches no arm simply does nothing,
+like a `switch` with no `default`.
+
+## Arms that do work instead of returning
+
+Every arm in the example above ends with `return`, but they do not have to. An arm is a
+block; when it finishes, control continues after the `given`. Arm values can be any
+expression, including named constants, and a `given` can sit inside an arm:
+
+```tjs:inline
+const LOW = 1
+const HIGH = 3
+
+function priority(level: 0) {
+  let label = 'normal'
+  given level {
+    LOW { label = 'low' }
+    HIGH, 4 { label = 'high' }
+  }
+  // no `else`: level 2 matches nothing and label stays 'normal'
+  return label
+}
+
+function httpText(code: 200) {
+  given code {
+    200, 204 { return 'ok' }
+    404 { return 'not found' }
+  } else {
+    given Math.floor(code / 100) {
+      5 { return 'server error' }
+    } else {
+      return 'other'
+    }
+  }
+}
+
+console.log(priority(1), priority(2), priority(3), priority(4))
+console.log(httpText(204), httpText(404), httpText(503), httpText(302))
+```
+
+## Things that trip people up
+
+- **`switch` still works, unchanged.** TJS accepts every JavaScript program, so a `switch`
+  in a `.tjs` file keeps C's semantics exactly, fallthrough and all. It compiles, with a
+  warning that points at `given`. There is no rule that silently changes what a `switch`
+  means, because that would break code pasted from JavaScript.
+- **Converting a `switch` is not always a rename.** If an arm deliberately falls into the
+  next one, `given` cannot express that directly. When TJS graduates converted code to native
+  TJS, it rewrites a `switch` to `given` only if every non-empty arm leaves (`break`,
+  `return`, `throw` or `continue`), and leaves a note at any `switch` where an arm genuinely
+  falls through.
+- **Arms compare values; they are not patterns.** `given` has no ranges, guards or
+  destructuring. For "any 5xx code", compute the thing you want to compare, as `httpText`
+  does with `Math.floor(code / 100)`, or use `if`.
+- **`given` is TJS syntax.** It is not valid JavaScript, and it is not part of AJS, so it
+  cannot appear in a `.js` file or in agent code.

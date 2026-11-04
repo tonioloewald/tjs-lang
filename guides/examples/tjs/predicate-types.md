@@ -92,3 +92,83 @@ test 'suggestions are relevant to the prefix' {
   expect(values).toContain('red')
 }
 ```
+
+<!-- TODO review -->
+## What to notice
+
+- **`isColor` is called like any function.** There is no schema object to build and no
+  `validate(schema, value)` indirection: a predicate is a value test you can hand to `filter`,
+  `every`, a parameter, or a `Type`.
+- **`suggestColor` never offers anything `isColor` would reject.** The completions are mined
+  out of the predicate's own source (its keyword lists and `startsWith` guards), and each mined
+  value is run back through the compiled predicate before it is returned. A hand-maintained
+  completion list beside a hand-written validator is two sources of truth; this is one.
+- **The import is real library code**, not a stub written for the page. `tjs-lang/css` is
+  built entirely from verified predicates, and its `verifyCss()` re-checks every cluster.
+
+<!-- TODO review -->
+## Writing your own
+
+You do not need the CSS library to get a predicate type. A `Type` with a `predicate` is one,
+and the transpiler runs the predicate-safety verifier over its body when it compiles. This
+example is self-contained:
+
+```tjs:inline
+Type HexColor {
+  description: 'a #rgb or #rrggbb colour'
+  example: '#ff0000'
+  predicate(x) {
+    return (
+      typeof x === 'string' &&
+      (x.length === 4 || x.length === 7) &&
+      x[0] === '#' &&
+      x.slice(1).split('').every((c) => '0123456789abcdefABCDEF'.includes(c))
+    )
+  }
+}
+
+// The Type is a parameter type like any other. The return annotation is a
+// worked example: swatch('#ff0000') must return exactly this string.
+function swatch(color: HexColor): 'swatch #ff0000' {
+  return `swatch ${color}`
+}
+
+console.log('HexColor.check:')
+for (const v of ['#f00', '#ff8800', 'red', '#ggg', 42]) {
+  console.log(`  ${JSON.stringify(v).padEnd(10)} -> ${HexColor.check(v)}`)
+}
+
+console.log('\nas a parameter type:')
+console.log('  swatch("#0af") ->', swatch('#0af'))
+const bad = swatch('blue')
+console.log(
+  '  swatch("blue") ->',
+  bad instanceof Error ? 'MonadicError: ' + bad.message : bad
+)
+```
+
+The predicate iterates with `every` rather than a `for` loop on purpose. A predicate the
+verifier can certify (pure, synchronous, no loops, no `await`, no `new`, no IO) compiles to a
+fuel-bounded guard, so a pathological input makes it answer `false` instead of hanging your
+validation. Write the same check with a `for` loop and it still works, because TJS never
+rejects a predicate it cannot verify (that would make legal JavaScript illegal); it simply runs
+as an ordinary, unbounded function. Prefer the verifiable style for anything that will see
+untrusted data.
+
+<!-- TODO review -->
+## Limits worth knowing
+
+- **"Verified" is a promise about your own code, not a sandbox.** Verified predicates compile
+  to native JavaScript, and no syntactic check makes native JavaScript safe against a
+  *hostile author*. So the JSON-Schema `$predicate` paths (`compilePredicateSchema`,
+  `createPredicateEvaluator`) run a predicate source only if the host registered it with
+  `trustPredicate` or opted in with `trustAllPredicates`; anything else fails closed. Do not
+  accept predicate source from users and expect the verifier to protect you.
+- **Regex literals inside a predicate run on tjs-lang's own linear engine**, not the host's,
+  so a catastrophic-backtracking pattern cannot hang a certified predicate. That engine has no
+  backreferences or lookaround.
+- **The first example imports `tjs-lang/css`**, so it needs a host that can resolve that
+  package. The `HexColor` example has no imports and runs anywhere.
+
+See [Declarations](/declarations/) for the full `Type` syntax and the
+[north-star note](/type-system-north-star/) for where `$predicate` is heading.

@@ -110,3 +110,65 @@ test 'a complete payload is returned by identity — no copy' {
   expect(sized(payload) === payload).toBe(true)
 }
 ```
+
+<!-- TODO review -->
+
+## What to notice
+
+The signature `drawBox(opts = { x: 0, y: 0, w: 100, label: '' })` now says everything the
+hand-written merge used to hide in the body: which options exist, what type each has, and
+what each defaults to. The same object is the documentation, the validation and the
+defaults, so they cannot drift apart.
+
+The merge never touches the caller's object. A partial argument produces a new, merged
+object; a complete one is handed back as is. In neither case does the caller see members
+appear in the object they passed.
+
+## Required arguments beside options
+
+The usual shape for a real API is "the things you must say, then the things you may". Put
+them in separate parameters: `:` for the required ones, `=` with an object for the options.
+And when you need JavaScript's all-or-nothing default for one parameter, say so with
+`LegacyDefault`:
+
+```tjs:inline
+function connect(url: 'https://example.com', opts = { retries: 3, timeout: 1000.0 }) {
+  return `${url} retries=${opts.retries} timeout=${opts.timeout}`
+}
+
+console.log(connect('https://a.dev'))                      // all defaults
+console.log(connect('https://a.dev', { timeout: 250.5 }))  // one member changed
+console.log(connect('https://a.dev', undefined))           // same as leaving it out
+console.log(connect('https://a.dev', { retries: 'x' }).message)
+console.log(connect('https://a.dev', null).message)        // null is not "absent"
+
+// The caller's object is not modified
+const mine = { retries: 1 }
+connect('https://a.dev', mine)
+console.log(JSON.stringify(mine))                          // {"retries":1}
+
+// JavaScript's atomic default, for this one parameter only
+function atomic(opts = LegacyDefault({ retries: 3, timeout: 1000 })) {
+  return JSON.stringify(opts)
+}
+console.log(atomic())                // {"retries":3,"timeout":1000}
+console.log(atomic({ timeout: 5 }))  // {"timeout":5}: replaced, not merged
+```
+
+## Things that trip people up
+
+- **A misspelled option is passed through, silently.** `connect(url, { retryz: 9 })` is
+  accepted: `retryz` is an excess key, and excess keys pass through, so `retries` keeps its
+  default and nothing complains at runtime. TJS's linter (`lint` from `tjs-lang/lang`) does
+  flag a literal key that is not in the default, under the rule `dict-default-excess-key`.
+- **`null` is a value, not an absence.** `undefined` (or leaving the argument out) gets the
+  defaults; `null` is checked against the object type and rejected.
+- **`:` with an object is a shape, not a dictionary.** `opts: { retries: 3 }` makes the
+  argument required and every member required. Only `=` gives per-member defaults.
+- **A type plus a default is atomic.** `p: Point = { x: 1, y: 2 }` is the typed-default
+  form: optional, but a value you pass must be a whole `Point`. Dictionary merging belongs to
+  the plain `opts = { … }` form.
+- **It is native TJS only.** Code converted from TypeScript, and `.js` files compiled with
+  `dialect: 'js'`, keep JavaScript's atomic defaults, because the same source must keep its
+  JavaScript meaning there. The full specification is in
+  [Dictionary Defaults](/dictionary-defaults/).

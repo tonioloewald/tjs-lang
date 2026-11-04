@@ -65,3 +65,45 @@ stage.append(
 // date-fns (loaded via JSDelivr hint) used directly
 console.log('Today:', format(new Date(), 'yyyy-MM-dd'))
 ```
+
+<!-- TODO review -->
+## What to notice
+
+- **The hint is part of the import string, and nothing else changes.** `import { format }
+  from 'jsdelivr/date-fns@3.0.0'` is still an ordinary ES import. The playground rewrites the
+  specifier to a same-origin path, and its service worker maps the first path segment
+  (`jsdelivr/`, `esmsh/`, `unpkg/`, `github/`) to a CDN, fetches the module and caches it.
+  The browser's own module loader does the rest.
+- **Versions go where npm puts them.** `date-fns@3.0.0` pins a release; `tosijs@^1.6` takes a
+  range. Without a version you get the latest, which is convenient for a sketch and a hazard
+  for anything you mean to keep.
+- **Full URLs are left alone.** If you already know where the module lives, write the URL;
+  no hint is needed or applied.
+
+<!-- TODO review -->
+## When to reach for a hint
+
+The default (JSDelivr's `/+esm` bundles) works for most packages, ESM or CommonJS. Use a hint
+when it does not:
+
+| symptom | try |
+|---------|-----|
+| a library with peer dependencies loads its own copy of them (React itself is already routed to esm.sh; a React-like package is not) | `esmsh/<spec>`, so peers are shared rather than bundled inline |
+| an unreleased fix that only exists on a branch | `github/<user>/<repo>@<ref>/<path>` |
+| a package JSDelivr transforms badly | `unpkg/<spec>` or `esmsh/<spec>` |
+
+Pin a version whenever you use a hint. The point of a hint is to control exactly what loads,
+and an unpinned spec gives that control back to whatever was published last.
+
+<!-- TODO review -->
+## Limits
+
+- **This is the playground's resolver, not a language feature.** TJS itself does not know
+  about CDNs: the rewrite is done by the playground and the local dev server
+  (`bun run dev`). In your own pages, `tjs-lang/import-resolver` provides the same
+  bundler-free bare imports, with the worker copied to your site root. A bundler or a
+  `node_modules` install resolves imports its own way and ignores these prefixes.
+- **Everything is fetched at run time.** A CDN outage, a rate limit or a removed version
+  breaks the page. For production, pin versions, or vendor the modules you depend on.
+- **This example needs a browser and the network**, so it is not run by the command-line
+  harness. The full routing rules are in [Playground Imports](/playground-imports/).

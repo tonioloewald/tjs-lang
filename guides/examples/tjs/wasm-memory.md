@@ -129,3 +129,81 @@ console.log(`Normalized ${SIZE} floats in ${(perOp * 1000).toFixed(1)}us per pas
 console.log('First 4:', data[0].toFixed(4), data[1].toFixed(4), data[2].toFixed(4), data[3].toFixed(4))
 console.log('Last:', data[SIZE - 1].toFixed(4))
 ```
+
+<!-- TODO review -->
+## What the example shows
+
+WebAssembly code can only read and write its own **linear memory**, one flat block of bytes.
+A JavaScript `Float32Array` normally lives somewhere else, so before a WASM call can see your
+data, it has to be put into that memory. TJS does the moving for you, in one of two ways:
+
+- **A regular typed array is copied.** `addOne(regular, 4)` copies `regular` into WASM
+  memory, runs the block, and copies the result back. You see the mutation, and you pay for
+  two copies on every call.
+- **A `wasmBuffer()` array is not copied.** `wasmBuffer(Float32Array, 4)` returns an ordinary
+  `Float32Array` whose bytes *are* WASM memory. When one is passed in, the wrapper notices
+  that its `.buffer` is the WASM memory and hands over the byte offset instead.
+
+The two calls print the same kind of result. The difference is cost, and it grows with the
+array: copying 4 floats is nothing, copying 10,000 floats twice per call can cost more than
+the arithmetic. That is why the large `normalize` example allocates `data` with `wasmBuffer`.
+
+<!-- TODO review -->
+## Allocate once, reuse forever
+
+`wasmBuffer` is a **bump allocator with no free**: every call hands out a fresh slice of the
+one shared memory, and that slice is never returned. This is deliberate. It means nobody has
+to decide who owns a buffer or when it dies, even across libraries. The price is that a
+`wasmBuffer` call inside a loop, or per request, leaks.
+
+So the pattern is: allocate your working buffers once, when the module loads, and refill
+them. A kernel that produces an array takes an **output parameter** rather than allocating
+one, so the caller decides where the result goes.
+
+```tjs:inline
+// Allocate the working buffers ONCE, when the module loads.
+const LEN = 8
+const src = wasmBuffer(Float32Array, LEN)
+const dst = wasmBuffer(Float32Array, LEN)
+
+// The kernel reads one buffer and writes another; it never allocates.
+function squares(! input: Float32Array, output: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      let v = f32x4_load(input, off)
+      f32x4_store(output, off, f32x4_mul(v, v))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) output[i] = input[i] * input[i]
+  }
+}
+
+// Each "request" refills the same buffers instead of allocating new ones.
+for (const start of [1, 10, 100]) {
+  for (let i = 0; i < LEN; i++) src[i] = start + i
+  squares(src, dst, LEN)
+  console.log(`squares from ${start}:`, Array.from(dst).join(', '))
+}
+
+// A regular Float32Array still works: it is copied in, and copied back out.
+const plainOut = new Float32Array(LEN)
+squares(src, plainOut, LEN)
+console.log('into a plain Float32Array:', Array.from(plainOut).join(', '))
+```
+
+<!-- TODO review -->
+## Limits
+
+- **The memory is finite.** All the WASM in one file shares one `WebAssembly.Memory` of 64MB,
+  and `wasmBuffer` slices are permanent. Budget for your largest working set, once.
+- **Supported element types** are `Float32Array`, `Float64Array`, `Int32Array` and
+  `Uint8Array`.
+- **A plain JavaScript array is not a typed array.** `[1, 2, 3]` or a parameter typed by the
+  example `[0.0]` has no bytes to share. Annotate kernel parameters as typed arrays and pass
+  typed arrays.
+- **WASM never allocates.** Neither an inline block nor a `wasm function` can create an array;
+  JavaScript allocates every byte. That is the rule that makes the bump allocator safe.
+
+The copy path is not wrong, only slower, and for a small array called rarely it is the
+simpler choice. Reach for `wasmBuffer` when the array is large or the call is hot.

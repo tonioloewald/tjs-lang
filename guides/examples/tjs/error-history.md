@@ -115,3 +115,71 @@ console.log('\nTotal recorded:', __tjs.getRecordCount())
 console.log('Still buffered: ', __tjs.records().length)
 console.log('Lost to wrap:   ', __tjs.getDroppedCount(), '(a black box that silently drops evidence is lying)')
 ```
+
+<!-- TODO review -->
+## What to notice
+
+The two calls `greet(42)` and `double('oops')` returned errors that nobody looked at, and
+the program carried on. In most languages that would be the end of the story. Here the
+runtime wrote both down, and `__tjs.errors()` hands them back with their full messages: the
+file, line, function and parameter, what was expected and what arrived.
+
+The three sections of the example show the recorder's three promises:
+
+1. **`errors()` is narrow.** It returns type errors and nothing else, so "clear, run, expect
+   none" is a reliable assertion. The `app` notice recorded in the middle section does not
+   show up in it.
+2. **`records()` is broad.** Type errors, your own `__tjs.record(...)` entries, and the
+   runtime's near-misses (a `wasm {}` block that fell back to JavaScript, a typed array
+   copied on every call because it was not allocated with `wasmBuffer()`, an AJS run that
+   ran out of fuel) all land in one ring, filterable by `source` and `severity`.
+3. **Loss is visible.** The ring holds the most recent 64 records. When it wraps, the
+   counts keep going and `getDroppedCount()` says how much evidence fell off the end.
+
+Recording never changes what your program does: it does not throw, does not log unless you
+ask, and costs nothing on calls that succeed.
+
+<!-- TODO review -->
+## Using it: audit a unit of work
+
+The pattern generalises beyond tests. Clear the errors, run a job, then look: anything the
+job produced and dropped is still there.
+
+```tjs:inline
+function parsePort(text: '8080'): 8080 {
+  return Number(text)
+}
+
+// Run a job, then report any type errors it produced, even ones it ignored
+function audited(label: 'job', job = () => 0) {
+  __tjs.clearErrors()
+  const result = job()
+  const errors = __tjs.errors()
+  console.log(`${label}: ${errors.length ? errors.length + ' type error(s)' : 'clean'}`)
+  for (const e of errors) console.log('   ', e.message)
+  return result
+}
+
+audited('good config', () => parsePort('3000'))
+
+// This job throws its first result away; the error is not lost
+audited('sloppy config', () => {
+  parsePort(3000)
+  return parsePort('80')
+})
+```
+
+The second job returned a perfectly good port, and would pass any test that only looked at
+its result. The recorder is how you find out it also made a bad call on the way.
+
+<!-- TODO review -->
+## Gotchas
+
+- **It is a ring, not a log.** 64 entries is enough to see what just went wrong, not to
+  audit a long run. Ship what matters somewhere durable yourself (`records()` returns plain
+  entries you can serialise).
+- **Clearing is global.** `clearErrors()` and `clearRecords()` clear the shared ring. Each
+  emitted module has its own runtime instance, but instances mirror their records into the
+  global one, so a page with several TJS modules still has one place to look.
+- **Turning it off** is `configure({ trackErrors: false })` from `tjs-lang/lang`. You rarely
+  want to: the happy path does not pay for it.

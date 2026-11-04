@@ -76,3 +76,100 @@ console.log('norm_sq:', norm_sq(a, 8))
 
 console.log('\nLooks good! Save this as `mylinalg` and run the consumer example next.')
 ```
+
+<!-- TODO review -->
+## What makes this a library
+
+Two words: `export wasm function`. Each declaration is a WebAssembly kernel compiled into
+the file's one `WebAssembly.Module`, and `export` makes its JavaScript wrapper an ordinary
+ES module export. Nothing else is needed: no build configuration, no `.wasm` file, no loader
+code. The doc comments above each function are part of the API, and they say what a caller
+must know that the types cannot: `n` must be a multiple of 4, and `norm_sq` returns the
+**squared** norm.
+
+The sanity check at the bottom is worth keeping in a real library too, or better, turning
+into `test` blocks: a SIMD kernel with an off-by-four offset compiles perfectly and returns
+plausible wrong numbers.
+
+<!-- TODO review -->
+## Design rule: the caller allocates
+
+WASM code never allocates; JavaScript owns every byte. A library function that returns a
+scalar, like `dot` or `norm_sq`, needs nothing more. A function that produces an **array**
+takes an output parameter instead, so the caller can allocate it once with `wasmBuffer` and
+reuse it. Here is that shape, a SIMD `axpy` (`out = a * x + y`, the classic linear-algebra
+building block):
+
+```tjs:inline
+/**
+ * out[i] = a * x[i] + y[i] for i < n.
+ * `n` must be a multiple of 4. `out` may be `x` or `y` (an in-place update).
+ */
+export wasm function axpy(a: f64, x: Float32Array, y: Float32Array, out: Float32Array, n: i32) {
+  let va = f32x4_splat(a)
+  for (let i = 0; i < n; i += 4) {
+    let off = i * 4
+    let r = f32x4_add(f32x4_mul(va, f32x4_load(x, off)), f32x4_load(y, off))
+    f32x4_store(out, off, r)
+  }
+}
+
+const N = 8
+const x = wasmBuffer(Float32Array, N)
+const y = wasmBuffer(Float32Array, N)
+const out = wasmBuffer(Float32Array, N)
+for (let i = 0; i < N; i++) {
+  x[i] = i
+  y[i] = 100
+}
+
+axpy(2, x, y, out, N)
+console.log('axpy(2, x, y):   ', Array.from(out).join(', '))
+
+// The same output buffer, reused: no new allocation
+axpy(-1, x, y, out, N)
+console.log('axpy(-1, x, y):  ', Array.from(out).join(', '))
+```
+
+`axpy` has no return annotation, so it returns nothing; the result is in `out`. Returning
+`f64` or nothing are the only choices today.
+
+<!-- TODO review -->
+## How a library is consumed
+
+The same source serves two kinds of consumer:
+
+- **Composed form.** A TJS consumer that transpiles with a `ModuleLoader` pulls the imported
+  `wasm function`s into **its own** module at transpile time. Calls between the consumer's
+  WASM and the library's are plain WASM calls, with no JavaScript in between.
+- **Boundary form.** Everyone else imports the library's transpiled `.js`, which carries its
+  own embedded WASM and JavaScript wrappers. Each call crosses from JavaScript into WASM;
+  that costs a few nanoseconds, which matters only for very small kernels called in a tight
+  JavaScript loop.
+
+Both forms give identical results. A published library usually ships the TJS source for TJS
+consumers and the transpiled `.js` for everyone else, selected by `package.json` `exports`:
+
+```json
+"exports": {
+  ".": {
+    "bun": "./src/index.tjs",
+    "default": "./dist/index.js"
+  }
+}
+```
+
+<!-- TODO review -->
+## Limits
+
+- **Pure kernels only.** A `wasm function` cannot call JavaScript, so no `Math.sin`, no
+  logging, no callbacks. Do that work in the JavaScript that calls the kernel.
+- **Return `f64` or nothing.** Other return annotations are parsed but not yet honoured.
+- **No tail loop.** SIMD kernels assume `n % 4 == 0`; document it, as these do, and let the
+  caller pad.
+- **Each `.js` dependency carries its own copy.** If two published libraries both embed the
+  same kernels in their boundary form, the consumer ships both copies.
+
+The next chapter, [Using a WASM Library](/wasm-library-consumer/), imports `dot` and
+`norm_sq` from this file. The production versions live in `tjs-lang/linalg`, whose source,
+`src/linalg/index.tjs`, reads much like this page.

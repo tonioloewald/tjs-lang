@@ -202,3 +202,80 @@ console.log('TJS inline tests: Full coverage. Clean exports.\n')
 const user = createUser({ email: 'demo@example.com', password: 'SecurePass123!' })
 console.log('Created user:', user)
 ```
+
+<!-- TODO review -->
+## What to notice
+
+- **The tests sit beside the code they test, in the same scope.** `isValidEmail`,
+  `sanitize` and `isStrongPassword` are never exported, yet every `test '…' { }` block can call
+  them directly. The module's public surface is exactly `createUser`, and nothing had to be
+  exported "for testing".
+- **There are two kinds of test here.** The `test` blocks are the obvious ones. The less
+  obvious ones are the signatures: `sanitize(input: ''): ''` is itself a test. The transpiler
+  calls `sanitize('')` and checks the result deep-equals `''`. A return annotation in TJS is a
+  *worked example*, run as a test, not a type.
+- **`:!` opts a function out of its signature test.** `generateId` returns a random string, so
+  no fixed example can match it; `isStrongPassword` returns a list whose contents depend on
+  the input. Both are written `:!`, which keeps the return as documentation without running
+  it. Use `:!` when the result is not a fixed function of the example inputs.
+- **Tests do not ship.** They run when the file is transpiled and are stripped from the
+  emitted JavaScript, so a thorough suite costs the production bundle nothing.
+
+<!-- TODO review -->
+## When a test fails
+
+A failing test fails the *build*, not just a test report. Take a helper with a bug:
+
+<!-- tjs-doc: expect-error -->
+
+```tjs:static
+function slugify(title: 'Hello World'): 'hello-world' {
+  return title.toLowerCase().split(' ').join('-')
+}
+
+test 'slugify ignores surrounding spaces' {
+  expect(slugify('  Hi there ')).toBe('hi-there')
+}
+```
+
+The signature example passes (`'Hello World'` has no stray spaces), and the test block
+catches what it misses. From the command line:
+
+- `tjs check file.tjs` exits 1 and prints
+  `Expected "hi-there" but got "--hi-there-"`.
+- `tjs emit file.tjs` refuses to write output until the tests pass (`--jfdi` overrides it).
+- `tjs test file.tjs` lists every signature test and test block with a pass or fail mark.
+- `tjs run file.tjs` still executes the file. It is the one command that does not gate on
+  tests, so do not treat a clean `run` as proof that a file is correct.
+
+Fix the helper and both kinds of test pass:
+
+```tjs:inline
+function slugify(title: 'Hello World'): 'hello-world' {
+  return title.trim().toLowerCase().split(/\s+/).join('-')
+}
+
+test 'slugify ignores surrounding spaces' {
+  expect(slugify('  Hi there ')).toBe('hi-there')
+}
+
+test 'slugify collapses runs of whitespace' {
+  expect(slugify('Inline   tests')).toBe('inline-tests')
+}
+
+console.log(slugify('  Test the Helpers, Ship the API  '))
+```
+
+<!-- TODO review -->
+## Limits
+
+- **A test needs the module to execute.** Tests run against the module's own top-level code.
+  If that code cannot run at transpile time (it imports a package the transpiler cannot
+  resolve, or touches the DOM), the tests are reported as *inconclusive*, not failed. An
+  inconclusive test does not break the build, so check for that word in the output rather
+  than assuming silence means green.
+- **Top-level side effects run during testing.** The `console.log` calls at the bottom of
+  this example execute when the tests do. Keep expensive or effectful top-level work behind a
+  function call.
+- **Tests are per file.** They see one module's scope. Cross-module behaviour belongs in an
+  ordinary test runner that imports the public API.

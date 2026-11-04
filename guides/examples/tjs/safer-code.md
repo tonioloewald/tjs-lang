@@ -75,3 +75,73 @@ test 'non-mutating methods work on const!' {
   expect(colors.filter(c => c !== 'red')).toEqual(['green', 'blue'])
 }
 ```
+
+<!-- TODO review -->
+## What to notice
+
+Everything in this example is checked **when the file is transpiled**, and none of it costs
+anything when the program runs: `const!` emits plain `const`, and the rules below are refusals,
+not runtime guards. The output is the JavaScript you would have written by hand.
+
+`const!` protects the *binding's contents* from the code in this file. These are all refused
+at transpile time, with the line that did it:
+
+<!-- tjs-doc: expect-error -->
+
+```tjs:static
+const! limits = { max: 10, retries: 3 }
+limits.max = 20 // assignment
+```
+
+<!-- tjs-doc: expect-error -->
+
+```tjs:static
+const! limits = { max: 10, retries: 3 }
+limits.retries += 1 // compound assignment, ++ and -- too
+```
+
+<!-- tjs-doc: expect-error -->
+
+```tjs:static
+const! queue = [3, 1, 2]
+queue.sort() // a mutating method: push, pop, shift, unshift, splice, sort, reverse, fill
+```
+
+`delete` is refused as well. Non-mutating methods (`map`, `filter`, `find`, `slice`, `concat`)
+are fine, because they return new values; to sort a `const!` array, sort a copy:
+`[...queue].sort()`.
+
+<!-- TODO review -->
+## Things `.tjs` refuses outright
+
+`const!` is something you opt into. A few things are refused in every `.tjs` file, with an
+error that names the replacement:
+
+| Refused | Why | Instead |
+|---------|-----|---------|
+| `var` | function-scoped, hoisted, redeclarable | `const` or `let` |
+| `eval(…)` | runs arbitrary code with your privileges | `Eval()`, the sandboxed form |
+| `new Date(…)` | mutable and timezone-dependent | `LegacyDate(x)` when you really need one |
+| `new` on a class declared in the file | the class is called, not `new`ed | `Point(1, 2)` |
+
+<!-- tjs-doc: expect-error -->
+
+```tjs:static
+var total = 0 // compile error: use const or let
+```
+
+`var` and `eval` have no escape hatch: like `with` in strict mode, they are gone. `Date` has
+one, `LegacyDate(x)`, because some code (a date library, say) genuinely needs the real thing;
+spelling it out makes that choice visible in review.
+
+<!-- TODO review -->
+## Gotchas
+
+- **`const!` is shallow and follows the name.** It checks writes made *through the binding*:
+  `limits.max = 20` is refused. A write one level down (`config.db.port = 1`) is not caught
+  today, nor is a write through another name (`const alias = limits; alias.max = 20`), nor a
+  function you pass the object to that mutates it. Treat `const!` as a guard against slips in
+  this file, not as `Object.freeze`.
+- **The check happens at transpile time only.** Nothing stops other modules, or the
+  runtime, from mutating the object. If you need a value that cannot change at runtime, freeze
+  it and pay for the freeze.

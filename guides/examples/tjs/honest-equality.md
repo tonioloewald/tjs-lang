@@ -116,3 +116,73 @@ test 'Is does deep structural comparison' {
   expect(Is([1, 2], [2, 1])).toBe(false)
 }
 ```
+
+<!-- TODO review -->
+
+## What to notice
+
+TJS gives you three questions and a different spelling for each, so the code says which one
+it is asking:
+
+| you want to know…                         | write       | cost                     |
+| ----------------------------------------- | ----------- | ------------------------ |
+| are these the same value?                 | `a == b`    | constant                 |
+| are these the very same object?           | `a === b`   | constant                 |
+| do these have the same contents, deeply? | `Is(a, b)`  | grows with the data      |
+
+`==` is the one you will use almost everywhere. It is JavaScript's `===` with the three
+surprises removed: a boxed primitive equals its plain value, `null` equals `undefined`,
+and `NaN` equals `NaN`. It never converts between types, so `1 == '1'` is `false`. And it
+is deliberately **not** structural: two separate arrays with the same items are two
+different arrays, and finding that out costs nothing. If `==` compared contents, every
+comparison of two large objects would quietly walk both of them.
+
+`typeof` gets the same treatment: `typeof null` is `'null'`. Every other answer is
+unchanged.
+
+## Your own types, and the way back to JavaScript
+
+`Is` compares plain objects, arrays, `Set`s, `Map`s and dates by content. A class can say
+what equality means for it by defining an `Equals` method, which `Is` calls. And when you
+genuinely need JavaScript's old operators, each has a long, deliberately awkward name, so
+the exception is visible in review:
+
+```tjs:inline
+class Money {
+  constructor(cents: 0) {
+    this.cents = cents
+  }
+  Equals(other) {
+    return other instanceof Money && other.cents == this.cents
+  }
+}
+
+console.log(Is(Money(500), Money(500)))   // true: Equals says so
+console.log(Money(500) == Money(500))     // false: two objects
+
+const n = NaN
+console.log(n == n)                       // true in TJS
+console.log(n === n)                      // false, as in JavaScript
+
+// The escapes, for code that really does want JavaScript's behaviour
+console.log(DangerousLegacyEquals(0, ''))   // true: coercion and all
+console.log(DangerousLegacyEquals('5', 5))  // true
+console.log(LegacyTypeOf(null))             // object
+```
+
+The full set is `DangerousLegacyEquals` / `DangerousLegacyNot` for `==` / `!=`,
+`LegacyExactly` / `LegacyNotExactly` for `===` / `!==`, and `LegacyTypeOf` for `typeof`.
+There are no short aliases, on purpose.
+
+## Things that trip people up
+
+- **Library methods still use JavaScript's rules.** `==` is rewritten in your code, but
+  `Array.prototype.includes`, `indexOf`, `Set` and `Map` are JavaScript's own and compare the
+  way JavaScript does: `[1, 2].includes(new Number(1))` is `false`. When it matters, compare
+  with `==` yourself (`list.some(x => x == value)`).
+- **`switch` compares with `===`.** It keeps JavaScript's semantics exactly. Use
+  [`given`](/given-dispatch/), which compares with `==`.
+- **`Is` is not free.** It walks both values. Use it where you mean "same contents", such as
+  in tests and change detection, not as a habit in hot loops.
+- **Only `.tjs` files get this.** A `.js` file, and code converted from TypeScript, keep
+  JavaScript's `==`, because TJS must run every JavaScript program unchanged.

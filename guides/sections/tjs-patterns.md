@@ -2,6 +2,31 @@
 
 # Patterns
 
+<!-- TODO review -->
+
+Basics shows the language one feature at a time; Patterns shows it doing ordinary work.
+These chapters assume you have read Basics, or at least Hello TJS and Required vs Optional.
+
+1. **Higher-Order Functions** and **Async Functions** show that typed signatures survive
+   the things JavaScript programs actually do: passing functions around, and awaiting them.
+2. **Error Handling** and **Flight Recorder** belong together. TJS *returns* errors rather
+   than throwing them, which makes them easy to ignore, so the first chapter shows how
+   errors flow through a program and the second shows the runtime's record of every error
+   it saw, including the ones you dropped.
+3. **Schema Validation** shows that the types do not evaporate: every function carries
+   its signature at runtime, so you can inspect it, validate data against it and generate
+   documentation from it.
+4. **Date Formatting**, **Local Module Imports** and **Lodash Utilities** show TJS using
+   other code: npm packages imported by bare name with no bundler, and your own modules.
+5. **Inline WASM**, **WASM SIMD**, **WASM Memory** and **WASM Functions** are a short course
+   in WebAssembly from inside a TJS file, in that order: a hot loop in a `wasm { }` block,
+   then four lanes at once with SIMD, then zero-copy buffers, then reusable kernels. Skip
+   them until you have a loop worth speeding up.
+
+After this section you should be able to structure a real module: handle failures as
+values without losing track of them, validate input at the edges, import what you need, and
+move a measured hot spot into WebAssembly while keeping a JavaScript fallback.
+
 <!-- prettier-ignore-start -->
 
 <!-- toc -->
