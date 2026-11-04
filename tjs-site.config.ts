@@ -116,10 +116,10 @@ export default defineSiteConfig({
   headExtra: [
     '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />',
     '<meta name="theme-color" content="#3ea9f5" />',
-    // A 2px white outline around the header mark, following its shape (not its box), so it
-    // stands out on the blue bar: four unblurred drop-shadows, one per direction (CSS
-    // drop-shadow has no spread).
-    '<style>.logo-mark{filter:drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff)}</style>',
+    // A soft white edge around the header mark so it stands out on the blue bar. One
+    // drop-shadow with no offset: CSS drop-shadow has no spread, so a 2px blur is what gives
+    // it a visible edge (with 0 blur it would draw nothing).
+    '<style>.logo-mark{filter:drop-shadow(0 0 2px #fff)}</style>',
   ].join('\n'),
 
   // "Edit page source" and "Download page source" read a page's markdown from GitHub raw
