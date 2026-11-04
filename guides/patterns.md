@@ -4,14 +4,26 @@
 
 This document covers common patterns and workarounds for features not directly supported in AJS.
 
+<!-- TODO review -->
+AJS leaves things out on purpose: each missing feature is either something the VM could not meter
+(an unbudgeted conversion, a closure that outlives its scope) or something that belongs to the
+host rather than to untrusted code (parallelism, timing, rate limits). So most patterns here are
+one of two kinds: the AJS way to write what JavaScript would write differently, or the host-side
+way to provide what an agent must not control itself. The AJS examples run on this page; examples
+that need a language model print a message instead.
+
 ## Table of Contents
 
 - [Parallel Execution](#parallel-execution)
 - [Retry with Backoff](#retry-with-backoff)
+- [Fetch Security](#fetch-security)
 - [Rate Limiting](#rate-limiting)
 - [Break/Continue](#breakcontinue)
 - [Switch Statements](#switch-statements)
 - [Error Handling Patterns](#error-handling-patterns)
+- [Unsupported JavaScript Features](#unsupported-javascript-features)
+- [Performance Patterns](#performance-patterns)
+- [Testing Patterns](#testing-patterns)
 - [Expression Limitations](#expression-limitations)
 
 ---
@@ -26,19 +38,41 @@ AJS executes sequentially by design. This is intentional for:
 - Deterministic execution order
 - Simpler debugging and tracing
 
-**Workaround:** If you need parallel execution, orchestrate at the capability level:
+<!-- TODO review -->
+**Workaround:** If you need parallel execution, do it in the host, behind an atom. The agent
+cannot call a capability object directly (a capability is reached only through an atom), so
+define one that takes the whole batch and fans it out:
 
 ```javascript
-// Capability that handles parallelism
-const parallelFetch = {
-  fetchAll: async (urls) => {
-    return Promise.all(urls.map((url) => fetch(url).then((r) => r.json())))
-  },
-}
+import { AgentVM, defineAtom, transpile } from 'tjs-lang'
+import { s } from 'tosijs-schema'
 
-// AJS code calls the capability
-const results = parallelFetch.fetchAll(urls)
+// Host code: one atom call, many requests in parallel.
+const fetchAll = defineAtom(
+  'fetchAll',
+  s.object({ urls: s.array(s.string) }),
+  s.array(s.any),
+  async ({ urls }, ctx) =>
+    Promise.all(urls.map((url) => ctx.capabilities.fetch(url))),
+  { cost: ({ urls }) => 5 * urls.length, effects: 'io' }
+)
+const vm = new AgentVM({ fetchAll })
+
+// Agent code calls it like any other atom, with named inputs.
+const source = `function compare({ cities = ['paris', 'tokyo'] }) {
+  let urls = cities.map((c) => 'https://api.example.com/weather/' + c)
+  let reports = fetchAll({ urls })
+  return { reports }
+}`
+const { ast } = transpile(source, { atoms: vm.atoms })
 ```
+
+<!-- TODO review -->
+Three things make this safe. `effects: 'io'` puts the atom behind the capability boundary, so its
+input arrives as a checked copy and its result is copied back as plain data. The `cost` function
+charges for the whole batch, so a long list of URLs is not one cheap call. And the atom calls the
+host's own `fetch` capability, which must enforce the destination policy itself: the built-in
+`httpFetch` checks (allowlist, methods, headers) do not apply to an atom you write.
 
 **Future:** Parallel execution may be added as an explicit atom (e.g., `parallel([...steps])`) where fuel is consumed for the most expensive branch.
 
@@ -48,37 +82,41 @@ const results = parallelFetch.fetchAll(urls)
 
 **Status:** Manual pattern required
 
-AJS doesn't have built-in retry. Implement with a while loop:
+<!-- TODO review -->
+AJS doesn't have built-in retry. Implement it with a `while` loop whose condition says when to
+stop, and a `try`/`catch` inside it:
 
-<!-- tjs-doc: fragment -->
-
-```javascript
-let attempts = 0
-let result = null
-let success = false
-
-while (attempts < 3 && !success) {
-  attempts = attempts + 1
-
-  try {
-    result = fetch(url)
-    success = true
-  } catch (err) {
-    // Exponential backoff: 100ms, 200ms, 400ms
-    // Note: sleep is a capability, not built-in
-    if (attempts < 3) {
-      sleep(100 * Math.pow(2, attempts - 1))
+```ajs:inline
+function fetchWithRetry({
+  url = 'https://api.open-meteo.com/v1/forecast?latitude=48.85&longitude=2.35&current_weather=true',
+  maxAttempts = 3,
+}) {
+  let attempts = 0
+  let result = null
+  let lastError = null
+  while (attempts < maxAttempts && result === null) {
+    attempts = attempts + 1
+    try {
+      result = httpFetch({ url })
+    } catch (err) {
+      lastError = err
     }
   }
+  if (result === null) {
+    return { ok: false, attempts, error: lastError }
+  }
+  return { ok: true, attempts, weather: result.current_weather }
 }
-
-if (!success) {
-  console.error('Failed after 3 attempts')
-}
-return result
 ```
 
-**Note:** The `sleep` capability must be injected. AJS doesn't include timing primitives to keep the VM deterministic.
+<!-- TODO review -->
+Change the URL to a host this page does not allow (say `https://example.com/`) and run it again:
+all three attempts fail, each one is paid for in fuel, and the agent reports the last error.
+
+**Note:** There is no backoff, because AJS has no `sleep`. Waiting is the host's time to spend,
+not the agent's: a sleeping agent holds a run open without doing work that fuel can measure. Put
+the retry-with-backoff in the host's `fetch` capability, where it belongs with the other network
+policy, and the agent sees one call that either succeeds or fails.
 
 ---
 
@@ -148,6 +186,10 @@ The default fetch atom:
 - Automatically adds `X-Agent-Depth` header based on `ctx.context.requestDepth`
 - Rejects requests exceeding `MAX_AGENT_DEPTH` (default: 10)
 
+<!-- TODO review -->
+- Returns the response body whatever the status: a 404 or 500 is not an error, so check the body
+  (an API's error object) before you use it
+
 For production, always provide a custom fetch capability with appropriate restrictions.
 
 ---
@@ -156,16 +198,18 @@ For production, always provide a custom fetch capability with appropriate restri
 
 **Status:** Capability responsibility
 
-Rate limiting should be implemented in the capability layer, not in AJS:
+<!-- TODO review -->
+Rate limiting across runs (requests per second to a service, per user, per key) belongs in the
+capability layer, not in AJS:
 
-```typescript
-// Inject a rate-limited fetch capability
+```javascript
+// Inject a rate-limited fetch capability (your own wrapper; illustrative name)
 const rateLimitedFetch = createRateLimitedFetch({
   requestsPerSecond: 10,
   burstSize: 5,
 })
 
-const result = await runAgent(ast, {
+const run = await vm.run(ast, args, {
   capabilities: {
     fetch: rateLimitedFetch,
   },
@@ -174,38 +218,76 @@ const result = await runAgent(ast, {
 
 **Rationale:** Rate limits are deployment-specific. A sandboxed agent shouldn't control its own rate limits since that would allow circumvention.
 
+<!-- TODO review -->
+Within a single run, the VM has a built-in cap: `quotas` limits how many times an atom may be
+called, whatever fuel remains.
+
+```javascript
+const capped = await vm.run(ast, args, {
+  fuel: 10000,
+  quotas: { httpFetch: 10, llmPredict: 3 }, // an atom you do not list is unlimited
+})
+```
+
+A quota counts calls within one run. A capability that starts a new `vm.run` gets a fresh count
+unless you pass the same `quotaUsed` object to both runs; see the [AJS guide](/DOCS-AJS/).
+
 ---
 
 ## Break/Continue
 
 **Status:** Not supported
 
-Use conditional logic instead:
+<!-- TODO review -->
+`break` and `continue` are transpile errors. Put the stop condition in the loop itself:
 
-```javascript
-// Instead of break:
-let found = null
-let i = 0
-while (i < items.length && found === null) {
-  if (items[i].matches) {
-    found = items[i]
+```ajs:inline
+function firstMatch({
+  items = [
+    { name: 'a', matches: false },
+    { name: 'b', matches: true },
+    { name: 'c', matches: true },
+  ],
+}) {
+  // Instead of break: stop when found
+  let found = null
+  let i = 0
+  while (i < items.length && found === null) {
+    if (items[i].matches) {
+      found = items[i]
+    }
+    i = i + 1
   }
-  i = i + 1
+  return { found, examined: i }
 }
+```
 
-// Instead of continue (skip items):
-for (const item of items) {
-  if (!item.shouldProcess) {
-    // Just don't do anything - effectively a continue
-  } else {
-    processItem(item)
+<!-- TODO review -->
+And skip with an `if`, or filter first:
+
+```ajs:inline
+function processSome({
+  items = [
+    { id: 1, shouldProcess: true },
+    { id: 2, shouldProcess: false },
+    { id: 3, shouldProcess: true },
+  ],
+}) {
+  // Instead of continue: only act when the condition holds
+  let processed = []
+  for (const item of items) {
+    if (item.shouldProcess) {
+      processed.push(item.id)
+    }
   }
-}
 
-// Or use filter to pre-process:
-const toProcess = items.filter((item) => item.shouldProcess)
-for (const item of toProcess) {
-  processItem(item)
+  // Or filter first, then loop over what is left
+  const toProcess = items.filter((item) => item.shouldProcess)
+  let ids = []
+  for (const item of toProcess) {
+    ids.push(item.id * 10)
+  }
+  return { processed, ids }
 }
 ```
 
@@ -215,34 +297,45 @@ for (const item of toProcess) {
 
 **Status:** Not supported
 
-Use chained if/else:
+<!-- TODO review -->
+`switch` is a transpile error, and the error suggests the chained `if`/`else` below. When each
+case does different work, call a helper function per case:
 
-```javascript
-// Instead of switch(action):
-let result
-if (action === 'create') {
-  result = handleCreate(data)
-} else if (action === 'update') {
-  result = handleUpdate(data)
-} else if (action === 'delete') {
-  result = handleDelete(data)
-} else {
-  result = { error: 'Unknown action' }
+```ajs:inline
+function handleCreate(data) {
+  return { created: data.id }
 }
 
-// For many cases, consider a lookup object:
-const handlers = {
-  create: () => handleCreate(data),
-  update: () => handleUpdate(data),
-  delete: () => handleDelete(data),
+function handleDelete(data) {
+  return { deleted: data.id }
 }
-const handler = handlers[action]
-if (handler) {
-  result = handler()
-} else {
-  result = { error: 'Unknown action' }
+
+function dispatch({ action = 'delete', data = { id: 7 } }) {
+  let result = null
+  if (action == 'create') {
+    result = handleCreate(data)
+  } else if (action == 'delete') {
+    result = handleDelete(data)
+  } else {
+    result = { error: 'Unknown action' }
+  }
+  return result
 }
 ```
+
+<!-- TODO review -->
+When each case only picks a value, a lookup object is shorter and reads as a table:
+
+```ajs:inline
+function label({ action = 'update' }) {
+  const labels = { create: 'Created', update: 'Updated', delete: 'Deleted' }
+  const text = labels[action] ?? 'Unknown action'
+  return { text }
+}
+```
+
+A lookup table holds data, not functions: `{ create: () => … }` is refused, because a function is
+not a value in AJS.
 
 ---
 
@@ -252,70 +345,91 @@ if (handler) {
 
 AJS uses monadic error handling. When an error occurs, subsequent atoms are skipped until a `try/catch` block handles it:
 
-<!-- tjs-doc: fragment -->
+<!-- TODO review -->
 
-```javascript
-try {
-  const data = httpFetch({ url }) // If this fails...
-  const parsed = JSON.parse(data) // ...this is skipped
-  storeSet({ key: 'data', value: parsed }) // ...this is skipped too
-} catch (err) {
-  console.warn('Fetch failed, using cached data')
-  const cached = storeGet({ key: 'data' })
-  return cached ?? { fallback: true }
+```ajs:inline
+function loadData({ url = 'https://example.com/data.json' }) {
+  storeSet({ key: 'data', value: { cached: true } }) // as a previous run would have
+
+  try {
+    const data = httpFetch({ url }) // fails: this page does not allow example.com
+    storeSet({ key: 'data', value: data }) // ...so this is skipped
+    return { data, fromCache: false } // ...and so is this
+  } catch (err) {
+    const cached = storeGet({ key: 'data' })
+    return { data: cached ?? { fallback: true }, fromCache: true, why: err }
+  }
 }
 ```
+
+<!-- TODO review -->
+In the `catch`, `err` is the error's message, a string. An error that is never caught ends the
+run, and the host reads it from the run's `error`; nothing is thrown into the host.
 
 ### Graceful Degradation
 
 Use `try/catch` with fallbacks:
 
-<!-- tjs-doc: fragment -->
+<!-- TODO review -->
 
-```javascript
-let result
-
-try {
-  result = llmPredict({ prompt, options: { model: 'gpt-4' } })
-} catch (err) {
-  // Fall back to simpler model
+```ajs:inline
+function answer({ prompt = 'Explain fuel metering in one sentence.' }) {
+  let result = null
   try {
-    result = llmPredict({ prompt, options: { model: 'gpt-3.5-turbo' } })
-  } catch (err2) {
-    // Fall back to static response
-    result = "I'm unable to process your request right now."
+    result = llmPredict({ prompt, options: { model: 'large-model' } })
+  } catch (err) {
+    // Fall back to a smaller model
+    try {
+      result = llmPredict({ prompt, options: { model: 'small-model' } })
+    } catch (err2) {
+      // Fall back to a static response
+      result = "I'm unable to process your request right now."
+    }
   }
+  return { result }
 }
-
-return result
 ```
+
+<!-- TODO review -->
+(This one needs a model, so on this page it prints a message instead of running.)
 
 ### Error Aggregation
 
 Collect errors without stopping execution:
 
-<!-- tjs-doc: fragment -->
+<!-- TODO review -->
 
-```javascript
-const errors = []
-const results = []
+```ajs:inline
+function parseAll({ items = ['{"id":1}', 'not json', '{"id":3}'] }) {
+  const errors = []
+  const results = []
 
-for (const item of items) {
-  try {
-    const result = processItem(item)
-    results.push(result)
-  } catch (err) {
-    errors.push({ item: item.id, error: err.message })
-    // Continue processing - no re-throw
+  for (const item of items) {
+    try {
+      const result = JSON.parse(item)
+      results.push(result)
+    } catch (err) {
+      errors.push({ item, error: err })
+      // Continue processing - nothing re-raises it
+    }
+  }
+
+  return {
+    results: results,
+    errors: errors,
+    success: errors.length == 0,
   }
 }
-
-return {
-  results: results,
-  errors: errors,
-  success: errors.length === 0,
-}
 ```
+
+<!-- TODO review -->
+### Errors you cannot catch
+
+A refusal at the capability boundary that means the code is wrong (an atom called with input it
+does not declare, a value that cannot be copied out, a host capability returning something JSON
+cannot express) ends the run, even inside a `try`. A program that could catch its own bugs could
+retry them in a loop. Failures of the world (network errors, a refused domain, bad JSON, a model
+that is down) stay catchable.
 
 ---
 
@@ -323,17 +437,25 @@ return {
 
 These JavaScript features are intentionally not supported:
 
-| Feature         | Reason                         | Alternative           |
-| --------------- | ------------------------------ | --------------------- |
-| `async/await`   | All atoms are already async    | Direct calls work     |
-| `class`         | OOP not needed for agent logic | Use plain objects     |
-| `this`          | No object context              | Pass data explicitly  |
-| `new`           | No constructors                | Use factory functions |
-| `import/export` | Single-file execution          | Use capabilities      |
-| `eval`          | Security                       | N/A                   |
-| `throw`         | Use monadic errors             | `console.error()`     |
-| `typeof`        | Limited runtime type info      | Use Schema validation |
-| `instanceof`    | No classes                     | Use duck typing       |
+<!-- TODO review -->
+
+| Feature                             | Reason                                         | Alternative                                    |
+| ----------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| `async/await`                       | All atoms are already async                    | Direct calls work                              |
+| `class`                             | OOP not needed for agent logic                 | Use plain objects                              |
+| `this`                              | No object context                              | Pass data explicitly                           |
+| `new`                               | No constructors                                | `Set(items)`, `Date(text)`, plain objects      |
+| `import/export`                     | Single-file execution                          | Use capabilities                               |
+| `eval`                              | Security                                       | `runCode`, if the host grants it               |
+| `throw`                             | Use monadic errors                             | `Error('message')`                             |
+| `instanceof`                        | No classes                                     | `Array.isArray(x)`, `typeof x`                 |
+| `switch`, `break`, `continue`       | See the sections above                         | `if`/`else if`, loop conditions                |
+| `for (;;)`, `for...in`, `do...while` | One loop form per job                          | `for...of`, `while`, `Object.keys(obj)`        |
+| `obj.x = v`, `obj[k] = v`           | Only simple variable assignment                | `obj = { ...obj, x: v }`                       |
+| Functions as values                 | No closures escape a call                      | Helper functions, called by name               |
+
+<!-- TODO review -->
+`typeof` is supported. `var` works but is not idiomatic: use `let` and `const`.
 
 ---
 
@@ -353,6 +475,10 @@ Agent.take().memoize(
 // Results are cached by key within the execution
 ```
 
+<!-- TODO review -->
+The key is required, and it is yours to choose: it must name everything the result depends on.
+Two blocks with the same key share one result, even if their inputs differ.
+
 ### Caching
 
 Use the `cache` atom with a TTL for persistence across executions. Like `memoize`, it takes a
@@ -371,63 +497,112 @@ Agent.take().cache(
 
 Monitor and limit computation:
 
-<!-- tjs-doc: fragment -->
+<!-- TODO review -->
+A program cannot read its remaining fuel: the host sets the budget, and a run that exhausts it
+stops with an `Out of Fuel` error the host sees. So bound the work in the program, cache what is
+expensive, and let the host choose `fuel`, `timeoutMs` and per-atom `quotas`:
 
-```javascript
-// A program cannot read its remaining fuel: the HOST sets the budget, and a run that
-// exhausts it stops with an 'Out of Fuel' error the host sees. Bound the work in the
-// program instead, and let the host choose `fuel`, `timeoutMs` and per-atom `quotas`.
-const cached = storeGet({ key: 'cached-result' })
-if (cached) {
-  return cached
+```ajs:inline
+function sumSquares(n) {
+  let total = 0
+  let i = 1
+  while (i <= n) {
+    total = total + i * i
+    i = i + 1
+  }
+  return total
 }
-const result = complexComputation()
-storeSet({ key: 'cached-result', value: result })
+
+function expensive({ n = 200 }) {
+  const key = 'sum-squares-' + n
+  const cached = storeGet({ key })
+  if (cached) {
+    return { value: cached, cached: true }
+  }
+  const value = sumSquares(n)
+  storeSet({ key, value })
+  return { value, cached: false }
+}
 ```
+
+<!-- TODO review -->
+Watch `fuelUsed`: the loop costs about half a unit per step. Raise `n` to 20,000 and this page's
+budget (10,000 units) runs out before the loop does.
 
 ---
 
 ## Testing Patterns
 
+<!-- TODO review -->
+An agent is data plus a host, so test it the way you would test any function with injected
+dependencies: give it fake capabilities and assert on what it returns.
+
 ### Mock Capabilities
 
-```typescript
-import {
-  createMockStore,
-  createMockLLM,
-  createCapabilities,
-} from 'tjs-lang/test-utils'
+<!-- TODO review -->
 
-const caps = createCapabilities({
-  store: createMockStore({ key: 'value' }),
-  llm: createMockLLM('mocked response'),
+```javascript
+import { expect, test } from 'bun:test'
+import { AgentVM, transpile } from 'tjs-lang'
+
+const source = `function cached({ key = 'greeting' }) {
+  let hit = storeGet({ key })
+  if (hit) {
+    return { value: hit, cached: true }
+  }
+  storeSet({ key, value: 'hello' })
+  return { value: 'hello', cached: false }
+}`
+
+test('a cache hit skips the write', async () => {
+  const vm = new AgentVM()
+  const { ast } = transpile(source, { atoms: vm.atoms })
+  const data = new Map([['greeting', 'hi']])
+  const store = {
+    get: async (key) => data.get(key),
+    set: async (key, value) => {
+      data.set(key, value)
+    },
+  }
+  const run = await vm.run(ast, {}, { fuel: 100, capabilities: { store } })
+  expect(run.result).toEqual({ value: 'hi', cached: true })
 })
-
-const result = await runAgent(ast, { capabilities: caps })
 ```
+
+A fake `llm` is a single function, `{ predict: async (prompt) => 'canned answer' }`, which makes
+the logic around a model call testable without one.
 
 ### Snapshot Testing
 
-```typescript
-const ast = ajs`
-  const x = 1 + 2
-  return x
-`
+<!-- TODO review -->
 
-// Snapshot the AST for regression testing
-expect(ast).toMatchSnapshot()
+```javascript
+import { expect, test } from 'bun:test'
+import { transpile } from 'tjs-lang'
+
+test('the agent compiles to the reviewed AST', () => {
+  const { ast } = transpile(`function add({ a = 1, b = 2 }) {
+  return { sum: a + b }
+}`)
+  // The AST is plain JSON: a snapshot shows exactly what the VM will run
+  expect(ast).toMatchSnapshot()
+})
 ```
 
 ### Trace Inspection
 
-```typescript
-const result = await runAgent(ast, {
+<!-- TODO review -->
+
+```javascript
+const traced = await vm.run(ast, {}, {
+  fuel: 100,
+  capabilities: { store },
   trace: true,
-  capabilities: caps,
 })
 
-// Inspect execution trace
-expect(result.trace).toContainEqual(expect.objectContaining({ op: 'storeGet' }))
+// Each event records the atom, its input, the state it changed and the fuel before and after
+expect(traced.trace).toContainEqual(expect.objectContaining({ op: 'storeGet' }))
+expect(traced.trace.some((e) => e.op === 'storeSet')).toBe(false)
 ```
 
 ---
@@ -436,59 +611,59 @@ expect(result.trace).toContainEqual(expect.objectContaining({ op: 'storeGet' }))
 
 Some JavaScript expressions have limitations in AJS due to the compilation model.
 
-### Template Literals in Nested Expressions
+<!-- TODO review -->
+Earlier versions of this page listed template literals inside objects and computed member access
+(`obj[key]`, `items[i]`) as unsupported. Both work now:
 
-Template literals work at statement level but not inside other expressions:
-
-<!-- tjs-doc: fragment -->
-
-```javascript
-// Works - statement level
-const greeting = `Hello, ${name}!`
-
-// Does NOT work - nested in object
-const obj = { msg: `Hello, ${name}!` } // Error
-
-// Workaround - assign first
-const msg = `Hello, ${name}!`
-const obj = { msg: msg } // Works
-```
-
-### Computed Member Access
-
-Dynamic property access with variables is not supported:
-
-<!-- tjs-doc: fragment -->
-
-```javascript
-// Works - literal index
-const first = items[0]
-const name = user.name
-
-// Does NOT work - variable index
-const key = 'name'
-const value = obj[key] // Error
-
-// Workaround - use Object.entries or restructure
-const entries = Object.entries(obj)
-const found = entries.find((e) => e[0] === key)
-const value = found ? found[1] : null
-```
-
-### Atom Calls in Expressions
-
-Atom/function calls that produce side effects cannot be embedded in expressions:
-
-```javascript
-// Does NOT work - call inside expression
-const result = items.map((x) => fetch(url + x)) // Error
-
-// Workaround - use explicit loop
-const results = []
-for (const x of items) {
-  const res = fetch(url + x)
-  results.push(res)
+```ajs:inline
+function lookup({ obj = { name: 'Ada', role: 'admin' }, key = 'role', items = [10, 20, 30] }) {
+  const i = 1
+  const card = { title: `${obj.name} (${obj[key]})`, second: items[i] }
+  return card
 }
 ```
+
+What remains is a short list, and the transpiler or VM names each case when it meets it.
+
+### Atom and Helper Calls in Expressions
+
+<!-- TODO review -->
+An atom call or a call to one of your helper functions must be the whole right-hand side of a
+statement. Inside a larger expression it is refused: `1 + storeGet({ key })` fails when it runs,
+and `{ v: double(n) + 1 }` fails to transpile. Lift the call to a variable first:
+
+```ajs:inline
+function double(x) {
+  return x * 2
+}
+
+function lifted({ n = 4 }) {
+  storeSet({ key: 'base', value: 10 })
+  const base = storeGet({ key: 'base' })
+  const d = double(n)
+  return { v: d + 1, total: base + d }
+}
+```
+
+### Callbacks
+
+<!-- TODO review -->
+`map`, `filter`, `find` and `reduce` take an arrow function, at statement level, one per
+statement. A callback may call an atom, so a fetch per item is legal (and each one is metered):
+
+```ajs:inline
+function temperatures({ latitudes = [48.85, 35.68] }) {
+  const reports = latitudes.map((lat) =>
+    httpFetch({
+      url: `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=0&current_weather=true`,
+    })
+  )
+  const temps = reports.map((r) => r.current_weather.temperature)
+  return { temps }
+}
+```
+
+Chaining, `items.filter(…).map(…)`, is refused: write two statements. `some`, `every` and a
+`sort` comparator are not available; `sort()` with no argument is.
 
 These limitations exist because AJS compiles to a JSON AST that executes step-by-step. Complex nested expressions would require runtime evaluation that could bypass fuel tracking and capability checks.

@@ -30,6 +30,25 @@ Only context keys the code uses as names become variables, and a key never repla
 builtin: a context entry called `Math` or `NaN` is ignored rather than rebinding it. A local
 the code declares (`let a = …` or `const a = …`) shadows a context key of the same name.
 
+<!-- TODO review -->
+The code is [AJS](/DOCS-AJS/): a JavaScript subset, so most expressions and statements read as
+you expect, with AJS's rules (no `new`, no `class`, no `throw`, operators that refuse to turn an
+array into a string). A bare expression returns its value; with statements, `return` what you
+want back.
+
+The context is **copied** in, never shared. The code can reassign a name it was given, but what it
+holds is its own copy, so the object you passed is untouched:
+
+```js
+const settings = { limit: 5 }
+const raised = await Eval({
+  code: 'settings = { limit: 500 }\nreturn settings.limit',
+  context: { settings },
+})
+console.log(raised.result) // → 500
+console.log(settings.limit) // → 5
+```
+
 ## `SafeFunction` — compile once, call many times
 
 `SafeFunction` turns a function body into a callable. Its parameters are **names**, and each
@@ -40,6 +59,25 @@ const add = await SafeFunction({ params: ['a', 'b'], body: 'return a + b' })
 console.log((await add(1, 2)).result) // → 3
 console.log((await add(20, 22)).result) // → 42
 ```
+
+<!-- TODO review -->
+The budget belongs to each **call**, not to the function. That makes `SafeFunction` the right
+shape for logic someone else writes and you run many times, such as a pricing rule an
+administrator typed into a settings page:
+
+```js
+const ruleSource = 'if (qty >= 10) {\n  return price * qty * 0.9\n}\nreturn price * qty'
+const priceRule = await SafeFunction({
+  params: ['price', 'qty'],
+  body: ruleSource,
+  fuel: 100,
+})
+console.log((await priceRule(4, 10)).result) // → 36
+console.log((await priceRule(4, 2)).result) // → 8
+```
+
+The rule is text you can store, version and show to the person who wrote it; it can compute, but
+it cannot read a file, call a server or loop forever.
 
 ## Nothing runs forever
 
@@ -56,6 +94,54 @@ console.log(runaway.error.message) // → Out of Fuel
 
 Creating a `SafeFunction` is the exception: a body that does not parse, or is over the source
 size limit, throws when you create it — before any untrusted code has run.
+
+<!-- TODO review -->
+Fuel is not the only stop. Slow IO does not burn fuel while it waits, so a wall-clock
+`timeoutMs` (by default ten milliseconds per unit of fuel) ends a run that is merely waiting,
+and cancels the request it was waiting on:
+
+```js
+const slow = await Eval({
+  code: "return httpFetch({ url: 'https://api.example.com/products' })",
+  capabilities: {
+    fetch: () => new Promise((resolve) => setTimeout(() => resolve([]), 500)),
+  },
+  timeoutMs: 50,
+})
+console.log(slow.error.message.startsWith('Execution timeout after 50ms')) // → true
+```
+
+<!-- TODO review -->
+## Errors are values
+
+Every failure inside the sandbox comes back the same way, in `error`: running out of fuel or
+time, a missing capability, a forbidden property, a bug in the code. Your code never needs a
+`try` around `Eval`, and untrusted code cannot make it throw.
+
+```js
+const nosy = await Eval({ code: 'cfg.constructor', context: { cfg: {} } })
+console.log(nosy.error.message) // → Security Error: Access to 'constructor' is forbidden
+
+const noModel = await Eval({ code: "return llmPredict({ prompt: 'hi' })" })
+console.log(noModel.error.message) // → Capability 'llm.predict' missing
+```
+
+The code can catch failures of the world, a request that fails or a domain that is not allowed,
+with `try`/`catch`, and fall back:
+
+```js
+const offline = await Eval({
+  code: "try {\n  return httpFetch({ url: 'https://api.example.com/products' })\n} catch (e) {\n  return 'fallback: ' + e\n}",
+  capabilities: {
+    fetch: async () => {
+      throw new Error('network down')
+    },
+  },
+})
+console.log(offline.result) // → fallback: network down
+```
+
+In the `catch`, `e` is the error's message, a string.
 
 ## Nothing reaches out unless you allow it
 
@@ -98,6 +184,101 @@ const blocked = await Eval({
 })
 console.log(blocked.error.message) // → Domain not allowed: evil.example.net
 ```
+
+<!-- TODO review -->
+You can also state the policy as data, with `fetchPolicy`, which the VM enforces before your
+`fetch` is called. `domains` is an allowlist; `methods` and `headers` widen what the guest may
+send (GET and HEAD, and a closed list of headers, by default). The guest never sees the policy:
+
+```js
+const policed = await Eval({
+  code: "return httpFetch({ url: 'https://other.example.org/data' })",
+  capabilities: { fetch: safeFetch },
+  fetchPolicy: { domains: ['api.example.com'] },
+})
+console.log(policed.error.message) // → Fetch blocked: domain not in allowlist. Allowed: api.example.com
+
+const posting = await Eval({
+  code: "return httpFetch({ url: 'https://api.example.com/products', method: 'POST', body: { name: 'x' } })",
+  capabilities: { fetch: safeFetch },
+})
+console.log(posting.error.message.includes("method 'POST' is not allowed")) // → true
+```
+
+<!-- TODO review -->
+A capability is your code, and the boundary holds it to the same rule as the guest: what crosses
+is plain data. A capability that returns something JSON cannot express (here, the `Response`
+itself) is a bug in the host, and it ends the run even inside the guest's `try`, so a guest cannot
+keep retrying it:
+
+```js
+const leaky = await Eval({
+  code: "try {\n  let r = httpFetch({ url: 'https://api.example.com/products' })\n  return 'got it'\n} catch (e) {\n  return 'caught'\n}",
+  capabilities: { fetch: (url) => fetch(url) }, // returns the Response: a host bug
+})
+console.log(leaky.result === 'caught') // → false
+console.log(leaky.error.message.includes('instance of Response')) // → true
+```
+
+<!-- TODO review -->
+## Host objects stay outside
+
+Context values cross the same boundary. Plain data (objects, arrays, strings, numbers, booleans,
+`null`, and `Date`) is copied in; a class instance is refused rather than thinned, because its
+getters and private fields would silently read as `undefined` on the other side:
+
+```js
+class Account {
+  constructor(balance) {
+    this.balance = balance
+  }
+}
+const live = await Eval({ code: 'account.balance', context: { account: new Account(10) } })
+console.log(live.error.message.includes('instance of Account')) // → true
+
+const copied = await Eval({ code: 'account.balance', context: { account: { balance: 10 } } })
+console.log(copied.result) // → 10
+```
+
+Pass the fields the code needs, by name. The same goes for what a capability returns: build a
+plain object (`{ ok: res.ok, status: res.status, body }`), and do not spread a host object, which
+silently copies nothing from its prototype.
+
+<!-- TODO review -->
+## A model is a capability too
+
+`llmPredict` calls the `llm.predict` function you inject, so the guest can use a model without
+knowing which one, where it runs, or what key it uses:
+
+```js
+const answered = await Eval({
+  code: "return llmPredict({ prompt: 'Summarize: ' + text })",
+  context: { text: 'Fuel bounds work.' },
+  capabilities: {
+    llm: { predict: async (prompt) => `(a summary of ${prompt.length} characters)` },
+  },
+})
+console.log(answered.result) // → (a summary of 28 characters)
+console.log(answered.fuelUsed >= 100) // → true
+```
+
+A model call costs 100 units of fuel whatever it costs you. To cap calls in money terms, use the
+VM directly and set `quotas` (next section).
+
+<!-- TODO review -->
+## When to reach for `AgentVM` instead
+
+`Eval` and `SafeFunction` are the two-line entry points: source in, `{ result, fuelUsed, error }`
+out, with fuel, a timeout, capabilities, a fetch policy and size caps. Use `AgentVM` directly
+(see [the AJS guide](/DOCS-AJS/)) when you need more than that:
+
+- **Per-atom call quotas** (`quotas: { llmPredict: 3 }`) and a memory ceiling of your choosing
+  (`maxHeapBytes`).
+- **Separate compile and run.** Transpile on a trusted machine (or the client's), store the JSON
+  AST, and run it later with `tjs-lang/vm-ast`, a VM with no parser in it. A sandbox that cannot
+  parse has no parser bug to reach.
+- **Tracing** (`trace: true`), to see every step and what it cost.
+- **Your own atoms**, registered with the VM and checked by the transpiler.
 
 ## What the sandbox guarantees, and what it does not
 

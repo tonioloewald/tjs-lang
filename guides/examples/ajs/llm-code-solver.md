@@ -4,6 +4,14 @@
 
 LLM writes and runs code to solve a problem (requires llm capability)
 
+<!-- TODO review -->
+An agent that writes a program and runs it. Models reason badly about loops and numbers but
+write small programs well, so for a question like "the 10th Fibonacci number" it is more
+reliable to ask for code and run it than to ask for the answer. That is only reasonable because
+the code runs in the same sandbox as the agent. It needs an LLM, so on this site it prints a
+message instead of running; run it locally with the host from [LLM Chat](/llm-chat/), plus the
+`code` capability described below.
+
 ````ajs:inline
 function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   // System prompt with AsyncJS rules and example
@@ -49,3 +57,41 @@ function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   }
 }
 ````
+
+<!-- TODO review -->
+## What to notice
+
+- **The fence has four backticks** because the code contains three (it strips Markdown fences
+  from the model's answer). Models wrap code in fences however firmly you ask them not to.
+- **Cleanup is ordinary string work.** The `replace` and `match` calls run on the VM's own regex
+  engine and are metered like everything else.
+- **`runCode({ code, args })` transpiles and runs the generated source** as its own program: a
+  fresh scope that sees only `args`, never the caller's variables or helpers. It shares the
+  caller's fuel, heap budget, capabilities and quotas, so generated code can do nothing the agent
+  could not already do.
+- **It needs the `code` capability.** Running code is a privilege the host grants, like the
+  network: without `code.transpile` the call fails with `Capability 'code.transpile' missing`.
+
+<!-- TODO review -->
+## Running it locally
+
+Add a `code` capability to the host from [LLM Chat](/llm-chat/). Transpiling runs on the host,
+before any fuel is charged, so the VM caps the size of the source first:
+
+```javascript
+const vm = new AgentVM()
+const code = { transpile: (source) => transpile(source, { atoms: vm.atoms }).ast }
+await vm.run(ast, {}, { fuel: 2000, capabilities: { llm, code } })
+```
+
+<!-- TODO review -->
+## The gotchas
+
+- **Generated code fails like any code.** A program that does not transpile is an error the
+  agent can catch (`Code transpilation failed: …`); one that loops forever runs out of fuel,
+  taking the agent's budget with it. Give the run a budget sized for both.
+- **Generated code can call `runCode` too**, so nesting is capped at 10 levels.
+- **The prompt matters more than the cleanup.** The system text above is a short version of
+  [the maintained AJS prompt](/ajs-llm-prompt/), which is tuned (and measured) for small models.
+  Note that it still forbids `for` loops entirely; AJS has `for...of`, only the C-style `for (;;)`
+  is missing.
