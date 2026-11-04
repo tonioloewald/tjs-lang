@@ -1669,10 +1669,17 @@ export function transformTypeofKeyword(source: string): string {
   let result = source
   for (let k = matches.length - 1; k >= 0; k--) {
     const m = matches[k]
+    // A bare identifier may not be DECLARED at all, and `TypeOf(x)` evaluates `x`: the
+    // feature-detection idiom `typeof window === 'undefined'` threw a ReferenceError where
+    // JavaScript answers 'undefined' (#3822; TJS must accept every JS program). JavaScript's
+    // own `typeof` is safe on an undeclared name, so it answers that case first; a declared
+    // name still gets TJS's `TypeOf` (null is 'null').
+    const op = m.operand.trim()
+    const replacement = /^[A-Za-z_$][\w$]*$/.test(op)
+      ? `(typeof ${op} === 'undefined' ? 'undefined' : ${rt('TypeOf')}(${op}))`
+      : `${rt('TypeOf')}(${m.operand})`
     result =
-      result.slice(0, m.keywordStart) +
-      `${rt('TypeOf')}(${m.operand})` +
-      result.slice(m.operandEnd)
+      result.slice(0, m.keywordStart) + replacement + result.slice(m.operandEnd)
   }
   return result
 }

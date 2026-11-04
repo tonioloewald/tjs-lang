@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`typeof` on an undeclared name is `'undefined'` in native TJS, as in JavaScript** (#3822).
+  `typeof x` is rewritten to `TypeOf(x)` (so `typeof null` is `'null'`), and a call evaluates
+  its argument, so the feature-detection idiom `typeof window === 'undefined'` threw a
+  ReferenceError in a `.tjs` file. A bare identifier now asks JavaScript's own `typeof` first.
+
 - **Generated `.d.ts` keeps `static` and typed defaults on class members** (#3620). The method
   scan matched `name(`, so `static of(…)` lost `static` and was declared an instance method
   (`Box.of(2)` failed with TS2339 in a consumer), and `scale(k: 0 = 1)` was declared a REQUIRED
