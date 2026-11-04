@@ -47,8 +47,10 @@ const FAILURE =
  */
 const DEMONSTRATES: Record<string, RegExp> = {
   'fuel-limits': /Out of Fuel/,
-  'ajs-error-handling': /Division by zero/,
+  'ajs-error-handling': /Division by zero|is not valid JSON/,
   'the-universal-endpoint': /Out of Fuel/,
+  // A batch that keeps going and collects each item's failure (patterns.md, 2026-11-04).
+  patterns: /is not valid JSON/,
 }
 /** Examples that need a model say so instead of running (site/entry.ts). */
 const NEEDS_LLM = /needs an LLM, which the static site does not provide/
