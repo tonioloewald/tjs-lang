@@ -17,12 +17,15 @@ TJS is a typed superset of JavaScript where **types are concrete values**, not a
 function greet(name: string): string
 
 // TJS: concrete example value
-function greet(name: 'World'): '' {
+function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
 ```
 
-The example `'World'` tells TJS that `name` is a string. The example `''` tells TJS the return type is a string. Types are inferred from the examples you provide.
+The example `'World'` tells TJS that `name` is a string. The return example is a **worked
+example**: when the file is built, `greet('World')` is called and must return exactly
+`'Hello, World!'`, so the signature is documentation, type and test at once. (When you want
+only the return type, write `:! ''`.) Types are inferred from the examples you provide.
 
 TJS transpiles to JavaScript with embedded `__tjs` metadata, enabling runtime type checking, autocomplete from live objects, and documentation generation.
 
@@ -30,9 +33,17 @@ TJS transpiles to JavaScript with embedded `__tjs` metadata, enabling runtime ty
 
 ## TJS is JavaScript
 
-TJS is **purely additive**. It adds type annotations, runtime validation, and metadata on top of standard JavaScript. It does not replace, intercept, or modify any existing JavaScript semantics.
+<!-- TODO review -->
 
-**Everything you know about JavaScript still works:**
+TJS is a **superset** of JavaScript: any JavaScript file is legal TJS, and a `.js` file keeps
+JavaScript's semantics exactly. A `.tjs` file opts into a small, fixed set of repairs: `==`
+does not coerce, `typeof null` is `'null'`, a boxed `new Boolean(false)` is falsy, a class
+is called without `new`, `var`, `eval` and raw `Date` are refused, and an object-literal
+parameter default is merged member by member. Each has a named escape back to JavaScript's
+behaviour (see [the syntax reference](TJS-SYNTAX.md)). Beyond those, TJS adds type
+annotations, runtime validation and metadata, and leaves the rest of the language alone.
+
+**Everything else you know about JavaScript still works:**
 
 - **Proxies** — fully supported. TJS never intercepts property access. `__tjs` metadata is a plain property assignment on the function object; it doesn't interfere with Proxy traps. The `[tjsEquals]` symbol protocol is specifically designed for Proxy-friendly custom equality.
 - **WeakMap, WeakSet, Map, Set** — all unchanged. TJS doesn't wrap or validate collection internals.
@@ -42,12 +53,12 @@ TJS is **purely additive**. It adds type annotations, runtime validation, and me
 - **`this` binding** — unchanged. Arrow functions, `.bind()`, `.call()`, `.apply()` all work normally.
 - **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though raw `Date` is not allowed in `.tjs` — use `LegacyDate(x)` if you mean it, and `Timestamp`/`LegalDate` are the safer alternatives).
 
-**What TJS adds (and when): **
+**What TJS adds (and when):**
 
 | Addition               | When                                            | Overhead                      |
 | ---------------------- | ----------------------------------------------- | ----------------------------- |
 | Parameter validation   | Function entry (unless `!` unsafe)              | ~1.15-1.3x on that function   |
-| Return type validation | Function exit (only with `safety all`)          | ~1.15-1.3x on that function   |
+| Return type validation | Function exit (only with a `:?` return)         | ~1.15-1.3x on that function   |
 | `__tjs` metadata       | Transpile time                                  | Zero runtime cost             |
 | `wrapClass` Proxy      | Class declaration (on by default in native TJS) | One-time, on constructor only |
 | Footgun-free equality  | `==`/`!=` (on by default in native TJS)         | Per-comparison                |
@@ -63,13 +74,13 @@ TJS compiles in the browser. No webpack, no node_modules, no build server.
 ```typescript
 import { tjs } from 'tjs-lang'
 
-const code = tjs`
+const { code } = tjs`
   function add(a: 0, b: 0): 0 {
     return a + b
   }
 `
 
-// Returns transpiled JavaScript with __tjs metadata
+// tjs returns an object; `code` is the transpiled JavaScript, with __tjs metadata
 ```
 
 You can also use the CLI:
@@ -217,8 +228,8 @@ Object shapes are defined by example:
 <!-- tjs-doc: fragment -->
 
 ```typescript
-function createUser(user: { name: ''; age: 0 }) {}
-// user must be an object with string name and number age
+function createUser(user: { name: '', age: 0 }) {}
+// user must be an object with a string name and an integer age
 ```
 
 ### Nullable Types
@@ -226,7 +237,7 @@ function createUser(user: { name: ''; age: 0 }) {}
 Use `|` for union with null:
 
 ```typescript
-function find(id: 0 | null) {} // number or null
+function find(id: 0 | null) {} // integer or null
 ```
 
 ### Rest Parameters
@@ -271,10 +282,19 @@ function add(a: 0, b: 0): 0 {
   return a + b
 }
 
-function getUser(id: 0): { name: ''; age: 0 } {
+function getUser(id: 0): { name: 'Alice', age: 30 } {
+  return { name: 'Alice', age: 30 }
+}
+
+function getUserType(id: 0):! { name: '', age: 0 } {
   return { name: 'Alice', age: 30 }
 }
 ```
+
+A return annotation is a **worked example**, compared by deep equality: `add(0, 0)` must be
+`0` and `getUser(0)` must be exactly `{ name: 'Alice', age: 30 }`. Use `:!` for the return
+TYPE alone (nothing runs), and `:?` for the worked example plus a runtime check of every
+result.
 
 ### Array Types
 
@@ -282,7 +302,7 @@ Arrays use bracket syntax with an example element:
 
 ```typescript
 function sum(numbers: [0]): 0 {
-  // array of numbers
+  // array of integers
   return numbers.reduce((a, b) => a + b, 0)
 }
 
@@ -304,7 +324,7 @@ Skip validation for hot paths:
 function fastAdd(! a: 0, b: 0) { return a + b }
 ```
 
-The `!` marker after the function name skips input validation.
+The `!` marker at the start of the parameter list skips input validation for that function.
 
 ### Safe Functions
 
@@ -316,7 +336,7 @@ function safeAdd(? a: 0, b: 0) { return a + b }
 
 ### There Is No `unsafe { }` Block
 
-`unsafe` is an expression PREFIX, not a block. A wrapper decision is made at transpile
+`unsafe` is a deprecated expression PREFIX, never a block. A wrapper decision is made at transpile
 time, so a block could not skip anything a marker does not already skip — the form was
 removed because it exempted nothing.
 
@@ -348,6 +368,9 @@ safety inputs   // Validate function inputs (default)
 safety all      // Validate everything (debug mode)
 ```
 
+In emitted code, `safety all` currently validates the same as `safety inputs`; a result is
+checked at runtime only when the return annotation is `:?`.
+
 ---
 
 ## Type System
@@ -377,7 +400,7 @@ Type PositiveNumber {
 Types can be used in function signatures:
 
 ```typescript
-function greet(name: Name): '' {
+function greet(name: Name):! '' {
   return `Hello, ${name}!`
 }
 ```
@@ -444,34 +467,55 @@ interfaces while keeping the TJS source as the single source of truth.
 Without a `declaration` block, Generics emit an `any`-based factory stub
 that provides basic IDE hints without false type errors.
 
-### Union()
+<!-- TODO review -->
 
-Discriminated unions:
+### Union and Enum
 
-```typescript
-const Shape = Union('kind', {
-  circle: { radius: 0 },
-  rectangle: { width: 0, height: 0 },
-})
+A `Union` is a closed set of literals; an `Enum` names its members, so the set can be
+enumerated and reverse-looked-up. Both are declarations, and both can be used as parameter
+types:
 
-function area(shape: Shape): 0 {
-  if (shape.kind === 'circle') {
+```tjs:inline
+Union Direction 'cardinal direction' 'up' | 'down' | 'left' | 'right'
+
+Enum Status 'task status' {
+  Pending = 'pending'
+  Active = 'active'
+  Completed = 'completed'
+}
+
+function move(dir: Direction) { return dir }
+function setStatus(status: Status) { return status }
+
+console.log(move('up'))                     // up
+console.log(move('sideways')?.message)      // Expected Direction for '…move.dir', got string
+console.log(setStatus('active'))            // active
+console.log(Status.names['active'])         // Active
+console.log(Status.values)                  // ['pending', 'active', 'completed']
+```
+
+A literal union written straight into a parameter (`dir: 'up' | 'down'`) is the same closed
+set without a name.
+
+For a **discriminated union** of shapes, declare each shape as a `Type` and union the Types:
+
+```tjs:inline
+Type Circle { example: { kind: 'circle', radius: 1.0 } }
+Type Rect { example: { kind: 'rect', width: 1.0, height: 1.0 } }
+
+function area(shape: Circle | Rect):! 0.0 {
+  if (shape.kind == 'circle') {
     return Math.PI * shape.radius ** 2
   }
   return shape.width * shape.height
 }
+
+console.log(area({ kind: 'rect', width: 2, height: 3 }))  // 6
+console.log(area({ kind: 'square' })?.message)            // Expected Circle | Rect for '…area.shape', got object
 ```
 
-### Enum()
-
-String or numeric enums:
-
-```typescript
-const Status = Enum(['pending', 'active', 'completed'])
-const Priority = Enum({ low: 1, medium: 2, high: 3 })
-
-function setStatus(status: Status) {}
-```
+The example's `kind: 'circle'` is an example like any other, so it means "a string": the
+shape check tells a circle from a rectangle by its members, and the code branches on `kind`.
 
 ---
 
@@ -485,20 +529,27 @@ deep structural comparison, TJS provides `Is` / `IsNot`:
 > are genuinely distinct: `{ a: 1 } == { a: 1 }` is `false`. Use `Is` (below)
 > for deep structural comparison.
 
-<!-- tjs-doc: fragment -->
+<!-- TODO review -->
 
-```typescript
-// Structural comparison - no coercion
-[1, 2] Is [1, 2]       // true
-5 Is "5"               // false (different types)
-{ a: 1 } Is { a: 1 }   // true
+```tjs:inline
+// Structural comparison, no coercion
+console.log(Is([1, 2], [1, 2]))              // true
+console.log(Is(5, '5'))                      // false (different types)
+console.log(Is({ a: 1 }, { a: 1 }))          // true
+console.log(Is([1, [2, 3]], [1, [2, 3]]))    // true (element by element, recursively)
+console.log(IsNot(5, '5'))                   // true
 
-// Arrays compared element-by-element
-[1, [2, 3]] Is [1, [2, 3]]  // true
-
-// Negation
-5 IsNot "5"            // true
+// The infix form works between simple operands, in a statement of its own
+const a = { a: 1 }
+const b = { a: 1 }
+const same = a Is b
+console.log(same)                            // true
 ```
+
+Prefer the call form. The infix `a Is b` is rewritten by a source transform that only
+recognises simple operands (names, dotted paths, literals); an object or array literal, a
+call with spaces in it, or an `Is` inside another call's arguments is misread or fails to
+parse.
 
 ### Custom Equality
 
@@ -509,32 +560,32 @@ Objects can define custom equality in two ways:
 <!-- tjs-doc: fragment -->
 
 ```typescript
-import { tjsEquals } from 'tjs-lang/lang'
+import { tjsEquals } from 'tjs-lang/runtime'
 
 // A proxy that delegates equality to its target
 const target = { x: 1, y: 2 }
 const proxy = new Proxy({
-  [tjsEquals](other) { return target Is other }
+  [tjsEquals](other) { return Is(target, other) }
 }, {})
 
-proxy Is { x: 1, y: 2 }  // true — delegates to target
+Is(proxy, { x: 1, y: 2 })  // true — delegates to target
 ```
 
 **2. `.Equals` method** (simple, works on any object or class):
 
-```typescript
+```tjs:inline
 class Point {
   constructor(x: 0, y: 0) { this.x = x; this.y = y }
   Equals(other) { return this.x === other.x && this.y === other.y }
 }
 
-Point(1, 2) Is Point(1, 2)  // true (uses .Equals)
+console.log(Is(Point(1, 2), Point(1, 2)))  // true (uses .Equals)
 ```
 
 **Priority:** `[tjsEquals]` symbol > `.Equals` method > structural comparison.
 
 The symbol is `Symbol.for('tjs.equals')`, so it works across realms. Access it
-via `import { tjsEquals } from 'tjs-lang/lang'` or `__tjs.tjsEquals` at runtime.
+via `import { tjsEquals } from 'tjs-lang/runtime'` or `__tjs.tjsEquals` at runtime.
 
 ---
 
@@ -559,6 +610,15 @@ const u1 = User('Alice') // the TJS way
 The wrapping uses a Proxy on the constructor that intercepts bare calls
 and forwards them to `Reflect.construct`, so `User('Alice')` and
 `new User('Alice')` produce the same result — an instance.
+
+<!-- TODO review -->
+
+**Methods and constructors validate their typed parameters**, as functions do: `User(42)`
+returns a `MonadicError` instead of building a `User` whose `name` is a number. Setters are
+not checked (their return value is discarded, so a refusal would silently drop the write).
+A method the platform calls and whose result nobody reads, such as
+`attributeChangedCallback`, must declare what the platform really passes, or a refused call
+silently skips the body; see [Classes in the syntax reference](TJS-SYNTAX.md).
 
 **Which is exactly why `new` on a class declared in this file is an ERROR.** The two
 forms are indistinguishable, so the keyword was decoration with the look of
@@ -603,7 +663,8 @@ class Counter {
 }
 ```
 
-When converting from TypeScript, `private foo` becomes `#foo`.
+When converting from TypeScript, `private foo` keeps its name (TypeScript's `private` is
+compile-time only); under `/* @tjs TjsStrict */` it becomes a real `#foo`.
 
 ### Getters and Setters
 
@@ -676,7 +737,7 @@ class Point {
     this.x = x
     this.y = y
   }
-  constructor(coords: { x: 0.0; y: 0.0 }) {
+  constructor(coords: { x: 0.0, y: 0.0 }) {
     this.x = coords.x
     this.y = coords.y
   }
@@ -751,16 +812,21 @@ Every TJS function carries its type information:
 <!-- tjs-doc: fragment -->
 
 ```typescript
-function createUser(input: { name: ''; age: 0 }): { id: 0 } {
+function createUser(input: { name: '', age: 0 }):! { id: 0 } {
   return { id: 123 }
 }
 
 console.log(createUser.__tjs)
 // {
 //   params: {
-//     input: { type: { kind: 'object', shape: { name: 'string', age: 'number' } } }
+//     input: {
+//       type: { kind: 'object', shape: { name: { kind: 'string' }, age: { kind: 'integer' } } },
+//       required: true,
+//       …
+//     }
 //   },
-//   returns: { kind: 'object', shape: { id: 'number' } }
+//   returns: { type: { kind: 'object', shape: { id: { kind: 'integer' } } } },
+//   …
 // }
 ```
 
@@ -804,7 +870,7 @@ User.strip({ name: 'Alice', age: 30, secret: 'pw' })
 ```typescript
 import { functionMetaToJSONSchema } from 'tjs-lang/lang'
 
-function createUser(name: '', age: 0): { id: 0; name: '' } {
+function createUser(name: '', age: 0):! { id: 0, name: '' } {
   return { id: 1, name }
 }
 
@@ -813,10 +879,14 @@ const { input, output } = functionMetaToJSONSchema(createUser.__tjs)
 // output: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' } }, ... }
 ```
 
-When the shared runtime is installed (`installRuntime()`), `.schema()` is also available directly on the metadata:
+A function passed through the runtime's `wrap()` also carries `.schema()` on its metadata
+(`wrap` accepts the metadata the transpiler emitted):
 
 ```typescript
-createUser.__tjs.schema() // same { input, output } result
+import { wrap } from 'tjs-lang/runtime'
+
+const checked = wrap(createUser, createUser.__tjs)
+checked.__tjs.schema() // same { input, output } result
 ```
 
 #### Unions and Enums
@@ -837,14 +907,14 @@ Type validation failures return `MonadicError` instances (extends `Error`),
 not thrown exceptions:
 
 ```typescript
-import { isMonadicError } from 'tjs-lang/lang'
+import { isMonadicError } from 'tjs-lang/runtime'
 
-const result = createUser({ name: 123 }) // wrong type
-// MonadicError: Expected string for 'createUser.name', got number
+const result = createUser(123, 30) // wrong type for name
+// MonadicError: Expected string for 'users.tjs:1:createUser.name', got number
 
 if (isMonadicError(result)) {
-  console.log(result.message) // "Expected string for 'createUser.name', got number"
-  console.log(result.path) // "createUser.name"
+  console.log(result.message) // "Expected string for 'users.tjs:1:createUser.name', got number"
+  console.log(result.path) // "users.tjs:1:createUser.name" (file and line, then the parameter)
   console.log(result.expected) // "string"
   console.log(result.actual) // "number"
 }
@@ -866,8 +936,9 @@ an error receives one: `describe(e: Error)`, `log(detail: any)` and `isErr(x: un
 A plain `Error` where something else is expected is an ordinary type error, and that `Error`
 is its `received`.
 
-For general-purpose error values (not type errors), use the `error()` helper
-which returns plain `{ $error: true, message }` objects checkable with `isError()`.
+For general-purpose error values (not type errors), the runtime's `error()` helper returns
+a plain `{ $error: true, message }` object, checkable with `isError()`. Prefer a
+`MonadicError` and `isMonadicError()`; `isError()` is deprecated.
 
 ### Error History
 
@@ -899,7 +970,7 @@ __tjs.getErrorCount() // → total since last clear
 ### Runtime Configuration
 
 ```typescript
-import { configure } from 'tjs-lang/lang'
+import { configure } from 'tjs-lang/runtime'
 
 // Log type errors to console when they occur
 configure({ logTypeErrors: true })
@@ -924,7 +995,7 @@ Tests live next to code:
 ```typescript
 function double(x: 0): 0 { return x * 2 }
 
-test('doubles numbers') {
+test 'doubles numbers' {
   expect(double(5)).toBe(10)
   expect(double(-3)).toBe(-6)
 }
@@ -1055,7 +1126,7 @@ TJS preserves standard ES module semantics exactly. `import` and `export` statem
 
 ### Importing .tjs Files
 
-In **Bun** (with the TJS plugin from `bunfig.toml`):
+In **Bun**, preload the TJS plugin (`preload = ["tjs-lang/bun-plugin"]` in `bunfig.toml`):
 
 ```typescript
 // .tjs files are transpiled automatically on import
@@ -1063,13 +1134,44 @@ import { processOrder } from './orders.tjs'
 import { validateUser } from './users.ts' // TS files also work
 ```
 
+<!-- TODO review -->
+
+That preload is a runtime registration, which `Bun.build` ignores. To **bundle** a `.tjs`
+graph, pass the build plugin:
+
+```typescript
+import { tjsPlugin } from 'tjs-lang/bun-build-plugin'
+
+await Bun.build({
+  entrypoints: ['src/index.tjs'],
+  outdir: 'dist',
+  plugins: [tjsPlugin()],
+})
+```
+
+Two options, both off by default:
+
+- `runTests: true` runs each file's signature examples and `test` blocks as it loads, so a
+  wrong return example fails the build instead of passing until someone runs `tjs check`
+  (with the preload, set `TJS_RUN_TESTS=1` for the same effect). It costs a test run per file.
+- `sharedPrelude: true` makes every module import one shared copy of the small runtime that
+  emitted code carries (from `tjs-lang/prelude`) instead of inlining its own. A bundle of N
+  modules then parses that code once instead of N times; gzip already folds the copies, so
+  the saving is parse size rather than transfer. The programmatic spelling is
+  `tjs(source, { prelude: 'import' })`. Use it only for a bundle built by the same tjs-lang
+  version: the prelude is matched by content hash, and a module compiled by a different
+  version is refused at load. Default output stays standalone.
+
 In the **browser playground**, local modules are resolved from the playground's module store. Relative imports are looked up by name:
 
 ```typescript
 import { formatDate } from './date-utils' // resolves from saved modules
 ```
 
-In **production builds** (`tjs emit`), TJS transpiles `.tjs` → `.js`. Your bundler (esbuild, Rollup, etc.) handles resolution of the output `.js` files normally.
+In **production builds** (`tjs emit`), TJS transpiles `.tjs` → `.js`, and rewrites relative
+`./x.tjs` imports to `./x.js` (in the `.d.ts` too), so the output runs in plain Node or a
+browser with no `.tjs` loader. Your bundler (esbuild, Rollup, etc.) handles resolution of the
+output `.js` files normally.
 
 ### Importing JS/TS Libraries
 
@@ -1078,8 +1180,9 @@ TJS files can import any JavaScript or TypeScript library. The imported code run
 ```typescript
 import { rawGeocode } from 'legacy-geo-pkg'
 
-// Wrap at the boundary — rawGeocode is unchecked, geocode validates its output
-function geocode(addr: ''): { lat: 0.0; lon: 0.0 } {
+// Wrap at the boundary: rawGeocode is unchecked, and `:?` makes geocode check every result.
+// (`:?` also runs the worked example, so it has to be true: Null Island is at 0, 0.)
+function geocode(addr: 'Null Island'):? { lat: 0.0, lon: 0.0 } {
   return rawGeocode(addr)
 }
 ```
@@ -1125,8 +1228,10 @@ Functions get full type declarations. Classes, generics, and predicate-based typ
 Convert existing TypeScript:
 
 ```bash
-bun src/cli/tjs.ts convert file.ts
+bun src/cli/tjs.ts convert file.ts --emit-tjs   # TJS source; without the flag, JavaScript
 ```
+
+<!-- TODO review -->
 
 <!-- tjs-doc: fragment -->
 
@@ -1135,26 +1240,41 @@ bun src/cli/tjs.ts convert file.ts
 function greet(name: string, age?: number): string { ... }
 
 // Converts to TJS
-function greet(name: '', age = 0): '' { ... }
+function greet(name: string, age: number | undefined):! string { ... }
 ```
+
+The converter keeps TypeScript's sound type names (`string`, `number`, `boolean`), which TJS
+checks at runtime exactly as it would the equivalent examples, and marks a return type `:!`
+(type only), because TypeScript gives no worked result to test against.
 
 ### What Gets Converted
 
-| TypeScript                 | TJS                     |
-| -------------------------- | ----------------------- |
-| `name: string`             | `name: ''`              |
-| `age: number`              | `age: 0.0`              |
-| `flag: boolean`            | `flag: false`           |
-| `items: string[]`          | `items: ['']`           |
-| `age?: number`             | `age: 0.0 \| undefined` |
-| `private foo`              | `#foo`                  |
-| `interface User`           | `Type User`             |
-| `type Status = 'a' \| 'b'` | `Union(['a', 'b'])`     |
-| `enum Color`               | `Enum(...)`             |
+| TypeScript                 | TJS                                              |
+| -------------------------- | ------------------------------------------------ |
+| `name: string`             | `name: string`                                   |
+| `age: number`              | `age: number`                                    |
+| `flag: boolean`            | `flag: boolean`                                  |
+| `items: string[]`          | `items: [string]`                                |
+| `age?: number`             | `age: number \| undefined`                       |
+| `): string {`              | `):! string {`                                   |
+| `private foo`              | `foo` (`#foo` under `/* @tjs TjsStrict */`)      |
+| `interface User`           | `Type User { example: { … } }`                   |
+| `type Status = 'a' \| 'b'` | `Union Status 'Status' 'a' \| 'b'`                |
+| `enum Color`               | `Enum Color 'Color' { … }`                       |
+| `new Date(x)`              | `LegacyDate(x)`                                  |
+| a coercing `v == 0`        | `DangerousLegacyEquals(v, 0)`                    |
 
-> **Optional params:** TypeScript `x?: boolean` becomes TJS `x: false | undefined`.
+> **Optional params:** TypeScript `x?: boolean` becomes TJS `x: boolean | undefined`.
 > This preserves the three-state semantics (`true` / `false` / `undefined`)
 > using a union type. The param is required but explicitly accepts `undefined`.
+
+Converted output carries a `/* tjs <- file.ts */` annotation, which means "JavaScript
+semantics": that is why the converter writes each place the code relies on JavaScript's
+behaviour as a named escape (`LegacyDate`, `DangerousLegacyEquals`, `LegacyTypeOf`,
+`LegacyDefault`). Those spellings mean the same under both rule sets, so when you
+**graduate** the file to native TJS (removing the annotation, `graduate()` in
+`tjs-lang/lang`), it keeps doing what it did. `graduate()` refuses a file that uses `eval` or
+`new Function`, which nothing can preserve.
 
 ---
 
@@ -1174,15 +1294,13 @@ Most validators interpret schemas at runtime (~25x overhead). TJS generates inli
 <!-- tjs-doc: fragment -->
 
 ```typescript
-// Generated (JIT-friendly)
-if (
-  typeof input !== 'object' ||
-  input === null ||
-  typeof input.name !== 'string' ||
-  typeof input.age !== 'number'
-) {
-  return { $error: true, message: 'Invalid input', path: 'fn.input' }
-}
+// Generated for `input: { name: '', age: 0 }` (simplified; JIT-friendly)
+if (typeof input !== 'object' || input === null || Array.isArray(input))
+  return __tjs.typeError('fn.input', 'object', input)
+if (typeof input.name !== 'string')
+  return __tjs.typeError('fn.input.name', 'string', input.name)
+if (typeof input.age !== 'number' || !Number.isInteger(input.age))
+  return __tjs.typeError('fn.input.age', 'integer', input.age)
 ```
 
 No schema interpretation. No object iteration. The JIT inlines these completely.
@@ -1214,7 +1332,6 @@ uppercase name; a reassignment of a binding you already declared
 
 ### What TJS Doesn't Do
 
-- **No gradual typing** — types are all-or-nothing per function
 - **No complex type inference** — you provide examples, not constraints
 - **No type-level computation** — no conditional types, mapped types, etc.
 
@@ -1237,32 +1354,32 @@ uppercase name; a reassignment of a binding you already declared
 - Are `Type`/`Generic`/`Union` declarations at the top level (not inside functions)?
 - Is the `: returnType` before the function body `{`?
 
-**"Type is not defined" / "Generic is not defined"** — These become `const Name = Type(...)` / `const Name = Generic(...)` after preprocessing. If you see this at runtime, the TJS runtime (`createRuntime()`) wasn't installed, or the file wasn't transpiled through TJS.
+**"Type is not defined" / "Generic is not defined"** — `Type Name …` becomes a call to `Type(…)` from the small runtime that every emitted file carries inline, so emitted code needs no setup. If you see this at runtime, the file was not transpiled through TJS (for example, a `.tjs` file loaded as plain JavaScript without the Bun plugin).
 
 **Signature test failures** — TJS runs your function with its example values at transpile time. If the function fails with its own examples, transpilation reports an error. Fix the function or choose better examples:
 
 <!-- tjs-doc: fragment -->
 
 ```typescript
-// BAD: example 0 causes division by zero
+// BAD: inverse(0) is Infinity, and the return example claims 0.0
 function inverse(x: 0): 0.0 {
   return 1 / x
 }
 
-// GOOD: example 1 works
-function inverse(x: 1): 0.0 {
+// GOOD: inverse(2) really is 0.5
+function inverse(x: 2): 0.5 {
   return 1 / x
 }
 ```
 
-**Monadic errors instead of exceptions** — TJS validation returns `MonadicError` objects (with `$error: true`), it doesn't throw. Check with `isMonadicError(result)`, not `try/catch`:
+**Monadic errors instead of exceptions** — TJS validation returns `MonadicError` objects (a subclass of `Error`), it doesn't throw. Check with `isMonadicError(result)`, not `try/catch`:
 
 ```typescript
-import { isMonadicError } from 'tjs-lang'
+import { isMonadicError } from 'tjs-lang/runtime'
 
 const result = myFunction(badInput)
 if (isMonadicError(result)) {
-  console.log(result.message) // "type mismatch: expected string, got number"
+  console.log(result.message) // "Expected string for 'file.tjs:3:myFunction.name', got number"
 }
 ```
 
@@ -1272,8 +1389,8 @@ Every transpiled function has `.__tjs` metadata you can inspect:
 
 ```typescript
 console.log(myFunction.__tjs)
-// { params: { name: { type: { kind: 'string' }, required: true } },
-//   returns: { kind: 'string' } }
+// { params: { name: { type: { kind: 'string' }, required: true, … } },
+//   returns: { type: { kind: 'string' } }, … }
 ```
 
 The transpiled JS is readable — look at the generated code to see exactly what checks run:

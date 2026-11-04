@@ -2,8 +2,8 @@
 
 # TJS Syntax Reference
 
-This file is the detailed TJS syntax reference, extracted from CLAUDE.md for readability.
-See CLAUDE.md for commands, architecture, and development patterns.
+This is the detailed TJS syntax reference: every construct, briefly, with what it does.
+For a guided introduction, start with [TJS: Typed JavaScript](DOCS-TJS.md).
 
 ## Classes (Callable Without `new`)
 
@@ -35,14 +35,75 @@ const s = new Set([1, 2]) // fine
 
 The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. In `.tjs` all `class` declarations are wrapped; TS-originated code is not, unless it opts into full TJS with `TjsStrict`. Built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
 
-## Legacy equality — bridges back to JavaScript
+<!-- TODO review -->
 
-TJS's `==` and `===` are fixed (see Equality Operators). A fixed **operator** has no
+### Methods and constructors validate their parameters
+
+A typed parameter on a method, a static method or a constructor is checked exactly as it
+would be on a function: a wrong argument returns a `MonadicError` and the body does not run.
+Setters are the exception, because a setter's return value is discarded, so a refusal would
+silently drop the write.
+
+```tjs:inline
+class Box {
+  constructor(v: 0) { this.v = v }
+  scale(k: 0) { return this.v * k }
+}
+
+console.log(Box(2).scale(3))              // 6
+console.log(Box('two')?.message)          // Expected integer for '…Box.constructor.v', got string
+console.log(Box(2).scale('x')?.message)   // Expected integer for '…Box.scale.k', got string
+```
+
+**Watch platform callbacks.** When the caller ignores the return value, a refused call does
+nothing and nobody sees why (it is still recorded in `__tjs.records()`). The browser calls
+`attributeChangedCallback(name, oldValue, newValue)` with `oldValue` set to `null` the first
+time, so `old = ''` refuses that call and the body never runs. Write the default the
+platform actually passes; a bare `null` default accepts any value:
+
+<!-- tjs-doc: fragment -->
+
+```tjs:static
+attributeChangedCallback(name = '', old = null, value = null) { … }
+```
+
+## Legacy bridges back to JavaScript
+
+TJS's `==`, `!=` and `typeof` are fixed (see Equality Operators and Honest typeof; `===` and
+`!==` keep JavaScript's meaning). A fixed **operator** has no
 construct to mark — it is still spelled the same — so `unsafe` cannot help. The escape is a
 **name**:
 
 | function | is exactly JavaScript's… |
 | -------- | ------------------------ |
+| `DangerousLegacyEquals(a, b)` | `a == b` (coercion and all) |
+| `LegacyDate(x)` | `new Date(x)` — raw `Date` is banned; `Timestamp` is the remedy |
+| `DangerousLegacyNot(a, b)` | `a != b` |
+| `LegacyExactly(a, b)` | `a === b` (NaN is not itself; a boxed primitive is not its value) |
+| `LegacyNotExactly(a, b)` | `a !== b` |
+| `LegacyTypeOf(x)` | `typeof x`, where `typeof null` is `'object'` (TJS says `'null'`) |
+
+<!-- tjs-doc: fragment -->
+
+```js
+if (DangerousLegacyEquals(input, 0)) { … }   // yes, I want '' and false to match 0
+```
+
+`LegacyDefault(value)` is the same idea for parameter defaults. An object-literal default is
+a **dictionary** in TJS — members defaulted individually, merged on a partial argument,
+validated, excess keys passed through — where JavaScript treats it as one atomic value:
+
+```js
+function f(args = { x: 0, y: 0 }) {}                 // f({x:5}) → {x:5, y:0}
+function f(args = LegacyDefault({ x: 0, y: 0 })) {}  // f({x:5}) → {x:5}
+```
+
+It applies to **one parameter**, which matters: the older escape marked the whole function
+unsafe and disabled all of its validation, not just the merge.
+
+**The names are deliberately long.** `dangerouslySetInnerHTML` is the model: the friction is
+the feature. An escape should cost a moment's thought and be obvious in review, so there are
+no short aliases and none should be added.
 
 ## Doc comments: `/# … #/`
 
@@ -73,35 +134,6 @@ Doc comments are blanked before any other pass reads the source, so a `test '…
 `wasm function`, an `unsafe` marker or a `Type` declaration written inside one is **inert** —
 you can document the language in the language. Both `.tjs` and `.ajs` have them.
 
-| `DangerousLegacyEquals(a, b)` | `a == b` (coercion and all) |
-| `LegacyDate(x)` | `new Date(x)` — raw `Date` is banned; `Timestamp` is the remedy |
-| `DangerousLegacyNot(a, b)` | `a != b` |
-| `LegacyExactly(a, b)` | `a === b` (NaN is not itself; a boxed primitive is not its value) |
-| `LegacyNotExactly(a, b)` | `a !== b` |
-| `LegacyTypeOf(x)` | `typeof x`, where `typeof null` is `'object'` (TJS says `'null'`) |
-
-<!-- tjs-doc: fragment -->
-
-```js
-if (DangerousLegacyEquals(input, 0)) { … }   // yes, I want '' and false to match 0
-```
-
-`LegacyDefault(value)` is the same idea for parameter defaults. An object-literal default is
-a **dictionary** in TJS — members defaulted individually, merged on a partial argument,
-validated, excess keys passed through — where JavaScript treats it as one atomic value:
-
-```js
-function f(args = { x: 0, y: 0 }) {}                 // f({x:5}) → {x:5, y:0}
-function f(args = LegacyDefault({ x: 0, y: 0 })) {}  // f({x:5}) → {x:5}
-```
-
-It applies to **one parameter**, which matters: the older escape marked the whole function
-unsafe and disabled all of its validation, not just the merge.
-
-**The names are deliberately long.** `dangerouslySetInnerHTML` is the model: the friction is
-the feature. An escape should cost a moment's thought and be obvious in review, so there are
-no short aliases and none should be added.
-
 ## `unsafe <expression>` — deprecated
 
 TJS's rules are **unconditional**: the file extension is the gate, the way ESM made
@@ -120,6 +152,17 @@ needs no escape (drop the `new`, since calling the class constructs it); and `va
 are refused outright, `unsafe` or not, the way strict mode removed `with` without a way back.
 
 In TypeScript source, `/* @tjs-unsafe */` converts to the same deprecated prefix.
+
+<!-- TODO review -->
+
+You rarely need it there. Converting TypeScript (`fromTS`, `tjs convert`) already writes
+each place the code relies on JavaScript's behaviour as the named escape: `new Date(x)`
+becomes `LegacyDate(x)`, a coercing `v == 0` becomes `DangerousLegacyEquals(v, 0)`, a
+`typeof v === 'object'` that could meet `null` becomes `LegacyTypeOf(v) === 'object'`, and an
+object-literal default becomes `LegacyDefault({ … })`. Those spellings mean the same thing
+under JavaScript's rules and TJS's, so a converted file keeps its behaviour when it graduates
+to native `.tjs` (`graduate()`). The one thing nothing can preserve, `eval` or
+`new Function`, makes `graduate()` refuse, naming it.
 
 ## Function Parameters
 
@@ -218,15 +261,30 @@ function sum(...xs: number[]) { return xs.length }
 
 ## Return Types
 
-<!-- tjs-doc: fragment -->
+<!-- TODO review -->
 
-```typescript
-// Return type annotation (colon syntax)
-function add(a: 0, b: 0): 0 { return a + b }
+A return annotation is an example too, and an example of a RESULT is a worked example: the
+function is called with its parameter examples when the file is built, and what it returns
+must equal the annotation (deep equality, not "same type"). Three spellings say how much of
+that you want:
 
-// Object return type
-function getUser(id: 0): { name: '', age: 0 } { ... }
+```tjs:inline
+// `:` — a worked example. add(2, 3) is called when the file is built, and must be 5.
+function add(a: 2, b: 3): 5 { return a + b }
+
+// `:!` — the return TYPE only. Nothing runs; the result is not checked.
+function getUser(id: 0):! { name: '', age: 0 } {
+  return { name: 'Alice', age: 30 }
+}
+
+// `:?` — the worked example AND a runtime check of every result.
+function half(n: 4):? 2 { return n / 2 }
+
+console.log(add(2, 3), getUser(1).name, half(4), half(3)?.message)
 ```
+
+`function add(a: 0, b: 0): 0` passes only because `0 + 0` is `0`; `function add(a: 2, b: 3): 0`
+fails the build. When a worked value would be awkward to write, use `:!`.
 
 ## Safety Markers
 
@@ -419,6 +477,12 @@ safety inputs   // Validate function inputs (default)
 safety all      // Validate everything (debug mode)
 ```
 
+<!-- TODO review -->
+
+In emitted code today, `safety all` validates the same as `safety inputs`: a function's
+RESULT is checked at runtime only when its return annotation says so with `:?` (see Return
+Types). The runtime's `wrap()` does honour a global `safety: 'all'` and checks results there.
+
 ## The rules of `.tjs` (there are no mode directives)
 
 **The file extension is the gate**, the way ESM made `"use strict"` implicit. A `.tjs` file
@@ -432,7 +496,7 @@ explains the replacement.
 | `typeof`                                                    | `typeof null` is `'null'`                                                                 |
 | truthiness                                                  | a boxed `new Boolean(false)` is falsy                                                     |
 | statements                                                  | newlines terminate statements                                                             |
-| classes                                                     | callable without `new` (additive — `new Point(1, 2)` still works)                         |
+| classes                                                     | called without `new`; `new` on a class declared in the file is an error                    |
 | `Date`                                                      | not allowed; `Timestamp`/`LegalDate` replace it                                           |
 | `var`                                                       | not allowed; use `const`/`let`                                                            |
 | `eval()`                                                    | not allowed; `Eval()` is the sandboxed form                                               |
@@ -451,7 +515,7 @@ construct:
 | JavaScript's `===` / `!==`            | `LegacyExactly(a, b)` / `LegacyNotExactly(a, b)`           |
 | JavaScript's `typeof` (null is object) | `LegacyTypeOf(x)`                                          |
 | JavaScript's atomic parameter default | `args = LegacyDefault({ x: 0, y: 0 })`                     |
-| any of the above, from a `.ts` file   | `/* @tjs-unsafe */`                                        |
+| any of the above, from a `.ts` file   | nothing: conversion writes the named escape for you        |
 
 ### What is NOT a rule: dialect
 
@@ -558,29 +622,39 @@ TJS fixes JavaScript's confusing `==` coercion without the performance cost of d
 | `!=`        | Honest inequality                            | `0 != ''` is `true` (no coercion)  |
 | `===`       | Identity (same reference)                    | `obj === obj` is `true`            |
 | `!==`       | Not same reference                           | `{a:1} !== {a:1}` is `true`        |
-| `a Is b`    | Deep structural equality (explicit)          | `{a:1} Is {a:1}` is `true`         |
-| `a IsNot b` | Deep structural inequality (explicit)        | `[1,2] IsNot [2,1]` is `true`      |
+| `Is(a, b)`    | Deep structural equality (explicit)          | `Is({a:1}, {a:1})` is `true`       |
+| `IsNot(a, b)` | Deep structural inequality (explicit)        | `IsNot([1,2], [2,1])` is `true`    |
 
-<!-- tjs-doc: fragment -->
+<!-- TODO review -->
 
-```typescript
+```tjs:inline
 // == is honest: no coercion, unwraps boxed primitives
-'foo' == 'foo'                    // true
-new String('foo') == 'foo'        // true  (unwraps)
-new Boolean(false) == false       // true  (unwraps)
-null == undefined                 // true  (nullish equality preserved)
-0 == ''                           // false (no coercion!)
-false == []                       // false (no coercion!)
+console.log('foo' == 'foo')               // true
+console.log(new String('foo') == 'foo')   // true  (unwraps)
+console.log(new Boolean(false) == false)  // true  (unwraps)
+console.log(null == undefined)            // true  (nullish equality preserved)
+console.log(0 == '')                      // false (no coercion)
+console.log(false == [])                  // false (no coercion)
 
-// == is fast: objects/arrays use reference equality (O(1))
-{a:1} == {a:1}                    // false (different refs)
-[1,2] == [1,2]                    // false (different refs)
+// == is fast: objects and arrays compare by reference
+const a = { x: 1 }
+const b = { x: 1 }
+console.log(a == b)                       // false (different objects)
 
-// Is/IsNot for explicit deep structural comparison (O(n))
-{a:1} Is {a:1}                    // true
-[1,2,3] Is [1,2,3]               // true
-new Set([1,2]) Is new Set([2,1]) // true  (Sets are order-independent)
+// Is / IsNot compare structure (O(n))
+const same = a Is b
+console.log(same)                         // true
+console.log(Is([1, 2, 3], [1, 2, 3]))     // true
+console.log(Is(new Set([1, 2]), new Set([2, 1])))  // true (Sets are order-independent)
+console.log(IsNot([1, 2], [2, 1]))        // true
 ```
+
+**Prefer the call form, `Is(a, b)`.** The infix spelling `a Is b` is rewritten to a call by
+a source transform that only recognises SIMPLE operands (a name, a dotted path, a literal),
+in a statement of its own: `const same = a Is b` and `if (a Is b)` work. Inside a call's
+argument list (`console.log(a Is b)`), or with an operand that is an object or array literal
+or a call with spaces (`Point(1, 2) Is Point(1, 2)`), it is misread or fails to parse.
+`Is(…)` has no such limits.
 
 **Implementation Notes:**
 
@@ -595,11 +669,11 @@ new Set([1,2]) Is new Set([2,1]) // true  (Sets are order-independent)
 - `[tjsEquals]` symbol (`Symbol.for('tjs.equals')`) — highest priority, ideal for Proxies
 - `.Equals` method — backward-compatible, works on any object/class
 - Priority: symbol → `.Equals` → structural comparison
-- `tjsEquals` is exported from `src/lang/runtime.ts` and available as `__tjs.tjsEquals`
+- `tjsEquals` is exported from `tjs-lang/runtime` and available as `__tjs.tjsEquals`
 
 ## Honest typeof
 
-In `.tjs`, `typeof null` returns `'null'` instead of `'object'` (JS's oldest bug). All other typeof results are unchanged. Transforms `typeof expr` to `TypeOf(expr)`.
+In `.tjs`, `typeof null` returns `'null'` instead of `'object'` (JS's oldest bug). All other typeof results are unchanged. Transforms `typeof expr` to `TypeOf(expr)`. Write `LegacyTypeOf(x)` where you need JavaScript's answer.
 
 ## Honest Boolean Coercion
 
@@ -745,24 +819,31 @@ example-based annotations.
 
 ### Output Example
 
-The transpiler generates code like:
+<!-- TODO review -->
+
+For `wasm function add(a: i32, b: i32): i32 { return a + b }` the transpiler emits, in
+outline (abridged; run `tjs emit` on a file to see all of it):
 
 ```javascript
-/*
- * WASM Block: add
- * WAT (WebAssembly Text):
- *   (func $add (param $a i32) (param $b i32) (result i32)
- *     local.get 0
- *     local.get 1
- *     i32.add
- *   )
+/**
+ * WASM: __tjs_wasm_add (export: compute_0)
+ * (func (export "compute") (param $a i32) (param $b i32) (result f64)
+ *   local.get $a
+ *   local.get $b
+ *   i32.add
+ *   f64.convert.i32.s
+ *   return
+ * )
  */
-const add = await (async () => {
-  const bytes = Uint8Array.from(atob('AGFzbQEAAAA...'), (c) => c.charCodeAt(0))
-  const { instance } = await WebAssembly.instantiate(bytes)
-  return instance.exports.fn
-})()
+// One module per FILE: every wasm function and block in the file is compiled into it.
+const __wasmModuleB64 = 'AGFzbQEAAAAB…'
+// Instantiated synchronously where the engine allows, else asynchronously; on failure each
+// block runs its `fallback`, and the failure is recorded in `__tjs.records()`.
 ```
+
+The WAT comment is the readable form of exactly the bytes that follow (here the `i32` sum is
+converted to an `f64` before it returns), and typed-array arguments are copied into wasm memory unless they were allocated
+there with `wasmBuffer()` (below).
 
 ### SIMD Intrinsics (f32x4)
 

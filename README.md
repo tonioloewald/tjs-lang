@@ -53,10 +53,10 @@ function greet(name: 'World'): 'Hello, World!' {
 // At transpile time: greet('World') is called and checked against 'Hello, World!'
 
 // Runtime: The type becomes a contract
-console.log(greet.__tjs.params) // { name: { type: 'string', example: 'World', required: true } }
+console.log(greet.__tjs.params) // { name: { type: { kind: 'string' }, required: true, … } }
 
 // Safety: Errors are values, not crashes
-const result = greet(123) // MonadicError: Expected string for 'greet.name', got number
+const result = greet(123) // MonadicError: Expected string for '…greet.name', got number
 ```
 
 **Why it matters:**
@@ -78,7 +78,7 @@ Write logic that compiles to JSON and runs in a gas-limited sandbox. Send agents
 const agent = ajs`
   function research(topic: 'AI') {
     let data = httpFetch({ url: '/search?q=' + topic })
-    let summary = llmPredict({ prompt: 'Summarize: ' + data })
+    let summary = llmPredict({ prompt: 'Summarize: ' + JSON.stringify(data) })
     return { topic, summary }
   }
 `
@@ -163,7 +163,7 @@ const { code, metadata } = tjs`
   }
 `
 // code: JavaScript with __tjs metadata attached
-// metadata: { add: { params: { a: { type: 'number', example: 0 }, b: { type: 'number', example: 0 } }, returns: { type: 'number' } } }
+// metadata: { add: { params: { a: { type: { kind: 'integer' }, example: 0, … }, b: { … } }, returns: { kind: 'integer' } } }
 ```
 
 ### Try it in your browser

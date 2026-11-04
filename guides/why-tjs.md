@@ -130,7 +130,7 @@ say "a non-negative integer" or "a valid CSS colour" in it.
 
 Which reframes the whole problem. The job is not to bolt a second, static, erasable type
 system on top. It is to **fix the handful of broken runtime types and widen the vocabulary** —
-staying in the system that actually enforces something. In TJS, `TypeOf(null)` is `'null'`,
+staying in the system that actually enforces something. In TJS, `typeof null` is `'null'`,
 and `new Boolean(false) == false` is `true`.
 
 **Left on the table:** the runtime — and the recognition that the runtime already had a type
@@ -220,7 +220,7 @@ JSON Schema at the same time. One artifact rather than four that drift.
 
 **3. The escape hatches are named and ugly.** Every fix can be opted out of — but through
 something greppable and deliberately unattractive: `LegacyDate(x)`, `DangerousLegacyEquals(a, b)`,
-`LegacyDefault(…)`. A confession, not a suppression. There is an on-ramp and an off-ramp, and
+`LegacyTypeOf(x)`, `LegacyDefault(…)`. A confession, not a suppression. There is an on-ramp and an off-ramp, and
 deliberately no comfortable middle.
 
 ---

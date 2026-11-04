@@ -59,8 +59,7 @@ function searchAgent(topic: 'climate change', maxResults = 5) {
   }
 
   let summary = llmPredict({
-    system: 'Summarize these search results concisely',
-    user: results,
+    prompt: `Summarize these search results concisely: ${JSON.stringify(results)}`,
   })
 
   return { summary, sources: results }
@@ -96,7 +95,7 @@ Types are inferred from example values. The example shows both the type AND a re
 ```javascript
 function greet(
   name: 'Anne Example', // required string
-  age: 21, // required number
+  age: 21, // required integer
   greeting = 'Hello' // optional string, defaults to 'Hello'
 ) {
   // ...
@@ -106,7 +105,7 @@ function greet(
 - **Colon (`:`)** = required parameter, example shows the type
 - **Equals (`=`)** = optional parameter with default value
 
-The example value IS the type. `age: 21` means "required number". `name: 'Anne'` means "required string".
+The example value IS the type. `age: 21` means "required integer" (`21.5` would mean any number). `name: 'Anne'` means "required string".
 
 ### 3. Monadic Error Flow
 
@@ -152,39 +151,41 @@ function resilientPipeline(topic: 'neural networks') {
 
 ### 4. Function Introspection
 
-Every function has a `.signature` property for self-documentation:
+<!-- TODO review -->
 
-```javascript
-/**
- * Search the knowledge base
- * @param query - The search query
- * @param limit - Max results to return
- */
-function search(
-  query: 'example query',
-  limit = 10
-): [{ title: 'Example Title', url: 'https://example.com' }] {
-  // implementation
-}
+The signature is data. `transpile()` returns it beside the AST, and `createAgent()` attaches
+it to the callable it returns, as `.signature`. JSDoc descriptions are carried into it:
 
-// Automatically gets:
-search.signature = {
-  name: 'search',
-  description: 'Search the knowledge base',
-  parameters: {
-    query: { type: 'string', required: true, description: 'The search query' },
-    limit: {
-      type: 'number',
-      required: false,
-      default: 10,
-      description: 'Max results to return',
-    },
-  },
-  returns: {
-    type: 'array',
-    items: { type: 'object', shape: { title: 'string', url: 'string' } },
-  },
-}
+```typescript
+import { createAgent, AgentVM } from 'tjs-lang'
+
+const search = createAgent(
+  `
+  /**
+   * Search the knowledge base
+   * @param query - The search query
+   * @param limit - Max results to return
+   */
+  function search(query: 'example query', limit = 10) {
+    return { results: [] }
+  }
+`,
+  new AgentVM()
+)
+
+search.signature
+// {
+//   name: 'search',
+//   description: 'Search the knowledge base',
+//   parameters: {
+//     query: { type: { kind: 'string' }, required: true, example: 'example query',
+//              description: 'The search query', … },
+//     limit: { type: { kind: 'integer' }, required: false, default: 10,
+//              description: 'Max results to return', … },
+//   },
+// }
+
+await search({ query: 'tjs' }) // { results: [] }
 ```
 
 ## Type System Reference
@@ -194,11 +195,11 @@ search.signature = {
 | Syntax                  | Meaning          | Example                          |
 | ----------------------- | ---------------- | -------------------------------- |
 | `name: 'Anne'`          | Required string  | The example value shows the type |
-| `age: 21`               | Required number  |                                  |
+| `age: 21`               | Required integer |                                  |
 | `active: true`          | Required boolean |                                  |
 | `tags: ['a', 'b']`      | Required array   |                                  |
 | `user: { name: 'Bob' }` | Required object  |                                  |
-| `limit = 10`            | Optional number  | Defaults to 10                   |
+| `limit = 10`            | Optional integer | Defaults to 10                   |
 | `query = 'default'`     | Optional string  | Defaults to 'default'            |
 
 ### Destructured Parameter Defaults
@@ -227,9 +228,9 @@ function greet({ name: 'World', greeting = 'Hello' }) {
   return { message: `${greeting}, ${name}!` }
 }
 
-greet({})  // { message: "Hello, World!" }
 greet({ name: 'Alice' })  // { message: "Hello, Alice!" }
-greet({ greeting: 'Hi' })  // { message: "Hi, World!" }
+greet({ name: 'Bob', greeting: 'Hi' })  // { message: "Hi, Bob!" }
+greet({ greeting: 'Hi' })  // refused: `name` is required ('World' is its example, not a default)
 ```
 
 ### Return Types
@@ -238,9 +239,12 @@ Return types can be specified with colon syntax:
 
 ```javascript
 function search(query: 'search term'): { results: [], count: 0 } {
-  // Must return object with results array and count number
+  // ...
 }
 ```
+
+The return type is recorded in the signature (and so in tool definitions and docs). The VM
+does not check the returned value against it.
 
 Or inferred from the return statement:
 
@@ -257,7 +261,7 @@ function search(query: 'search term') {
 ```javascript
 let x = 5 // Variable declaration
 x = 10 // Assignment
-let { a, b } = obj // Destructuring (limited)
+let a = obj.a // Destructuring declarations (`let { a } = obj`) are refused: read members
 ```
 
 ### Control Flow
@@ -429,6 +433,9 @@ let inter = a.intersection(b) // Set([2, 3])
 let diff = a.diff(b) // Set([1]) - items in a but not b
 ```
 
+A set **is an array** of its items, whose methods the VM supplies, so it crosses JSON, a
+store or a capability unchanged.
+
 #### Date
 
 Create dates with `Date()` or `Date(initializer)`. Date objects are **immutable** - methods like `add()` return new Date objects:
@@ -457,12 +464,12 @@ d.value // ISO string
 // Immutable arithmetic (returns NEW Date)
 let later = d.add({ days: 5, hours: 3 })
 let earlier = d.add({ months: -1 })
-// Supported: years, months, days, hours, minutes, seconds
+// Supported: years, months, days, hours, minutes, seconds, ms
 
 // Comparison
 let before = d.isBefore(later) // true
 let after = later.isAfter(d) // true
-let diffDays = d.diff(later, 'days') // -5
+let diffDays = d.diff(later, 'days') // -5.125 (later is 5 days and 3 hours on)
 
 // Formatting
 let formatted = d.format('date') // '2024-06-15'
@@ -482,11 +489,15 @@ let result = {
   created: Date('2024-06-15'),
 }
 // JSON.stringify(result) produces:
-// { "tags": ["a", "b", "c"], "created": "2024-06-15T00:00:00.000Z" }
+// { "tags": ["a", "b", "c"],
+//   "created": { "value": "2024-06-15T00:00:00.000Z", "timestamp": 1718409600000,
+//                "year": 2024, "month": 6, "day": 15, "hours": 0, "minutes": 0,
+//                "seconds": 0, "dayOfWeek": 6 } }
 ```
 
-- **Sets** serialize to arrays
-- **Dates** serialize to ISO 8601 strings
+- **Sets** are arrays, so they serialize as arrays
+- **Dates** are data objects (every field in UTC), so they serialize as that object; `d.value`
+  is the ISO 8601 string, and `Date(stored)` turns a stored date back into a date
 
 ### Schema Filtering
 
@@ -510,9 +521,9 @@ let filtered = filter(data, {
 })
 // filtered = { user: { name: 'Bob', age: 25 }, tags: ['a', 'b'] }
 
-// Throws on validation failure (missing required fields)
+// Fails on validation failure (missing required fields): a monadic error, catchable with try/catch
 let bad = filter({ name: 'Alice' }, { name: 'string', age: 0 })
-// Error: Missing age
+// error: "root: Missing age"
 ```
 
 **Use cases:**
@@ -521,12 +532,14 @@ let bad = filter({ name: 'Alice' }, { name: 'string', age: 0 })
 - API input validation - accept only the fields you expect
 - Data projection - reduce objects to a known shape
 
-**Note:** Return values are automatically filtered when a return type is declared. This makes return types act as projections:
+**Note:** a declared return type does NOT filter the return value. To project a value onto
+a shape, call `filter()` yourself:
 
 ```javascript
-function getUser(id: 'user-123'): { name: 'string', email: 'string' } {
+function getUser(id: 'user-123') {
   let user = fetchUser({ id }) // might return { name, email, password, ... }
-  return { user } // password automatically stripped
+  let safe = filter(user, { name: 'string', email: 'string' })
+  return { user: safe } // password stripped
 }
 ```
 
@@ -582,7 +595,6 @@ These JavaScript features are intentionally not supported:
 | `yield/generators` | Complex control flow         | Use `map`/`while`   |
 | `eval`             | Security (though VM is safe) | Use transpiler      |
 | `with`             | Deprecated                   | Explicit references |
-| `var`              | Scoping issues               | Use `let`           |
 
 ## API Usage
 
@@ -624,19 +636,23 @@ const result = await vm.run(ast, { a: 5, b: 3 })
 console.log(result.result.sum) // 8
 ```
 
-### agent\`\`
+### createAgent()
 
-Tagged template for inline definitions:
+<!-- TODO review -->
+
+Transpile once and get a callable, with its signature attached:
 
 ```typescript
-import { agent } from 'tjs-lang'
+import { createAgent, AgentVM } from 'tjs-lang'
 
-const searchAST = agent`
-  function search(query: 'example search', limit = 10) {
-    let results = storeSearch({ query, limit })
-    return { results }
-  }
-`
+const double = createAgent(
+  `function double({ value }) { return { result: value * 2 } }`,
+  new AgentVM(),
+  { fuel: 100 } // run options for every call
+)
+
+await double({ value: 21 }) // { result: 42 }
+double.signature // { name: 'double', parameters: { … } }
 ```
 
 ### getToolDefinitions()
@@ -647,7 +663,8 @@ Generate OpenAI-compatible tool schemas for LLM integration:
 import { getToolDefinitions, transpile } from 'tjs-lang'
 
 const { signature } = transpile(source)
-const tools = getToolDefinitions([signature])
+const tools = getToolDefinitions({ search: { signature } })
+// or pass agents made by createAgent(), which carry .signature: getToolDefinitions({ search })
 
 // Returns format compatible with OpenAI/Anthropic tool calling:
 // [{
@@ -780,10 +797,10 @@ These common JavaScript APIs are **not available** in AJS. The transpiler will c
 
 | Feature          | Error Message              | Alternative                            |
 | ---------------- | -------------------------- | -------------------------------------- |
-| `setTimeout`     | Use the `delay` atom       | `delay({ ms: 1000 })`                  |
-| `setInterval`    | Use while loops with delay | `while (cond) { delay({ ms: 1000 }) }` |
+| `setTimeout`     | Use the delay atom         | none built in: a host can define a `delay` atom |
+| `setInterval`    | Use while loops with delay | a `while` loop calling a host `delay` atom      |
 | `fetch`          | Use the `httpFetch` atom   | `httpFetch({ url })`                   |
-| `RegExp`         | Use string methods         | `str.match()`, `str.replace()`         |
+| `RegExp`         | Use string methods or the regexMatch atom | regex literals: `str.replace(/a+/g, '-')` |
 | `Promise`        | Implicit async             | All calls are automatically awaited    |
 | `Map`            | Use plain objects          | `{ key: value }`                       |
 | `require/import` | Register atoms with VM     | `new AgentVM({ customAtom })`          |
@@ -827,14 +844,17 @@ function createAgent(name: 'Agent Smith') {
 
 ### Equality Semantics
 
-AJS uses JavaScript's standard equality (`==` and `===`). There is no special deep equality:
+AJS's `==` and `!=` are TJS's: no type coercion (`'1' == 1` is false), `null == undefined`
+is true, and objects compare by reference, never by structure. There is no deep equality
+(`Is` is TJS-only):
 
 ```javascript
 let a = { x: 1 }
 let b = { x: 1 }
 let same = a == b // false (reference comparison)
+let loose = '1' == 1 // false (no coercion, unlike JavaScript)
 
-// For deep comparison, use JSON.stringify or write a comparison function
+// For deep comparison, compare the fields you care about, or the JSON
 let equal = JSON.stringify(a) == JSON.stringify(b) // true
 ```
 
@@ -843,7 +863,7 @@ let equal = JSON.stringify(a) == JSON.stringify(b) // true
 Optional chaining is fully supported for safe property access:
 
 ```javascript
-let x = obj?.nested?.value // Returns null if any step is null/undefined
+let x = obj?.nested?.value // undefined if any step is null/undefined
 let result = user?.profile?.name
 
 // Works with method calls too
@@ -851,14 +871,14 @@ let len = items?.length
 let upper = str?.toUpperCase()
 ```
 
-**Note:** Nullish coalescing (`??`) is not yet supported. Use explicit checks:
+Nullish coalescing (`??`) works too:
 
 ```javascript
-let x = obj?.nested?.value
-if (x == null) {
-  x = 'default'
-}
+let x = obj?.nested?.value ?? 'default'
 ```
+
+(Plain member access is null-safe as well: `obj.nested.value` is `undefined`, not an error,
+when `obj` is null.)
 
 ### Atom Calls vs Built-in Methods
 
@@ -975,8 +995,9 @@ const ast = Agent.take()
 const ast = ajs(`
   function searchAgent(topic: 'climate change') {
     let results = search({ query: topic })
+    let summary = null
     if (results.length > 0) {
-      let summary = summarize({ text: results })
+      summary = summarize({ text: results })
     }
     return { results, summary }
   }

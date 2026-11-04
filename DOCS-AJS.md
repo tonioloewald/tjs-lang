@@ -56,19 +56,23 @@ const result = await vm.run(
 
 Every operation costs fuel:
 
-| Operation                | Cost |
-| ------------------------ | ---- |
-| Expression evaluation    | 0.01 |
-| Variable set/get         | 0.1  |
-| Control flow (if, while) | 0.5  |
-| HTTP fetch               | 10   |
-| LLM predict              | 100  |
+| Operation                     | Cost              |
+| ----------------------------- | ----------------- |
+| Expression node               | 0.01              |
+| Variable set/get              | 0.1               |
+| Control flow (if, while, seq) | 0.1               |
+| HTTP fetch                    | 5                 |
+| LLM predict                   | 100               |
+
+Those are the atoms' base costs; work that grows with its input (copying, string building,
+a regex, a validation) is charged on top, in proportion to the work.
 
 When fuel runs out, execution stops safely:
 
 ```typescript
-if (result.fuelExhausted) {
-  // Agent tried to run forever - stopped safely
+const { result, error } = await vm.run(agent, args, { fuel: 1000 })
+if (error?.message === 'Out of Fuel') {
+  // Agent tried to run forever - stopped safely; error.op names the step that ran out
 }
 ```
 
@@ -148,8 +152,10 @@ await vm.run(agent, args, {
 })
 ```
 
-Accounting is **per key**, so overwriting a variable frees its budget and ordinary loops
-don't false-positive.
+The estimate only grows as values are bound. Before it refuses a run, the VM measures what is
+actually still reachable (every live scope, memo caches, the arguments) and refuses only if
+THAT is over the ceiling, so a loop that keeps overwriting one variable does not
+false-positive, and bytes still reachable from an outer variable cannot escape the count.
 
 ### Per-Atom Call Quotas
 
@@ -353,7 +359,7 @@ times (or in a loop) doesn't bloat the agent's AST.
 | `class`                      | Too complex for LLMs, enables prototype pollution                                                                                                                                  |
 | `new`                        | Arbitrary object construction                                                                                                                                                      |
 | `this`                       | Implicit context, hard to sandbox                                                                                                                                                  |
-| Closures                     | State escapes the sandbox                                                                                                                                                          |
+| Functions as values          | A function cannot be stored, passed or returned, so no closure outlives its call. Arrow functions passed straight to an array method (`items.map((x) => x * k)`) may read outer variables |
 | `async`/`await`              | VM handles async internally                                                                                                                                                        |
 | `eval`, `Function`           | Code injection                                                                                                                                                                     |
 | `__proto__`, `constructor`   | Prototype pollution                                                                                                                                                                |
@@ -374,18 +380,17 @@ let y = x.foo.bar // undefined (no error)
 
 This is a deliberate safety choice — agents shouldn't crash on missing data.
 
-**No computed member access with variables.** You can use literal indices (`items[0]`, `obj["key"]`) but not variable indices (`items[i]`). This is rejected at transpile time:
+**Computed member access works with literals and variables.** `items[0]`, `user['name']`,
+`items[i]` and `user[key]` all compile to member reads (with the same null-safety). The key
+must be a string, number, boolean or null; an object or array key is refused (see
+"Operators take primitives" above):
 
 ```javascript
-// Works
 let first = items[0]
 let name = user['name']
-
-// Fails: "Computed member access with variables not yet supported"
 let item = items[i]
+let value = user[key]
 ```
-
-Workaround: use array atoms like `map`, `reduce`, or `for...of` loops instead of index-based access.
 
 **Footgun-free equality.** `==` and `!=` are footgun-free `===` (matching TJS) — no type coercion, but NOT structural. They unwrap boxed primitives and treat `null`/`undefined` (and `NaN`) as equal; distinct objects/arrays are distinct. Use `===`/`!==` for strict identity:
 
@@ -449,11 +454,13 @@ Atoms are the built-in operations. Each atom has a defined cost, input schema, a
 
 ### Storage (Core)
 
-| Atom          | Description              |
-| ------------- | ------------------------ |
-| `storeGet`    | Get from key-value store |
-| `storeSet`    | Set in key-value store   |
-| `storeSearch` | Vector similarity search |
+| Atom                | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `storeGet`          | Get from key-value store                       |
+| `storeSet`          | Set in key-value store                         |
+| `storeQuery`        | Query the store                                |
+| `storeQueryWhere`   | Query with a predicate                         |
+| `storeVectorSearch` | Vector similarity search (`{ vector, collection?, k? }`) |
 
 ### Storage (Battery)
 
@@ -871,22 +878,41 @@ nothing else, each with exactly its JSON value type, at most 10,000 nodes and 64
 
 ## JSON AST Format
 
-AJS compiles to a JSON AST. Here's what it looks like:
+<!-- TODO review -->
+
+AJS compiles to a JSON AST. This is the version-2 format the transpiler writes (`"$ajs": 2`).
+In it a bare string is always a string; a variable is always an explicit
+`{ "$expr": "ident" }` node.
 
 ### Sequence
 
+`function f() { let x = 10; let y = 20; return { sum: x + y } }` compiles to:
+
 ```json
 {
-  "$seq": [
-    { "$op": "varSet", "key": "x", "value": 10 },
-    { "$op": "varSet", "key": "y", "value": 20 },
+  "$ajs": 2,
+  "op": "seq",
+  "steps": [
+    { "op": "varSet", "key": "x", "value": 10 },
+    { "op": "varSet", "key": "y", "value": 20 },
     {
-      "$op": "return",
-      "value": { "$expr": "binary", "op": "+", "left": "x", "right": "y" }
+      "op": "return",
+      "value": {
+        "sum": {
+          "$expr": "binary",
+          "op": "+",
+          "left": { "$expr": "ident", "name": "x" },
+          "right": { "$expr": "ident", "name": "y" }
+        }
+      }
     }
-  ]
+  ],
+  "inputSchema": { "type": "object", "properties": {} }
 }
 ```
+
+A function's destructured parameters become a `varsImport` step and the `inputSchema` the
+VM checks the arguments against.
 
 ### Expressions
 
@@ -905,10 +931,12 @@ AJS compiles to a JSON AST. Here's what it looks like:
 
 // Template literal: `Hello, ${name}!` compiles to string concatenation
 { "$expr": "binary", "op": "+",
-  "left": { "$expr": "literal", "value": "Hello, " },
-  "right": { "$expr": "ident", "name": "name" } }   // …then + "!"
+  "left": { "$expr": "binary", "op": "+",
+            "left": { "$expr": "literal", "value": "Hello, " },
+            "right": { "$expr": "ident", "name": "name" } },
+  "right": { "$expr": "literal", "value": "!" } }
 
-// Method call (only methods the VM's method table lists — see docs/vm-budgets.md)
+// Method call (only methods the VM's method table lists; see docs/vm-budgets.md)
 { "$expr": "methodCall", "object": {...}, "method": "split", "arguments": [...] }
 ```
 
@@ -916,22 +944,47 @@ AJS compiles to a JSON AST. Here's what it looks like:
 
 ```json
 {
-  "$op": "if",
-  "cond": { "$expr": "binary", "op": ">", "left": "x", "right": 0 },
-  "then": { "$seq": [...] },
-  "else": { "$seq": [...] }
+  "op": "if",
+  "condition": {
+    "$expr": "binary", "op": ">",
+    "left": { "$expr": "ident", "name": "x" },
+    "right": { "$expr": "literal", "value": 0 }
+  },
+  "then": [ ... ],
+  "else": [ ... ]
 }
 ```
 
-### Loops
+### Loops and assignment
 
 ```json
 {
-  "$op": "while",
-  "cond": { "$expr": "binary", "op": ">", "left": "count", "right": 0 },
-  "body": { "$seq": [...] }
+  "op": "while",
+  "condition": {
+    "$expr": "binary", "op": ">",
+    "left": { "$expr": "ident", "name": "x" },
+    "right": { "$expr": "literal", "value": 0 }
+  },
+  "body": [
+    {
+      "op": "varAssign",
+      "key": "x",
+      "value": {
+        "$expr": "binary", "op": "-",
+        "left": { "$expr": "ident", "name": "x" },
+        "right": { "$expr": "literal", "value": 1 }
+      }
+    }
+  ]
 }
 ```
+
+`varSet` declares a variable in the current scope; `varAssign` writes an existing one in the
+scope that owns it, which is how a loop body updates a variable declared outside it.
+
+ASTs without `"$ajs"` (or with `"$ajs": 1`), which the builder and older versions of the
+transpiler write, are still run, under the version-1 rule: a bare string that names a
+variable in scope is read as that variable.
 
 ---
 
@@ -996,8 +1049,9 @@ Every agent run can produce an audit trail:
 const { result, trace } = await vm.run(agent, args, { trace: true })
 
 // trace: [
-//   { op: 'varSet', key: 'x', fuelBefore: 1000, fuelAfter: 999.9 },
-//   { op: 'httpFetch', url: '...', fuelBefore: 999.9, fuelAfter: 989.9 },
+//   { op: 'varSet', input: { key: 'x', value: 1 }, stateDiff: { x: 1 },
+//     fuelBefore: 999.9, fuelAfter: 999.8, timestamp: … },
+//   { op: 'httpFetch', input: { url: '…' }, fuelBefore: 999.8, fuelAfter: 994.7, … },
 //   ...
 // ]
 ```
@@ -1015,8 +1069,7 @@ function researchAgent({ topic }) {
   })
 
   let summary = llmPredict({
-    system: 'You are a research assistant.',
-    user: `Summarize these results about ${topic}: ${searchResults}`,
+    prompt: `You are a research assistant. Summarize these results about ${topic}: ${JSON.stringify(searchResults)}`,
   })
 
   return { topic, summary }
@@ -1063,6 +1116,13 @@ function routeRequest({ request, config }) {
 ### Remote Jobs
 
 ```javascript
+function applyTransform(item, transform) {
+  if (transform == 'double') {
+    return item * 2
+  }
+  return item
+}
+
 function processDataBatch({ items, transform }) {
   let results = []
   for (let item of items) {
@@ -1080,7 +1140,8 @@ function processDataBatch({ items, transform }) {
 Extend the runtime with your own operations:
 
 ```typescript
-import { defineAtom, AgentVM, s } from 'tjs-lang'
+import { defineAtom, AgentVM } from 'tjs-lang'
+import { s } from 'tjs-lang/schema'
 
 const myScraper = defineAtom(
   'scrape', // OpCode
@@ -1138,15 +1199,38 @@ Atoms must:
 
 For programmatic AST construction:
 
-```typescript
-import { Agent, s } from 'tjs-lang'
+<!-- TODO review -->
 
-const agent = Agent.take(s.object({ price: s.number, taxRate: s.number }))
-  .varSet({ key: 'total', value: Agent.expr('price * (1 + taxRate)') })
-  .return(s.object({ total: s.number }))
+```typescript
+import { Agent, AgentVM } from 'tjs-lang'
+
+const agent = Agent.take()
+  .varsImport(['price', 'taxRate'])
+  .varSet({
+    key: 'total',
+    // price * (1 + taxRate), as expression nodes
+    value: {
+      $expr: 'binary',
+      op: '*',
+      left: { $expr: 'ident', name: 'price' },
+      right: {
+        $expr: 'binary',
+        op: '+',
+        left: { $expr: 'literal', value: 1 },
+        right: { $expr: 'ident', name: 'taxRate' },
+      },
+    },
+  })
+  .return({ properties: { total: {} } })
 
 const ast = agent.toJSON() // JSON-serializable AST
+const { result } = await new AgentVM().run(ast, { price: 100, taxRate: 0.2 })
+// result: { total: 120 }
 ```
+
+The builder writes a version-1 AST, in which a bare string that names a variable in scope is
+read as that variable. The transpiler writes version 2, in which a bare string is always a
+string and every reference is an explicit `{ $expr: 'ident' }` node.
 
 The builder is lower-level but gives full control over AST construction.
 
@@ -1156,12 +1240,11 @@ The builder is lower-level but gives full control over AST construction.
 
 ### What AJS Doesn't Do
 
-- **No closures** - functions can't capture outer scope
+- **No function values** - a function can't be stored, passed or returned (arrow functions given straight to array methods are the exception)
 - **No classes** - use plain objects
 - **No async/await syntax** - the VM handles async internally
 - **No modules** - logic is self-contained
 - **No direct DOM access** - everything goes through capabilities
-- **No computed member access with variables** - `items[i]` is rejected; use `items[0]` (literal) or `for...of` loops
 
 ### What AJS Intentionally Avoids
 
