@@ -205,6 +205,15 @@ a standalone entry point, not an increment (import only what you need):
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
 | `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 403 KB | 128 KB    |
 | `tjs-lang` (full, TS support) | index.js         | 508 KB | 164 KB    |
+| `tjs-lang/runtime` (runtime for emitted code) | tjs-runtime.js | 44 KB | 15 KB |
+| `tjs-lang/schema` (tosijs-schema + `$predicate`) | tjs-schema.js | 41 KB | 12 KB |
+| `tjs-lang/lang/from-ts` (TS converter; needs `typescript`) | tjs-from-ts.js | 49 KB | 16 KB |
+| `tjs-lang/browser` (self-contained, any CDN) | tjs-browser.js | 657 KB | 199 KB |
+| `tjs-lang/browser/from-ts` (lazy-loads `typescript`) | tjs-browser-from-ts.js | 51 KB | 16 KB |
+| `tjs-lang/css` (CSS validators) | tjs-css.js | 54 KB | 16 KB |
+| `tjs-lang/linalg` (SIMD kernels) | tjs-linalg.js | 14 KB | 4 KB |
+| `tjs-lang/import-resolver` (bare imports, no bundler) | tjs-import-resolver.js | 7 KB | 3 KB |
+| `tjs-lang/rbac` (rule primitives) | tjs-rbac.js | 5 KB | 2 KB |
 
 The transpiler grew ~11% in 0.14.0 — `Type` examples are now read for what they mean
 (floats, unions, recursive references) and checked by a real fixed-point solver, and it carries

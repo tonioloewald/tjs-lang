@@ -125,3 +125,50 @@ describe('README bundle-size table matches the built bundles', () => {
     }
   )
 })
+
+/**
+ * Bundles that are published but deliberately have no row, each with the reason.
+ * The table only checks rows that EXIST, so a new published bundle was invisible to it by
+ * construction (#2246: `tjs-vm-ast` shipped with no row). This list is the only way out, and a
+ * stale entry (one that has a row, or is no longer published) fails too.
+ */
+const NO_ROW: Record<string, string> = {
+  'import-resolver-worker.js':
+    'a service-worker ASSET a site copies to its root (`tjs-lang/import-resolver/worker`), never imported by code, so it is not a cost an importer pays',
+}
+
+/** Every `./dist/*.js` file `package.json`'s exports publish. */
+function publishedBundles(): string[] {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const out = new Set<string>()
+  const walk = (v: unknown): void => {
+    if (typeof v === 'string') {
+      const m = v.match(/^\.\/dist\/([\w.-]+\.js)$/)
+      if (m) out.add(m[1]!)
+    } else if (v && typeof v === 'object') Object.values(v).forEach(walk)
+  }
+  walk(pkg.exports)
+  return [...out].sort()
+}
+
+describe('every published bundle is in the table (#2246)', () => {
+  it('has a README row, or a reason it does not', () => {
+    const rows = new Set(readmeClaims().map((r) => r.file))
+    const published = publishedBundles()
+    expect(published.length).toBeGreaterThan(5) // apparatus: the exports were read
+    const missing = published.filter((f) => !rows.has(f) && !(f in NO_ROW))
+    expect(
+      missing,
+      `published with no README row: add one (measured), or a reason to NO_ROW`
+    ).toEqual([])
+  })
+
+  it('every NO_ROW entry is still published and still has no row', () => {
+    const rows = new Set(readmeClaims().map((r) => r.file))
+    const published = new Set(publishedBundles())
+    const stale = Object.keys(NO_ROW).filter(
+      (f) => rows.has(f) || !published.has(f)
+    )
+    expect(stale).toEqual([])
+  })
+})
