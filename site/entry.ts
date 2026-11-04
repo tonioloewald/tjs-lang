@@ -25,7 +25,7 @@ import { AgentVM } from '../src/vm/ast'
  * `<img>` at once and the logo area stays blank until lottie downloads from its CDN. The image
  * is shown as the element's background until the animation's SVG arrives. (The child `<img>`
  * stays in the markup for GitHub, where nothing registers the element. Filed upstream: the
- * element should slot its children until loaded; see UPSTREAM.md.)
+ * element should slot its children until loaded; see UPSTREAM.md, board #3817.)
  */
 function keepPlaceholder(el: Element): void {
   const host = el as HTMLElement
