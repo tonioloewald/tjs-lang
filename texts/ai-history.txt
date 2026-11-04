@@ -1,0 +1,9 @@
+A Brief History of Artificial Intelligence
+
+The field of artificial intelligence was formally founded at a workshop at Dartmouth College in 1956, where John McCarthy coined the term. Early pioneers believed that human-level AI was just decades away, leading to significant government funding and optimism.
+
+The 1970s and 1980s saw the rise of expert systems, which encoded human knowledge into rule-based programs. Companies like Digital Equipment Corporation saved millions using these systems, but their brittleness and maintenance costs eventually led to the "AI Winter" of the late 1980s.
+
+The modern AI renaissance began around 2012 when deep learning achieved breakthrough results in image recognition. Neural networks, an idea dating back to the 1940s, finally became practical thanks to large datasets, GPU computing, and algorithmic improvements like dropout and batch normalization.
+
+The 2020s brought large language models like GPT and Claude, trained on vast amounts of text data. These models demonstrated surprising emergent capabilities, from code generation to reasoning, sparking both excitement about AI's potential and debates about safety and alignment. The technology continues to advance rapidly, with new architectures and training methods appearing regularly.

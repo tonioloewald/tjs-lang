@@ -1,0 +1,15 @@
+<!--{"section": "ajs", "type": "example", "group": "basics", "order": 4, "parent": "ajs-basics.md"}-->
+
+# String Processing
+
+Work with text
+
+```ajs:inline
+function processText({ text = 'Hello World' }) {
+  let upper = text.toUpperCase()
+  let lower = text.toLowerCase()
+  let words = text.split(' ')
+  let wordCount = words.length
+  return { upper, lower, words, wordCount }
+}
+```

@@ -1,0 +1,34 @@
+[
+  {
+    "book": "",
+    "title": "tjs-lang",
+    "filename": "tjs-lang.epub",
+    "url": "/tjs-lang.epub",
+    "coverFilename": "tjs-lang-cover.png",
+    "coverUrl": "/tjs-lang-cover.png"
+  },
+  {
+    "book": "ajs",
+    "title": "AJS and Safe Eval",
+    "filename": "tjs-lang-ajs.epub",
+    "url": "/tjs-lang-ajs.epub",
+    "coverFilename": "tjs-lang-ajs-cover.png",
+    "coverUrl": "/tjs-lang-ajs-cover.png"
+  },
+  {
+    "book": "language",
+    "title": "The TJS Programming Language",
+    "filename": "tjs-lang-language.epub",
+    "url": "/tjs-lang-language.epub",
+    "coverFilename": "tjs-lang-language-cover.png",
+    "coverUrl": "/tjs-lang-language-cover.png"
+  },
+  {
+    "book": "ts",
+    "title": "TypeScript: The Good, the Bad, and the Ugly",
+    "filename": "tjs-lang-ts.epub",
+    "url": "/tjs-lang-ts.epub",
+    "coverFilename": "tjs-lang-ts-cover.png",
+    "coverUrl": "/tjs-lang-ts-cover.png"
+  }
+]

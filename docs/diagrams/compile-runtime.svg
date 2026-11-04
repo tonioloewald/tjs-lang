@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 420" font-family="system-ui, -apple-system, sans-serif">
+  <style>
+    /* TJS Brand Palette */
+    .bg { fill: #fafafa; stroke: #e4e4e4; }
+
+    .section-compile { fill: white; stroke: #3da8f4; stroke-width: 1.5; }
+    .section-runtime { fill: white; stroke: #181340; stroke-width: 1.5; }
+    .section-label-compile { fill: #3da8f4; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+    .section-label-runtime { fill: #181340; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+
+    .box-code { fill: #f8f8f8; stroke: #9e9e9e; }
+    .box-action { fill: #eef6ff; stroke: #3da8f4; stroke-width: 1.5; }
+    .box-error { fill: #fff3f3; stroke: #ff1c24; stroke-width: 1.5; }
+    .box-pass { fill: #f0fff5; stroke: #006736; stroke-width: 1.5; }
+    .box-metadata { fill: #f8f8f8; stroke: #9e9e9e; }
+
+    .diamond { fill: #fffbe6; stroke: #fdbe52; stroke-width: 1.5; }
+
+    .arrow { stroke: #9e9e9e; stroke-width: 1.5; fill: none; }
+    .arrow-pass { stroke: #006736; stroke-width: 1.5; fill: none; }
+    .arrow-fail { stroke: #ff1c24; stroke-width: 1.5; fill: none; }
+
+    .label { font-size: 13px; font-weight: 500; }
+    .label-sm { font-size: 11px; }
+    .label-xs { font-size: 9px; }
+    .label-mono { font-size: 11px; font-family: monospace; }
+    .label-mono-sm { font-size: 12px; font-family: monospace; }
+
+    .text-action { fill: #1a6ab5; }
+    .text-dark { fill: #444; }
+    .text-muted { fill: #999; }
+    .text-pass { fill: #006736; font-size: 10px; font-weight: 600; }
+    .text-fail { fill: #ff1c24; font-size: 10px; font-weight: 600; }
+    .text-error { fill: #cc1118; }
+
+    .shadow { filter: drop-shadow(0 2px 3px rgba(0,0,0,0.1)); }
+
+    .arrowhead { fill: #9e9e9e; }
+    .arrowhead-pass { fill: #006736; }
+    .arrowhead-fail { fill: #ff1c24; }
+  </style>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="arrowhead"/>
+    </marker>
+    <marker id="arr-pass" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="arrowhead-pass"/>
+    </marker>
+    <marker id="arr-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="arrowhead-fail"/>
+    </marker>
+  </defs>
+
+  <rect width="660" height="420" rx="12" class="bg"/>
+
+  <!-- COMPILE TIME -->
+  <g id="section-compile" class="section shadow">
+    <rect x="20" y="16" width="620" height="140" rx="8" class="section-compile"/>
+  </g>
+  <text x="40" y="42" class="section-label-compile">COMPILE TIME</text>
+
+  <!-- Source code: two-line box, h=44 -->
+  <g id="node-source" class="node flow-step">
+    <rect x="40" y="56" width="200" height="44" rx="6" class="box-code"/>
+    <text x="140" y="75" text-anchor="middle" class="label-mono text-dark">greet(name: 'World')</text>
+    <text x="140" y="90" text-anchor="middle" class="label-xs text-muted">source</text>
+  </g>
+
+  <line x1="245" y1="78" x2="290" y2="78" class="arrow connector" marker-end="url(#arr)"/>
+
+  <g id="node-parse" class="node flow-step">
+    <rect x="295" y="60" width="100" height="36" rx="6" class="box-action"/>
+    <text x="345" y="83" text-anchor="middle" class="label text-action">Parse</text>
+  </g>
+
+  <line x1="400" y1="78" x2="445" y2="78" class="arrow connector" marker-end="url(#arr)"/>
+
+  <!-- Extract type: two-line box, h=44 -->
+  <g id="node-extract" class="node flow-step">
+    <rect x="450" y="56" width="170" height="44" rx="6" class="box-action"/>
+    <text x="535" y="75" text-anchor="middle" class="label text-action">Extract type</text>
+    <text x="535" y="90" text-anchor="middle" class="label-xs text-action">name = string</text>
+  </g>
+
+  <!-- Arrow between sections -->
+  <line x1="330" y1="156" x2="330" y2="194" class="arrow connector" marker-end="url(#arr)"/>
+
+  <!-- RUNTIME — expanded to h=210 -->
+  <g id="section-runtime" class="section shadow">
+    <rect x="20" y="198" width="620" height="210" rx="8" class="section-runtime"/>
+  </g>
+  <text x="40" y="224" class="section-label-runtime">RUNTIME</text>
+
+  <g id="node-metadata" class="node">
+    <rect x="40" y="238" width="280" height="34" rx="6" class="box-metadata"/>
+    <text x="180" y="260" text-anchor="middle" class="label-mono text-dark">greet.__tjs = { params: { name: ... } }</text>
+  </g>
+
+  <g id="node-call" class="node">
+    <rect x="40" y="292" width="140" height="34" rx="6" class="box-error"/>
+    <text x="110" y="314" text-anchor="middle" class="label-mono-sm text-error">greet(123)</text>
+  </g>
+
+  <line x1="185" y1="309" x2="230" y2="309" class="arrow connector" marker-end="url(#arr)"/>
+
+  <!-- Diamond -->
+  <g id="gate-type-check" class="gate">
+    <polygon points="310,286 374,309 310,332 246,309" class="diamond"/>
+    <text x="310" y="313" text-anchor="middle" fill="#8b6914" font-size="12" class="label">Type Check</text>
+  </g>
+
+  <!-- Pass -->
+  <line x1="374" y1="309" x2="424" y2="309" class="arrow-pass connector" marker-end="url(#arr-pass)"/>
+  <text x="399" y="301" text-anchor="middle" class="text-pass">Pass</text>
+
+  <g id="node-execute" class="node outcome-pass">
+    <rect x="429" y="293" width="100" height="34" rx="6" class="box-pass"/>
+    <text x="479" y="314" text-anchor="middle" class="label" fill="#005028">Execute</text>
+  </g>
+
+  <!-- Fail -->
+  <line x1="310" y1="332" x2="310" y2="358" class="arrow-fail connector" marker-end="url(#arr-fail)"/>
+  <text x="330" y="350" class="text-fail">Fail</text>
+
+  <g id="node-error" class="node outcome-fail">
+    <rect x="225" y="362" width="170" height="34" rx="6" class="box-error"/>
+    <text x="310" y="383" text-anchor="middle" class="label-sm text-error">MonadicError (no throw)</text>
+  </g>
+</svg>
