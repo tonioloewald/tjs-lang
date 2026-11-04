@@ -42,6 +42,14 @@ import {
 } from './runtime'
 import { Eval, SafeFunction } from './eval'
 
+// Every test starts from, and leaves, the default runtime (#3612). Several describes changed
+// global state (`configure({ safety: 'none' })`, debug, stack size, unsafe depth) and restored
+// it only in their OWN beforeEach, so under random order a later test elsewhere ran with
+// validation off and five rows failed (`bun test --randomize --seed=7`). Resetting after each
+// test too keeps this file from leaking into the files that share its process.
+beforeEach(() => resetRuntime())
+afterEach(() => resetRuntime())
+
 describe('TJS Runtime - Monadic Errors', () => {
   beforeEach(() => {
     // Reset to non-debug mode before each test

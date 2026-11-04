@@ -193,7 +193,9 @@ describe('printed invocations are runnable', () => {
   })
 
   it('the invocation the --max-warnings error recommends actually runs', async () => {
-    // Not "does it mention a directory" — does it WORK.
+    // Not "does it mention a directory" — does it WORK. Its own file: it used to rely on the
+    // previous test having written one, and failed alone or in random order (#3612).
+    writeFileSync(join(dir, 'a.tjs'), `function a(n: 0) { return n }\n`)
     const r = await spawn(['check', '.', '--max-warnings', '99'])
     expect(r.text).not.toContain('EISDIR')
     expect(r.code).toBe(0)
