@@ -19,6 +19,15 @@ This guide is split into two paths:
 1. **[Using TJS from TypeScript](#part-1-using-tjs-from-typescript)** -- Keep your TS codebase, use TJS for safe eval and agent execution
 2. **[Migrating to TJS](#part-2-migrating-to-tjs)** -- Convert your codebase from TypeScript to TJS
 
+<!-- TODO review -->
+
+Two chapters go deeper than this page: [Converting a TypeScript
+Project](guides/sections/ts-converting-a-project.md) walks through `tjs convert` and
+graduation on a real file, and [Validating JSON at the
+Boundary](guides/sections/ts-json-boundary.md) covers the place where TypeScript's types
+are most often wrong. The [TypeScript Examples](guides/sections/ts-examples.md) run real
+TypeScript through the converter on the page.
+
 ---
 
 ## In this section
@@ -221,9 +230,19 @@ JavaScript syntax that JS itself ignores:
 
 TypeScript's `number` is a single type. TJS gives you three levels of
 precision -- all using expressions that are already legal JavaScript.
-The automatic converter maps TypeScript `number` to `0.0` (float) to
-preserve the widest behavior; you can then narrow manually to `0` (integer)
-or `+0` (non-negative integer) where appropriate.
+The automatic converter maps TypeScript `number` to "any number" (the same
+type as `0.0`) to preserve the widest behavior; you can then narrow manually
+to `0` (integer) or `+0` (non-negative integer) where appropriate.
+
+<!-- TODO review -->
+
+**TypeScript's type names work too.** `name: string`, `count: number`,
+`flag: boolean` and `items: string[]` are valid TJS, and they are real runtime
+checks: `s: string` means exactly what `s: ''` means. That is what the
+converter writes. The example form is the native spelling because it carries
+more: a value to document and test with, and the integer/float distinction
+that `number` cannot express. `int`, `float` and `unsigned` name the three
+numeric types when you want the distinction without an example.
 
 ### Optional Parameters
 
@@ -249,17 +268,23 @@ In TJS, `= value` means optional with that default. Same semantics, less syntax.
 function createUser(opts: { name: string; age: number; email?: string }) {}
 
 // TJS
-function createUser(opts: { name: '', age: 0, email = '' }) {}
+function createUser(opts: { name: '', age: 0, email: '' | undefined }) {}
 ```
 
-Required properties use `:`, optional ones use `=`.
+<!-- TODO review -->
+
+Every property in the shape is required unless its type admits `undefined`:
+`email: '' | undefined` means "may be absent; if present, a string". (Writing
+`email = ''` inside a shape is a syntax error: `=` gives defaults to
+_parameters_, not to members of a parameter's type. For per-member defaults,
+make the whole parameter a dictionary: `opts = { name: '', age: 0 }`.)
 
 ### Destructured Parameters
 
 TypeScript's `function area({ width, height }: { width: number; height: number })` is, in
 TJS:
 
-```tjs
+```tjs:inline
 function area({ width: 0.0, height: 0.0 }) {
   return width * height
 }
@@ -287,9 +312,9 @@ cannot.
 
 ```typescript
 // TypeScript                              // TJS
-function add(a: number, b: number): number    function add(a: 0, b: 0): 0
-function getUser(): { name: string }          function getUser(): { name: '' }
-function fetchData(): Promise<string[]>       function fetchData(): ['']
+function add(a: number, b: number): number    function add(a: 2, b: 3): 5
+function getUser(): { name: string }          function getUser():! { name: '' }
+function fetchData(): Promise<string[]>       async function fetchData():! ['']
 ```
 
 The `fromTS` converter unwraps `Promise<T>` in return type annotations --
@@ -297,8 +322,17 @@ you annotate the resolved type, not the wrapper. This only applies when
 converting from TypeScript; in native TJS you just write normal
 `async`/`await` and annotate what the function resolves to.
 
-The return annotation also generates an automatic test: `add(0, 0)` must
-return a number. If it doesn't, you get an error at transpile time.
+<!-- TODO review -->
+
+**A plain return annotation is a worked example, not a type.** `: 5` means
+TJS calls `add(2, 3)` at transpile time and compares the result with `5` by
+deep equality. If the body is wrong, the build fails. That is why
+`function add(a: 0, b: 0): 0` passes (0 + 0 is 0) but
+`function add(a: 2, b: 3): 0` does not. When you want to state the return
+_type_ without running anything, write `:!` -- which is what `fromTS` emits
+for every TypeScript return type, and what you want for functions with side
+effects (`getUser` above) or that need setup. `:?` does both: it runs the
+example and also checks every returned value at run time.
 
 ### Interfaces and Type Aliases
 
@@ -343,6 +377,15 @@ Enum Color 'CSS color' {
 }
 ```
 
+<!-- TODO review -->
+
+A TJS `Enum` is a runtime type with lookup tables, not an object of
+constants: `Color.check('red')` is `true`, `Color.members.Red` is `'red'`,
+`Color.names['red']` is `'Red'`, and `Color.values` lists the values.
+`Color.Red` on its own is `undefined`. That matters when converting: a
+TypeScript `enum` converts to an `Enum`, but code that reads `Color.Red`
+does not change with it, so review every member access after conversion.
+
 ### Classes
 
 <!-- tjs-doc: fragment -->
@@ -375,12 +418,12 @@ class Point {
     this.#y = y
   }
 
-  distanceTo(other: Point): 0 {
+  distanceTo(other: Point):! 0.0 {
     return Math.sqrt((this.#x - other.#x) ** 2 + (this.#y - other.#y) ** 2)
   }
 }
 
-const p = Point(10, 20) // no 'new' needed
+const p = Point(10, 20) // a class is called, not constructed
 ```
 
 Key differences:
@@ -388,7 +431,12 @@ Key differences:
 - `private` is stripped by default (TS `private` is compile-time only).
   In `.tjs` (or TS-originated code marked `/* @tjs TjsStrict */`), `private` converts to `#` (true JS runtime privacy).
 - Type annotations become example values
-- `new` is optional (the linter warns against it)
+<!-- TODO review -->
+- A TJS class is called: `Point(10, 20)` does what `new Point(10, 20)` does.
+  `new` on a class declared in the same file is a **compile error** in `.tjs`
+  (and in a `.ts` file marked `TjsStrict`), because it adds nothing. Built-in
+  classes still need it: `new Map()`, `new Float32Array(4)`. Converted code
+  keeps its `new`s until it is graduated, which removes them.
 
 ### Generics
 
@@ -411,10 +459,30 @@ Generic Box<T> {
   }
 }
 
-// Usage: Box(Number) is a runtime type checker
-const isNumberBox = Box(Number)
-isNumberBox({ value: 42 })     // true
-isNumberBox({ value: 'nope' }) // false
+// Usage: Box(0) is the type "a Box of integers"
+const IntBox = Box(0)
+IntBox.check({ value: 42 })     // true
+IntBox.check({ value: 'nope' }) // false
+```
+
+<!-- TODO review -->
+
+When the example already says where the parameter goes, the predicate is
+optional, and a parameterized type can be applied in an annotation:
+
+```tjs:inline
+Type Box<T> {
+  example: { value: T }
+}
+
+function unbox(b: Box<int>) {
+  return b.value
+}
+
+test 'Box<int> checks the value slot' {
+  expect(unbox({ value: 1 })).toBe(1)
+  expect(unbox({ value: 1.5 }) instanceof Error).toBe(true)
+}
 ```
 
 For simple generic functions like `identity` or `first`, you don't need
@@ -448,7 +516,7 @@ function find(id: 0): { name: '', age: 0 } | null { ... }
 ```
 
 TJS distinguishes `null` from `undefined` -- they're different types, just
-as `typeOf(null)` returns `'null'` and `typeOf(undefined)` returns
+as `typeof null` is `'null'` in TJS and `typeof undefined` is
 `'undefined'`. Writing `| null` means the value can be the base type or
 `null`, but not `undefined`. Optional parameters (using `=`) accept
 `undefined` because that's what you get when the caller omits the argument.
@@ -464,7 +532,7 @@ or add complexity without proportional value:
 | `type` aliases              | `Type`, `Union`, or `Enum`                  |
 | Conditional types           | Preserved in `.d.ts` via declaration blocks |
 | Mapped types                | Preserved in `.d.ts` via declaration blocks |
-| `keyof`, `typeof`           | Use runtime `Object.keys()`, `typeOf()`     |
+| `keyof`, `typeof`           | Use runtime `Object.keys()`, `typeof`       |
 | `Partial<T>`, `Pick<T>`     | Define the shape you need directly          |
 | Declaration files (`.d.ts`) | Generated from `__tjs` metadata (`--dts`)   |
 | `as` type assertions        | Not needed (values are checked)             |
@@ -530,8 +598,8 @@ Type USZipCode {
   predicate(v) { return typeof v === 'string' && /^\d{5}$/.test(v) }
 }
 
-// Combinators -- compose types
-Type OptionalEmail Nullable(Email)         // Email | null
+// Combinators -- compose types in an annotation
+function contact(email: Email | null) {}   // an Email, or null
 
 // Schema-based -- use tosijs-schema for structured validation
 Type AgeRange {
@@ -548,9 +616,9 @@ Compare the TypeScript equivalents:
 | String with format  | Branded type + type guard + validation function             | `Type Email { predicate(v) {...} }`    |
 | Number in range     | Branded type + manual check                                 | `Type Age { predicate(v) {...} }`      |
 | Non-empty string    | Template literal type (compile-only)                        | `Type NonEmpty { predicate(v) {...} }` |
-| Nullable variant    | `T \| null` (compile-only)                                  | `Nullable(MyType)` (runtime-checked)   |
+| Nullable variant    | `T \| null` (compile-only)                                  | `x: MyType \| null` (runtime-checked)  |
 | Union of literals   | `'a' \| 'b' \| 'c'` (compile-only)                          | `Union Status 'a' \| 'b' \| 'c'`       |
-| Discriminated union | `type Shape = { kind: 'circle' } \| ...` + manual narrowing | `Union('kind', { circle: {...} })`     |
+| Discriminated union | `type Shape = { kind: 'circle' } \| ...` + manual narrowing | `kind: Exactly('circle')` + overloads  |
 | Generic container   | `interface Box<T>` (compile-only)                           | `Generic Box<T> { predicate(...) }`    |
 
 Every row in the TypeScript column is compile-time fiction that disappears
@@ -560,8 +628,32 @@ because a predicate is just a function -- not a type-level program.
 
 TJS also ships common types out of the box: `TString`, `TNumber`,
 `TBoolean`, `TInteger`, `TPositiveInt`, `TNonEmptyString`, `TEmail`,
-`TUrl`, `TUuid`, `Timestamp`, `LegalDate`. No imports from a validation
-library needed.
+`TUrl`, `TUuid`, `Timestamp`, `LegalDate`, plus combinators such as
+`Nullable` and `Optional`. They are exported by `tjs-lang/runtime`
+(`import { TEmail, Nullable } from 'tjs-lang/runtime'`), so no separate
+validation library is needed.
+
+<!-- TODO review -->
+
+A discriminated union is a set of types that differ in one literal member.
+`Exactly('circle')` makes that member exact (a plain `'circle'` example would
+mean "any string"), and same-name functions dispatch on the type:
+
+```tjs:inline
+Type Circle { example: { kind: Exactly('circle'), r: 1.0 } }
+Type Rect { example: { kind: Exactly('rect'), w: 1.0, h: 1.0 } }
+
+function area(s: Circle) { return Math.PI * s.r ** 2 }
+function area(s: Rect) { return s.w * s.h }
+
+test 'dispatch on the discriminant' {
+  expect(area({ kind: 'rect', w: 2, h: 3 })).toBe(6)
+  expect(area({ kind: 'triangle', b: 2, h: 3 }) instanceof Error).toBe(true)
+}
+```
+
+There is no `switch` on `kind` and no exhaustiveness check to remember: a
+value that matches no variant is an error value, not a fall-through.
 
 ### Tooling Comparison
 
@@ -602,6 +694,28 @@ function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }):! {
 }
 ```
 
+<!-- TODO review -->
+
+The TypeScript version gets the same check without being rewritten: mark the
+file `/* @tjs TjsStrict */` and the interface becomes the validator. This is
+TypeScript, converted and run on the page:
+
+```ts:inline
+/* @tjs TjsStrict */
+
+interface Order {
+  items: { id: number; qty: number }[]
+  total: number
+}
+
+function processOrder(order: Order): { status: string } {
+  return { status: `ok, ${order.items.length} items` }
+}
+
+console.log(processOrder({ items: [{ id: 1, qty: 2 }], total: 9.5 }))
+console.log(processOrder(JSON.parse('{"items": [{"id": 1, "qty": "two"}], "total": 9.5}')))
+```
+
 ### Honest Equality
 
 TypeScript inherits JavaScript's broken equality. Native TJS fixes this. For TS-originated code, add `TjsStrict` (or `/* @tjs TjsStrict */` in the source `.ts` file):
@@ -636,23 +750,24 @@ Use `Is`/`IsNot` when you explicitly need structural comparison.
 
 ### Monadic Errors
 
-TypeScript uses exceptions. TJS uses values:
+TypeScript uses exceptions. TJS uses values. In TypeScript, `divide` would
+`throw new Error('Division by zero')`, and a caller who forgot `try`/`catch`
+would crash. In TJS the error is returned:
+
+<!-- TODO review -->
 
 ```javascript
-// TypeScript -- you have to remember to try/catch
-function divide(a: number, b: number): number {
-  if (b === 0) throw new Error('Division by zero')
-  return a / b
-}
-// Caller forgets try/catch? Crash.
-
 // TJS -- errors flow through the pipeline
-function divide(a: 0, b: 0): 0 {
-  if (b === 0) return MonadicError('Division by zero')
+function divide(a: 6.0, b: 3.0): 2.0 {
+  if (b === 0) return new MonadicError('Division by zero')
   return a / b
 }
-// Caller gets an error value. No crash. Ever.
+// Caller gets an error value. No crash.
 ```
+
+(`MonadicError` is a class, so it needs `new`: the "no `new`" rule covers
+only classes declared in your own file. The signature `divide(a: 6.0, b: 3.0): 2.0`
+is a worked example: TJS checks `divide(6, 3)` is `2` when it transpiles.)
 
 **How the caller handles it:**
 
@@ -732,19 +847,44 @@ types or you use `as any` to escape.
 
 ## Automatic Conversion
 
-TJS includes a TypeScript-to-TJS converter that has been validated against
-the tosijs production codebase (35 files, 523 tests passing):
+TJS includes a TypeScript-to-TJS converter. Its compatibility lane converts
+real TypeScript libraries (zod, effect, kysely, radash, superstruct,
+ts-pattern) and runs each project's own test suite against the converted
+code:
 
 ```bash
 # Convert a single file
 bun src/cli/tjs.ts convert input.ts --emit-tjs > output.tjs
 
-# Convert a directory (produces .js + .d.ts + .md per file)
-bun src/cli/tjs.ts convert src/ -o tjs-out/
+# Convert a directory to .tjs files
+bun src/cli/tjs.ts convert --emit-tjs src/ -o tjs-out/
+
+# Convert a directory straight to JavaScript (.js per file)
+bun src/cli/tjs.ts convert src/ -o js-out/
 
 # Emit JavaScript directly
 bun src/cli/tjs.ts convert input.ts > output.js
 ```
+
+<!-- TODO review -->
+
+**Conversion does not change behaviour.** The converted file starts with a
+`/* tjs <- input.ts */` marker, which means _JavaScript semantics_: `==`
+coerces, parameters are not checked, `new` is required, exactly as under
+`tsc`. Where the TypeScript relied on a JavaScript behaviour that native TJS
+fixes, the converter writes a named escape that means the same thing in
+either dialect: `DangerousLegacyEquals(a, b)` for `a == b`,
+`LegacyTypeOf(x)` for `typeof x`, `LegacyDate(x)` for `new Date(x)`,
+`LegacyDefault({ … })` for an object default. **Graduation**
+(`graduate(source)` from `tjs-lang/lang`) then removes the marker, drops
+`new` on the file's own classes and turns safe `switch`es into `given`, so the
+file becomes native TJS with the same behaviour. You retire the escapes one
+at a time afterwards. [Converting a TypeScript
+Project](guides/sections/ts-converting-a-project.md) walks through it.
+
+`/* @tjs TjsStrict */` in the `.ts` file skips the faithful step: the output
+is native TJS at once, with every parameter checked and every operator
+given its TJS meaning, which can change what a coercing `==` does.
 
 From code:
 
@@ -1047,14 +1187,29 @@ You can wrap them in a TJS boundary to get runtime safety:
 ```javascript
 import { rawGeocode } from 'legacy-geo-pkg'
 
+Type Coords {
+  example: { lat: 0.0, lon: 0.0 }
+}
+
 // Wrap to validate at your system boundary
-function geocode(addr: ''): { lat: 0.0, lon: 0.0 } {
-  return rawGeocode(addr)
+function geocode(addr: '') {
+  const result = rawGeocode(addr)
+  return Coords.check(result)
+    ? result
+    : new MonadicError(`geocoder returned ${JSON.stringify(result)}`)
 }
 ```
 
 The untyped library code runs freely. Your TJS wrapper validates the
 result before it enters your typed world.
+
+<!-- TODO review -->
+
+(Why not `function geocode(addr: ''): { lat: 0.0, lon: 0.0 }`? A plain return
+annotation is a worked example: TJS would call `geocode('')` at transpile
+time, which would call the library. `:!` documents the return type without
+checking it; an explicit `check`, as above, is the way to validate a value
+from code you do not control.)
 
 ### Do Proxies, WeakMaps, and other advanced patterns work?
 
