@@ -347,6 +347,7 @@
     "deploy": "bun run build:demo && bun run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev",
     "docs:differences": "bun scripts/build-differences.ts",
+    "build:icons": "bun scripts/build-icons.ts",
     "build:prelude": "bun scripts/build-prelude.ts",
     "build:regex-folds": "bun scripts/build-regex-folds.ts",
     "test:compat": "bun scripts/compat-all.ts",
