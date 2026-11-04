@@ -105,6 +105,23 @@ export default defineSiteConfig({
   // registry (tosijs-ui#184, 1.16.1) and the doc system itself. See site/entry.ts.
   bundleEntry: 'site/entry.ts',
 
+  // ── Brand: the platform icon and its sky blue (the icon's #3ea9f5; the logo animation's is
+  // the same colour, #3da8f4 after rounding). tosijs-ui derives the palette from `accent` and
+  // picks readable text on it with `contrasting()`, so a light accent stays legible.
+  theme: { accent: '#3ea9f5' },
+  // The header mark, the favicon (demo/static/favicon.svg is the same icon) and the default
+  // share image. The PNGs come from `bun scripts/build-icons.ts`.
+  logo: '/favicon.svg',
+  ogImage: '/tjs-lang-512.png',
+  headExtra: [
+    '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />',
+    '<meta name="theme-color" content="#3ea9f5" />',
+    // A 2px white outline around the header mark, following its shape (not its box), so it
+    // stands out on the blue bar: four unblurred drop-shadows, one per direction (CSS
+    // drop-shadow has no spread).
+    '<style>.logo-mark{filter:drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff)}</style>',
+  ].join('\n'),
+
   // "Edit page source" and "Download page source" read a page's markdown from GitHub raw
   // (`main`) on a deployed site, which has no dev-server source endpoint. Without a github
   // link both silently did nothing (found 2026-10-07). Also the header's repo and npm links.

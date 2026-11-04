@@ -134,6 +134,8 @@ bun run bench               # Regenerates benchmarks.md (CLI cold start, safe-vs
                             #   src/linalg/vector-search.bench.test.ts. This overwrites a
                             #   committed, npm-shipped artifact, so commit the diff.
 bun run docs                # Generate documentation
+bun run build:icons         # PNG icons from tjs-lang.svg into demo/static/ (apple-touch-icon.png,
+                            #   tjs-lang-512.png, the share image). Committed; re-run after the icon changes.
 bun run build:prelude       # Regenerate src/lang/prelude.generated.js (`tjs-lang/prelude`) from the
                             #   emitter's inline runtime with every feature on. Run it after ANY
                             #   change to the inline runtime; prelude.test.ts fails until you do.
