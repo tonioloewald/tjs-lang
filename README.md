@@ -283,6 +283,10 @@ Three ways out, roughly in order of preference:
 This is not specific to tjs-lang; it catches any package that re-exports a type from an
 optional peer. It is documented here because we ship the types that invite it.
 
+## Credits
+
+Logo animation by [@anicoremotion](https://pro.fiverr.com/freelancers/anicoremotion).
+
 ## License
 
 Apache 2.0
