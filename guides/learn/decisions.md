@@ -6,6 +6,38 @@ Every program so far has done the same thing every time. Real programs decide: i
 is new, say welcome; if the number is too big, say so. This chapter is about making a program
 choose what to do.
 
+<!-- TODO review -->
+
+## Questions with yes-or-no answers
+
+A decision starts with a question whose answer is `true` or `false`. You met the first of these
+in Values and Names: `7 > 3` is `true`. Here is the whole family:
+
+| question | means                                   | example          |
+| -------- | --------------------------------------- | ---------------- |
+| `a < b`  | is `a` less than `b`?                   | `3 < 5` is true  |
+| `a > b`  | is `a` greater than `b`?                | `3 > 5` is false |
+| `a <= b` | is `a` less than or equal to `b`?       | `5 <= 5` is true |
+| `a >= b` | is `a` greater than or equal to `b`?    | `4 >= 5` is false |
+| `a == b` | is `a` the same value as `b`?           | `5 == 5` is true |
+| `a != b` | is `a` a different value from `b`?      | `5 != 5` is false |
+
+```tjs:inline {"view": "code"}
+const age = 17
+
+preview.append(`At ${age}, old enough to vote: ${age >= 18}`)
+
+test 'comparisons answer true or false' {
+  expect(age >= 18).toBe(false)
+  expect(age < 18).toBe(true)
+  expect(age != 18).toBe(true)
+}
+```
+
+Change `age` to `18` and then to `19`, and before each change, predict the sentence. The
+difference between `>` and `>=` is exactly one value: the edge. Decisions go wrong at their
+edges more than anywhere else.
+
 ## `if`: only sometimes
 
 `if` runs a block of code only when a condition is true. The condition goes in parentheses,
@@ -32,6 +64,43 @@ test 'a coat when it is cold, not when it is warm' {
 true, the block runs and `message` changes; when it is false, the block is skipped. Change
 `advice(5)` to `advice(25)` and watch the advice change.
 
+<!-- TODO review -->
+
+## A decision is only as good as its input
+
+What happens if `advice` is asked about something that is not a temperature at all? Change
+`advice(5)` to `advice('cold')`. Without a check, the comparison `'cold' < 10` would quietly
+answer `false`, and the program would cheerfully tell you to have a nice day. TJS does not let
+that happen. `temperature: 0` says `advice` takes a whole number, so the call never reaches
+the `if`: it gives back an error saying an integer was expected and a string arrived, and that
+error is what appears on the page.
+
+Now try `advice(9.5)`. That is refused too, and this time TJS is right and the program is
+wrong: temperatures have fractions, but the example `0` says "whole number". Change the example
+to `0.0`, which means any number, and `advice(9.5)` works. The example in a function's
+parentheses is a statement about what the function accepts, and it is worth getting right.
+
+```tjs:inline {"view": "code"}
+function advice(temperature: 0.0) {
+  let message = 'Have a nice day.'
+  if (temperature < 10) {
+    message = 'Take a coat.'
+  }
+  return message
+}
+
+preview.append(advice(9.5))
+
+test 'any number is a temperature; a word is not' {
+  expect(advice(9.5)).toBe('Take a coat.')
+  expect(advice(10)).toBe('Have a nice day.')
+  expect(advice('cold') instanceof Error).toBe(true)
+}
+```
+
+The last check is the one from Checking Your Work: a wrong kind of value gives back an error,
+and a test can say so.
+
 ## `else`: one or the other
 
 `else` gives the other choice: what to do when the condition is false.
@@ -56,6 +125,21 @@ test 'even and odd' {
 `%` gives the **remainder** after dividing: `7 % 2` is 1, because 7 is three 2s and 1 over.
 An even number leaves no remainder. Notice that each branch can `return` straight away: once a
 function returns, nothing after it runs.
+
+<!-- TODO review -->
+
+## One equals sign, or two?
+
+`=` stores a value; `==` asks a question. Typing one when you meant the other is perhaps the
+most famous mistake in programming. Try it: in `describe`, change `n % 2 == 0` to `n % 2 = 0`.
+The example stops with an error before anything runs, because "store 0 in `n % 2`" makes no
+sense: `n % 2` is a calculation, not a name.
+
+The mistake is sneakier when the left side **is** a name. `if (n = 0)` is legal: it stores 0 in
+`n`, then treats that 0 as the answer to the question, and 0 counts as false, so the block
+never runs, whatever `n` was. That is why the tests in this book check both
+branches of every decision: a decision that always goes the same way passes half its tests,
+and the other half tell you something is wrong.
 
 ## `else if`: more than two choices
 
@@ -88,6 +172,13 @@ test 'grades' {
 The order matters. 95 is also at least 80, but the `score >= 90` test comes first, so it wins.
 Try moving the `score >= 80` branch to the top and see which tests fail.
 
+<!-- TODO review -->
+
+Read the chain as a series of narrowing questions. By the time the program asks
+`score >= 80`, it already knows the score is **not** 90 or more, so that branch means "80 to
+89". Each `else if` only has to rule out what is left. And the final `else` catches
+everything nothing else did, so `grade` always gives back an answer.
+
 ## Combining conditions
 
 Three words build bigger conditions out of smaller ones:
@@ -109,6 +200,60 @@ test 'old enough AND tall enough' {
   expect(canRide(6, 130)).toBe(false)
 }
 ```
+
+<!-- TODO review -->
+
+Notice that `canRide` has no `if` at all. `age >= 8 && height >= 120` already **is** `true` or
+`false`, so the function can return it directly. Writing
+`if (condition) { return true } else { return false }` is a long way to say `return condition`.
+
+`||` and `!` work the same way:
+
+```tjs:inline {"view": "code"}
+function isWeekend(day: 'monday') {
+  return day == 'saturday' || day == 'sunday'
+}
+
+function isWorkday(day: 'monday') {
+  return !isWeekend(day)
+}
+
+preview.append(`Is Sunday a workday? ${isWorkday('sunday')}`)
+
+test 'or, and not' {
+  expect(isWeekend('saturday')).toBe(true)
+  expect(isWeekend('sunday')).toBe(true)
+  expect(isWeekend('tuesday')).toBe(false)
+  expect(isWorkday('tuesday')).toBe(true)
+}
+```
+
+A common slip is to write `day == 'saturday' || 'sunday'`, the way you would say it aloud.
+Each side of `||` has to be a whole question, so the comparison must be written out twice. And
+the comparison is exact: `'Sunday'`, with a capital S, is a different string from `'sunday'`.
+Try `isWeekend('Sunday')`.
+
+<!-- TODO review -->
+
+## Choosing between two values
+
+When a decision only picks one of two values, there is a shorter form: `condition ? yes : no`.
+It reads "if the condition is true, this, otherwise that":
+
+```tjs:inline {"view": "code"}
+const apples = 1
+const label = apples == 1 ? 'apple' : 'apples'
+
+preview.append(`You have ${apples} ${label}.`)
+
+test 'one apple, many apples' {
+  expect(label).toBe('apple')
+  expect((2 == 1) ? 'apple' : 'apples').toBe('apples')
+}
+```
+
+Change `apples` to `0`, then `3`. Use this form for small choices like a label or a word; when
+each choice takes more than a line, `if` and `else` are easier to read.
 
 ## `given`: choosing by value
 
@@ -147,3 +292,15 @@ A cinema charges children (under 12) 5, seniors (65 and over) 6, and everyone el
 `ticketPrice(age: 0)` and test all three prices, plus the edges: an 11-year-old, a
 12-year-old, a 64-year-old and a 65-year-old. Edges are where decisions go wrong, so they are
 where tests earn their keep.
+
+<!-- TODO review -->
+
+Then:
+
+1. Add a rule: on Tuesdays everyone pays 4. Give `ticketPrice` a second parameter,
+   `day: 'monday'`, and decide which check should come first. Test a Tuesday child and a
+   Tuesday senior.
+2. Write `bigger(a: 0.0, b: 0.0)` that gives back whichever number is larger, using `? :`.
+   What should it give back when they are equal? Test that case too.
+3. Use `given` to write `vowel(letter: 'a')` that is `true` for `'a'`, `'e'`, `'i'`, `'o'` and
+   `'u'`, and `false` for anything else.
