@@ -6,6 +6,30 @@ So far every program has run from top to bottom, once. A **function** is a piece
 with a name, which you can run whenever you like, as often as you like, with different
 values each time. Functions are how programs avoid saying the same thing twice.
 
+<!-- TODO review -->
+## Saying the same thing twice
+
+Here is a program that works out a 15% tip on three restaurant bills:
+
+```tjs:inline {"view": "code"}
+const lunch = 40
+const dinner = 60
+const breakfast = 20
+
+const lunchTip = lunch * 0.15
+const dinnerTip = dinner * 0.15
+const breakfastTip = breakfast * 0.51
+
+preview.append(`Tips: ${lunchTip}, ${dinnerTip}, ${breakfastTip}`)
+```
+
+Look at the last tip. The rule "multiply by 0.15" is written out three times, and the third
+copy has its digits swapped, so breakfast costs a 51% tip. Nothing complains: `0.51` is a
+perfectly good number. The program just quietly gives a wrong answer.
+
+The cure is to write the rule **once**, give it a name, and use the name every time. That is
+a function. Fix a mistake in a function and it is fixed everywhere the function is used.
+
 ## Making your own
 
 Here is a function called `double`. It takes a number and gives back twice that number:
@@ -32,6 +56,29 @@ Read it a line at a time:
 - `double(21)` **calls** the function: it runs it with `n` set to 21, and the call becomes
   the answer, 42.
 
+Writing the function does not run it. The lines inside the braces wait until something calls
+`double`; then they run, once per call. Change `double(21)` to `double(100)` and the sentence
+changes, because the call is worked out again.
+
+<!-- TODO review -->
+Now the tips, with the rule written once:
+
+```tjs:inline {"view": "code"}
+function tip(bill: 0.0) {
+  return bill * 0.15
+}
+
+preview.append(`Tips: ${tip(40)}, ${tip(60)}, ${tip(20)}`)
+
+test 'a tip is 15% of the bill' {
+  expect(tip(40)).toBe(6)
+  expect(tip(20)).toBe(3)
+}
+```
+
+If the restaurant decides tips should be 20%, there is one place to change, and the test tells
+you which answers moved. Try it.
+
 ## What `: 0` means
 
 The `: 0` after `n` says what kind of value `n` should be, by giving an **example** of one:
@@ -54,6 +101,28 @@ answer is an **error** saying what was expected and what arrived, instead of a n
 result that would cause trouble later. If you want a function that takes any number,
 fractions included, give it the example `0.0` instead.
 
+<!-- TODO review -->
+The examples you will use most are these:
+
+| You write | It means | It accepts |
+| --- | --- | --- |
+| `n: 0` | a whole number | `5`, `-3`, `0` |
+| `n: 0.0` | any number | `5`, `2.5`, `-0.1` |
+| `n: +0` | a whole number, zero or more | `0`, `5`, but not `-3` |
+| `name: ''` | a string (any text) | `'Ada'`, `''` |
+| `ok: true` | a boolean | `true`, `false` |
+
+The example only says what **kind** of value: `name: 'Ada'` accepts `'Grace'` just as happily
+as `name: ''` does. Pick an example a reader would recognise, because the example is also
+documentation. (`tip` above uses `0.0`, because a bill can have pennies in it.)
+
+<!-- TODO review -->
+### Leaving a value out
+
+Calling `double()` with nothing in the parentheses is a mistake too, and TJS says so. Type
+`double()` at the console above: the error says it expected an integer and got `undefined`,
+which is JavaScript's word for "nothing was here". A parameter written with `:` must be given.
+
 ## Several parameters
 
 A function can take more than one value. Separate the parameters with commas, and give the
@@ -72,6 +141,33 @@ test 'area multiplies' {
 }
 ```
 
+<!-- TODO review -->
+### Order matters
+
+The values are matched to the parameters by position: the first value goes to the first
+parameter, and so on. For `area` a mix-up does no harm, since 6 × 7 is 7 × 6. For most
+functions it does:
+
+```tjs:inline {"view": "code"}
+function repeatWord(word: 'ha', times: 3) {
+  return word.repeat(times)
+}
+
+preview.append(repeatWord('ha', 3))
+
+test 'the word comes first, then how many times' {
+  expect(repeatWord('ha', 3)).toBe('hahaha')
+  expect(repeatWord(3, 'ha') instanceof Error).toBe(true)
+}
+```
+
+(`word.repeat(times)` is one of the things a string can do for itself: it gives back the
+string written out `times` times.)
+
+Change the call to `repeatWord(3, 'ha')`. The page shows an error naming the parameter
+`word`, and saying it expected a string and got a number. The examples on the parameters are
+what let TJS spot the swap: it knows `word` should look like `'ha'`, and `3` does not.
+
 ## Words in, words out
 
 Parameters can be any kind of value. This one takes a name (`'Ada'` is the example, so the
@@ -88,6 +184,59 @@ test 'greet puts the name in the middle' {
   expect(greet('Grace')).toBe('Hello, Grace!')
 }
 ```
+
+<!-- TODO review -->
+## Functions that use functions
+
+A function can call other functions, so small ones combine into bigger ones. Each small one
+does one job, and has its own test:
+
+```tjs:inline {"view": "code"}
+function cost(price: 2.5, quantity: 1) {
+  return price * quantity
+}
+
+function withTax(amount: 10.0) {
+  return amount * 1.2
+}
+
+function bill(price: 2.5, quantity: 1) {
+  return withTax(cost(price, quantity))
+}
+
+preview.append(`Four coffees at 2.5 each come to ${bill(2.5, 4)} with tax.`)
+
+test 'each piece does its own job' {
+  expect(cost(2.5, 4)).toBe(10)
+  expect(withTax(10)).toBe(12)
+  expect(bill(2.5, 4)).toBe(12)
+}
+```
+
+`withTax(cost(price, quantity))` is worked out from the inside: `cost` runs first, and its
+answer is handed straight to `withTax`. When `bill` gives a wrong answer, the tests on the
+small functions tell you which piece to look at.
+
+<!-- TODO review -->
+### Names inside a function stay inside
+
+The parameters of a function, and any `const` or `let` made inside it, belong to that
+function. They exist while it runs, and the rest of the program cannot see them:
+
+```tjs:inline {"view": "console"}
+function square(n: 0) {
+  const result = n * n
+  return result
+}
+
+console.log('square(4) is', square(4))
+console.log('Now ask the prompt for result, or for n.')
+```
+
+The console says `result` is not defined: outside `square` there is no such name. That is a
+good thing. Two functions can each have their own `result` without treading on each other,
+and you can read a function without wondering what the rest of the program does to its names.
+To get a value out of a function, `return` it.
 
 ## The example is also a test
 
@@ -110,6 +259,62 @@ the function, and it is a test as well: TJS runs `greet('Ada')` and checks the a
 result line counts it beside the `test` below. Change `'Hello, Ada!'` to `'Hi, Ada!'` and the
 line turns red, saying `greet('Ada')` actually returned `'Hello, Ada!'`.
 
+<!-- TODO review -->
+This is unusual. In most languages the first line of a function says only what kinds of
+value go in and come out, and whether the function does the right thing is a separate
+question, answered (if at all) somewhere else. In TJS the first line is a small worked
+example, like the one at the top of a page of exercises: "for instance, 21 doubled is 42".
+TJS runs that example as soon as the program is built, every time, before anything else
+happens.
+
+<!-- TODO review -->
+### The mistake it catches
+
+The most common mistake with a new function is forgetting `return`. Without it the function
+works out the answer, then throws it away and gives back `undefined`:
+
+<!-- tjs-doc: expect-error -->
+```tjs:static
+function double(n: 21): 42 {
+  n * 2 // works out 42, and drops it
+}
+```
+
+With the answer example in place, this never gets as far as being used: the example fails at
+once, saying `double(21)` should have been 42 and was `undefined`. Try it on the live example
+below: delete the word `return` and watch the result line.
+
+```tjs:inline {"view": "code"}
+function double(n: 21): 42 {
+  return n * 2
+}
+
+preview.append(`Double 8 is ${double(8)}.`)
+```
+
+<!-- TODO review -->
+### Pick an example worth checking
+
+An example is only as good a test as the values in it. `double(n: 0): 0` is true, but it
+would also be true of a function that tripled `n`, or one that always gave back 0: zero
+times anything is zero. `double(n: 21): 42` can only pass if the function really doubles.
+Choose examples where a wrong function would give a different answer.
+
+Sometimes there is no single right answer to show. A function that rolls a die gives a
+different number every time. Then write `:!` instead of `:` before the answer's example. It
+still says what **kind** of value comes back, but TJS does not run it as a test:
+
+```tjs:inline {"view": "code"}
+function rollDie():! 1 {
+  return Math.floor(Math.random() * 6) + 1
+}
+
+preview.append(`You rolled a ${rollDie()}.`)
+```
+
+(`Math.random()` gives a fraction between 0 and 1, and `Math.floor` rounds down to a whole
+number.) You will not need `:!` often. When you can give a real example, give one.
+
 ## Values that can be left out
 
 Write `=` instead of `:` to give a parameter a **default**: the value it gets when the caller
@@ -131,8 +336,26 @@ test 'a default fills the gap' {
 `:` means "you must give me one of these"; `=` means "you may, and here is what I use if you
 don't". The default is an example too, so `greet` still only takes strings.
 
+<!-- TODO review -->
+Parameters with defaults go after the ones without, because values are matched by position:
+in `function tip(bill: 0.0, rate = 0.15)`, `tip(40)` means "40, at the usual rate", and
+`tip(40, 0.2)` means "40, at 20%".
+
 ## Try it
 
 Write a function `minutes(hours: 0)` that gives back how many minutes are in that many hours.
 Show a sentence using it, and add a test that checks `minutes(2)` is `120`. Then give it a
 second parameter, `extraMinutes = 0`, so that `minutes(1, 30)` is `90`, and test that too.
+
+<!-- TODO review -->
+More to try:
+
+- Write `fahrenheit(celsius: 100.0): 212.0`, which turns a temperature in Celsius into
+  Fahrenheit (multiply by 9, divide by 5, add 32). The answer example is your first test. Add
+  a `test` block for 0 (32) and for -40, where the two scales meet.
+- Go back to the tips program at the top of this chapter and give `tip` a second parameter,
+  `rate = 0.15`. Test a 20% tip.
+- Break things on purpose: in `bill`, swap `price` and `quantity` in the call to `cost`, so
+  it reads `cost(quantity, price)`. 4 × 2.5 is the same as 2.5 × 4, so you might expect
+  nothing to notice. Something does. Read the message: which parameter refused which value,
+  and which example told TJS it was wrong?
