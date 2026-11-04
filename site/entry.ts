@@ -9,10 +9,69 @@
  */
 import 'tosijs-ui/doc-browser'
 import 'tosijs-ui/live-example'
+// <tosi-lottie>: the home page's logo animation (by @anicoremotion, credited in the README).
+// The root `tosijs-ui` import does not register it, and this bundle replaces tosijs-ui's own,
+// so without this the page showed only the fallback image, with no error.
+import 'tosijs-ui/bodymovin-player'
 import { registerDialect } from 'tosijs-ui/live-example'
 import { transpile } from '../src/lang/core'
 import { installRuntime } from '../src/lang/runtime'
 import { AgentVM } from '../src/vm/ast'
+
+/**
+ * Keep a <tosi-lottie>'s child image as its PLACEHOLDER until the animation has drawn.
+ *
+ * The element renders into a shadow root with no slot, so registering it hides the child
+ * `<img>` at once and the logo area stays blank until lottie downloads from its CDN. The image
+ * is shown as the element's background until the animation's SVG arrives. (The child `<img>`
+ * stays in the markup for GitHub, where nothing registers the element. Filed upstream: the
+ * element should slot its children until loaded; see UPSTREAM.md.)
+ */
+function keepPlaceholder(el: Element): void {
+  const host = el as HTMLElement
+  const img = host.querySelector(':scope > img') as HTMLImageElement | null
+  if (!img || host.dataset.placeholder) return
+  host.dataset.placeholder = 'shown'
+  host.style.background = `url("${img.src}") center / contain no-repeat`
+  const clear = () => {
+    host.style.background = ''
+    host.dataset.placeholder = 'replaced'
+  }
+  let frames = 0
+  const watch = () => {
+    const root = host.shadowRoot
+    if (root?.querySelector('svg')) return clear()
+    if (root) {
+      new MutationObserver((_, observer) => {
+        if (!root.querySelector('svg')) return
+        observer.disconnect()
+        clear()
+      }).observe(root, { childList: true, subtree: true })
+      return
+    }
+    // Not upgraded yet (or a closed root): look again, but never forever.
+    if (++frames < 600) requestAnimationFrame(watch)
+    else clear()
+  }
+  watch()
+}
+const placeholders = () =>
+  document.querySelectorAll('tosi-lottie').forEach(keepPlaceholder)
+placeholders()
+// The doc browser renders pages client-side, so a logo can arrive after load. Batched to a
+// frame: live examples mutate the DOM constantly.
+let scanQueued = false
+new MutationObserver(() => {
+  if (scanQueued) return
+  scanQueued = true
+  requestAnimationFrame(() => {
+    scanQueued = false
+    placeholders()
+  })
+}).observe(document.documentElement, {
+  childList: true,
+  subtree: true,
+})
 
 // The FULL runtime, as the old playground installed it. Emitted code prefers an installed
 // `globalThis.__tjs` over its inline stub, and the stub has no flight recorder, so the
