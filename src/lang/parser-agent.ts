@@ -73,6 +73,8 @@ export interface AgentPreprocessResult {
   /** Offsets IN `source` where a required parameter's value begins. */
   requiredValueOffsets: Set<number>
   returnType?: string
+  /** Each named function's return annotation: the ENTRY's is the agent's declared result. */
+  returnTypes?: Record<string, string>
 }
 
 /**
@@ -129,23 +131,24 @@ export function preprocessAgentSource(
   // (`b: Box<int>`) require a `Type`/`Generic` declaration, and AJS has neither. An
   // annotation of that shape is left alone here and fails at acorn or in the AST emitter,
   // which is the honest outcome for syntax the language does not have.
-  const { source: transformed, returnType } = transformParenExpressions(
-    source,
-    {
-      // AJS takes untrusted code: nesting is bounded in the recursion (see MAX_PAREN_DEPTH),
-      // and all of the transform's scanning is metered (see TransformWork).
-      maxParenDepth: MAX_PAREN_DEPTH,
-      work: transformWorkFor(source),
-      originalSource,
-      requiredParams,
-      typeNameOptionals,
-      unsafeFunctions: new Set<string>(),
-      safeFunctions: new Set<string>(),
-      // The AST emitter cannot carry `name: Type = default`'s type into the input schema
-      // yet, and dropping it fails open (rc.10 review). Refused, as rc.9 did, with a remedy.
-      refuseTypedDefaults: true,
-    }
-  )
+  const {
+    source: transformed,
+    returnType,
+    returnTypes,
+  } = transformParenExpressions(source, {
+    // AJS takes untrusted code: nesting is bounded in the recursion (see MAX_PAREN_DEPTH),
+    // and all of the transform's scanning is metered (see TransformWork).
+    maxParenDepth: MAX_PAREN_DEPTH,
+    work: transformWorkFor(source),
+    originalSource,
+    requiredParams,
+    typeNameOptionals,
+    unsafeFunctions: new Set<string>(),
+    safeFunctions: new Set<string>(),
+    // The AST emitter cannot carry `name: Type = default`'s type into the input schema
+    // yet, and dropping it fails open (rc.10 review). Refused, as rc.9 did, with a remedy.
+    refuseTypedDefaults: true,
+  })
   source = transformed
 
   // Markers out, offsets in — see `extractParamMarkers`. Acorn and the AST emitter see
@@ -158,6 +161,7 @@ export function preprocessAgentSource(
     requiredParams,
     requiredValueOffsets: marked.required,
     returnType,
+    returnTypes,
   }
 }
 

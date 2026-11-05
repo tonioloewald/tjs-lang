@@ -737,8 +737,8 @@ test 'always fails' { throw new Error('intentional') }
 
         This demonstrates TJS doc comments.
         */
-        function greet(name: 'World'): '' {
-          return 'Hello, ' + name + '!'
+        function greet(name: 'World'): { greeting: '' } {
+          return { greeting: 'Hello, ' + name + '!' }
         }
       `)
       expect(signature.description).toContain('The classic greeting function')
@@ -757,8 +757,8 @@ test 'always fails' { throw new Error('intentional') }
 
         \`code example\`
         */
-        function test(x: 0): 0 {
-          return x
+        function test(x: 0): { x: 0 } {
+          return { x }
         }
       `)
       expect(signature.description).toContain('# Heading')
@@ -772,8 +772,8 @@ test 'always fails' { throw new Error('intentional') }
           Indented content here.
           More indented content.
         */
-        function test(x: 0): 0 {
-          return x
+        function test(x: 0): { x: 0 } {
+          return { x }
         }
       `)
       // Should not have extra leading spaces
@@ -790,8 +790,8 @@ test 'always fails' { throw new Error('intentional') }
         /*#
         TJS doc description
         */
-        function test(x: 0): 0 {
-          return x
+        function test(x: 0): { x: 0 } {
+          return { x }
         }
       `)
       expect(signature.description).toBe('TJS doc description')
@@ -810,8 +810,8 @@ test 'always fails' { throw new Error('intentional') }
         /*#
         Function-specific documentation.
         */
-        function test(x: 0): 0 {
-          return x
+        function test(x: 0): { x: 0 } {
+          return { x }
         }
       `)
       expect(signature.description).toBe('Function-specific documentation.')
@@ -828,8 +828,8 @@ test 'always fails' { throw new Error('intentional') }
 
         const someVar = 123
 
-        function test(x: 0): 0 {
-          return x
+        function test(x: 0): { x: 0 } {
+          return { x }
         }
       `)
       // No doc comment should be attached since there's code between
@@ -844,9 +844,9 @@ test 'always fails' { throw new Error('intentional') }
       // name via callLocal. See use-cases/local-helpers.test.ts for semantics.
       const { ast } = transpile(`
         function helper(x: 0): 0 { return x }
-        function main(n: 0): 0 {
+        function main(n: 0): { r: 0 } {
           const r = helper(n)
-          return r
+          return { r }
         }
       `)
       // Unused/used helpers are collected onto the root node by name.

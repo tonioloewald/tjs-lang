@@ -663,6 +663,49 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       ctx.output = ctx.halt.error
     }
 
+    // The DECLARED RESULT (#3834). A typed agent emits what it declares or the run is an
+    // error. Checked only on success: a failed run reports its own error. Validation is
+    // (schema nodes) × (result paths) of work, paid from the fuel the run has LEFT, before it
+    // runs — the same admission and bound as the input schema above.
+    const outputSchema = (ast as any).outputSchema
+    if (outputSchema !== undefined && !ctx.error) {
+      let failure: AgentError | undefined
+      try {
+        const nodes = admitGuestSchema(outputSchema, 'vm.run')
+        const ceiling = Math.min(
+          MAX_VALIDATION_PATHS,
+          Math.floor(MAX_VALIDATION_STEPS / Math.max(1, nodes))
+        )
+        const affordable = Math.min(
+          ceiling,
+          Math.floor(
+            Math.max(0, ctx.fuel.current) / (nodes * VALIDATION_FUEL_PER_STEP)
+          )
+        )
+        const paths = countPaths(ctx.output, affordable)
+        if (paths > affordable)
+          throw new AgentError(
+            paths > ceiling
+              ? `Result too large to validate against the declared result (over ${ceiling} paths for a ${nodes}-node schema)`
+              : 'Out of Fuel',
+            'vm.run'
+          )
+        ctx.fuel.current -= nodes * paths * VALIDATION_FUEL_PER_STEP
+        if (!validate(ctx.output, outputSchema))
+          throw new AgentError(
+            'Result does not match the declared result type',
+            'vm.run'
+          )
+      } catch (e) {
+        if (!(e instanceof AgentError)) throw e
+        failure = e
+      }
+      if (failure) {
+        ctx.error = failure
+        ctx.output = failure
+      }
+    }
+
     // If there's an error but no output was set, set the error as output
     if (ctx.error && ctx.output === undefined) {
       ctx.output = ctx.error

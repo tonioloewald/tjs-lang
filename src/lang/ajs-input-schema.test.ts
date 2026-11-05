@@ -38,6 +38,34 @@ describe('declared AJS inputs are enforced', () => {
       4,
       'x',
     ],
+    // Found with #3834: object members were never required, so `p: { x: 0 }` accepted `{}`
+    // (TJS refuses it), and unions were `oneOf` (exactly one), so `'' | undefined` refused
+    // every string so did any union whose members overlap.
+    [
+      'an object example requires its members',
+      'function f(p: { x: 0 }) { return { p } }',
+      { x: 1 },
+      {},
+    ],
+    [
+      'a member that may be absent',
+      "function f(p: { x: 0, y: '' | undefined }) { return { p } }",
+      { x: 1, y: 'hi' },
+      { y: 'hi' },
+    ],
+    [
+      'a union admits a value matching more than one member',
+      "function f(s: '' | undefined) { return { s } }",
+      'hi',
+      5,
+    ],
+    // `'' | undefined` admitted 5 (undefined mapped to `{}`); `'' | null` refused null.
+    [
+      'a nullable example admits null',
+      "function f(s: '' | null) { return { s } }",
+      null,
+      5,
+    ],
   ]
   for (const [what, src, good, bad] of rows)
     it(what, async () => {

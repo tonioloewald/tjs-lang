@@ -708,6 +708,20 @@ export function extractLiteralValue(node: Expression): any {
   }
 }
 
+/** `a || b` → `a | b`, throughout an acorn expression tree (see `parseReturnType`). */
+function unionsFromLogical(node: any): any {
+  if (!node || typeof node !== 'object') return node
+  if (Array.isArray(node)) return node.map(unionsFromLogical)
+  const out: any = {}
+  for (const [k, v] of Object.entries(node))
+    out[k] = v && typeof v === 'object' ? unionsFromLogical(v) : v
+  if (out.type === 'LogicalExpression' && out.operator === '||') {
+    out.type = 'BinaryExpression'
+    out.operator = '|'
+  }
+  return out
+}
+
 /**
  * Parse return type from a type annotation expression
  */
@@ -717,7 +731,10 @@ export function parseReturnType(typeExpr: string): TypeDescriptor {
     const ast = parseExpressionAt(typeExpr, 0, {
       ecmaVersion: 2022,
     })
-    return inferTypeFromValue(ast)
+    // The return-type scanner normalises a union's `|` to `||` (and refuses a `||` the
+    // author wrote: \`orInType\`), so every `||` here IS a union. Read as JavaScript's `||`
+    // it inferred the LEFT side, so `{ m: 'a' | 'b' }` became `{ m: string }` (#3834).
+    return inferTypeFromValue(unionsFromLogical(ast) as Expression)
   } catch {
     return { kind: 'any' }
   }

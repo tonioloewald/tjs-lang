@@ -65,7 +65,7 @@ describe('Local helper functions', () => {
     const result = await run(
       `
       function scale(x: 1.5, factor: 0.5): 0.75 { return x * factor }
-      function main(n: 1.5): 0.75 {
+      function main(n: 1.5): { s: 0.75 } {
         const s = scale(n, 0.5)
         return { s }
       }`,

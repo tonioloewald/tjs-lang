@@ -53,7 +53,7 @@ export function transpile(
   }
   const {
     ast: program,
-    returnType,
+    returnTypes,
     originalSource,
     requiredValueOffsets,
     requiredParams,
@@ -61,6 +61,11 @@ export function transpile(
   parseAgentSource(source, { filename: options.filename })
 
   const { entry, helpers } = extractFunctions(program, options.filename)
+  // The ENTRY's annotation is the agent's declared result. The parser's `returnType` is the
+  // FIRST function's, which in an agent with helpers is a helper's (#3834).
+  const entryName = entry.id?.name
+  const returnType =
+    entryName && returnTypes ? returnTypes[entryName] : undefined
 
   const { ast, signature, warnings } = transformFunction(
     entry,

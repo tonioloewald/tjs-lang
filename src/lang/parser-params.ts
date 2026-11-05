@@ -382,6 +382,7 @@ export function transformParenExpressions(
   source: string
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
+  returnTypes?: Record<string, string>
 } {
   // The bound lives HERE, in the recursion it bounds — see MAX_PAREN_DEPTH.
   const parenDepth = ctx.parenDepth ?? 0
@@ -406,6 +407,8 @@ export function transformParenExpressions(
   const classBracketMemo = new Map<number, number>()
   let firstReturnType: string | undefined
   let firstReturnSafety: 'safe' | 'unsafe' | undefined
+  /** Each NAMED function's return annotation. The first one is not the AJS entry (#3834). */
+  const returnTypes: Record<string, string> = Object.create(null)
 
   // State machine for tokenizing
   let state: TokenizerState = 'normal'
@@ -839,6 +842,8 @@ export function transformParenExpressions(
             firstReturnType = typeResult.type
             if (safety) firstReturnSafety = safety
           }
+          if (declaredName && !(declaredName in returnTypes))
+            returnTypes[declaredName] = typeResult.type
           i = typeResult.endPos
         }
       }
@@ -1223,6 +1228,7 @@ export function transformParenExpressions(
     source: result,
     returnType: firstReturnType,
     returnSafety: firstReturnSafety,
+    returnTypes,
   }
 }
 

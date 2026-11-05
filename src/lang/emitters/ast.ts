@@ -58,6 +58,15 @@ function typeToJsonSchema(
   type: TypeDescriptor,
   refuse: (why: string) => never
 ): any {
+  // `'' | null` is inferred as a NULLABLE string, not a union: without this, null was refused.
+  const base = kindToJsonSchema(type, refuse)
+  return type.nullable ? { anyOf: [base, { type: 'null' }] } : base
+}
+
+function kindToJsonSchema(
+  type: TypeDescriptor,
+  refuse: (why: string) => never
+): any {
   // EVERY kind, exhaustively (#3835). This was a partial switch with `default: return {}`,
   // and `{}` admits anything: `n: 10` (integer), `+0` and `'a' | 'b'` declared input
   // contracts that checked nothing. A kind added to TypeDescriptor now fails to compile here.
@@ -66,7 +75,7 @@ function typeToJsonSchema(
     case 'string':
       if (type.pattern)
         refuse(
-          `a regex example (${type.pattern}) cannot be part of an agent's input contract: ` +
+          `a regex example (${type.pattern}) cannot be part of an agent's contract: ` +
             `guest schemas may not carry host regex patterns. Take a string ('') and check ` +
             `it in the body with regexMatch.`
         )
@@ -101,26 +110,42 @@ function typeToJsonSchema(
         for (const [key, propType] of Object.entries(type.shape)) {
           properties[key] = typeToJsonSchema(propType, refuse)
         }
+        // Every member is REQUIRED unless its example says it may be absent (`T | undefined`),
+        // as in TJS: `p: { x: 0 }` refuses `{}` there. Without `required` the AJS contract
+        // admitted an object missing every declared member.
+        const required = Object.entries(type.shape)
+          .filter(([, t]) => !mayBeAbsent(t))
+          .map(([key]) => key)
         return {
           type: 'object',
           properties,
           additionalProperties: false,
+          ...(required.length > 0 && { required }),
         }
       }
       return { type: 'object' }
     case 'union':
+      // anyOf, not oneOf: a union admits a value matching ANY member. `oneOf` means exactly
+      // one, so `'' | undefined` (undefined maps to `{}`) refused every string; any union
+      // whose members overlap refused the overlap.
+      // An `undefined` member says the value may be ABSENT, which `required` expresses (see
+      // `mayBeAbsent`). As a member it mapped to `{}`, which admits anything, so
+      // `'' | undefined` accepted 5. JSON has no undefined; it leaves the union.
       if (type.members) {
-        return { oneOf: type.members.map((m) => typeToJsonSchema(m, refuse)) }
+        const present = type.members.filter((m) => m.kind !== 'undefined')
+        if (present.length === 0) return {}
+        if (present.length === 1) return typeToJsonSchema(present[0]!, refuse)
+        return { anyOf: present.map((m) => typeToJsonSchema(m, refuse)) }
       }
       return {}
     case 'bigint':
       return refuse(
-        `an agent's inputs arrive as JSON, which has no bigint. Take a string ('') or a ` +
+        `an agent's inputs and result are JSON, which has no bigint. Take a string ('') or a ` +
           `number (0) and convert it in the body.`
       )
     case 'function':
       return refuse(
-        `an agent's inputs arrive as JSON, which cannot carry a function. Pass data, and ` +
+        `an agent's inputs and result are JSON, which cannot carry a function. Pass data, and ` +
           `give the agent the behaviour as an atom (a capability) instead.`
       )
     case 'declared':
@@ -128,7 +153,7 @@ function typeToJsonSchema(
       return refuse(
         `the named type ${
           type.typeName ?? ''
-        } cannot be checked in an agent's input ` +
+        } cannot be checked in an agent's ` +
           `contract. Use an example value instead.`
       )
     default: {
@@ -138,6 +163,33 @@ function typeToJsonSchema(
       )
     }
   }
+}
+
+/** Whether a member's example lets it be absent: `T | undefined`, or plain `undefined`. */
+function mayBeAbsent(t: TypeDescriptor): boolean {
+  if (t.kind === 'undefined') return true
+  return t.kind === 'union' && (t.members ?? []).some(mayBeAbsent)
+}
+
+/**
+ * The agent's declared RESULT as JSON Schema (#3834): what `vm.run` holds its result to.
+ * An agent returns an object, so a declared result that is not one can never be met, and is
+ * refused here rather than failing every run.
+ */
+function returnTypeToJsonSchema(
+  type: TypeDescriptor,
+  refuse: (why: string) => never
+): any {
+  const objectLike = (t: TypeDescriptor): boolean =>
+    t.kind === 'object' ||
+    t.kind === 'any' ||
+    (t.kind === 'union' && (t.members ?? []).every(objectLike))
+  if (!objectLike(type))
+    refuse(
+      `an agent returns an object, so a declared ${type.kind} result can never be met. ` +
+        `Declare the object it returns, e.g. ): { value: 0 }`
+    )
+  return typeToJsonSchema(type, refuse)
 }
 
 /**
@@ -406,6 +458,19 @@ export function transformFunction(
     )
   })
 
+  // The declared result, enforced by vm.run (#3834): a typed agent emits what it declares
+  // or the run is an error.
+  const outputSchema = returnType
+    ? returnTypeToJsonSchema(returnType, (why) => {
+        throw new TranspileError(
+          `Declared result: ${why}`,
+          getLocation(func),
+          ctx.source,
+          ctx.filename
+        )
+      })
+    : undefined
+
   // Collect transitively-used helper bodies (transformed once) onto the root
   // node. The VM installs these into ctx.helpers so callLocal can dispatch by
   // name — call sites stay tiny and recursion is a runtime loop.
@@ -423,6 +488,7 @@ export function transformFunction(
       op: 'seq',
       steps,
       inputSchema,
+      ...(outputSchema && { outputSchema }),
       ...(helperBodies && { helpers: helperBodies }),
     },
     signature,

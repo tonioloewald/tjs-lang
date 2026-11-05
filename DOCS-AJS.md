@@ -211,6 +211,34 @@ function add({ a, b }) {
 }
 ```
 
+### Both sides of a typed signature are enforced
+
+The parameter examples are the agent's input contract: `vm.run` refuses arguments that do
+not match them, before the agent runs. A declared result is its output contract, held to the
+same standard: the run ends in an error if the agent returns something else.
+
+```javascript
+function score(n: 0): { score: 0, label: 'low' | 'high' } {
+  return { score: n, label: n > 10 ? 'high' : 'low' }
+}
+```
+
+- Every declared member must be present, with the declared type, and no undeclared member may
+  appear: returning `{ score: 1.5 }` or `{ score: 3, label: 'mid' }` or adding a `debug` key
+  is an error (`Result does not match the declared result type`).
+- A member that may be absent says so: `note: '' | undefined`.
+- Returning nothing at all, when a result is declared, is an error.
+- A failed run reports its own error, not the contract's.
+- The check is metered like the input check: it is paid from the fuel the run has left, so a
+  run that cannot afford it ends `Out of Fuel`.
+- An agent returns an object, so a declared result that is not one (`): 0`, `): ''`) can never
+  be met. It is refused when the agent is transpiled.
+- No declared result, no check: an untyped agent's result is unconstrained, as before.
+
+The contract travels in the AST as `outputSchema`, beside `inputSchema`, so any VM that runs
+the AST can enforce it. Only the entry function's result is checked; a helper's declared
+return is not yet enforced.
+
 ---
 
 ## Syntax

@@ -25,13 +25,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot carry (a bigint, a function) and regex examples (guest schemas may not hold host
   patterns) are refused at transpile time with the remedy. The schema switch is exhaustive,
   so a new kind of example is a compile error rather than a silent `{}`.
+  Two more holes of the same class, found while fixing #3834: an object example never listed
+  its members as `required`, so `p: { x: 0 }` accepted `{}` (TJS refuses it); and an
+  `undefined` union member mapped to `{}`, so `s: '' | undefined` accepted `5`. Members are
+  now required unless their example allows absence (`T | undefined`), and `undefined` leaves
+  the union.
   **BREAKING, toward correctness:** an agent called with input its signature never allowed
   (`n: 10` given a string) is now refused. **What to do:** upgrade, and RE-TRANSPILE stored
   agents. The schema is written into the AST at transpile time, so an AST persisted by an
   affected version keeps its permissive schema until it is transpiled again. Until then,
   validate arguments in the host before `vm.run`.
 
+### Changed
+
+- **A typed AJS agent's declared result is enforced (BREAKING, toward correctness)** (#3834).
+  `function f(n: 0): { x: 0 }` recorded its return type in the signature and nowhere else, so
+  `return { x: 'str', extra: 1 }` ran clean. A typed function now emits what it declares or
+  the run ends in an error (`Result does not match the declared result type`). The transpiler
+  writes the declared result into the AST as `outputSchema`, beside `inputSchema`. `vm.run`
+  checks it on success, metered from the fuel the run has left, and a failed run keeps its
+  own error. Members are required and closed, as for inputs. An agent returns an object, so a
+  declared result that is not one (`): 0`) is refused at transpile time. Untyped agents are
+  unchanged. In an agent with helpers, the entry's annotation is now the one that counts: the
+  parser used to hand over the FIRST function's, which is a helper's. A helper's own declared
+  return is not enforced yet. An AST persisted before this has no `outputSchema`; re-transpile
+  it to get the check.
+
 ### Fixed
+
+- **An AJS input written `'' | null` admits `null`.** Inference reads it as a nullable string,
+  and the schema ignored the flag, so `null` was refused. Unions are now `anyOf`, not `oneOf`
+  (exactly one), which refused any value matching two members.
+
+- **A literal union inside an AJS declared result keeps its values.** The return-type scanner
+  writes `|` as `||`, and `parseReturnType` read that as JavaScript's `||`, keeping only the
+  left side: `{ m: 'a' | 'b' }` became `{ m: string }`.
 
 - **A class can construct itself in a static initializer** (#3841). A static field or static
   block runs while the class is being defined, before the callable wrapper exists, so a
