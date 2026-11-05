@@ -202,3 +202,23 @@ describe('a shadowed class name inside the body is left alone', () => {
     expect(Box.of(3).v).toBe(3)
   })
 })
+
+/**
+ * A static initializer or static block calling its own class (#3841): it runs WHILE the class
+ * is being defined, before the wrapper records `__tjs_callable`, so the #3608 rewrite threw
+ * "__tjs_callable is not a function". Graduating `static zero = new Money(0)` produced exactly
+ * that shape.
+ */
+describe('a class calling itself from a static initializer', () => {
+  it('a static field and a static block construct it', () => {
+    const Box = load(`class Box {
+  static zero = Box(0)
+  static one
+  static { Box.one = Box(1) }
+  constructor(v: 0) { this.v = v }
+}`)
+    expect(Box.zero.v).toBe(0)
+    expect(Box.one.v).toBe(1)
+    expect(Box(5).v).toBe(5) // and calling it afterwards still goes through the wrapper
+  })
+})

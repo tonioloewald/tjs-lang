@@ -2216,14 +2216,31 @@ export function transpileToJS(
         // (rc.10 review: a local `const Box`, a destructured or default param, `catch (Box)`,
         // an inner `function Box` all called `Box.__tjs_callable`, which the local lacks).
         let inBody = false
+        // A static field initializer or static block runs WHILE the class is defined, before
+        // the wrapper records `__tjs_callable` (#3841: graduating `static zero = new Money(0)`
+        // threw). There the call falls back to constructing directly.
+        let inStaticInit = false
         for (let i = ancestors.length - 2; i >= 0; i--) {
           const a = ancestors[i]
+          if (
+            !inBody &&
+            ((a.type === 'PropertyDefinition' && a.static) ||
+              a.type === 'StaticBlock')
+          )
+            inStaticInit = true
           if (a.type === 'ClassBody') inBody = true
           if (
             (a.type === 'ClassDeclaration' || a.type === 'ClassExpression') &&
             a.id?.name === name
           ) {
-            if (inBody)
+            if (!inBody) return
+            if (inStaticInit) {
+              insertions.push({ position: callee.start, text: '(' })
+              insertions.push({
+                position: callee.end,
+                text: `.__tjs_callable ?? ((...__a) => new ${name}(...__a)))`,
+              })
+            } else
               insertions.push({ position: callee.end, text: '.__tjs_callable' })
             return
           }

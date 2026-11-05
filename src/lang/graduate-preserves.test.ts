@@ -111,6 +111,12 @@ const ROWS: [string, string, unknown[][]][] = [
     [[]],
   ],
   [
+    'a static self-instance (#3841)',
+    `export class Money { static zero = new Money(0); constructor(public v: number) {} }
+export function f(): number { return Money.zero.v }`,
+    [[]],
+  ],
+  [
     'nested ==',
     `export function f(a: any, b: any, c: any): boolean { return (a == b) == c }`,
     [

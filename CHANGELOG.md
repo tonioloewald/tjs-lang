@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A class can construct itself in a static initializer** (#3841). A static field or static
+  block runs while the class is being defined, before the callable wrapper exists, so a
+  self-call there threw `__tjs_callable is not a function`. That is exactly what graduating a
+  converted `static zero = new Money(0)` produced. There, the call now constructs directly.
+
 - **Enum members read as properties, as in TypeScript** (#3840). `Enum` kept its members only
   under `.members`, so a converted TypeScript `enum Color { Red = 'red' }` read `Color.Red` as
   `undefined`: conversion changed what the program did. Members are now properties of the enum
