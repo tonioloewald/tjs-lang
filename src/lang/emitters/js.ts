@@ -3004,7 +3004,7 @@ export function transpileToJS(
         // `values`, so that documented access returned `undefined` in every emitted file.
         // The stub is not a fallback (it always wins in emitted code), so a field it omits
         // is a field the language does not have — see docs/type-identity.md.
-        `function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;return __pred({description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true${setSchema}},d)}`
+        `function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;const p=__pred({description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true${setSchema}},d);for(const k of Object.keys(mm)){const v=mm[k];if(!(k in p))Object.defineProperty(p,k,{value:v});if(typeof v==='number'&&!(String(v) in p))Object.defineProperty(p,String(v),{value:k})}return p}`
       )
     }
     if (needsUnion) {

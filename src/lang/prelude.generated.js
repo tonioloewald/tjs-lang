@@ -6,7 +6,7 @@
 // (the projection table `extend` writes, the call-stack ring) stays per module.
 /* eslint-disable */
 // @ts-nocheck
-export const PRELUDE_HASH = 'eabac14e43e4e60f'
+export const PRELUDE_HASH = 'd4d0b72127e3058a'
 
 export function createPrelude(hash) {
   if (hash !== PRELUDE_HASH)
@@ -46,7 +46,7 @@ function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='unio
 function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=__unk(e??null);if(p.__g&&p.__ex!==undefined){t.__pred=p.__g;t.__ex=p.__ex}}else{const ex=e??p;t.default=__unk(ex);t.__ex=ex;t.check=v=>__match(v,ex)}t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};return __pred(t,d)};
 function Generic(tp,pred,d){const c=a=>{if(a===null||a===undefined)return()=>true;if(a.__runtimeType&&typeof a.check==='function')return v=>a.check(v)===true;if(typeof a==='function')return v=>a(v)===true;return v=>__match(v,a)};const f=(...args)=>{const ck=args.map(c);const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...ck)};return __pred(t,t.description)};f.__runtimeType=true;f.description=d;return f};
 function FunctionPredicate(n,s,b){if(Array.isArray(s)&&b){const f=(...a)=>FunctionPredicate(n,b(...a));f.typeParamNames=s.map(p=>Array.isArray(p)?p[0]:p);f.description=n;f.__runtimeType=true;return f}const spec=typeof s==='function'?{}:s||{};return __pred({description:n,params:spec.params||{},returns:spec.returns,returnContract:spec.returnContract||'assertReturns',check:v=>typeof v==='function',__runtimeType:true},n)};
-function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;return __pred({description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true,toJSONSchema:()=>({enum:vals})},d)};
+function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;const p=__pred({description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true,toJSONSchema:()=>({enum:vals})},d);for(const k of Object.keys(mm)){const v=mm[k];if(!(k in p))Object.defineProperty(p,k,{value:v});if(typeof v==='number'&&!(String(v) in p))Object.defineProperty(p,String(v),{value:k})}return p};
 function Union(d,...v){const vals=v.flat();return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true,toJSONSchema:()=>({enum:vals})},d)};
 function Exactly(...v){const vals=v.flat();const d='exactly '+vals.map(x=>JSON.stringify(x)).join(' | ');return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true,toJSONSchema:()=>({enum:vals})},d)};
 const __xv=Symbol.for('xin-value');function __tv(v){if(v===null||(typeof v!=='object'&&typeof v!=='function'))return v;try{const w=v[__xv];if(w!==undefined)return w}catch(e){}return v};

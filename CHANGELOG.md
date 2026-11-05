@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Enum members read as properties, as in TypeScript** (#3840). `Enum` kept its members only
+  under `.members`, so a converted TypeScript `enum Color { Red = 'red' }` read `Color.Red` as
+  `undefined`: conversion changed what the program did. Members are now properties of the enum
+  (`Color.Red`), and numeric members map back to their names (`Dir[0] === 'Up'`), in both the
+  inline runtime and `tjs-lang/runtime`. A member named like one of the enum's own fields
+  (`check`, `values` …) does not shadow it; `.members` still has it.
+
 - **Infix `Is` / `IsNot` find their operands by structure** (#3830). The operand pattern
   treated parentheses as identifier characters, unbalanced, so `console.log(a Is b)` compiled
   to `Is(console.log(a, b))`: a different program, with no error. `[1, 2] Is [1, 2]` and

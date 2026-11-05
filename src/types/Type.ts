@@ -1010,7 +1010,16 @@ export function Enum<T extends Record<string, string | number>>(
     keys,
   }
 
-  return asPredicate(enumType, description)
+  const p = asPredicate(enumType, description) as any
+  // Members as properties (`Color.Red`), numeric ones mapped back to names (`Dir[0]`), as in
+  // TypeScript (#3840). Non-enumerable, never over an existing field. Same rule as the inline
+  // stub in emitters/js.ts; enum-members.test.ts holds the two together.
+  for (const [k, v] of Object.entries(members)) {
+    if (!(k in p)) Object.defineProperty(p, k, { value: v })
+    if (typeof v === 'number' && !(String(v) in p))
+      Object.defineProperty(p, String(v), { value: k })
+  }
+  return p
 }
 
 // =============================================================================
