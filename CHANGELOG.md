@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **AJS: declared input contracts did not check every kind of input (fail-open)** (#3835).
+  **Affected: every published version from 0.2.0 through 0.14.0-rc.10.** `vm.run` validates
+  an agent's arguments against the input schema the transpiler derives from its signature,
+  but that schema mapped only strings, floats, booleans, lists, objects and unions; every
+  other kind of example became `{}`, which admits anything. So `function f(n: 10)` accepted
+  `'x'`, `n: +0` accepted `-1`, and `m: 'a' | 'b'` accepted `'z'`. The sandbox itself was not
+  breached (fuel, the heap ceiling, the membrane and capabilities were unaffected), but an
+  agent, or a host relying on its declared signature to reject bad input before the agent ran,
+  could receive a value of the wrong type or outside its declared set.
+  Now integer examples become `{ type: 'integer' }`, `+0` becomes
+  `{ type: 'integer', minimum: 0 }`, and literal unions become `{ enum: […] }`. Inputs JSON
+  cannot carry (a bigint, a function) and regex examples (guest schemas may not hold host
+  patterns) are refused at transpile time with the remedy. The schema switch is exhaustive,
+  so a new kind of example is a compile error rather than a silent `{}`.
+  **BREAKING, toward correctness:** an agent called with input its signature never allowed
+  (`n: 10` given a string) is now refused. **What to do:** upgrade, and RE-TRANSPILE stored
+  agents. The schema is written into the AST at transpile time, so an AST persisted by an
+  affected version keeps its permissive schema until it is transpiled again. Until then,
+  validate arguments in the host before `vm.run`.
+
 ### Fixed
 
 - **A class can construct itself in a static initializer** (#3841). A static field or static
@@ -30,17 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   balanced groups, or bracketed literals. Where another operator touches an operand
   (`1 + a Is b`, `!a Is b`), precedence would decide the meaning, so it is refused with the
   remedy, `Is(a, b)`, instead of guessed.
-
-- **An AJS agent's declared inputs are enforced for every kind of example (BREAKING, toward
-  correctness)** (#3835). The input schema covered strings, floats, booleans, lists, objects
-  and unions; every other kind became `{}`, which admits anything. So `function f(n: 10)`
-  accepted `'x'`, `n: +0` accepted `-1`, and `m: 'a' | 'b'` accepted `'z'`: a declared input
-  contract that checked nothing, on the path that runs untrusted code. Now `integer`,
-  `{ type: 'integer', minimum: 0 }` and `{ enum: […] }`. Inputs JSON cannot carry (a bigint,
-  a function) and regex examples (guest schemas may not hold host patterns) are refused at
-  transpile time with the remedy. The schema switch is exhaustive, so a new kind is a compile
-  error rather than a silent `{}`. An agent that relied on the hole (`n: 10` called with a
-  string) is now refused.
 
 - **`typeof` on an undeclared name is `'undefined'` in native TJS, as in JavaScript** (#3822).
   `typeof x` is rewritten to `TypeOf(x)` (so `typeof null` is `'null'`), and a call evaluates
