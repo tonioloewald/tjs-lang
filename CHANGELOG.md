@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An AJS agent's declared inputs are enforced for every kind of example (BREAKING, toward
+  correctness)** (#3835). The input schema covered strings, floats, booleans, lists, objects
+  and unions; every other kind became `{}`, which admits anything. So `function f(n: 10)`
+  accepted `'x'`, `n: +0` accepted `-1`, and `m: 'a' | 'b'` accepted `'z'`: a declared input
+  contract that checked nothing, on the path that runs untrusted code. Now `integer`,
+  `{ type: 'integer', minimum: 0 }` and `{ enum: […] }`. Inputs JSON cannot carry (a bigint,
+  a function) and regex examples (guest schemas may not hold host patterns) are refused at
+  transpile time with the remedy. The schema switch is exhaustive, so a new kind is a compile
+  error rather than a silent `{}`. An agent that relied on the hole (`n: 10` called with a
+  string) is now refused.
+
 - **`typeof` on an undeclared name is `'undefined'` in native TJS, as in JavaScript** (#3822).
   `typeof x` is rewritten to `TypeOf(x)` (so `typeof null` is `'null'`), and a call evaluates
   its argument, so the feature-detection idiom `typeof window === 'undefined'` threw a

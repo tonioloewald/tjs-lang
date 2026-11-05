@@ -54,12 +54,32 @@ import { extractTDoc } from '../parser'
 /**
  * Convert TypeDescriptor to JSON Schema
  */
-function typeToJsonSchema(type: TypeDescriptor): any {
-  switch (type.kind) {
+function typeToJsonSchema(
+  type: TypeDescriptor,
+  refuse: (why: string) => never
+): any {
+  // EVERY kind, exhaustively (#3835). This was a partial switch with `default: return {}`,
+  // and `{}` admits anything: `n: 10` (integer), `+0` and `'a' | 'b'` declared input
+  // contracts that checked nothing. A kind added to TypeDescriptor now fails to compile here.
+  const kind = type.kind
+  switch (kind) {
     case 'string':
+      if (type.pattern)
+        refuse(
+          `a regex example (${type.pattern}) cannot be part of an agent's input contract: ` +
+            `guest schemas may not carry host regex patterns. Take a string ('') and check ` +
+            `it in the body with regexMatch.`
+        )
       return { type: 'string' }
     case 'number':
       return { type: 'number' }
+    case 'integer':
+      return { type: 'integer' }
+    case 'non-negative-integer':
+      return { type: 'integer', minimum: 0 }
+    case 'literal-union':
+      // Stored canonicalised: undefined is already folded to null.
+      return { enum: [...(type.values ?? [])] }
     case 'boolean':
       return { type: 'boolean' }
     case 'null':
@@ -73,13 +93,13 @@ function typeToJsonSchema(type: TypeDescriptor): any {
     case 'array':
       return {
         type: 'array',
-        items: type.items ? typeToJsonSchema(type.items) : {},
+        items: type.items ? typeToJsonSchema(type.items, refuse) : {},
       }
     case 'object':
       if (type.shape) {
         const properties: Record<string, any> = {}
         for (const [key, propType] of Object.entries(type.shape)) {
-          properties[key] = typeToJsonSchema(propType)
+          properties[key] = typeToJsonSchema(propType, refuse)
         }
         return {
           type: 'object',
@@ -90,11 +110,33 @@ function typeToJsonSchema(type: TypeDescriptor): any {
       return { type: 'object' }
     case 'union':
       if (type.members) {
-        return { oneOf: type.members.map(typeToJsonSchema) }
+        return { oneOf: type.members.map((m) => typeToJsonSchema(m, refuse)) }
       }
       return {}
-    default:
-      return {}
+    case 'bigint':
+      return refuse(
+        `an agent's inputs arrive as JSON, which has no bigint. Take a string ('') or a ` +
+          `number (0) and convert it in the body.`
+      )
+    case 'function':
+      return refuse(
+        `an agent's inputs arrive as JSON, which cannot carry a function. Pass data, and ` +
+          `give the agent the behaviour as an atom (a capability) instead.`
+      )
+    case 'declared':
+    case 'declared-import':
+      return refuse(
+        `the named type ${
+          type.typeName ?? ''
+        } cannot be checked in an agent's input ` +
+          `contract. Use an example value instead.`
+      )
+    default: {
+      const unhandled: never = kind
+      throw new Error(
+        `tjs internal error: no input schema for kind ${unhandled}`
+      )
+    }
   }
 }
 
@@ -102,13 +144,14 @@ function typeToJsonSchema(type: TypeDescriptor): any {
  * Convert function parameters to JSON Schema for input validation
  */
 function parametersToJsonSchema(
-  parameters: Record<string, ParameterDescriptor>
+  parameters: Record<string, ParameterDescriptor>,
+  refuse: (name: string, why: string) => never
 ): any {
   const properties: Record<string, any> = {}
   const required: string[] = []
 
   for (const [name, param] of Object.entries(parameters)) {
-    properties[name] = typeToJsonSchema(param.type)
+    properties[name] = typeToJsonSchema(param.type, (why) => refuse(name, why))
     if (param.required) {
       required.push(name)
     }
@@ -226,6 +269,22 @@ export function transformFunction(
   const parameters = new Map<string, ParameterDescriptor>()
 
   for (const param of func.params) {
+    // A regex EXAMPLE (`zip: /^\d{5}$/`, a default after preprocessing) inferred to `any`
+    // here, so the input checked nothing (#3835). Guest schemas may not carry host patterns;
+    // say so, with the way to get the check.
+    const ex =
+      (param as any).type === 'AssignmentPattern' ? (param as any).right : null
+    if (ex?.type === 'Literal' && (ex as any).regex)
+      throw new TranspileError(
+        `Parameter '${
+          (param as any).left?.name ?? '?'
+        }': a regex example cannot be part of an ` +
+          `agent's input contract (guest schemas may not carry host regex patterns). Take a ` +
+          `string ('') and check it in the body with regexMatch.`,
+        getLocation(param as any),
+        source,
+        options.filename || '<source>'
+      )
     const parsed = parseParameter(param, requiredHere)
 
     // Handle destructured parameters - expand into individual params
@@ -338,7 +397,14 @@ export function transformFunction(
   }
 
   // Generate input schema for runtime validation
-  const inputSchema = parametersToJsonSchema(signatureParams)
+  const inputSchema = parametersToJsonSchema(signatureParams, (name, why) => {
+    throw new TranspileError(
+      `Parameter '${name}': ${why}`,
+      getLocation(func),
+      ctx.source,
+      ctx.filename
+    )
+  })
 
   // Collect transitively-used helper bodies (transformed once) onto the root
   // node. The VM installs these into ctx.helpers so callLocal can dispatch by

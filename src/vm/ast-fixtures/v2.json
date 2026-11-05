@@ -624,7 +624,9 @@
         "properties": {
           "n": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "integer"
+            }
           }
         },
         "additionalProperties": false
