@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Infix `Is` / `IsNot` find their operands by structure** (#3830). The operand pattern
+  treated parentheses as identifier characters, unbalanced, so `console.log(a Is b)` compiled
+  to `Is(console.log(a, b))`: a different program, with no error. `[1, 2] Is [1, 2]` and
+  `Point(1, 2) Is Point(1, 2)` did not compile at all. Operands are now postfix chains with
+  balanced groups, or bracketed literals. Where another operator touches an operand
+  (`1 + a Is b`, `!a Is b`), precedence would decide the meaning, so it is refused with the
+  remedy, `Is(a, b)`, instead of guessed.
+
 - **An AJS agent's declared inputs are enforced for every kind of example (BREAKING, toward
   correctness)** (#3835). The input schema covered strings, floats, booleans, lists, objects
   and unions; every other kind became `{}`, which admits anything. So `function f(n: 10)`

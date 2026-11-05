@@ -1172,41 +1172,195 @@ function extractTypeFromParams(
  * from `source` via the match indices, never from the mask.
  */
 export function transformIsOperators(source: string): string {
-  // Match: (simpleExpr) IsNot (simpleExpr) - must check IsNot first (longer match)
-  // simpleExpr = identifier chain with optional [], () OR literals
-  const exprPat =
-    '([\\w][\\w.\\[\\]()]*|null|undefined|true|false|\\d+(?:\\.\\d+)?|\'[^\']*\'|"[^"]*")'
-
-  /** Rewrite every match of `pat` found in the MASKED view, using text from `source`. */
-  const spliceOver = (src: string, pat: RegExp, fn: string): string => {
-    const masked = maskLiterals(src)
-    const edits: Array<[number, number, string]> = []
+  // Operands are found by STRUCTURE (#3830). The pattern was `[\w][\w.\[\]()]*`, which
+  // treated parentheses as identifier characters, unbalanced: `console.log(a Is b)` became
+  // `Is(console.log(a, b))`, a different program with no error. Now an operand is a postfix
+  // chain (names, `.`/`?.` steps, balanced `(…)`/`[…]`) or a bracketed literal, and where
+  // another operator touches an operand, so that precedence would decide the meaning, this
+  // REFUSES with the remedy rather than guess. One occurrence at a time, leftmost first, so
+  // an `Is` inside another's operand is rewritten on a later pass over balanced text.
+  const KEYWORDS = new Set([
+    'return',
+    'case',
+    'yield',
+    'await',
+    'throw',
+    'else',
+    'do',
+    'typeof',
+    'void',
+    'delete',
+    'new',
+    'in',
+    'of',
+    'instanceof',
+    'const',
+    'let',
+    'var',
+    'function',
+  ])
+  const ident = (c: string | undefined) => c !== undefined && /[\w$]/.test(c)
+  for (let guard = 0; guard < 10_000; guard++) {
+    const masked = maskLiterals(source)
+    const strings = scanLiterals(source).filter(
+      (r) => r.kind === 'string' || r.kind === 'template' || r.kind === 'regex'
+    )
+    const kw = /(?<=\s)(IsNot|Is)(?=\s)/g
+    let found: {
+      start: number
+      end: number
+      text: string
+    } | null = null
     let m: RegExpExecArray | null
-    pat.lastIndex = 0
-    while ((m = pat.exec(masked)) !== null) {
-      const d = (m as any).indices as Array<[number, number]>
-      const [ls, le] = d[1]!
-      const [rs, re] = d[2]!
-      edits.push([
-        m.index,
-        m.index + m[0].length,
-        `${fn}(${src.slice(ls, le)}, ${src.slice(rs, re)})`,
-      ])
+    while ((m = kw.exec(masked)) !== null) {
+      const word = m[1]!
+      // LEFT operand: walk back over a postfix chain.
+      let e = m.index - 1
+      while (e >= 0 && /\s/.test(masked[e]!)) e--
+      const leftEnd = e + 1
+      let i = e
+      let lastWasGroup = false
+      const walkBack = (): boolean => {
+        // one primary or postfix step ending at i; moves i before it
+        const c = masked[i]
+        lastWasGroup = false
+        if (c === ')' || c === ']' || c === '}') {
+          const open = c === ')' ? '(' : c === ']' ? '[' : '{'
+          let depth = 0
+          for (; i >= 0; i--) {
+            if (masked[i] === c) depth++
+            else if (masked[i] === open && --depth === 0) break
+          }
+          if (i < 0) return false
+          i--
+          lastWasGroup = c !== '}'
+          return true
+        }
+        const lit = strings.find((r) => r.end - 1 === i)
+        if (lit) {
+          i = lit.start - 1
+          return true
+        }
+        if (ident(c)) {
+          while (i >= 0 && ident(masked[i])) i--
+          return true
+        }
+        return false
+      }
+      if (!walkBack()) continue
+      // Continue the chain leftwards: `x.` / `x?.` before a step, or a callee / object
+      // directly before a call or index group (`f(x)`, `a[0]`, `f(x)(y)`).
+      for (;;) {
+        if (masked[i] === '.') {
+          i--
+          if (masked[i] === '?') i--
+          if (!walkBack()) break
+          continue
+        }
+        if (
+          lastWasGroup &&
+          (ident(masked[i]) || /[)\]]/.test(masked[i] ?? ''))
+        ) {
+          if (!walkBack()) break
+          continue
+        }
+        break
+      }
+      const leftStart = i + 1
+      const left = source.slice(leftStart, leftEnd)
+      if (!left || KEYWORDS.has(left)) continue // not infix (e.g. `const Is = …`)
+      // RIGHT operand: walk forward over a postfix chain.
+      let k = m.index + word.length
+      while (k < masked.length && /[ \t]/.test(masked[k]!)) k++
+      const rightStart = k
+      const walkFwd = (): boolean => {
+        const c = masked[k]
+        if (c === '(' || c === '[' || c === '{') {
+          const close = matchingBrace(masked, k)
+          if (close < 0) return false
+          k = close + 1
+          return true
+        }
+        const lit = strings.find((r) => r.start === k)
+        if (lit) {
+          k = lit.end
+          return true
+        }
+        if (ident(c)) {
+          while (k < masked.length && ident(masked[k])) k++
+          return true
+        }
+        return false
+      }
+      if (!walkFwd()) continue
+      for (;;) {
+        if (masked[k] === '.' || (masked[k] === '?' && masked[k + 1] === '.')) {
+          k += masked[k] === '?' ? 2 : 1
+          if (!walkFwd()) break
+          continue
+        }
+        if (masked[k] === '(' || masked[k] === '[') {
+          if (!walkFwd()) break
+          continue
+        }
+        break
+      }
+      const rightEnd = k
+      const right = source.slice(rightStart, rightEnd)
+      if (!right || KEYWORDS.has(right)) continue
+      // Boundaries: only operators that bind LOOSER than equality may touch the operands.
+      let p = leftStart - 1
+      let crossedLine = false
+      while (p >= 0 && /\s/.test(masked[p]!)) {
+        if (masked[p] === '\n') crossedLine = true
+        p--
+      }
+      let before = p < 0 ? '' : masked[p]!
+      if (ident(before)) {
+        let q = p
+        while (q >= 0 && ident(masked[q])) q--
+        before = masked.slice(q + 1, p + 1)
+      }
+      const beforeOk =
+        before === '' ||
+        // A new statement: in TJS a newline ends one, and so does a closing brace.
+        // (but not when the previous line ends in an operator: that line continues)
+        (crossedLine && !/^[-+*/%<>=&|^!~?:.]$/.test(before)) ||
+        before === '}' ||
+        /^[([{,;?:]$/.test(before) ||
+        (before === '=' && !/[=!<>]/.test(masked[p - 1] ?? '')) ||
+        (before === '>' && masked[p - 1] === '=') ||
+        ((before === '&' || before === '|' || before === '?') &&
+          masked[p - 1] === before) ||
+        ['return', 'case', 'yield', 'throw', 'else', 'do'].includes(before)
+      let n = rightEnd
+      while (n < masked.length && /[ \t]/.test(masked[n]!)) n++
+      const after = masked.slice(n, n + 2)
+      const afterOk =
+        n >= masked.length ||
+        /^[\n\r)\]},;:]/.test(after) ||
+        (after[0] === '?' && after !== '?.') ||
+        after === '&&' ||
+        after === '||'
+      if (!beforeOk || !afterOk) {
+        const fn = word
+        throw new SyntaxError(
+          `Infix ${fn}: another operator touches \`${left} ${fn} ${right}\`, so precedence ` +
+            `would decide what it compares. Write the call with the operands you mean: ` +
+            `${fn}(${left}, ${right}) (in general, ${fn}(a, b)).`,
+          locAt(source, m.index)
+        )
+      }
+      found = {
+        start: leftStart,
+        end: rightEnd,
+        text: `${rt(word)}(${left}, ${right})`,
+      }
+      break
     }
-    let out = src
-    for (const [start, end, text] of edits.reverse())
-      out = out.slice(0, start) + text + out.slice(end)
-    return out
+    if (!found) return source
+    source = source.slice(0, found.start) + found.text + source.slice(found.end)
   }
-
-  // Transform IsNot first (longer keyword)
-  const isNotRegex = new RegExp(exprPat + '\\s+IsNot\\s+' + exprPat, 'gd')
-  source = spliceOver(source, isNotRegex, rt('IsNot'))
-
-  // Transform Is
-  const isRegex = new RegExp(exprPat + '\\s+Is\\s+' + exprPat, 'gd')
-  source = spliceOver(source, isRegex, rt('Is'))
-
   return source
 }
 
