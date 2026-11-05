@@ -49,7 +49,7 @@ Anything else that is not plain data is left as it is, so the boundary refuses i
 rule DENIES. Unknown shapes fail closed.
 */
 export function plainData(v, depth = 0) {
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(depth > 64))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(v) !== 'object'))(v === null)))) return v
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(depth > 64))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:((__tjs.toBool(typeof v === 'undefined')?('undefined'):(__tjs_rt.TypeOf(v))) !== 'object'))(v === null)))) return v
   if (__tjs.toBool(Array.isArray(v))) return v.map((x) => plainData(x, depth + 1))
   if (__tjs.toBool(v instanceof Date)) return v
   const proto = Object.getPrototypeOf(v)
@@ -155,7 +155,7 @@ Shortcuts:
 - 'role:roleName' - _roles.includes(roleName)
 */
 export function evaluateAccessShortcut(accessRule, context) {
-  if (__tjs.toBool(__tjs_rt.TypeOf(accessRule) !== 'string')) return null
+  if (__tjs.toBool((__tjs.toBool(typeof accessRule === 'undefined')?('undefined'):(__tjs_rt.TypeOf(accessRule))) !== 'string')) return null
 
   const { _uid, _roles, doc, newData } = context
 
@@ -255,7 +255,7 @@ export async function evaluateSecurityRule(rule, context) {
     }
 
 
-    if (__tjs.toBool(__tjs_rt.TypeOf(accessRule) === 'string')) {
+    if (__tjs.toBool((__tjs.toBool(typeof accessRule === 'undefined')?('undefined'):(__tjs_rt.TypeOf(accessRule))) === 'string')) {
       const shortcutResult = evaluateAccessShortcut(accessRule, context)
       if (__tjs.toBool(shortcutResult)) {
         const evalTimeMs = performance.now() - startTime
@@ -279,11 +279,11 @@ export async function evaluateSecurityRule(rule, context) {
     }
 
 
-    const codeToRun = __tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.code):__tjs__t)(__tjs_rt.TypeOf(accessRule) === 'object'))?(accessRule.code):(rule.code)
+    const codeToRun = __tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.code):__tjs__t)((__tjs.toBool(typeof accessRule === 'undefined')?('undefined'):(__tjs_rt.TypeOf(accessRule))) === 'object'))?(accessRule.code):(rule.code)
 
     if (__tjs.toBool(codeToRun)) {
-      const fuel = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(100))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.fuel))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.fuel):__tjs__t)(__tjs_rt.TypeOf(accessRule) === 'object')))
-      const timeoutMs = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(1000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.timeoutMs))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.timeoutMs):__tjs__t)(__tjs_rt.TypeOf(accessRule) === 'object')))
+      const fuel = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(100))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.fuel))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.fuel):__tjs__t)((__tjs.toBool(typeof accessRule === 'undefined')?('undefined'):(__tjs_rt.TypeOf(accessRule))) === 'object')))
+      const timeoutMs = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(1000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.timeoutMs))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.timeoutMs):__tjs__t)((__tjs.toBool(typeof accessRule === 'undefined')?('undefined'):(__tjs_rt.TypeOf(accessRule))) === 'object')))
 
       const result = await Eval({
         code: codeToRun,

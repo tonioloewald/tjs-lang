@@ -22,14 +22,14 @@ export function validateSchema(schema, data) {
 
 
   if (__tjs.toBool(schema.type)) {
-    const actualType = __tjs.toBool(Array.isArray(data))?('array'):(__tjs_rt.TypeOf(data))
+    const actualType = __tjs.toBool(Array.isArray(data))?('array'):(__tjs.toBool(typeof data === 'undefined')?('undefined'):(__tjs_rt.TypeOf(data)))
     if (__tjs.toBool(schema.type !== actualType)) {
       errors.push(`Expected type ${schema.type}, got ${actualType}`)
     }
   }
 
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data !== null):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(data) === 'object'):__tjs__t)(schema.type === 'object')))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data !== null):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?((__tjs.toBool(typeof data === 'undefined')?('undefined'):(__tjs_rt.TypeOf(data))) === 'object'):__tjs__t)(schema.type === 'object')))) {
 
     if (__tjs.toBool(schema.required)) {
       for (const field of schema.required) {
@@ -53,7 +53,7 @@ export function validateSchema(schema, data) {
   }
 
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(data) === 'string'):__tjs__t)(schema.type === 'string'))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?((__tjs.toBool(typeof data === 'undefined')?('undefined'):(__tjs_rt.TypeOf(data))) === 'string'):__tjs__t)(schema.type === 'string'))) {
     if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data.length < schema.minLength):__tjs__t)(schema.minLength))) {
       errors.push(`String too short (min ${schema.minLength})`)
     }
@@ -66,7 +66,7 @@ export function validateSchema(schema, data) {
   }
 
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(data) === 'number'):__tjs__t)(schema.type === 'number'))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?((__tjs.toBool(typeof data === 'undefined')?('undefined'):(__tjs_rt.TypeOf(data))) === 'number'):__tjs__t)(schema.type === 'number'))) {
     if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data < schema.minimum):__tjs__t)(schema.minimum !== undefined))) {
       errors.push(`Number below minimum (${schema.minimum})`)
     }

@@ -87,7 +87,7 @@ export function createLlmCapability(apiKeys) {
           text = data.choices?.[0]?.message?.content
         }
 
-        if (__tjs.toBool(__tjs_rt.TypeOf(text) !== 'string')) {
+        if (__tjs.toBool((__tjs.toBool(typeof text === 'undefined')?('undefined'):(__tjs_rt.TypeOf(text))) !== 'string')) {
           throw new Error('LLM returned unexpected format: ' + JSON.stringify(data))
         }
         return text

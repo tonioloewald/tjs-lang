@@ -201,7 +201,7 @@ export const demoPredict = onCall(
     const uid = request.auth.uid
     const prompt = ((__tjs__t)=>__tjs.toBool(__tjs__t)?(request.data.prompt):__tjs__t)(request.data)
 
-    if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(prompt) !== 'string'))(!__tjs.toBool(prompt)))) {
+    if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:((__tjs.toBool(typeof prompt === 'undefined')?('undefined'):(__tjs_rt.TypeOf(prompt))) !== 'string'))(!__tjs.toBool(prompt)))) {
       throw new HttpsError('invalid-argument', 'prompt must be a non-empty string')
     }
     if (__tjs.toBool(prompt.length > MAX_PROMPT_CHARS)) {

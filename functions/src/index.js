@@ -157,14 +157,14 @@ export const agentRun = onCall(async (request) => {
   const uid = request.auth.uid
   const { code, args = {}, fuel = 1000 } = request.data
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:((__tjs.toBool(typeof code === 'undefined')?('undefined'):(__tjs_rt.TypeOf(code))) !== 'string'))(!__tjs.toBool(code)))) {
     throw new HttpsError('invalid-argument', 'code must be a non-empty string')
   }
 
 
 
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))(__tjs_rt.TypeOf(fuel) !== 'number'))))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))((__tjs.toBool(typeof fuel === 'undefined')?('undefined'):(__tjs_rt.TypeOf(fuel))) !== 'number'))))) {
     throw new HttpsError('invalid-argument', 'fuel must be a number from 1 to 10000')
   }
 
@@ -269,12 +269,12 @@ export const run = onRequest(async (req, res) => {
 
   const { code, args = {}, fuel = 1000 } = req.body
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:((__tjs.toBool(typeof code === 'undefined')?('undefined'):(__tjs_rt.TypeOf(code))) !== 'string'))(!__tjs.toBool(code)))) {
     return res.status(400).json({ error: 'code must be a non-empty string' })
   }
 
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))(__tjs_rt.TypeOf(fuel) !== 'number'))))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel > 10000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(fuel <= 0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(Number.isFinite(fuel))))((__tjs.toBool(typeof fuel === 'undefined')?('undefined'):(__tjs_rt.TypeOf(fuel))) !== 'number'))))) {
     return res.status(400).json({ error: 'fuel must be a number from 1 to 10000' })
   }
 
