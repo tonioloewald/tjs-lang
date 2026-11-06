@@ -1,30 +1,34 @@
 <!--{"section": "tjs", "type": "example", "group": "basics", "order": 5, "parent": "tjs-basics.md"}-->
+<!-- TODO review -->
 
 # Control Flow: `given`
 
-`switch` has three footguns. `given` is the same idea with none of them — and a different
+`switch` has four defects. `given` is the same idea with none of them, and a different
 shape, so you can see at a glance which one you are reading.
 
 ```tjs:inline
 /#
-## The three problems with `switch`
+## The four problems with `switch`
 
     switch (kind) {
       case 'cat':
       case 'dog':
-        label = 'pet'          // no break — falls through!
+        label = 'pet'          // no break: falls through!
       case 'lion':
         label = 'wild'
     }
 
-1. **Fallthrough by default.** Forget `break` and the next arm runs too. The
-   common case needs the extra keyword; the rare case gets the short spelling.
-2. **One shared scope.** Every arm declares into the same block, so
-   `let x` in two arms is a redeclaration error.
-3. **It compares with `===`.** So a boxed `new String('cat')` misses, exactly
-   the footgun TJS's `==` exists to fix.
+1. **It compares with `===`.** A boxed `new String('cat')` misses, so `switch`
+   disagrees with TJS's `==` in the same file.
+2. **Several values on one arm can only be written as fallthrough.** The two
+   stacked `case` labels above share a block only because the first falls
+   into the second.
+3. **Fallthrough is the default.** Forget `break` and the next arm runs too,
+   which is what happens to `'cat'` above: it ends up `'wild'`.
+4. **One shared scope.** Every arm declares into the same block, so `let x`
+   in two arms is a redeclaration error.
 
-## `given` fixes all three, and looks different
+## `given` fixes all four, and looks different
 
     given kind {
       'cat', 'dog' { … }       // several values on one arm
@@ -32,21 +36,23 @@ shape, so you can see at a glance which one you are reading.
     } else { … }
 
 No `case`. No colons. No implicit blocks. `else` for the remaining arm.
-Each arm has **its own scope**, there is **no fallthrough**, and matching uses
-**`==`** (honest equality — unwraps boxed primitives, no coercion).
+Matching uses **`==`** (honest equality: unwraps boxed primitives, no
+coercion), several values sit on one arm separated by commas, there is
+**no fallthrough**, and each arm has **its own scope**.
 
 ## Why a new word instead of fixing `switch`
 
-Because a silent change of meaning is the worst outcome. Measured against a
-model asked what the code does:
+Because a silent change of meaning is the worst outcome. TJS first tried
+keeping the word `switch` and changing its rules. Shown C-shaped `switch`
+code in a `.tjs` file and asked what it returned, a model gave a confident
+wrong answer (C fallthrough) every time. Every new shape that was tried
+produced no wrong answers at all.
 
-    switch, C syntax        0/5 correct, 5 CONFIDENTLY WRONG
-    switch, new syntax      0/5 correct, 0 wrong, 5 no-answer
-    given,  new syntax      4/5 correct, 0 wrong
-
-Changing the shape eliminated every confident wrong answer — which is the
-failure mode that ships bugs. `switch` still means exactly what C means, and
-warns, pointing here. See `docs/case-study-switch.md`.
+A confident wrong answer is the failure that ships bugs, so the shape had
+to change, and the keyword with it. `switch` still means exactly what it
+means in C and JavaScript, and TJS warns on it, pointing here. The
+measurements, including the ones that turned out to be noise, are in the
+[case study on fixing `switch`](/case-study-switch/).
 #/
 
 // --- Several values per arm, no fallthrough ---
@@ -130,11 +136,9 @@ test 'matches with == so boxed primitives work' {
 }
 ```
 
-<!-- TODO review -->
-
 ## What to notice
 
-Read the three functions with the three `switch` problems in mind.
+Read the three functions with the four `switch` problems in mind.
 
 - **`describe`** lists two values on one arm (`'cat', 'dog'`) where `switch` would need two
   stacked `case` labels relying on fallthrough. Nothing falls through in `given`, so there is
@@ -143,10 +147,11 @@ Read the three functions with the three `switch` problems in mind.
   different variables, not a redeclaration.
 - **`boxedStillMatches`** shows the comparison. An arm matches when the value `==` the arm's
   value, using TJS's honest equality: a boxed string matches its plain value, but nothing is
-  coerced, so the number `200` does not match the string `'200'`.
+  coerced, so the number `200` does not match the string `'200'`. As with `==`, `null` and
+  `undefined` match each other. [Honest Equality](/honest-equality/) covers the rules.
 
-The `else` arm is optional. Without one, a value that matches no arm simply does nothing,
-like a `switch` with no `default`.
+The `else` arm is optional. Without one, a value that matches no arm does nothing, like a
+`switch` with no `default`.
 
 ## Arms that do work instead of returning
 
@@ -185,6 +190,29 @@ console.log(priority(1), priority(2), priority(3), priority(4))
 console.log(httpText(204), httpText(404), httpText(503), httpText(302))
 ```
 
+## `given` inside a loop
+
+An arm never needs `break`. If you write one anyway, it does what it does in a `switch`:
+it ends the `given`, and the loop carries on. `continue` goes to the next iteration of the
+loop, and a labelled `break` leaves the loop.
+
+```tjs:inline
+function collect(items: [0]) {
+  const kept = []
+  scan: for (const n of items) {
+    given n {
+      0 { continue }       // skip zeros
+      -1 { break scan }    // stop at the first -1
+      99 { break }         // ends the given only; 99 is still kept
+    }
+    kept.push(n)
+  }
+  return kept
+}
+
+console.log(collect([1, 0, 99, 2, -1, 3]))
+```
+
 ## Things that trip people up
 
 - **`switch` still works, unchanged.** TJS accepts every JavaScript program, so a `switch`
@@ -196,6 +224,8 @@ console.log(httpText(204), httpText(404), httpText(503), httpText(302))
   TJS, it rewrites a `switch` to `given` only if every non-empty arm leaves (`break`,
   `return`, `throw` or `continue`), and leaves a note at any `switch` where an arm genuinely
   falls through.
+- **`break` inside an arm leaves the `given`, not the loop around it.** To leave the loop,
+  use a labelled `break` or `return`, as in `collect` above.
 - **Arms compare values; they are not patterns.** `given` has no ranges, guards or
   destructuring. For "any 5xx code", compute the thing you want to compare, as `httpText`
   does with `Math.floor(code / 100)`, or use `if`.

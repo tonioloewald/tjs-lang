@@ -1,46 +1,199 @@
 <!--{"parent": "ajs.md", "order": 8}-->
+<!-- TODO review -->
 
-# Pattern: declarative matching for TJS and AJS, and regex as an opt-in
+# Pattern: the planned replacement for regex in AJS
 
-> **Moved (2026-11-02):** Pattern is now its own library, **tosijs-pattern** (repo beside this
-> one; board project `tosijs-pattern`, umbrella #2813). Its `CLAUDE.md` and `DECISIONS.md` are
-> current where they differ from this note, which stays as the design history and as the record
-> of what the AsyncJS builtin must do.
+Regex in AJS is on its way out. This page says what that means for agents you write and VMs you
+host today, then keeps the design history of its replacement, `Pattern`. Pattern is now its own
+library, [tosijs-pattern](https://pattern.tosijs.net)
+([source](https://github.com/tonioloewald/tosijs-pattern)), and its documentation is the
+current reference for the design. Where it differs from the history below, it wins.
 
-**Status: proposed (Tonio, 2026-10-02); priorities and packaging settled 2026-10-03, see below.** Regex is deprecated in AJS in 0.14 and removed from the
-core VM in 0.15. Hosts that want it opt back in. Its replacement is `Pattern`: a grammar built as
-DATA by a fluent builder and run by one engine. This note began as an imperative `Scanner`
-proposal; an outside draft (Gemini, with Tonio's guidance) argued for a declarative builder, and
-that is the better shape for this project. The draft's specifics were challenged; the outcomes
-are recorded below.
+Why replace regex at all: regex is a second language inside AJS. Its cost is hard to meter (the
+0.14.0 release spent three review rounds making the VM's engine charge for all of its work), and
+its mistakes go unnoticed, because a pattern that is almost right still parses and still matches.
+Pattern is a grammar built as data by a fluent builder, and every step the engine takes is
+charged as fuel, so its cost is accounted for by construction. The long version is under
+[Why replace regex](#why-replace-regex) in the design history.
 
-## Priorities: a standalone library, dogfooded to diamond hardness (Tonio, 2026-10-03)
+A few terms used on this page, each covered in its own chapter: **fuel** is the VM's budget for
+work, charged per operation, and a run stops when it runs out ([The Language](../DOCS-AJS.md));
+an **atom** is a named operation the VM provides, called from AJS with named inputs
+([Atom Reference](../guides/ajs-atoms.md)); the **membrane** is the copy-and-check every value
+goes through when it crosses between the guest and the host, and an atom tagged
+`effects: 'io'` has its inputs and outputs sent through it
+([Capabilities and Custom Atoms](../guides/ajs-capabilities.md)).
 
-> "Our goal for Pattern is to build a code editing skill around it and share it across the repo.
-> Pattern would become a standalone library and between using it to replace regex as much as
-> possible in our compilation code and using it to edit code we should dogfood it to diamond
-> hardness."
+## What changes for your agents
 
-This restates what the note already argued (see "Design input: editing source": Pattern should
-prevent the edit failures sed-style editing produces constantly) and settles the order and the
-packaging. Pattern is a **standalone library** whose first and heaviest users are us. Three users,
-each a different stress:
+**Today (0.14.0-rc.10), nothing.** Regex literals work in AJS in `match`, `search`, `replace`,
+`replaceAll` and `split`, and as the `pattern` of the `regexMatch` atom. They run on the VM's own
+linear-time engine, never the host's, and their work is charged as fuel. The supported subset and
+its limits are in [The Language](../DOCS-AJS.md) under "Regular expressions".
 
-1. **Code editing.** A skill agents use to edit source in every repo: the code mode, unique-match
-   edits, dry run, CLI. This is the daily load, measured by edits that apply the first time.
-2. **Our compilation code.** Regex and hand-rolled scans in the TJS/AJS front ends are replaced
-   wherever Pattern can, each replacement held byte-identical over the dogfood and compat
-   corpora. This is the correctness load.
-3. **AJS.** The VM builtin replacing guest regex, metered by construction. It comes last, and is
-   hardened by the two above.
+**The plan, which is not yet built:**
 
-**Packaging (decided, Tonio 2026-10-03):** its **own repo and npm package** (working name
-`tosijs-pattern`), zero dependencies, its own tests and releases. tjs-lang depends on it as it does
-on tosijs-schema, and other repos (tosijs-ui, service-compris) can use it without tjs-lang. **The
-code-editing skill ships with it**: a SKILL.md plus a small CLI in the same repo, so the skill and
-the engine change together. tosijs-coding-practices points every repo at it.
+| Step | What happens | Status |
+| --- | --- | --- |
+| Deprecation | The transpiler warns on every regex use: literals, `regexMatch`, and regex arguments to the string methods. | Planned, not yet built: the transpiler does not warn today. Whether the warning lands in 0.14.0 or a 0.14.x patch is not decided. |
+| The replacement | A `Pattern` builtin in AJS (planned name; it may change while the library is 0.x), running the tosijs-pattern engine with its steps charged as fuel. Regex literals that translate exactly become Pattern at compile time; the rest are compile errors that say why. | tosijs-pattern 0.1.0 exists as a library, not yet on npm. The AJS builtin does not exist. |
+| Removal | Regex leaves the core VM: literals, `regexMatch`, and regex arguments to `match`/`search`/`replace`/`replaceAll`/`split`. | Planned for 0.15, but only once a gate passes; if it has not passed, removal waits. The gate: a small language model the project pins for this measurement writes Pattern code that is correct on held-out inputs at least as often as it writes correct regex (the project's `test:grok` lane). |
 
-## Regex is not a parser, and Pattern does not pretend it is (Tonio, 2026-10-03)
+**What to do now.** Write agents that will survive the change:
+
+- Prefer plain string methods where they do the job: `split(' ')`, `includes`, `startsWith`,
+  `endsWith`, `slice`, `trim`, `toLowerCase`. They are not affected by any of this.
+- Keep the regexes you do write simple: a character class, a repetition, a literal, an anchor.
+  Those are the ones that translate to Pattern mechanically. A regex whose match depends on a
+  repetition giving characters back (`\w+\d`: `\w+` must leave the last digit for `\d`) will
+  not translate, and will need rewriting by hand.
+
+## Migrating a regex: an example
+
+The variation in [String Processing](../guides/examples/ajs/string-processing.md) uses three
+regexes:
+
+```javascript
+let words = text.toLowerCase().match(/[a-z]+/g)
+let slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+```
+
+Here is the same work in tosijs-pattern 0.1.0. This is the **library**, run as ordinary
+JavaScript; the AJS builtin does not exist yet, so this is not AJS code and will not run in an
+agent. tosijs-pattern is not on npm yet, so to try this today, clone
+[the repository](https://github.com/tonioloewald/tosijs-pattern) and, under Bun, import from its
+`src/index.ts` in place of `'tosijs-pattern'`.
+
+```javascript
+import { pattern, fromRegex } from 'tosijs-pattern'
+
+const text = 'The quick brown fox jumps over the lazy dog. The dog sleeps.'
+const lower = text.toLowerCase()
+
+// /[a-z]+/g: one or more lowercase letters, everywhere they occur
+const words = pattern.lowercaseLetters().findAll(lower).map((m) => m.text)
+
+// the slug: the runs of letters and digits, joined by '-'
+// (charsIn matches one or more characters in the range string)
+const slug = pattern.charsIn('a-z0-9').findAll(lower).map((m) => m.text).join('-')
+
+// words.length === 12, new Set(words).size === 9
+// slug === 'the-quick-brown-fox-jumps-over-the-lazy-dog-the-dog-sleeps'
+
+// fromRegex converts a regex it can translate exactly, and toCode() returns
+// the equivalent Pattern source as a string:
+fromRegex(/[a-z]+/g).toCode() // 'pattern.lowercaseLetters()'
+```
+
+Two things to notice. `fromRegex` is the library's converter: it turns a regex into the
+equivalent Pattern, or refuses one it cannot translate exactly (it refuses `/\w+\d/` and
+converts `/\d+px/`). The simple regexes convert mechanically. And the slug is clearer once it is stated as
+what it is: the regex version replaces the gaps with dashes and then trims stray dashes from the
+ends; the Pattern version collects the words and joins them, so there are no stray dashes to
+trim.
+
+The literal translation of `/^-+|-+$/` works too. Each piece is available both as a function on
+`pattern` and as a method, and chaining a method means "followed by", so
+`pattern.start().oneOrMore('-')` is "the start, followed by one or more dashes":
+
+```javascript
+const ends = pattern.oneOf(pattern.start().oneOrMore('-'), pattern.oneOrMore('-').end())
+ends.replaceAll('--a-b--', '') // 'a-b'
+```
+
+The vocabulary is at
+[pattern.tosijs.net/vocabulary](https://pattern.tosijs.net/vocabulary/), and it is 0.x: names may
+still change before the AJS builtin is built.
+
+## For hosts: keeping regex after it leaves the core
+
+Two ways are planned, both at the host's own risk:
+
+- **`regexAtoms`**, from a planned `tjs-lang/regex` entry point, registered like `batteryAtoms`:
+  the linear engine moved out of the core VM, still charged to the run's fuel and heap budgets.
+  This entry point does not exist yet.
+- **The host's own atom.** A host can already write an atom that runs the host's `RegExp`, and
+  this works today. Fuel cannot see inside a host atom, so a catastrophic pattern there is the
+  host's to own. Keep the pattern on the host side and let the guest supply only the text:
+
+```javascript
+import { AgentVM, defineAtom } from 'tjs-lang/vm-ast'
+import { transpile } from 'tjs-lang/lang'
+import { s } from 'tosijs-schema'
+
+// The pattern is the host's; the guest only supplies the text. The length cap
+// bounds how much work the host's backtracking engine can be asked to do.
+const isSlug = defineAtom(
+  'isSlug',
+  s.object({ value: s.string }),
+  s.boolean,
+  async ({ value }) =>
+    value.length <= 200 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value),
+  { docs: 'true if value is a lowercase slug', effects: 'io' }
+)
+
+const { ast } = transpile(
+  `function check({ slug = 'hello-world' }) {
+    let ok = isSlug({ value: slug })
+    return { ok }
+  }`,
+  { atoms: { isSlug } }
+)
+const vm = new AgentVM({ isSlug })
+const { result } = await vm.run(ast, {}, { fuel: 100 }) // result: { ok: true }
+const second = await vm.run(ast, { slug: 'Not A Slug' }, { fuel: 100 })
+// second.result: { ok: false }
+```
+
+The atom is tagged `effects: 'io'` so that the guest's input crosses the membrane: the body
+receives a checked copy that matches the declared schema, never a live guest value. That tag
+also brings a restriction: an `effects: 'io'` atom's input schema may not contain a `pattern`
+(`defineAtom` refuses it), because the membrane would run that pattern on guest-chosen strings
+on the host's engine. Check patterns in the atom's body, as above. (Guest schemas refuse
+`pattern` too.)
+
+---
+
+**Everything below is design history.** You don't need it to write or host agents today.
+
+## Design history
+
+What follows is the design record from tjs-lang, 2026-10-02 to 2026-10-04, kept because it
+records what the AJS builtin must do and why. Pattern moved to its own repository on
+2026-11-02, and tosijs-pattern's `CLAUDE.md` and `DECISIONS.md` are current where they differ
+from it. The dated quotes are from Tonio Loewald, the project's author, whose decisions they
+record.
+
+**The names in this history are not the library's.** The examples below use the draft API, and
+the "Fluency" section uses a third, illustrative vocabulary. The current (0.1.0) vocabulary is at
+[pattern.tosijs.net/vocabulary](https://pattern.tosijs.net/vocabulary/). The main differences:
+
+| Draft API (below) | "Fluency" section | Current (0.1.0) |
+| --- | --- | --- |
+| `exactly(str)` (a literal) | (not used) | `text(str)` |
+| `capture(name, p)` | (not used) | `.as(name)` |
+| `anyOf(a, b)` (ordered choice) | `oneOf` | `oneOf` |
+| `oneOrMore(p)` | `atLeastOne(p)` | `oneOrMore(p)` |
+| `zeroOrMore(p)` | `any(p)` | `zeroOrMore(p)` |
+| `repeat(p, 3, 3)` | `exactly(3, digit)` | a count argument, e.g. `digits(3)` |
+| `sepBy(p, sep)` | `sepBy` | `listOf(p, { separatedBy })` |
+| `replace` | (not used) | `replaceAll` |
+
+One behaviour changed as well: a replacement template inserts a capture's matched **text**, not
+its typed value, so `$3.50` stays `'3.50'` (the draft's `price.replace` example below shows the
+old behaviour).
+
+The note began as an imperative `Scanner` proposal. An outside draft (written by Gemini, under
+Tonio's direction) argued for a declarative builder, which is the better shape for this project;
+the draft's specifics were challenged, and the outcomes are recorded below.
+
+### Priorities (Tonio, 2026-10-03)
+
+Pattern is a standalone library (now `tosijs-pattern`), and its first users harden it before the
+AJS builtin is built: it is used to edit source code and to replace regex in tjs-lang's own
+compiler, and the AJS builtin comes last. The library's own docs cover the first two.
+
+### Regex is not a parser, and Pattern does not pretend it is (Tonio, 2026-10-03)
 
 > "The worst features in Regex are basically workarounds to allow it to do slightly more terrible
 > things to work around the fact that it's simply not a parser." "To the extent we can't just
@@ -61,15 +214,16 @@ the engine change together. tosijs-coding-practices points every repo at it.
   STRUCTURE: backreferences (memory), lookaround (context) and greedy/lazy capture (extracting
   structure by retrying). Even plain ambiguity, as in `(a|ab)c` or `.*foo`, is structure regex
   cannot state. Pattern removes the ambiguity instead of searching it: possessive repetition,
-  ordered choice, and named stateful pieces (`quoted`, `balanced`, `sepBy`). A PEG choice point
-  re-reads input only within that choice, and can be memoised to linear time (packrat). So the
+  ordered choice, and named stateful pieces (`quoted`, `balanced`, `sepBy`). A PEG (see
+  "Semantics" below) re-reads input only within one choice, and can be memoised to linear time
+  (packrat parsing: caching each rule's result at each position). So the
   converter's rule is: when a regex needs backtracking to be correct, NAME the structure it is
   encoding; never reproduce the retries.
 - **The long term.** Pattern paves the way to eliminating regex from TJS itself, not only from
   AsyncJS: the transpiler's own regex and hand-rolled scans first (see the priorities above), then
   the language surface.
 
-## The goal: cost it accurately, for free
+### The goal: cost it accurately, for free
 
 The point is not to stop ReDoS (Tonio, 2026-10-02). The point is that whatever a pattern
 costs is **charged accurately, as a side effect of running it**, with no metering bolted on.
@@ -83,7 +237,7 @@ Our own linear engine got there only after three review rounds added meters to e
 did work and caps to every quantity that grew with the pattern. Each round found another place
 the work was not being counted.
 
-## Why replace regex
+### Why replace regex
 
 Regex was the most expensive surface of the 0.14.0 release. It took three review rounds
 (`docs/reviews/0.14.0-rc.2-rereview-{6,7,8}.md`) and produced a 7 KB engine of its own, a
@@ -96,7 +250,7 @@ pattern that is almost right still parses and still matches. This release is evi
 star-height screen certified `/a*a*c/`; hand-written case-fold rules were wrong four ways; and the
 engine itself diverged from JavaScript on nested quantifiers until a fuzzer looked.
 
-## Why a declarative Pattern (not an imperative scanner)
+### Why a declarative Pattern (not an imperative scanner)
 
 A pattern is a value, not a procedure:
 
@@ -109,16 +263,19 @@ A pattern is a value, not a procedure:
 - **Usable for validation.** CSS predicates and `$predicate` can use it, which an imperative
   scanner could not.
 
-## Semantics: PEG, stated plainly
+### Semantics: PEG, stated plainly
 
-The semantics are chosen for **predictability**, not as a safety mechanism (charging is the
+A PEG (Parsing Expression Grammar) is a grammar whose choices are tried in order and whose
+repetitions never give input back. The semantics are chosen for **predictability**, not as a safety mechanism (charging is the
 safety mechanism). They make a pattern's cost easy to read off the pattern:
 
-- **Repetition is possessive.** `oneOrMore(p)` takes as much as it can and never gives any back.
+- **Repetition is possessive** (it keeps what it took). `oneOrMore(p)` takes as much as it can and
+  never gives any back.
 - **Choice is ordered.** `anyOf(a, b)` tries `a` first; if `a` succeeds, `b` is never tried, even
   if the rest of the pattern then fails.
 - **No recursion in v1.** Patterns are finite trees. `Pattern.ref` (recursive rules, for nested
-  parentheses) needs packrat memoization to stay bounded, and is deferred.
+  parentheses) is deferred. Fuel keeps a recursive grammar safe; packrat memoization keeps it
+  fast (see the last consequence below).
 
 Consequences, documented wherever the API is:
 
@@ -127,26 +284,27 @@ Consequences, documented wherever the API is:
 - **Anchored matching (`parse`) is linear** in the input times the pattern size.
 - **Unanchored search (`replace`, `matchAll`) is O(n²) in the worst case**, because it attempts a
   match at each position. (A Pike VM does this in one pass; a PEG does not.) That is acceptable
-  because every step is charged: the cost is accurate, not hidden. A first-character set
-  computed from the pattern skips most start positions cheaply, as an optimisation.
+  because every step is charged: the cost is accurate, not hidden. A first-character set (the
+  characters a match could begin with) computed from the pattern skips most start positions cheaply, as an optimisation.
 - **Recursion (later) does not need memoization for safety.** Exponential re-parsing would be
   charged step by step and run out of fuel. Packrat memoization is a performance choice for
   grammars that need it.
 
-## Primitives: loops over character ranges, never RegExp (decided)
+### Primitives: loops over character ranges, never RegExp (decided)
 
 Primitives are plain loops over merged character-range tables (the ones the regex engine already
-builds), **not** sticky `RegExp` calls. Host regex inside the VM would bring back the dependency
+builds; when the regex engine leaves the core, the tables move into Pattern), **not** sticky `RegExp` calls. Host regex inside the VM would bring back the dependency
 this replaces and tie the portable VM to ECMAScript regex. Range loops are also faster than a
 regex call per token, and port to any language in an afternoon.
 
-## Fluency and natural mapping (Tonio, 2026-10-03)
+### Fluency and natural mapping (Tonio, 2026-10-03)
 
 > "Going from rail diagram to Pattern code should be trivial and reading a pattern invocation
 > should read like a description of a clean regex read back by a fluent engineer. `[a-z]+` e.g.
 > `atLeastOne(lowercase.letter)` where `atLeastOne` and `lowercase` are pieces of Pattern."
 
-The API is judged by two read-aloud tests:
+The names in this section are illustrative, not the library's; see the mapping table at the top
+of the design history. The API is judged by two read-aloud tests:
 - **Rail diagram to code is one-to-one.** Every element of a railroad diagram (a terminal, a
   sequence, a choice branch, a loop, an optional bypass) is exactly one Pattern piece, nested the
   way the diagram nests. Drawing the diagram from the code, or the code from the diagram, is
@@ -163,13 +321,13 @@ The API is judged by two read-aloud tests:
   piece by that name (`quoted`, `sepBy`), which is also how inconvertible regexes get their
   structure named.
 
-## The API (draft)
+### The API (draft)
 
 Combinators take sub-patterns. There are no modifier flags that apply to "the next token": those
 are stateful and order-sensitive, cannot group a sequence, and need getters, which the VM treats
 as code. Each thing has one way to write it.
 
-```js
+```javascript
 const price = Pattern.exactly('foo:')
   .maybe(Pattern.spaces())
   .capture('amount', Pattern.number())
@@ -180,6 +338,8 @@ price.parse('foo: x')
 // { success: false, error: 'expected number at 5', ... }
 
 price.replace('Cost is foo: 42.50', '(USD {amount})')  // 'Cost is (USD 42.5)'
+// (in this draft, amount is a number capture, so 42.50 printed as 42.5; the
+// library now inserts the matched text, giving '(USD 42.50)')
 for (const m of price.matchAll(text)) { /* m.captures.amount */ }
 ```
 
@@ -209,7 +369,7 @@ for (const m of price.matchAll(text)) { /* m.captures.amount */ }
 
   CSV, correctly (quoted fields, doubled-quote escapes, commas and newlines inside quotes):
 
-  ```js
+  ```javascript
   const field = Pattern.anyOf(
     Pattern.quoted('"', { escape: 'double' }),
     Pattern.maybe(Pattern.notChars(',\n')) // an empty field (`a,,b`) is a field too
@@ -226,7 +386,7 @@ for (const m of price.matchAll(text)) { /* m.captures.amount */ }
 
   And a call's arguments, nested and quote-aware:
 
-  ```js
+  ```javascript
   Pattern.word().capture('args', Pattern.balanced('(', ')', { quotes: '"\'' }))
     .parse('f(a, g(b), ")")')   // captures.args === 'a, g(b), ")"'
   ```
@@ -239,22 +399,21 @@ for (const m of price.matchAll(text)) { /* m.captures.amount */ }
 - **Cost in the VM:** every engine step is one charge, and every result goes through
   `allocate()`. There is no other work, so nothing can go uncounted.
 
-## One engine, two hosts
+### One engine, two hosts
 
-`tjs-lang/pattern` is a library usable from plain JS and TJS. The VM exposes the same engine as a
-builtin (a VM-built value, like `Set()` and `Date()`). There is one implementation, held honest
+The library (planned here as `tjs-lang/pattern`, now the separate `tosijs-pattern` package) is
+usable from plain JS and TJS. The VM will expose the same engine as a builtin, planned as
+`Pattern`: a value the VM builds, as AJS's `Date()` and `Set()` are
+([The Language](../DOCS-AJS.md)). There is one implementation, held honest
 by a differential test, the same arrangement as predicates.
 
-## Regex as an opt-in
+### Regex as an opt-in
 
-- **`tjs-lang/regex` → `regexAtoms`**, registered like `batteryAtoms`. These are atoms on the
-  linear engine (`src/vm/regex.ts`, moved out of the core), so they keep the run's fuel and heap
-  budgets.
-- **A host's own capability:** a host can inject native `RegExp` behind a capability. Fuel cannot
-  see inside a capability, so a catastrophic pattern there is the host's to own, as with any
-  capability.
+The two options are described under [For hosts](#for-hosts-keeping-regex-after-it-leaves-the-core)
+above: `regexAtoms` on the linear engine (`src/vm/regex.ts`, moved out of the core), or the host's
+own atom running native `RegExp`.
 
-## Migration: the transpiler converts what it can prove (Tonio, 2026-10-02)
+### Migration: the transpiler converts what it can prove (Tonio, 2026-10-02)
 
 The AJS transpiler detects each regex and either **converts it to the equivalent Pattern** or
 **explains how to write it**, the same discipline as `switch-to-given` (`src/lang/switch-to-given.ts`):
@@ -279,7 +438,10 @@ patterns, random inputs) and must agree everywhere it converts. In 0.14 the conv
 **suggestion** printed with the deprecation warning; in 0.15, when regex leaves the core, it is
 what `tjs convert`-style migration applies.
 
-## Sequencing
+### Sequencing
+
+As planned on 2026-10-04; superseded by the table under
+[What changes for your agents](#what-changes-for-your-agents), which is current.
 
 | Release | AJS core | Opt-in |
 |---|---|---|
@@ -294,31 +456,14 @@ count those as passes. Each grok task carries test inputs the model never sees, 
 included (possessive repetition among them), and both styles are scored on what they return. The
 expectation (Tonio, 2026-10-02) is that Pattern wins this, not merely ties.
 
-## Design input: editing source (Tonio, 2026-10-02)
+### Design input: editing source (Tonio, 2026-10-02)
 
-Regex-driven edits fail often, for agents as much as people. One session's record (the agent
-that wrote this note, editing this repo):
+Regex-driven edits of source code fail often, through formatting drift, layers of escaping and
+invisible precedence in replacement strings, so Pattern is also meant for editing code (a code
+mode that skips whitespace and comments, unique-match edits, a dry run). That work belongs to
+tosijs-pattern and is documented there.
 
-1. **Formatting drift** (most common): an exact-text edit fails because a formatter re-wrapped
-   the line in between. The intent was "the call to `compileRegex` with these arguments", not
-   "these characters". A pattern of tokens with flexible whitespace, plus `balanced('(', ')')`
-   for the argument list, matches the intent regardless of line breaks.
-2. **Escaping layers**: regex inside sed inside a heredoc, or inside a Python string, needs
-   escaping at every layer, and several patterns needed a second try. A builder takes literals
-   literally (`exactly('compileRegex(')`): there is nothing to escape.
-3. **Semantic slips**: a replacement string `false && a || b` did not mean what was intended,
-   because precedence inside a replacement is invisible. A structured edit replaces a node.
-
-So Pattern should be good at editing code, not only at reading data:
-
-- **A code mode**: whitespace and comments between tokens are skipped, and `balanced` and
-  `quoted` understand the host language's strings, template literals and comments.
-- **Edit safety**: an edit can require a unique match (or state how many), and a dry run shows
-  each match in context before anything is written.
-- **A CLI** (for example `tjs pattern replace <file> …`), so agents and people can use it
-  outside the VM. That is also where its value is easiest to measure: edits that apply first time.
-
-## Performance: expectations, to be measured (Tonio, 2026-10-02)
+### Performance: expectations, to be measured (Tonio, 2026-10-02)
 
 Native regex will win some cases: V8 compiles a pattern to machine code with fast literal
 scanning, so short, simple, anchored patterns on short inputs (most CSS values) favour it on
@@ -338,7 +483,7 @@ hard to do with regex: any engine that runs one has to match ECMAScript's semant
 run across native regex, the linear regex engine, Pattern in JavaScript, and later Pattern in
 wasm, with results dated in `benchmarks.md`.
 
-## Later: the transpiler itself (Tonio, 2026-10-02)
+### Later: the transpiler itself (Tonio, 2026-10-02)
 
 The same engine could replace the regex and hand-rolled scanning transforms in our own front
 ends. That is where three of this project's chronic problems live:
@@ -359,7 +504,7 @@ becomes correct by construction. It is not a gate. Migration is per pass, each h
 byte-for-byte over the dogfood and compat corpora: the AJS preprocessor first (four steps,
 untrusted input), then the TJS transforms one at a time. Not before `Pattern` itself is solid.
 
-## Serializable, and the answer to JSON Schema's `pattern` (Tonio, 2026-10-04)
+### Serializable, and the answer to JSON Schema's `pattern` (Tonio, 2026-10-04)
 
 **A Pattern serializes.** It is built as data by a fluent builder, so it has a canonical JSON
 form that round-trips exactly (`Pattern.fromJSON(p.toJSON())` matches what `p` matches), carries
@@ -382,27 +527,34 @@ backtracking host engine is the door the 0.14.0 reviews kept closing. The direct
   Pattern replacing regex is made by these being better than the regexes people copy from
   Stack Overflow.
 
-Until then (0.14.0): an IO atom's declared input schema may not contain a `pattern`
-(refused at `defineAtom`), because the outbound membrane would run it on guest-chosen strings on
-the host's engine. Guest schemas already refuse it.
+Until then, schemas that would run a `pattern` on guest strings are refused; see the end of
+[For hosts](#for-hosts-keeping-regex-after-it-leaves-the-core).
 
-## Out of scope for now: predicates
+### Out of scope for now: predicates
 
 `compilePredicate`, `tjs-lang/css` and `$predicate` keep regex on the linear engine. JSON
 Schema's `pattern` keyword is covered above. Moving predicates to `Pattern` is
 a likely next step, since the pattern is data, but it is a separate decision, made after
 `Pattern` exists.
 
-## Open decisions
+### Open decisions
 
-0. ~~The goal~~: **decided** — not to prevent ReDoS, but to charge whatever a pattern costs,
+As they stood on 2026-10-04, with each item's status as recorded on this page. Items marked
+"open here" may have been settled in tosijs-pattern since; its `DECISIONS.md` is the current
+record, and the library's own tracker holds what is still open (naming, a look-behind piece).
+
+0. The goal. **Decided:** not to prevent ReDoS, but to charge whatever a pattern costs,
    accurately and for free (one engine step = one charge) (Tonio, 2026-10-02).
-1. ~~Primitives via sticky RegExp~~: **decided** — range loops (Tonio agreed, 2026-10-02).
+1. Primitives. **Decided:** range loops, not sticky `RegExp` (Tonio agreed, 2026-10-02).
 2. PEG semantics (possessive repetition, ordered choice), for predictability, with the
-   documented O(n²) unanchored search.
-3. Combinators taking sub-patterns, instead of modifier flags on the next token.
-4. Primitive definitions: `number()` = JSON's grammar; a general `chars(set)`.
-5. Typed captures (`number()` captures a number).
-6. `replace` takes a template, not a callback.
-7. One engine for `tjs-lang/pattern` and the VM builtin.
-8. No recursion in v1.
+   documented O(n²) unanchored search. **Open here**; the library is built this way.
+3. Combinators taking sub-patterns, instead of modifier flags on the next token. **Open here**;
+   the library is built this way.
+4. Primitive definitions: `number()` = JSON's grammar; a general `chars(set)`. **Open here.**
+5. Typed captures (`number()` captures a number). **Open here**; note that replacement templates
+   now insert the matched text, not the typed value.
+6. `replace` takes a template, not a callback. **Superseded:** the library's `replaceAll` takes a
+   `{name}` template or a function.
+7. One engine for `tjs-lang/pattern` and the VM builtin. **Superseded** in part: the library is
+   `tosijs-pattern`, not `tjs-lang/pattern`; one engine for both hosts still stands.
+8. No recursion in v1. **Open here.**

@@ -1,20 +1,44 @@
-<!--{"section": "internals", "order": 6, "navTitle": "Type identity", "parent": "the-tjs-language.md"}-->
+<!--{"parent": "the-tjs-language.md", "order": 6}-->
+<!-- TODO review -->
 
 # Type identity: who answers "does this value satisfy this type?"
 
+_Internals. A design note for people changing the TJS runtime or emitter; you do not need it
+to write TJS._
+
+**If you only write TJS, this is the whole story.** Code compiled from a `.tjs` file checks
+its declared types with a small runtime emitted into that same file, not with the
+`tjs-lang` library. For the same declaration, the library's `Type` gives the same verdicts,
+with one exception that comes from JavaScript: an example whose meaning lives in how it is
+written, such as `0.0` (a float) or `+0` (non-negative), cannot reach the library intact,
+because `0.0 === 0` and `+0 === 0`. The rest of this page is for people changing either implementation, and records how that
+agreement is kept and where the two still differ in what they expose.
+
+```tjs
+Type Price = 0.0
+Type Point { example: { x: 1, y: 1 } }
+
+console.log(Price.check(9.99), Price.check('9.99'))   // true false
+console.log(Point.check({ x: 1, y: 1, z: 9 }))         // true: an extra key is fine
+console.log(Point.check({ x: 1.5, y: 1 }))             // false: x is an integer
+console.log(Point.check({ x: 1 }))                     // false: y is missing
+```
+
+## What this page measures
+
 TJS answers that question in several places. This page names them, says which one is
-authoritative, and records where they currently disagree — with a link to the test that
+authoritative, and records where they currently disagree, and names the test that
 measures it, because a page like this is exactly where a stale claim survives longest.
 
-Measured by [`src/lang/type-identity.test.ts`](../src/lang/type-identity.test.ts), which
-runs one corpus through every mechanism on each test run.
+Measured by `src/lang/type-identity.test.ts` in the repository, which runs one corpus of
+declarations, written as `.tjs` source, through every mechanism on each test run.
 
 ## The mechanisms
 
 | # | Mechanism | Where | Answers with |
 | --- | --- | --- | --- |
 | 1 | `Type(name, …, example).check(v)` | `src/lang/runtime.ts` | example-inference over tosijs-schema |
-| 2 | **the inline stub** — `__match(v, ex)` | emitted into every standalone `.js` (`src/lang/emitters/js.ts`) | a ~400-byte re-implementation of #1 |
+| 2 | **the inline stub** — `__match(v, ex)` | emitted into every standalone `.js`, inside the file's `__tjs_rt` object (`src/lang/emitters/js.ts`) | a self-contained re-implementation of #1 |
 | 3 | a direct predicate | emitted for a bare `n: int` parameter | `Number.isInteger` and friends |
 | 4 | `checkType(v, kind)` | `src/lang/runtime.ts` | string kind names, returns an error |
 | 5 | `checkType(v, descriptor)` | `src/lang/inference.ts` | `TypeDescriptor`, returns a boolean |
@@ -27,7 +51,7 @@ dependency. Them **disagreeing** is the problem.
 
 Every mechanism above sits downstream of one shared question — *what primitive does this
 value stand for?* — answered by `unwrapBoxed` (`src/unwrap-boxed.ts`) and, above it, by
-`asCompared` (see `type-system-north-star.md`). Two properties of that contract are worth
+`asCompared` (see [North star](/type-system-north-star/)). Two properties of that contract are worth
 stating here, because "it's a `Number`, and `instanceof` agrees" is a reasonable thing to
 believe right up until it isn't:
 
@@ -53,8 +77,7 @@ The one thing to know before reading further, because it inverts the obvious rea
 
 So #2 is not a degraded path taken when `globalThis.__tjs` is missing. **It is the shipped
 semantics of every emitted file**, and #1's stricter answer is unreachable from emitted
-code. `CLAUDE.md` states this under "The inline runtime is NOT the real runtime"; it is
-repeated here because it is the fact that makes the disagreements below matter.
+code. This is the fact that makes the disagreements below matter.
 
 The namespace changed when the preamble moved into `__tjs_rt` (#39); the property did not. These were module-scope
 declarations called by bare name, which made them collide with any identically-named import
@@ -74,7 +97,7 @@ actually the stub answering twice.
 _On decisions_ — which is what this page is about, and what the harness measures. Surface
 disagreements are a separate, shorter list; see "Surface, not decisions" below.
 
-Four cases used to live here:
+Five cases used to live here:
 
 | Type | Value | was | cause |
 | --- | --- | --- | --- |
@@ -84,7 +107,7 @@ Four cases used to live here:
 | `Type Nums { example: [1] }` | `[1.5]` | stub accepted | narrowing lost through an array |
 | `Type Pt { example: { x: 1, y: 1 } }` | `{ x: 1, y: 1, z: 9 }` | stub accepted | shape left open |
 
-They closed in two moves, and the split is the useful part:
+The integer rows closed in two moves, and the split is the useful part:
 
 1. **Source-level facts** — `+0` means non-negative, and `+0 === 0`, so nothing downstream
    can recover it. The emitter writes the check into the emitted code as a predicate.
@@ -93,14 +116,15 @@ They closed in two moves, and the split is the useful part:
    readable from the value the stub already holds, so `__match` enforces it directly. No
    source information required, and no second mechanism.
 
-The FOURTH row resolved in the opposite direction (2026-08-14). It was first closed by
+The last row (the extra `z` key) resolved in the opposite direction (2026-08-14). It was first closed by
 making the stub reject the excess key — and then the policy itself was reversed: **excess
 keys are fine, everywhere**. TypeScript's excess-property check is a freshness lint on
 object literals, not a property of the type (route the same object through a variable and
 it passes), and there is no `Exact<T>` — so a runtime check that closes the shape is
 stricter than anything the type system it mirrors can express. Both checkers now ACCEPT
 `{ x: 1, y: 1, z: 9 }` against `example: { x: 1, y: 1 }`; missing keys and wrong member
-types are still errors. The stub stays open by construction, and the real runtime re-opens
+types are still errors. (`toJSONSchema()` is not yet consistent with this in emitted code;
+see "Surface, not decisions".) The stub stays open by construction, and the real runtime re-opens
 what `s.infer` closes (`openInferredShapes` — tosijs-schema 1.5.0 began enforcing the
 `additionalProperties: false` it emits). Agreement was the invariant worth keeping; which
 way they agree was a language decision, made toward JavaScript.
@@ -156,27 +180,31 @@ nested match is a lookup of a (value, subexample) pair, assumed true until its o
 fails, with failures propagated to the pairs that consulted it. There is no recursion into the
 data, so any depth works (a 50,000-deep list, on Node as on Bun), in time linear in the data.
 Checked against a brute-force oracle on wide random cyclic, shared graphs
-(`example-kinds-oracle.test.ts`).
+(`src/lang/example-kinds-oracle.test.ts`).
 
 `toJSONSchema()` of a recursive type is NOT yet faithful: it truncates to `{}` at the
 recursion point, so a JSON-Schema validator accepts values `.check` rejects. `$defs` + `$ref`
-is the fix (TODO).
+is the fix, not yet done. (Measured: for `Type Node { example: { next: Node | null } }` the
+schema unrolls one level and then accepts anything at `next.next`.)
 
 ## Surface, not decisions
 
 The list above is about **verdicts** — does `v` satisfy `T`. The two implementations can also
 differ in what a type *exposes*, which no decision test can see. That list is short and, unlike
-the verdict list, not empty:
+the verdict list, not empty. The schema row is the exception that blurs the line: it is a
+surface difference that becomes a verdict difference as soon as another validator reads the
+schema.
 
 | fact | real runtime | inline stub | consequence |
 | --- | --- | --- | --- |
 | a `Type`'s witness | `example` | `__ex` | `Age.example` is `undefined` in emitted code — and emitted code is the shipped semantics |
+| `toJSONSchema()` of an example shape | `additionalProperties: true` (re-opened by `openInferredShapes`) | `additionalProperties: false` | a JSON-Schema validator fed an emitted type's schema rejects `{ x: 1, y: 1, z: 9 }`, which that type's own `.check` accepts (measured 2026-11-06) |
 | the `Predicate` brand | `instanceof Predicate` is `true` | `false` — the stub builds its own callables and never reads the `__tjs_Predicate_1` slot | a check like `x instanceof Predicate` sees library types and misses every type declared in a `.tjs` file |
 
-Same information under two names, so nothing is *lost*; it is simply not where the documented
-surface says it is. Unifying them changes the serialised shape of every emitted type, so it is
-tracked in `TODO.md` as a deliberate change rather than made in passing. Pinned by
-`predicate-callable.test.ts`, which asserts the divergence in both directions — the stub has no
+For the witness and the brand, the information is present under another name, so nothing is
+*lost*; it is simply not where the documented surface says it is. Unifying them changes the
+serialised shape of every emitted type, so it is tracked on the project board as a deliberate
+change rather than made in passing. Pinned by `src/lang/predicate-callable.test.ts`, which asserts the divergence in both directions — the stub has no
 `example`, the real runtime has no `__ex` — so closing it fails a test rather than drifting.
 
 Two surface gaps have already closed this way and are worth naming, because both were found
@@ -187,7 +215,7 @@ the same way: by asking what the stub omits rather than what it decides.
   returned `undefined` in every emitted file.
 - `toJSON` — the real runtime got it and the stub did not, so `JSON.stringify(EmittedType)`
   returned `undefined` and the key silently vanished from any object containing one. The 0.14.0
-  review caught it; the stub now serialises to byte-identically the pre-0.14.0 shape.
+  review caught it; the stub now serialises byte-identically to the pre-0.14.0 shape.
 
 The general lesson is the page's own thesis applied one level up: **a field the stub omits is a
 field the language does not have.** Adding one to `src/types/Type.ts` alone adds it to the
@@ -196,7 +224,7 @@ library only.
 ## What this blocks
 
 Nothing, now. `Box<int>` — type arguments in an annotation — was the last **proposed**
-row in [TJS vs TypeScript](./tjs-vs-typescript.md), and it shipped once the disagreements
+row in [TJS vs TypeScript](/tjs-vs-typescript/), and it shipped once the disagreements
 above were closed. The blocker really was on this page rather than in the parser: the
 inline `Generic` stub coerced a type argument with `v => typeof v === typeof a`, so
 `Box<int>` accepted a float. It goes through `__match` now.
@@ -227,5 +255,5 @@ call is made.
 ## Adding a mechanism
 
 Don't, if an existing one will do. If you must, add it to the corpus in
-`type-identity.test.ts` in the same commit — a mechanism that answers this question without
+`src/lang/type-identity.test.ts` in the same commit — a mechanism that answers this question without
 being in that harness is one that can drift from the other four without anything going red.

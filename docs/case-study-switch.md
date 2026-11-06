@@ -1,4 +1,5 @@
-<!--{"section": "home", "order": 10, "navTitle": "Case study: switch", "parent": "the-tjs-language.md"}-->
+<!--{"parent": "the-tjs-language.md", "order": 10}-->
+<!-- TODO review -->
 
 # Case study: fixing `switch`
 
@@ -52,8 +53,9 @@ Three implementation traps, each worth remembering:
 
 ## 3. The measurement that changed the plan
 
-We showed a model the same program twice, varying only the file extension, and asked what it
-returned. `switch-probe.ts`:
+We showed a model the same program, varying only the file extension, and asked what it
+returned. The probe is `experiments/agent-legibility/switch-probe.ts`; the numbers below are
+qwen3.8-27b, five samples per arm (the full series is in `switch-probe-results.md` beside it):
 
 | | correct | **wrong** |
 | --- | --- | --- |
@@ -69,7 +71,10 @@ Its own reasoning, verbatim: *"…maybe has 'case' with comma to group multiple 
 a language 'TJS'…"* There is no prior for the extension. Our out-of-band mode marker — the
 thing that lets TJS fix `==` where `"use strict"` could not — carries **nothing** to a reader.
 
-A one-line comment took it to 5/5. So the affordance has to be in the code.
+A one-line comment stating the rule took the 27B model to 5/5. A 4B model (gemma-4-e4b) was
+unmoved by anything in the file: it scored 0/5 on every TJS arm, comment or not. So the
+affordance has to be in the code, and even there it only reaches a reader capable of acting
+on it.
 
 ## 4. The reframe: if it behaves differently, it should look different
 
@@ -88,7 +93,7 @@ given x {
 No `case`. No colons. No implicit blocks. `else` for the remaining arm. Every difference
 visible.
 
-Measured:
+Measured (qwen3.8-27b, N=5; the new keyword in this run was `match`):
 
 | | correct | **wrong** | no-answer |
 | --- | --- | --- | --- |
@@ -104,8 +109,9 @@ have to move together.
 
 ## 5. Syntax details that earned themselves
 
-**No parentheses.** `match (x) { }` is *already valid JavaScript* — a call followed by a
-block. Without parens it is unambiguous. The choice that looked like taste turned out to be
+**No parentheses.** With the brace on the next line, `match (x)` followed by `{ … }` is
+*already valid JavaScript*: automatic semicolon insertion makes it a call followed by a block.
+Without parens, `match x {` is never valid JavaScript, so it is unambiguous. The choice that looked like taste turned out to be
 what makes detection possible.
 
 **`else`, not `otherwise`.** Already reserved, so unlike the keyword itself it cannot collide
@@ -184,11 +190,13 @@ This matters beyond the keyword, because it means a probe scored on "correct out
 silently mixes a stable signal with a noisy one. The two should be read separately, and the
 no-answer column is the one that needs a much larger N.
 
-**What survives.** Replicated across eleven arms and several runs:
+**What survives.** Replicated across eleven arms and several runs on the 27B model (the
+first two also on the 4B):
 
 - the C shape in `.tjs` produces **confident wrong answers**, reliably;
 - **any** new shape produces **zero** wrong answers, reliably;
-- an inline hint takes comprehension to 5/5.
+- an inline comment stating the rule takes comprehension to 5/5, on a model large enough to
+  use it.
 
 **What does not survive:** any ranking among `match` / `when` / `given`.
 
@@ -254,25 +262,21 @@ rename:
 `else` it is. Worth recording that this was decided on argument with the measurement
 explicitly abstaining, rather than the measurement being ignored.
 
-**A possible extension, not taken:** if `else` reads as `if`/`else`, then `else if (cond) { }`
-is the obvious next step. That would mix value dispatch with condition dispatch in one
-construct, which is a bigger change than it looks and is not needed for anything today.
-
 ## 10. Where it landed, and what is still open
 
 **Decided and shipped.** `given` is the construct; `else` is the fallback; `switch` keeps C
 semantics exactly and gets a warning pointing at the replacement, so nothing silently changes
 meaning. Existing code is upgraded at graduation where that is provably safe.
 
-**Still open:**
+**Still open** (as of 2026-11-06; neither item has a card on the board):
 
 - **Re-measure with a cheat sheet.** The no-answer mode is exactly what guidance fixes
   (measured elsewhere: none 0% → cheatsheet 67%), and cold reading is the worst case for a
   novel word and the best case for a familiar one. The keyword ranking should be re-taken under
   those conditions, with a much larger N on the no-answer column specifically.
-- **`else if (cond) { }`.** If `else` reads as `if`/`else`, that is the obvious next step. It
-  would mix value dispatch with condition dispatch in one construct, which is a bigger change
-  than it looks, and nothing needs it today.
+- **`else if (cond) { }`, considered and not taken.** If `else` reads as `if`/`else`, that is
+  the obvious next step. It would mix value dispatch with condition dispatch in one construct,
+  which is a bigger change than it looks, and nothing needs it today.
 
 ## 11. What generalises
 

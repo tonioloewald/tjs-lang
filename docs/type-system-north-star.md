@@ -1,4 +1,5 @@
 <!--{"parent": "the-tjs-language.md", "order": 8}-->
+<!-- TODO review -->
 
 # North star: JSON-Schema + predicates as the single source of truth for types
 
@@ -7,7 +8,20 @@
 > (`src/lang/predicate-schema.ts`), `createPredicateEvaluator`, the `tjs-lang/css`
 > library, `docs/ambient-contracts.md`, PRINCIPLES.md.
 
+Each section below carries its own status, because this note mixes three kinds of material:
+
+| status | meaning | sections |
+| --- | --- | --- |
+| **direction** | the goal and the lens; nothing here is a promise about a release | the principle, the decision lens, why, the portable predicate VM, Predicate as data |
+| **shipped** | built and released; the section records why it is shaped as it is | `asCompared`, the registry chain, `Predicate` as the umbrella |
+| **open** | undecided; listed so the question is stated rather than assumed | each "Still open" list, and the open questions at the end |
+
+The lens is the first two sections. The rest is the design record for the pieces of it that
+have been built.
+
 ## The principle
+
+_Status: direction._
 
 **A TJS type is, canonically, a JSON-Schema node — optionally carrying a
 `$predicate` (a verified-pure predicate cluster) for the computational part that
@@ -65,6 +79,8 @@ predicate features that need a full JS engine.
 
 ## The priority that unlocks it: a small, portable predicate VM
 
+_Status: direction, not built._
+
 For "types across language boundaries" to be real, `$predicate` must **run
 anywhere**, not just in JS. The priority is a **reference implementation of a tiny,
 portable VM that safely evaluates the predicate subset** — ideally smaller than a
@@ -86,6 +102,9 @@ AST is the wire/exec form the small VM walks. A `$predicate` could carry either,
 with the AST as the portable default.
 
 ## Predicate as DATA — Pattern's sibling (Tonio, 2026-10-04)
+
+_Status: decided direction, not built. `docs/pattern.md` is itself a proposal, so `$pattern`
+below is a planned keyword, not one that exists today._
 
 The Pattern decision (`docs/pattern.md`: built as data, canonically serializable, run by a
 metered engine, never by the host's) argues for the same shape here: **`Predicate` becomes the
@@ -114,8 +133,10 @@ first-class, serializable, safely executable representation of a predicate.**
 
 ## `asCompared` — the missing half of a type
 
-**Status:** designed, not built. Targeted as a patch after 0.13.3 — it is additive and
-non-breaking, so it need not wait for 0.14.
+_Status: shipped._ `extend Foo { asCompared() {…} }` landed in 0.13.4; 0.13.5 made the
+registry file-local (0.13.4 shipped it process-global by mistake); 0.13.6 added the type's
+own `asCompared()` method as the layer beneath the registries. The section below is the
+design record, kept because it explains the choices.
 
 ### The gap
 
@@ -146,7 +167,10 @@ value**, Java-style. Three things follow, and each is fatal on its own:
 
 ### The language already does this — for three types, hardcoded
 
-```ts
+In essence (`src/unwrap-boxed.ts` has the full version, which fails soft and reads the
+internal slot rather than trusting `instanceof`):
+
+```javascript
 if (v instanceof String)  return String.prototype.valueOf.call(v)
 if (v instanceof Number)  return Number.prototype.valueOf.call(v)
 if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
@@ -154,7 +178,7 @@ if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
 
 `unwrapBoxed` **is** a comparator registry with exactly three entries. It is precisely
 "compare this object as something else" — a `String` instance normalised to a string before
-comparison. The semantics were decided and shipped; what was never shipped is a way to add
+comparison. The semantics were decided and shipped; what was missing until 0.13.4 was a way to add
 a fourth entry.
 
 `asCompared` generalises those three hardcoded cases into an open registry. They become its
@@ -162,11 +186,27 @@ base cases rather than a special rule.
 
 ### A projection, not a comparison
 
-```ts
+```tjs
+class Timestamp {
+  constructor(seconds, nanoseconds) {
+    this.seconds = seconds
+    this.nanoseconds = nanoseconds
+  }
+}
+
 extend Timestamp {
   asCompared() { return this.seconds * 1000 + this.nanoseconds / 1e6 }
 }
+
+const a = Timestamp(1, 500000000)
+const b = Timestamp(1, 500000000)
+
+console.log(a == b)                          // true: both project to 1500
+console.log(Is({ when: a }, { when: b }))    // true: the deep walk projects nested values
 ```
+
+(`Timestamp` here is a local class standing in for one you do not own, such as Firestore's.
+In native TJS a class is called without `new`.)
 
 The name is deliberate: it says what the value **is, for comparison** — not how to compare
 it. That distinction carries real weight:
@@ -186,11 +226,22 @@ there isn't one, and both need it.
 `toBool` is `Boolean(unwrapBoxed(v))`. An errored service result is an object, objects are
 truthy, so `if (result)` takes the **success** branch and the type cannot say otherwise:
 
-```
+```text
 toBool({ ok: false, error: 'timeout' })   ->  true
 ```
 
-With `asCompared → false`, `if (result)` is correct. The same applies to any library's own
+With `asCompared → false`, `if (result)` is correct:
+
+```tjs
+class Result {
+  constructor(ok) { this.ok = ok }
+  asCompared() { return this.ok }
+}
+
+const failed = Result(false)
+console.log(failed ? 'success branch' : 'failure branch')  // failure branch
+```
+ The same applies to any library's own
 boolean wrapper, which `unwrapBoxed` cannot see because it only knows `Boolean`.
 
 ### Return type: a primitive, or nothing
@@ -223,6 +274,8 @@ Participation is signalled by whether the type **declares** `asCompared`, not by
 returns — otherwise `null`/`undefined` would be ambiguous with declining.
 
 ### Resolved: a registry CHAIN, rooted at the host
+
+_Status: shipped (0.13.5 and 0.13.6)._
 
 The scoping question is settled, and the answer reframes what `asCompared` is.
 
@@ -269,11 +322,16 @@ to join*. Nobody writes `asCompared` by accident — unlike `valueOf`, which eve
 instead of calling it. Containment is unchanged either way: the probe and the call are both
 fail-soft, and a projection that is not a primitive is ignored rather than honoured.
 
-The emitted preamble already encodes exactly this link:
+The emitted preamble encodes exactly this link: an installed shared runtime is used if
+there is one, and the file's own inline stubs otherwise.
 
-```js
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? { …inline stubs }
+```javascript
+const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { …inline stubs }
 ```
+
+The module layer is a table in that same inline runtime (`__tjs_rt.__ac`); an
+`extend Timestamp { asCompared() {…} }` block writes its entry there, so it is file-local by
+construction.
 
 **Why the chain is only two levels deep — and must be.** A module's parent is `globalThis`,
 not its importer. Modules form a flat GRAPH, not a tree: at runtime nothing knows who
@@ -306,9 +364,12 @@ the base is fixed.
   table that every module writes to and every module reads from would be exactly that. The
   chain gives sharing without leaking.
 
-### Prerequisite: `extend`'s runtime half is dead code
+### Finding: `extend`'s method dispatch has no runtime half
 
-**This must be fixed first, and it is not a parallel task.** Measured at 0.13.3:
+_Status: still true (re-measured 2026-11). It did not block `asCompared`, which reads its
+own table rather than dispatching extension methods._
+
+Measured first at 0.13.3, and unchanged since:
 
 | receiver | emitted | works? |
 | --- | --- | --- |
@@ -319,42 +380,51 @@ the base is fixed.
 Only a LITERAL receiver is rewritten. Even a parameter the transpiler knows is a string
 emits an unrewritten call, which needs `String.prototype.cap` — deliberately absent.
 
-The registry is **write-only**: emitted code calls `registerExtension`, and the emitter never
-emits a `resolveExtension` call anywhere. Entries go in; nothing looks them up.
-`TJS-SYNTAX.md:656` claims "Runtime fallback via
-`registerExtension()`/`resolveExtension()` for unknown types" — the resolver exists, is
-exported, walks prototype chains correctly, and is never called.
+For method calls the registry is **write-only**: emitted code calls `registerExtension`, and
+the emitter never emits a `resolveExtension` call. The resolver exists, is exported, walks
+prototype chains correctly, and is never called. `TJS-SYNTAX.md` used to claim a "runtime
+fallback via `registerExtension()`/`resolveExtension()`"; it now documents the literal-only
+behaviour, which is the true one.
 
-So `extend` is currently local by ACCIDENT rather than design: local because the only working
+So `extend` is local by ACCIDENT rather than design: local because the only working
 mechanism is a lexical rewrite, and the mechanism that would make it non-local is unreachable.
-Wiring the resolver without deciding the chain first would turn it into the flat global table
-described above — the prototype pollution the feature exists to avoid.
-
-`asCompared` cannot ride on `extend` until that half works, and fixing it is where the chain
-model actually gets built.
+Wiring the resolver without the chain model above would turn it into a flat global table —
+the prototype pollution the feature exists to avoid. If extension methods ever dispatch at
+runtime, they should use the same module → global → type → host chain.
 
 ### Still open
 
-- **Declaration site.** `extend Timestamp { asCompared() { … } }` reuses the mechanism and
-  needs no new syntax; a slot on `Type` serializes into the `$predicate` story and travels
-  to the portable predicate VM. The chain model works for either.
+- **Declaration site.** Two are shipped: `extend Timestamp { asCompared() { … } }` (no new
+  syntax) and a class's own `asCompared()` method. A slot on `Type` is not; it would
+  serialize into the `$predicate` story and travel to the portable predicate VM. The chain
+  model works for all three.
 - **Whose registry answers `Is(a, b)`** when the call is in module A and the value came from
-  module B. The caller's, under this model — *you* choose how to compare, which is what
-  "as compared" says. The alternative (the value's defining module) is defensible and
-  disagrees, so it should be stated rather than left implicit.
+  module B. As shipped it is the caller's: each file's comparators consult that file's own
+  table, so *you* choose how to compare, which is what "as compared" says. The alternative
+  (the value's defining module) is defensible and disagrees; it is recorded here so the
+  choice is explicit.
 
 ### Implementation notes
 
-- Probe fail-soft, invoke strictly — the discipline `goIs` already documents. Asking a Proxy
-  whether it declares `asCompared` runs a trap that can throw, and a hostile object must not
-  throw out of `==`. A declared hook that throws is the author's own bug and should surface.
+_Written before the build; the first point records where the shipped code differs from the
+plan._
+
+- Probe fail-soft — asking a Proxy whether it declares `asCompared` runs a trap that can
+  throw, and a hostile object must not throw out of `==`. The plan was to invoke strictly,
+  so that a declared hook that throws surfaces as the author's bug. **As shipped, the call is
+  fail-soft too:** a projection that throws, or returns something other than a primitive, is
+  ignored and the value compares as itself (0.13.4 CHANGELOG: a hook that breaks `==` for
+  every value is worse than one that does not apply).
 - Five copies of the comparator exist by design (bundle isolation): `runtime.ts`,
-  `tests.ts`'s `expectFunction`, `js-tests.ts`'s `__deepEqual`/`formatValue`, and the
+  `tests.ts`'s `expectFunction`, `emitters/js-tests.ts`'s `__deepEqual`/`formatValue`, and the
   emitted inline `Is`. **All five move together or they drift.**
 - The hot path must stay allocation-free. `Eq` is ~29ns; a lookup on every comparison is the
   main risk to watch.
 
 ## `Predicate` is the umbrella — and it already exists, unnamed
+
+_Status: the umbrella is shipped as the `Predicate` class (`src/types/predicate-brand.ts`,
+exported from `tjs-lang`); whether it gets a declaration keyword is open (end of section)._
 
 **Design position (Tonio, 2026-09-19):** *predicates stay plain functions under the hood, but
 within TJS they are instances of `Predicate`.* Everything that answers **"does `v` satisfy X"**
@@ -369,7 +439,8 @@ mid-flight.
 
 ### The finding: the interface is already implemented
 
-Every declaration form returns an object sharing **exactly five members**:
+In the full runtime (`src/types/`, what `import { Type } from 'tjs-lang'` gives you), every
+declaration form returns a value sharing **exactly five members**:
 
     __runtimeType   check   description   strip   toJSONSchema
 
@@ -378,9 +449,15 @@ and each adds its own introspection on top:
 | form | adds |
 | --- | --- |
 | `Type Age 0` | `example`, `examples`, `default`, `schema`, `predicate` |
-| `Enum Colour ['red','green']` | `values`, `keys`, `names`, `members` |
-| `Union U [0, '']` | `values` |
-| `FunctionPredicate Cb {…}` | `params`, `returns`, `returnContract` |
+| `Enum Colour 'a colour' { Red = 'red' … }` | `values`, `keys`, `names`, `members` |
+| `Union Direction 'a direction' 'north' \| 'south'` | `values` |
+| `FunctionPredicate Formatter { params: … returns: … }` | `params`, `returns`, `returnContract` |
+
+The inline runtime that emitted `.js` carries is smaller: its declarations have
+`__runtimeType`, `check` and `description` plus their own introspection (a `Type` has
+`default` but no `example`, `strip` or `toJSONSchema`), and `Predicate` is not in scope in
+emitted code. This is the "inline runtime is not the real runtime" rule
+(`docs/type-identity.md`): the shared five are a property of the full runtime.
 
 So the common concept is not hypothetical — it is built, consistent across four constructs, and
 branded (`__runtimeType: true`). **It has no name.** That is the gap.
@@ -502,16 +579,18 @@ and was wrong on every count. The objections, and what measuring them showed:
 | `Object.setPrototypeOf` is expensive | **2.7ms vs 0.7ms per 20,000 declarations** (~0.1µs each), at module-init only. Non-issue |
 | Old emitted files would not recognise a callable type | **no exposure.** Emitted types are file-local `const`s, never exported, and the param check calls `.check()` directly rather than going through `__match`. A file only ever checks against types its own stub built |
 
-The shape, which needs no `eval` and no `new Function`:
+The shape, which needs no `eval` and no `new Function` (as built in `src/types/Type.ts`):
 
     const fn = (v) => /* the test */
-    Object.setPrototypeOf(fn, Type.prototype)      // real prototype chain
+    Object.setPrototypeOf(fn, Predicate.prototype) // real prototype chain
     Object.assign(fn, { description, example, check: fn, __runtimeType: true })
 
-    Age(5)                  // true        — callable, the natural JS idiom
-    Age.check(5)            // true        — same function, cannot drift
-    Age instanceof Type     // true        — real instanceof, no Symbol.hasInstance
-    Age instanceof Predicate // true
+    Age(5)                   // true   — callable, the natural JS idiom
+    Age.check(5)             // true   — same function, cannot drift
+    Age instanceof Predicate // true   — real instanceof, no Symbol.hasInstance
+    Age instanceof Type      // false  — `Type` is a factory, not the prototype
+
+(`Predicate` is exported from `tjs-lang`; it is not in scope inside emitted code.)
 
 **Why this is better than the object-shaped alternative**, beyond taste:
 

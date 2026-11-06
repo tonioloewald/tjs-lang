@@ -1,604 +1,379 @@
-<!--{"section": "ajs", "group": "docs", "order": 14, "navTitle": "Technical Context", "parent": "the-tjs-language.md"}-->
+<!--{"section": "ajs", "group": "docs", "order": 14, "navTitle": "Technical Context", "parent": "ajs.md"}-->
+<!-- TODO review -->
 
-# tjs-lang Technical Context
+# The AJS VM: Technical Context
 
-**Note:** This document provides a technical deep-dive into tjs-lang's architecture and security model. For a general overview, installation instructions, and usage examples, please refer to the main [README.md](./README.md).
+This chapter is the map: what the pieces of the AJS VM are, what happens when the host calls
+`vm.run`, which guarantee lives where, and how agents compose. It is for people embedding the
+VM or reviewing it. The day-to-day host API (every run option, capabilities, quotas, tracing) is
+in [Embedding the AJS VM](/ajs-host/); writing atoms is in
+[Capabilities and Custom Atoms](/ajs-capabilities/); the language itself is
+[AJS: The Agent Language](/DOCS-AJS/).
 
-**tjs-lang** is a secure, environment-agnostic runtime for executing AI agents and logic chains defined as JSON ASTs.
+## 1. The pieces
 
-**Bundle Size:** ~17KB gzipped. Expressions are evaluated via lightweight AST nodes at runtime, eliminating the need for a parser library (the previous JSEP-based approach was ~50KB gzipped).
+An agent travels as a **JSON AST**. Something produces the AST, and the VM runs it:
 
-## 1. Architecture
+| Piece           | Where it lives                                 | What it does                                                                                            |
+| --------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Transpiler      | `transpile` from `tjs-lang/lang`               | AJS source to AST. Checks atom calls, parameters and syntax, and explains what to write instead.        |
+| Builder         | `Agent` from `tjs-lang`, or `vm.Agent`         | Builds the same AST in code with a fluent API. No checks: what you build is what runs.                  |
+| AST             | plain JSON, `"$ajs": 2` from the transpiler    | The wire format. It can be stored, sent over a network and run elsewhere.                               |
+| VM              | `AgentVM` from `tjs-lang/vm-ast`               | Runs an AST. All atom implementations, fuel, timeouts, the heap ceiling and the membrane live here.     |
+| Atoms           | core atoms, plus any the host registers        | The operations an agent can call (`httpFetch`, `storeGet`, `llmPredict`, your own).                     |
+| Capabilities    | the `capabilities` run option                  | The host's IO: `fetch`, `store`, `llm`, `agent`, and whatever your own atoms read. Empty by default.    |
 
-### The Builder (`TypedBuilder`)
-
-A fluent TypeScript API that generates a portable JSON AST. It uses a `Proxy` to dynamically infer methods from the registered Atoms, providing a strongly-typed developer experience.
-
-It is important to understand that the builder is only for constructing the AST; it does not contain any of the actual implementation logic for the atoms. All execution is handled by the Runtime.
-
-**Usage Pattern:**
-
-- All logic chains **must** start with `Agent.take()` to define the input schema for the agent.
-- Subsequent atom calls are chained together fluently (e.g., `.varSet(...)`, `.httpFetch(...)`). This creates an implicit `seq` (sequence) of operations.
-- The chain is terminated by calling `.toJSON()` to produce the serializable AST.
-
-You can access the builder via `Agent` (for core atoms) or `vm.Agent` (the recommended way to access both core and any custom atoms registered with the VM instance).
-
-<!-- tjs-doc: fragment -->
-
-```typescript
-import { Agent, s, AgentVM } from 'tjs-lang'
-
-// Global Builder (Core Atoms)
-const logic = Agent.take(s.object({ input: s.string }))
-  .varSet({ key: 'sum', value: { $expr: 'binary', op: '+', left: { $expr: 'literal', value: 1 }, right: { $expr: 'literal', value: 1 } } })
-
-// VM Builder (Custom Atoms)
-const vm = new AgentVM({ myAtom })
-const customLogic = vm.Agent
-  .myAtom({ ... })
-  .varSet({ ... })
-```
-
-### The Runtime (`AgentVM`)
-
-A stateless Virtual Machine that executes the AST. The runtime contains all the actual implementation logic for the atoms.
-
-- **Sandboxed:** No `eval()`. Math/Logic is evaluated safely via AST expression nodes.
-- **Resource Limited:** Enforces `fuel` (gas) limits and execution timeouts per atom.
-- **Capability-Based:** All IO (Network, DB, AI) must be injected via `capabilities` object.
+The split between the front ends and the VM is deliberate. The builder and the transpiler
+contain no execution logic; the VM contains no parser. `tjs-lang/vm-ast` is the recommended VM
+because it has no parser in its bundle, so a hostile payload cannot reach a parser defect inside
+the sandbox. Transpile on the side that owns the source, and send the AST:
 
 ```typescript
-import { AgentVM } from 'tjs-lang'
+import { transpile } from 'tjs-lang/lang'
+import { AgentVM } from 'tjs-lang/vm-ast'
+
+// Where the source is handled: source in, JSON AST out.
+const { ast } = transpile(`
+  function total({ price: 0.0, taxRate: 0.0 }) {
+    return { total: price * (1 + taxRate) }
+  }
+`)
+
+// Where the agent runs: AST in, result out.
 const vm = new AgentVM()
-const { result, fuelUsed } = await vm.run(ast, args, {
-  capabilities,
-  fuel: 1000,
-})
+const run = await vm.run(ast, { price: 100, taxRate: 0.2 }, { fuel: 100 })
+console.log(run.result, run.error) // { total: 120 } undefined
 ```
 
-## 2. Expression Syntax (ExprNode)
+`tjs-lang/vm` is the same `AgentVM` with the transpiler wired in, so it also accepts source.
+Passing source to `vm.run` is deprecated as of 0.14.0; `tjs-lang/vm-ast` refuses it and says
+where to transpile instead. If you transpile source you did not write, cap it:
+`transpile(source, { maxSourceBytes: 64 * 1024 })`. Parsing is the one step that runs before
+any budget exists.
 
-Expressions use AST expression nodes (`$expr`) for safe, sandboxed evaluation. Conditions in `if` and `while` atoms use expression strings that are parsed at transpile time.
+### The builder
 
-For security, expressions are sandboxed and cannot directly access the agent's state. Use the `vars` parameter to explicitly pass variables from state into the expression scope.
-
-### ExprNode Types
-
-- **literal:** `{ $expr: 'literal', value: 5 }` - A constant value
-- **ident:** `{ $expr: 'ident', name: 'x' }` - A variable reference
-- **member:** `{ $expr: 'member', object: {...}, property: 'foo' }` - Property access
-- **binary:** `{ $expr: 'binary', op: '+', left: {...}, right: {...} }` - Binary operations
-- **unary:** `{ $expr: 'unary', op: '-', argument: {...} }` - Unary operations
-- **conditional:** `{ $expr: 'conditional', test: {...}, consequent: {...}, alternate: {...} }` - Ternary
-
-### Supported Operators
-
-- **Binary ops:** `+`, `-`, `*`, `/`, `%`, `**`
-- **Logic:** `&&`, `||`
-- **Comparison:** `==`, `!=`, `>`, `<`, `>=`, `<=`
-- **Member Access:** `obj.prop`, `arr[0]`
-
-### Security
-
-- **Forbidden:** Function calls, `new`, `this`, global access
-- **Blocked:** Prototype access (`__proto__`, `constructor`)
-
-### Fuel Consumption
-
-Each expression node evaluation consumes **0.01 fuel**. This prevents deeply nested or recursive expressions from running unchecked. A simple `a + b` costs ~0.03 fuel (two identifiers + one binary op), while complex nested expressions accumulate cost proportionally.
-
-## 3. Security Model
-
-- **Capabilities:** The VM has no default IO. You must provide `fetch`, `store`, etc., allowing you to mock, proxy, or limit access.
-- **Fuel:** Every atom consumes "fuel". Execution aborts if fuel reaches 0.
-- **Execution Timeout:** The VM enforces a global timeout based on fuel budget (see below).
-- **Atom Timeouts:** Individual atoms have a default timeout (1s) to prevent hangs.
-- **State Isolation:** Each run creates a fresh context. Scopes (loops/maps) use prototype inheritance to isolate local variables.
-
-### Execution Timeout
-
-The VM enforces a hard timeout on execution to prevent hung agents—safeguarding against code that effectively halts by waiting on slow or non-responsive IO.
-
-**How it works:**
-
-1. **Automatic Safety Net:** By default, timeout = `fuel × 10ms`. So 1000 fuel = 10 seconds. _For IO-heavy agents with low fuel costs, explicitly set `timeoutMs` to prevent premature timeouts._
-2. **Explicit SLA:** Pass `timeoutMs` to enforce a strict time limit regardless of fuel.
-3. **External Cancellation:** Pass an `AbortSignal` to integrate with external controllers (user cancellation, HTTP timeouts, etc.).
+The builder is for generating agents in code. Start with `Agent.take(schema)` (the input
+schema), chain atom calls, and finish with `.toJSON()`. `vm.Agent` is the same builder with the
+VM's custom atoms added.
 
 ```typescript
-// Default: 1000 fuel = 10 second timeout
-await vm.run(ast, args, { fuel: 1000 })
+import { Agent, AgentVM } from 'tjs-lang'
+import { s } from 'tjs-lang/schema'
 
-// Explicit timeout: 5 seconds regardless of fuel
-await vm.run(ast, args, { fuel: 10000, timeoutMs: 5000 })
+const ast = Agent.take(s.object({ n: s.number }))
+  .varsImport(['n'])
+  .if(
+    'n > 10',
+    { n: 'n' },
+    (then) => then.varSet({ key: 'size', value: 'big' }),
+    (otherwise) => otherwise.varSet({ key: 'size', value: 'small' })
+  )
+  .return(s.object({ size: s.string }))
+  .toJSON()
 
-// External abort signal
-const controller = new AbortController()
-setTimeout(() => controller.abort(), 3000) // Cancel after 3s
-await vm.run(ast, args, { signal: controller.signal })
+const vm = new AgentVM()
+console.log((await vm.run(ast, { n: 42 })).result) // { size: 'big' }
+console.log((await vm.run(ast, { n: 1 })).result) // { size: 'small' }
 ```
 
-**Resource Cleanup:** When a timeout occurs, the VM passes the abort signal to the currently executing atom via `ctx.signal`. Loop atoms (`while`, `map`, `filter`, `reduce`, `find`) check the signal between iterations. `httpFetch` passes the signal to `fetch` for immediate request cancellation.
+An `if` or `while` condition in the builder is a string, parsed when the AST is built. It
+supports comparisons, `&&`, `||`, `!`, arithmetic, parentheses, member access (`obj.foo.bar`)
+and literals. A ternary, an index (`a[0]`) or a call (`f(x)`) is refused at build time with an
+`Unsupported condition syntax` error. To test one, compute it first with a `varSet` whose value
+is an expression node, then test that variable. The second argument maps each name the
+condition uses to a variable (or a dotted path) in the agent's state, and the builder warns
+about a name the condition reads that the map leaves out.
 
-**Timeout vs Fuel:**
+The builder writes a version-1 AST (`"$ajs": 1`), the older format, in which a bare string that
+names a variable in scope is read as that variable. The transpiler writes version 2, in which a
+bare string is always a string. Both run; the format is described under
+[JSON AST Format](/DOCS-AJS/#json-ast-format).
 
-- **Fuel** protects against CPU-bound abuse (tight loops burning compute)
-- **Timeout** protects against IO-bound abuse (slow network calls, hung promises)
+### Expressions are nodes
 
-Both work together to ensure the VM cannot be held hostage by untrusted code.
+There is no `eval` anywhere in the VM. Arithmetic and logic are AST nodes, evaluated by the VM:
 
-**Trust Boundary:** The sandbox protects against malicious _agents_ (untrusted AST), not malicious _atom implementations_. Atoms are registered by the host and are trusted to:
+| `$expr`       | Shape                                                    |
+| ------------- | -------------------------------------------------------- |
+| `literal`     | `{ $expr: 'literal', value: 5 }`                         |
+| `ident`       | `{ $expr: 'ident', name: 'x' }`                          |
+| `member`      | `{ $expr: 'member', object, property, computed? }`       |
+| `binary`      | `+ - * / % **`, comparisons, `==` `!=` `===` `!==`       |
+| `unary`       | `!`, `-`, `+`, `typeof`                                  |
+| `logical`     | `&&`, `\|\|`, `??`                                        |
+| `conditional` | `test ? consequent : alternate`                          |
+| `array`, `object` | literals                                             |
+| `call`        | a builtin (`Math.max`) or a local helper                 |
+| `methodCall`  | a method the VM's method table lists (`s.trim()`)        |
+| `regex`       | a regex literal, run on the VM's own linear engine       |
 
-1. Be non-blocking (no synchronous CPU-heavy work)
-2. Respect `ctx.signal` for cancellation
-3. Clean up resources when aborted
+Each node costs 0.01 fuel. `__proto__`, `constructor` and `prototype` are refused as property
+names, read or written. `new` and `this` do not exist. A method can be called only if the
+method table (`METHOD_TABLE` in `src/vm/runtime.ts`) has an entry for it, and every entry bounds
+what the call can allocate; see [VM budgets](/vm-budgets/).
 
-If you write custom atoms, ensure they check `ctx.signal?.aborted` in loops and pass `ctx.signal` to any async operations like `fetch`.
+## 2. What happens in a run
 
-### Cost Overrides
+`vm.run(ast, args, options)` does these things in order. A failure at any step comes back as
+the run's `error`, and the agent's code runs only in step 6.
 
-Default atom costs are guesses. Override them per-run to match your deployment reality:
-
-```typescript
-await vm.run(ast, args, {
-  costOverrides: {
-    // Static: fixed cost per invocation
-    httpFetch: 50,
-    llmPredict: 500,
-
-    // Dynamic: cost based on input
-    storeSet: (input) => JSON.stringify(input.value).length * 0.001,
-    llmPredict: (input) => (input.model?.includes('gpt-4') ? 1000 : 100),
-  },
-})
+```text
+1. Admit the options      read each option once, check it, freeze the result
+2. Resolve the AST        a stored-procedure token (proc_…) is looked up here
+3. Gate the format        an AST version this build cannot read is refused
+4. Admit the arguments    copied through the membrane, budgeted by fuel and argsMaxBytes
+5. Check the input        the arguments against the AST's inputSchema
+6. Execute                the root seq, step by step, charging fuel; the run timeout,
+                          the heap ceiling and per-atom quotas apply throughout
+7. Check the output       the result against the AST's outputSchema, if it declares one
+8. Return                 { result, error, fuelUsed, trace?, warnings? }
 ```
 
-Use cases:
+An agent that fails does not throw into the host. `error` is an `AgentError` with the step that
+failed (`error.op`) and why (`error.message`). The one exception is a host mistake in step 2: a
+token that is missing or has expired throws `Procedure not found` or `Procedure expired`.
 
-- **API rate limits:** Make external API calls expensive to stay under quota
-- **Metered billing:** Reflect actual dollar costs in fuel consumption
-- **Resource protection:** Make database writes cost more than reads
-- **Testing:** Set all costs to 0 to focus on logic, not budgeting
+## 3. The security model
 
-### Request Context
+The sandbox protects the host from the **agent**: the AST is untrusted. It does not protect the
+host from its own **atoms** and **capabilities**: you register those, and they are trusted to be
+non-blocking, to honour `ctx.signal`, and to return plain data.
 
-The `context` option passes request-scoped metadata to atoms. Unlike `args` (agent input) or `capabilities` (IO implementations), context carries ambient data like auth, permissions, and request tracing.
+| Guarantee                 | How                                                                                                                         | Read more                                    |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| No ambient authority      | The VM has no IO of its own. Every network call, store read or model call goes through a capability the host passed.         | [Capabilities](/ajs-capabilities/)           |
+| Bounded work              | Every step costs fuel; at zero the run ends with `Out of Fuel`. Work that grows with its input is charged in proportion.     | [VM budgets](/vm-budgets/)                   |
+| Bounded time              | A run timeout (default: twice the slowest registered atom's timeout, at least 60 s), per-atom timeouts, and `signal`.        | [Run options](/ajs-host/#run-options)        |
+| Bounded memory            | `maxHeapBytes` (64 MB) caps what the agent holds live; `membraneMaxBytes` (4 MB) caps one value crossing a capability.       | [VM budgets](/vm-budgets/)                   |
+| Bounded external calls    | `quotas: { llmPredict: 3 }` caps calls per atom, which fuel cannot express.                                                  | [Quotas](/ajs-host/#quotas-across-nested-runs) |
+| A closed boundary         | Values crossing to or from a capability are copies of JSON data plus `Date`, built by the VM. Getters never run; functions and class instances are refused. | [What a capability may return](/ajs-capabilities/#what-a-capability-may-return) |
+| No host code from the guest | No `eval`, no function values, no prototype keys; only listed methods; regexes on the VM's own engine.                    | [AJS: The Agent Language](/DOCS-AJS/)        |
+| Errors are values         | Failures are returned as `AgentError`, never thrown into the host. Bugs at the capability boundary end the run; failures of the world are catchable. | [Errors](/DOCS-AJS/#errors)                  |
+
+Each run starts with fresh state, and the host's `capabilities` object is used exactly as passed:
+the VM never copies it or writes to it. When there is no `store` capability, the run gets a
+private in-memory store and a warning.
+
+## 4. Request context
+
+The `context` option carries request-scoped data, such as who is asking, to your atoms. The
+agent cannot read it: it is not in the agent's scope, and `context` inside an agent is an
+ordinary undefined name. So an atom can make authorization decisions that the agent cannot
+influence:
 
 ```typescript
-await vm.run(ast, args, {
-  context: {
-    userId: 'user-123',
-    role: 'admin',
-    permissions: ['read:data', 'write:data', 'fetch:external'],
-    requestId: 'req-abc-123',
-  },
-})
-```
+import { transpile } from 'tjs-lang/lang'
+import { AgentVM, defineAtom } from 'tjs-lang/vm-ast'
+import { s } from 'tjs-lang/schema'
 
-Atoms access it via `ctx.context`:
-
-```typescript
-const secureFetch = defineAtom(
-  'secureFetch',
-  s.object({ url: s.string }),
-  s.any,
-  async (input, ctx) => {
-    // Check permissions
-    if (!ctx.context?.permissions?.includes('fetch:external')) {
-      throw new Error('Not authorized for external fetch')
-    }
-    return ctx.capabilities.fetch(input.url)
+const readRecord = defineAtom(
+  'readRecord',
+  s.object({ id: s.string }),
+  s.object({ id: s.string, owner: s.string }),
+  async ({ id }, ctx) => {
+    const user = ctx.context?.user
+    if (!user?.permissions.includes('records:read'))
+      throw new Error('not allowed to read records')
+    return { id, owner: user.id }
   }
 )
-```
 
-**Design rationale:**
+const vm = new AgentVM({ readRecord })
+const { ast } = transpile(
+  `function report({ id: 'r1' }) {
+    const row = readRecord({ id })
+    return { row }
+  }`,
+  { atoms: vm.atoms }
+)
 
-- **Immutable:** Context is read-only; agents cannot modify their own permissions
-- **Separate from args:** Auth data doesn't pollute the agent's input schema
-- **Separate from capabilities:** Same capability implementation, different authorization
-- **Composable:** Works with cost overrides for user-tier-based fuel costs
-
-**Production patterns:**
-
-```typescript
-// Firebase/Express integration
-app.post('/run-agent', async (req, res) => {
-  const ast = req.body.ast
-  const args = req.body.args
-
-  // Extract auth from request
-  const user = await verifyToken(req.headers.authorization)
-
-  const result = await vm.run(ast, args, {
-    context: {
-      userId: user.id,
-      role: user.role,
-      permissions: user.permissions,
-      requestId: req.id,
-    },
-    // User-tier-based costs
-    costOverrides: {
-      llmPredict: user.tier === 'premium' ? 10 : 100,
-    },
-  })
-
-  res.json(result)
+const allowed = await vm.run(ast, { id: 'r1' }, {
+  context: { user: { id: 'u-123', permissions: ['records:read'] } },
 })
+console.log(allowed.result) // { row: { id: 'r1', owner: 'u-123' } }
+
+const denied = await vm.run(ast, { id: 'r1' }, {
+  context: { user: { id: 'u-456', permissions: [] } },
+})
+console.log(denied.error.message) // not allowed to read records
 ```
 
-## 4. Stored Procedures
+Passing `{ atoms: vm.atoms }` to `transpile` lets it check calls to `readRecord` the way it
+checks core atoms. The VM itself reads a few `context` keys, all for `httpFetch`'s policy; they
+are listed in [Fetch policy](/ajs-host/#fetch-policy-the-context-keys).
 
-The procedure store provides a built-in mechanism for storing ASTs as callable tokens. This enables function-pointer-like patterns where behavior can be passed as data.
+### Streaming partial results
 
-### Storage Model
-
-<!-- tjs-doc: fragment -->
-
-```typescript
-// Module-level storage in runtime.ts
-const procedureStore = new Map<
-  string,
-  {
-    ast: any
-    createdAt: number
-    expiresAt: number
-  }
->()
-```
-
-**Constants:**
-
-- `PROCEDURE_TOKEN_PREFIX`: `'proc_'` - All tokens start with this prefix
-- `DEFAULT_PROCEDURE_TTL`: 3,600,000ms (1 hour)
-- `DEFAULT_MAX_AST_SIZE`: 102,400 bytes (100KB)
-
-### Token Resolution
-
-Tokens can be used anywhere an AST is accepted:
-
-1. **`vm.run(token, args)`** - Direct execution via VM
-2. **`agentRun({ agentId: token, input })`** - Execution from within an agent
-3. **`agentRun({ agentId: ast, input })`** - Raw AST also accepted (no storage needed)
-
-Resolution happens at runtime. If a string starts with `proc_`, the VM looks it up in the store. Expired or missing tokens throw clear errors.
-
-### Fuel Costs
-
-| Atom                     | Cost | Notes                           |
-| ------------------------ | ---- | ------------------------------- |
-| `storeProcedure`         | 1.0  | Plus 0.001 per byte of AST      |
-| `releaseProcedure`       | 0.5  | Constant                        |
-| `clearExpiredProcedures` | 0.5  | Plus 0.01 per procedure scanned |
-
-### Security Considerations
-
-**Memory bounds:** The `maxSize` parameter prevents storing arbitrarily large ASTs. Default 100KB is generous for most agents.
-
-**Expiry:** TTL prevents memory leaks from abandoned procedures. The store is in-memory, so procedures don't survive process restarts.
-
-**No capability escalation:** Stored procedures inherit the capabilities of the calling context, not the storing context. A malicious agent cannot store a procedure that later executes with elevated privileges.
-
-**Token predictability:** Tokens are UUIDs, not sequential. They cannot be enumerated or guessed.
-
-### Use Cases
-
-**Dynamic dispatch (strategy pattern):**
+`vm.run` returns once, when the agent finishes. To send results while it runs, give it an atom
+that calls a callback from `context`:
 
 ```typescript
-const strategies = ajs`
-  function dispatch({ strategyToken, data }) {
-    let result = agentRun({ agentId: strategyToken, input: { data } })
-    return result
-  }
-`
-```
+import { transpile } from 'tjs-lang/lang'
+import { AgentVM, defineAtom } from 'tjs-lang/vm-ast'
+import { s } from 'tjs-lang/schema'
 
-**Worker pool:**
-
-```typescript
-const orchestrator = ajs`
-  function orchestrate({ workers, tasks }) {
-    let results = []
-    for (let i = 0; i < tasks.length; i = i + 1) {
-      let workerToken = workers[i % workers.length]
-      let r = agentRun({ agentId: workerToken, input: tasks[i] })
-      results.push(r)
-    }
-    return { results }
-  }
-`
-```
-
-**Callback registration:**
-
-```typescript
-const registerCallback = ajs`
-  function register({ handler }) {
-    let token = storeProcedure({ ast: handler, ttl: 300000 })
-    return { callbackId: token }
-  }
-`
-```
-
-## 5. Production Considerations
-
-### Isomorphic Deployment (Universal Endpoint)
-
-Because the VM is environment-agnostic and all IO is injected via capabilities, the _same_ agent program runs unchanged in the data center and in the browser client — with **one security model spanning both** (capabilities + fuel + portable TJS RBAC rules). Atoms are the seam: a client `getRecords` can serve already-loaded data and fall back to the server-side `getRecords` only on a miss, eliminating round-trips. This emerged for free from the sandboxing design rather than being built for. See [`docs/universal-endpoint.md`](docs/universal-endpoint.md).
-
-### Recursive Agent Fuel
-
-When an agent calls sub-agents via `agentRun`, each sub-agent gets its own fuel budget (passed via the capability). Fuel is **not shared** across the call tree by default.
-
-**Why:** The `agentRun` atom delegates to `ctx.capabilities.agent.run`, which the host implements. This gives operators full control over sub-agent resource allocation.
-
-**Patterns for shared fuel:**
-
-<!-- tjs-doc: fragment -->
-
-```typescript
-// Option 1: Pass remaining fuel to children
-const sharedFuel = { current: 1000 }
-
-const caps = {
-  agent: {
-    run: async (agentId, input) => {
-      if (sharedFuel.current <= 0) throw new Error('Out of shared fuel')
-      const result = await vm.run(agents[agentId], input, {
-        fuel: sharedFuel.current,
-        capabilities: caps,
-      })
-      sharedFuel.current -= result.fuelUsed
-      return result.result
-    },
-  },
-}
-
-// Option 2: Fixed budget per recursion depth
-const caps = {
-  agent: {
-    run: async (agentId, input) => {
-      // Each child gets 10% of parent's budget
-      return vm.run(agents[agentId], input, {
-        fuel: 100, // Fixed small budget
-        capabilities: caps,
-      })
-    },
-  },
-}
-```
-
-### Streaming and Long-Running Agents
-
-The VM returns results only after complete execution. For long-running agents:
-
-- Use `timeoutMs` to enforce SLAs
-- Use `AbortSignal` for user-initiated cancellation
-- Use `trace: true` for post-hoc debugging
-
-**For real-time streaming**, implement a custom atom that emits intermediate results:
-
-```typescript
-const streamingAtom = defineAtom(
-  'streamChunk',
+const emit = defineAtom(
+  'emit',
   s.object({ data: s.any }),
   s.null,
   async ({ data }, ctx) => {
-    // ctx.context contains your streaming callback
     await ctx.context?.onChunk?.(data)
     return null
   }
 )
 
-// Usage
-await vm.run(ast, args, {
-  context: {
-    onChunk: (data) => res.write(JSON.stringify(data) + '\n'),
-  },
+const vm = new AgentVM({ emit })
+const { ast } = transpile(
+  `function countdown({ from: 3 }) {
+    let n = from
+    while (n > 0) {
+      emit({ data: { n } })
+      n -= 1
+    }
+    return { done: true }
+  }`,
+  { atoms: vm.atoms }
+)
+
+const chunks = []
+const run = await vm.run(ast, { from: 3 }, {
+  context: { onChunk: (data) => chunks.push(data) },
 })
+console.log(chunks, run.result) // [{ n: 3 }, { n: 2 }, { n: 1 }] { done: true }
 ```
 
-### Condition String Syntax
+In a server, `onChunk` would write to the response (`res.write(JSON.stringify(data) + '\n')`).
+The atom's input is a copy, so the callback receives plain data.
 
-The condition parser in `if`/`while` atoms supports a subset of expression syntax:
+## 5. Stored procedures
 
-| Supported     | Example                           |
-| ------------- | --------------------------------- |
-| Comparisons   | `a > b`, `x == 'hello'`, `n != 0` |
-| Logical       | `a && b`, `a \|\| b`, `!a`        |
-| Arithmetic    | `a + b * c`, `(a + b) / c`        |
-| Member access | `obj.foo.bar`                     |
-| Literals      | `42`, `"string"`, `true`, `null`  |
-
-| **Unsupported**        | Alternative                        |
-| ---------------------- | ---------------------------------- |
-| Ternary `a ? b : c`    | Use nested `if` atoms              |
-| Array index `a[0]`     | Use ExprNode with `computed: true` |
-| Function calls `fn(x)` | Use atoms                          |
-| Chained `a > b > c`    | Use `a > b && b > c`               |
-
-Unsupported syntax now throws a clear error at build time with suggestions.
-
-### State Semantics
-
-Agents are **not transactional**. If an atom fails mid-execution:
-
-- Previous state changes persist
-- No automatic rollback
-- Error is captured in monadic flow (`ctx.error`)
-
-This is by design—agents are stateful pipelines, not database transactions. If you need atomicity, implement checkpoint/restore in your capabilities:
+The `storeProcedure` atom stores an AST and returns a token, a string like
+`proc_6f1c…` (`proc_` plus a random UUID). A token can be run anywhere an AST can: by the host
+with `vm.run(token, args)`, or by an agent with `agentRun({ agentId: token, input })`. That lets
+behaviour be passed around as a string, the way a function pointer would be.
 
 ```typescript
-const caps = {
-  store: {
-    set: async (key, value) => {
-      await db.runTransaction(async (tx) => {
-        await tx.set(key, value)
-      })
-    },
+import { transpile } from 'tjs-lang/lang'
+import { AgentVM } from 'tjs-lang/vm-ast'
+
+const vm = new AgentVM()
+const double = transpile(`function double({ n: 0 }) { return { n: n * 2 } }`).ast
+
+// An agent that registers a handler and hands back its token.
+const register = transpile(`
+  function register({ handler }) {
+    const token = storeProcedure({ ast: handler, ttl: 300000 })
+    return { token }
+  }`).ast
+
+// An agent that runs whichever handler it is given.
+const dispatch = transpile(`
+  function dispatch({ handler: 'proc_', value: 0 }) {
+    const out = agentRun({ agentId: handler, input: { n: value } })
+    return { answer: out.n }
+  }`).ast
+
+const { token } = (await vm.run(register, { handler: double })).result
+
+console.log((await vm.run(token, { n: 21 })).result) // { n: 42 }
+console.log((await vm.run(dispatch, { handler: token, value: 5 })).result) // { answer: 10 }
+```
+
+How the store behaves:
+
+- **It is in memory, per process.** Tokens do not survive a restart and are not shared between
+  processes or machines. `procedureStore` (exported from the VM) is a module-level `Map`.
+- **Entries expire.** The default `ttl` is one hour (3,600,000 ms). Running an expired token
+  fails with `Procedure expired`. `releaseProcedure({ token })` deletes one early and returns
+  whether it existed; `clearExpiredProcedures()` sweeps expired entries and returns how many it
+  removed.
+- **Size is capped.** An AST over `maxSize` bytes of JSON (default 100 KB) is refused. Anything
+  without an `op` is refused as `Invalid AST`.
+- **The format is checked twice:** when the AST is stored and again when the token is run, so an
+  AST this build cannot read fails at the door, not later in someone else's run.
+- **A token is a capability to run code, not to gain privileges.** The stored AST runs with the
+  capabilities, fuel and quotas of whoever runs the token, never of whoever stored it. Tokens are
+  random, so they cannot be enumerated, but anyone holding one can run it in the same process.
+
+| Atom                     | Base fuel | Notes                                    |
+| ------------------------ | --------- | ---------------------------------------- |
+| `storeProcedure`         | 1         | plus a charge that grows with AST size   |
+| `releaseProcedure`       | 0.1       |                                          |
+| `clearExpiredProcedures` | 0.5       |                                          |
+
+## 6. Sub-agents and whose budget they spend
+
+`agentRun({ agentId, input })` runs another agent, which sees only `input`. What `agentId` is
+decides where it runs:
+
+- **An AST or a stored-procedure token** runs inside the caller's run. It spends the caller's
+  fuel, counts against the caller's quotas, and uses the caller's capabilities. A sub-agent that
+  loops forever runs the caller out of fuel; it cannot escape the budget.
+- **Anything else** (usually a name) goes to the host's `agent.run(agentId, input)` capability.
+  That is typically a new `vm.run`, with a fresh fuel budget and fresh quotas that the host
+  chooses. Without an `agent` capability, the call fails with `Capability 'agent.run' missing`.
+
+So the host decides how much a named sub-agent may spend. The worked example of holding one quota
+across a whole call tree is in [Quotas across nested runs](/ajs-host/#quotas-across-nested-runs);
+composition patterns (fan-out, pipelines, workers) are in
+[Composing Agents](/patterns/#composing-agents).
+
+## 7. Runs are not transactions
+
+If an agent fails part way through, what it already did through a capability stays done. The VM
+has no rollback, because it cannot undo a write it does not own:
+
+```typescript
+import { transpile } from 'tjs-lang/lang'
+import { AgentVM } from 'tjs-lang/vm-ast'
+
+const vm = new AgentVM()
+const { ast } = transpile(`
+  function transfer({ amount: 0 }) {
+    storeSet({ key: 'debited', value: amount })
+    if (amount > 100) {
+      Error('limit exceeded')
+    }
+    storeSet({ key: 'credited', value: amount })
+    return { ok: true }
+  }`)
+
+const data = new Map()
+const store = {
+  get: async (key) => data.get(key),
+  set: async (key, value) => {
+    data.set(key, value)
   },
 }
+
+const run = await vm.run(ast, { amount: 500 }, { capabilities: { store } })
+console.log(run.error.message, Object.fromEntries(data))
+// limit exceeded { debited: 500 }
 ```
 
-### Error Handling Granularity
+When several writes must succeed or fail together, make that one capability call that the host
+performs atomically (a `transfer` atom that runs a database transaction), rather than a sequence
+the agent drives.
 
-The `try/catch` atom catches all errors in the try block. There's no selective catch by error type.
+## 8. Dependencies
 
-**Pattern for error type handling:**
+What ships at runtime:
 
-```typescript
-Agent.take(s.object({})).try({
-  try: (b) => b.httpFetch({ url: '...' }).as('response'),
-  catch: (b) =>
-    b
-      .varSet({ key: 'errorType', value: 'unknown' })
-      // Check error message patterns
-      .if(
-        'msg.includes("timeout")',
-        { msg: 'error.message' },
-        (then) => then.varSet({ key: 'errorType', value: 'timeout' }),
-        (el) =>
-          el.if('msg.includes("404")', { msg: 'error.message' }, (then) =>
-            then.varSet({ key: 'errorType', value: 'not_found' })
-          )
-      ),
-})
-```
+| Package         | Range     | Used for                                                                                       |
+| --------------- | --------- | ---------------------------------------------------------------------------------------------- |
+| `acorn`         | `^8.15.0` | Parsing AJS and TJS source (the transpiler; not in `tjs-lang/vm-ast`)                          |
+| `acorn-walk`    | `^8.3.4`  | AST traversal for the linter and the predicate verifier                                        |
+| `acorn-loose`   | `^8.5.2`  | Error-tolerant parsing, so editor scope extraction works on half-typed code                    |
+| `tosijs-schema` | `^1.12.0` | Schema validation. 1.12 is the floor because tjs-lang relies on its branded builders           |
 
-## 9. Test Coverage
+None of the four has dependencies of its own. The optional peer dependencies are the five
+`@codemirror/*` packages (only for `tjs-lang/editors/codemirror`) and `typescript` (only for
+`tjs-lang/lang/from-ts`); nobody who skips those features needs them installed.
 
-**Summary (as of January 2025):**
+Sizes, measured on the 2026-11-05 build with `tosijs-schema` left external: `tjs-lang/vm-ast`
+is about 137 KB minified (43 KB gzipped); `tjs-lang/vm`, which adds the transpiler and acorn,
+is about 324 KB (98 KB gzipped).
 
-| Metric    | Value  |
-| --------- | ------ |
-| Tests     | 508    |
-| Functions | 84.77% |
-| Lines     | 80.36% |
-
-### Coverage by Component
-
-**Core Runtime (security-critical):**
-
-| File                      | Functions | Lines   | Notes                        |
-| ------------------------- | --------- | ------- | ---------------------------- |
-| `src/runtime.ts`          | 100%      | 100%    | Re-exports                   |
-| `src/vm.ts`               | 100%      | 100%    | Re-exports                   |
-| `src/vm/runtime.ts`       | 84%       | **98%** | Atoms, expression eval, fuel |
-| `src/vm/vm.ts`            | 90%       | 94%     | VM entry point               |
-| `src/transpiler/index.ts` | 100%      | 100%    | AJS transpiler               |
-| `src/builder.ts`          | 92%       | 90%     | Fluent builder               |
-
-**Language/Transpiler:**
-
-| File                       | Functions | Lines | Notes                           |
-| -------------------------- | --------- | ----- | ------------------------------- |
-| `src/lang/emitters/ast.ts` | 94%       | 83%   | TJS → AST                       |
-| `src/lang/parser.ts`       | 92%       | 82%   | TJS parser                      |
-| `src/lang/inference.ts`    | 57%       | 60%   | Type inference (lower priority) |
-
-**Test Categories:**
-
-| Category                   | Tests | Coverage                                             |
-| -------------------------- | ----- | ---------------------------------------------------- |
-| Security (malicious actor) | 10    | Prototype access, SSRF, ReDoS, path traversal        |
-| Runtime core               | 25+   | Fuel, timeout, tracing, expressions                  |
-| Stress/Memory              | 6     | Large arrays, deep nesting, memory pressure          |
-| Capability failures        | 10    | Network errors, store failures, partial capabilities |
-| Allocation fuel            | 4     | Proportional charging for strings/arrays             |
-| Transpiler                 | 50+   | Language features, edge cases                        |
-| Use cases                  | 100+  | RAG, orchestration, client-server patterns           |
-
-### Running Tests
-
-```bash
-# Full suite
-bun test
-
-# Fast (skip LLM and benchmarks)
-SKIP_LLM_TESTS=1 AGENT99_TESTS_SKIP_BENCHMARKS=1 bun test
-
-# With coverage
-bun test --coverage
-```
-
-## 10. Dependencies
-
-### Runtime Dependencies
-
-These ship with the library and affect bundle size and security posture.
-
-| Package         | Version | Size  | Purpose                                 | Risk                                                 |
-| --------------- | ------- | ----- | --------------------------------------- | ---------------------------------------------------- |
-| `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AJS transpilation | **Low** - Mature, widely audited, Mozilla-maintained |
-| `tosijs-schema` | ^1.2.0  | ~5KB  | JSON Schema validation                  | **Low** - Our library, 96.6% coverage, zero deps     |
-| `@codemirror/*` | various | ~50KB | Editor syntax highlighting (optional)   | **Low** - Only loaded for editor integration         |
-
-**Total runtime footprint:** ~33KB gzipped (core), ~83KB with editor support.
-
-### tosijs-schema 1.2.0 Coverage
-
-Our validation dependency maintains comprehensive test coverage:
-
-- **98.25% function coverage, 96.62% line coverage** (146 tests, 349 assertions)
-- **Edge cases tested:** NaN, Infinity, -0, sparse arrays, unicode, deeply nested structures
-- **Complex unions:** nested unions, discriminated unions, union of arrays, union with null/undefined
-- **Format validators:** email, ipv4 boundaries, url protocols, datetime variants
-- **Strict mode:** `validate(data, schema, { strict: true })` validates every item
-
-Because tosijs-schema schemas are JSON data (not code), library coverage extends to user-defined schemas—unlike Zod where user schema compositions are untested code.
-
-### Development Dependencies
-
-Not shipped to users. Used for building, testing, and development.
-
-| Package                | Purpose                       | Notes                   |
-| ---------------------- | ----------------------------- | ----------------------- |
-| `typescript`           | Type checking and compilation | Standard                |
-| `bun`                  | Runtime, bundler, test runner | Fast, modern            |
-| `eslint` / `prettier`  | Code quality                  | Standard                |
-| `acorn-walk`           | AST traversal for transpiler  | Only used at build time |
-| `codemirror`           | Editor components for demo    | Demo only               |
-| `tosijs` / `tosijs-ui` | Demo UI framework             | Demo only               |
-| `happy-dom`            | DOM mocking for tests         | Test only               |
-| `vitest`               | Alternative test runner       | Optional                |
-
-### Dependency Risk Assessment
-
-**Supply Chain:**
-
-| Risk                     | Mitigation                                               |
-| ------------------------ | -------------------------------------------------------- |
-| Acorn compromise         | Mature project (10+ years), Mozilla backing, widely used |
-| tosijs-schema compromise | We control this library                                  |
-| Transitive dependencies  | Minimal—acorn has 0 deps, tosijs-schema has 0 deps       |
-
-**Version Pinning:**
-
-- Production dependencies use caret (`^`) for patch updates
-- Consider using exact versions or lockfile for production deployments
-
-**Audit:**
-
-```bash
-# Check for known vulnerabilities
-bun audit
-# or
-npm audit
-```
-
-### What We Don't Depend On
-
-Notably absent from our dependency tree:
-
-| Common Dependency | Why We Don't Use It                     |
-| ----------------- | --------------------------------------- |
-| lodash            | Native JS methods suffice               |
-| axios             | Native fetch + capability injection     |
-| moment/dayjs      | Built-in Date wrapper in expressions    |
-| zod/yup           | tosijs-schema is lighter and sufficient |
-| jsep              | Replaced with acorn + custom AST nodes  |
-
-This minimal dependency approach reduces supply chain risk and bundle size.
+To check the dependency tree for known advisories, run `bun audit`. The repository's own test
+suite runs that check as a gate, over both its package trees.

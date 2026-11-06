@@ -1,4 +1,5 @@
 <!--{"parent": "learn-to-program.md", "order": 8}-->
+<!-- TODO review -->
 
 # Things with Parts
 
@@ -6,7 +7,6 @@ A list keeps values in order. Often what you want instead is one thing with seve
 parts: a person has a name and a birth year, a rectangle has a width and a height. In TJS that
 is an **object**.
 
-<!-- TODO review -->
 Why not just use lists? You could keep names in one list and birth years in another, and match
 them up by position: the first name goes with the first year. It works until someone adds a
 name and forgets the year, or sorts one list and not the other. Then every person after the
@@ -32,7 +32,6 @@ test 'reading properties' {
 Ask the console for `ada.born + 36`, then for `ada.died`: an object with no `died` property
 answers `undefined`, just as a list does past its end.
 
-<!-- TODO review -->
 That `undefined` is worth a second look, because it is also what you get from a **typo**.
 Write `ada.nmae` instead of `ada.name` and there is no error: the object simply has no part
 called `nmae`, so the answer is `undefined`, and the page says "undefined was born in 1815".
@@ -58,7 +57,6 @@ test 'parts can change, and new parts can be added' {
 `const` means the name `counter` always points at the same object; the object's parts can
 still change.
 
-<!-- TODO review -->
 ## Parts inside parts
 
 A property can hold any value, including a list or another object. Chain the dots to reach
@@ -87,7 +85,6 @@ Read `book.author.name` from left to right: take `book`, then its `author`, then
 author's `name`. Most real data is shaped like this: a thing, with parts, some of which have
 parts of their own.
 
-<!-- TODO review -->
 ## Parts named by a value
 
 The dot needs the property's name written out in the program. When the name is in a value
@@ -121,7 +118,6 @@ a word turns up there is no such part yet (`undefined`), so it is set to 0 befor
 `counts.the` and `counts['the']` mean the same thing; the brackets are for when you do not
 know the name until the program runs.
 
-<!-- TODO review -->
 ## Going through the parts
 
 `Object.keys` gives you a list of an object's property names, which you can go through with
@@ -147,12 +143,14 @@ test 'every fruit gets a line' {
 }
 ```
 
-The names come out in the order the parts were added.
+The names come out in the order the parts were added. (One exception: names that are whole
+numbers, like `'2'`, come first, smallest first.)
 
 ## Lists of objects
 
 Most real data is a list of objects: rows in a table, people in a class, items in a basket.
-Everything from Lists works on them:
+Everything from Lists works on them. `map` turns each row into a line of text, and `for … of`
+adds up the bill:
 
 ```tjs:inline {"view": "code"}
 const basket = [
@@ -162,9 +160,11 @@ const basket = [
 ]
 
 const lines = basket.map((row) => `${row.quantity} x ${row.item}`)
-const total = basket
-  .map((row) => row.price * row.quantity)
-  .reduce((sum, cost) => sum + cost, 0)
+
+let total = 0
+for (const row of basket) {
+  total = total + row.price * row.quantity
+}
 
 preview.append(`${lines.join(', ')}: ${total}`)
 
@@ -174,11 +174,15 @@ test 'adding up a basket' {
 }
 ```
 
-`reduce` folds a list into one value: it starts at `0` and, for each item, gives back the
-running total plus that item's cost. (You could write the same thing with `for … of` and a
-`let`, as in Lists. Both are fine.)
+Inside the loop, `row` is one whole object, so `row.price` and `row.quantity` are that row's
+parts. Follow `total` through the three rounds:
 
-<!-- TODO review -->
+| round | `row.item` | `row.price * row.quantity` | `total` afterwards |
+| ----- | ---------- | -------------------------- | ------------------ |
+| 1     | bread      | 2.5 × 1 = 2.5              | 0 + 2.5 = 2.5      |
+| 2     | apples     | 0.5 × 6 = 3                | 2.5 + 3 = 5.5      |
+| 3     | cheese     | 4 × 1 = 4                  | 5.5 + 4 = 9.5      |
+
 ## Functions that make objects
 
 A function can give back an object, which is how you return several answers at once:
@@ -211,7 +215,6 @@ test 'one call, two answers' {
 `{ smallest, largest }` is short for `{ smallest: smallest, largest: largest }`: when a part
 has the same name as the value you are putting in it, you can write the name once.
 
-<!-- TODO review -->
 ## Same parts, different objects
 
 Look at the last test again. It uses `toEqual`, not `toBe`. That matters:
@@ -244,10 +247,11 @@ that.)
 ## An object as a parameter
 
 A parameter's example can be an object. Then the example says which parts the object must
-have, and what kind each part is:
+have, and what kind each part is. Here both parts are `0.0`, any number, so a rectangle
+can be 2.5 wide:
 
 ```tjs:inline {"view": "code"}
-function area(rect: { width: 0, height: 0 }) {
+function area(rect: { width: 0.0, height: 0.0 }) {
   return rect.width * rect.height
 }
 
@@ -255,18 +259,20 @@ preview.append(`A 3 by 4 rectangle has an area of ${area({ width: 3, height: 4 }
 
 test 'area needs both parts' {
   expect(area({ width: 3, height: 4 })).toBe(12)
+  expect(area({ width: 2.5, height: 4 })).toBe(10)
   expect(area({ width: 3, height: 4, colour: 'red' })).toBe(12)
   expect(area({ width: 3 }) instanceof Error).toBe(true)
 }
 ```
 
 Extra parts are fine (the rectangle can have a colour). A missing part is refused, and the
-error names it: `area({ width: 3 })` says that `rect.height` was expected and is missing.
+error names it: `area({ width: 3 })` gives back an error saying a number was expected for
+`rect.height` and it got `undefined`. (Had the example been `{ width: 0, height: 0 }`, only
+whole numbers would be accepted, and `area({ width: 2.5, height: 4 })` would be refused.)
 
-<!-- TODO review -->
 This is the answer to the typo problem from the start of the chapter. Call
 `area({ width: 3, hieght: 4 })` and TJS does not quietly multiply by `undefined`: it says the
-rectangle has no `height`, at the moment the mistake happens, and names the part. The example
+rectangle has no `height`, at the moment the mistake happens, and names the part. Try it. The example
 in the parameter is a promise about the parts, and TJS checks the promise on every call.
 
 ## Naming a shape: `Type`
@@ -299,7 +305,6 @@ test 'a Point is anything shaped like one' {
 
 The description is for people: it turns up in the documentation TJS writes for your code.
 
-<!-- TODO review -->
 ## A shape with a rule
 
 Some things are not described by their shape alone. A percentage is a number, but not any
@@ -331,8 +336,17 @@ test 'a Percent must be from 0 to 100' {
 ```
 
 `progressBar(150)` never runs: 150 is a whole number, but the predicate says no, so the call
-gives back an error instead of a bar with a negative number of dots. The rule is written once,
-in the `Type`, and every function that takes a `Percent` gets it for free.
+gives back an error that says a `Percent` was expected. Without the check, the body would ask
+for `-5` dots, and `repeat` would stop the program with an error of its own that says nothing
+about percentages. The rule is written once, in the `Type`, and every function that takes a
+`Percent` gets it for free. (The example `50` already says "whole number", so `50.5` is refused
+before the predicate is asked.)
+
+Keep a predicate a plain check: comparisons on the value, combined with `&&` and `||`. No
+loops, nothing fetched from the internet, nothing changed. A predicate like that is one TJS
+can prove safe: whatever value it is handed, it answers yes or no, quickly, and touches
+nothing else. The Predicate Types chapter, later in the book, shows what that proof makes
+possible.
 
 ## Try it
 
@@ -341,7 +355,6 @@ gives back the titles of the books with more than 300 pages, and test it with a 
 books (one short, two long), and with an empty list. `[Book]` means "a list of Books", and
 every book in it is checked: test that a list with a book missing its `pages` is refused.
 
-<!-- TODO review -->
 More to try:
 
 - Use `countWords` to find which letter is most common in a sentence. (A string can be split

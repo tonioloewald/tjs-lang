@@ -1,15 +1,20 @@
 <!--{"section": "tjs", "type": "example", "group": "basics", "order": 6, "parent": "tjs-basics.md"}-->
+<!-- TODO review -->
 
 # Dictionary Defaults
 
 An options object where **each member has its own default**, and passing a partial one fills
-in the rest. JavaScript makes you write that merge by hand, every time.
+in the rest. JavaScript makes you write that merge by hand, every time. TJS does it from the
+signature.
+
+This chapter is the working tour. The full specification, including the design history and
+where TJS departs from WebIDL, is in [Dictionary Defaults](/dictionary-defaults/).
 
 ```tjs:inline
 /#
 ## The JavaScript problem
 
-A default parameter is ATOMIC — all or nothing:
+A default parameter is ATOMIC: all or nothing.
 
     function drawBox(opts = { x: 0, y: 0, w: 100 }) { … }
 
@@ -24,32 +29,11 @@ merge by hand:
       …
     }
 
-— which works, but says nothing about `opts` in the signature, so the
-documentation and the validation both live in the body.
+That works, but the signature says nothing about `opts`, so the
+documentation and the validation both end up in the body.
 
-## What TJS does
-
-`=` on an object parameter means **per-member defaults with merge-on-partial**
-(WebIDL dictionary semantics):
-
-    function drawBox(opts = { x: 0, y: 0, w: 100 }) { … }
-
-    drawBox({ x: 5 })    // { x: 5, y: 0, w: 100 }
-
-Four properties worth knowing, each demonstrated below:
-
-1. **Merge, not replace** — absent members take their default.
-2. **Recursive** — a nested object merges member-by-member too.
-3. **Members are validated** — a wrong type is a `MonadicError` naming the
-   exact path, e.g. `f.opts.x`.
-4. **Excess keys pass through** — TJS is not a bouncer. (0.12 stripped them;
-   0.13.0 stopped, deliberately. See `docs/dictionary-defaults.md` for the
-   WebIDL divergence.) A complete payload is returned **by identity** — no
-   copy, so no allocation on the hot path.
-
-`:` means required, `=` means defaulted. Mixed shapes use separate
-parameters. Native `.tjs` only — `dialect: 'js'` and `fromTS` keep atomic
-JavaScript defaults, because TJS must stay a superset.
+In a `.tjs` file the first spelling does what you meant. Run this example
+to see how.
 #/
 
 // --- 1. Merge, not replace ---
@@ -111,14 +95,26 @@ test 'a complete payload is returned by identity — no copy' {
 }
 ```
 
-<!-- TODO review -->
-
 ## What to notice
+
+`=` on an object parameter means **per-member defaults with merge-on-partial**. The four
+parts of the example each show one rule:
+
+1. **Merge, not replace.** A member you leave out takes its default: `drawBox({ x: 5 })`
+   gets `y: 0`, `w: 100` and `label: ''`.
+2. **Recursive.** A nested object merges member by member too, so `margin: { top: 3 }`
+   keeps `left: 0`.
+3. **Members are validated.** Each default is also an example of its member's type, so
+   `x: 'oops'` against `x: 0` returns a `MonadicError` (it is not thrown), and its `path`
+   names the exact member, `sized.opts.x`.
+4. **Excess keys pass through.** A key the default does not mention is kept, not stripped
+   and not rejected. A payload that already has every member is returned **by identity**:
+   no copy is made, so a call that supplies everything costs no allocation.
 
 The signature `drawBox(opts = { x: 0, y: 0, w: 100, label: '' })` now says everything the
 hand-written merge used to hide in the body: which options exist, what type each has, and
-what each defaults to. The same object is the documentation, the validation and the
-defaults, so they cannot drift apart.
+what each defaults to. One object is the documentation, the validation and the defaults, so
+they cannot drift apart.
 
 The merge never touches the caller's object. A partial argument produces a new, merged
 object; a complete one is handed back as is. In neither case does the caller see members
@@ -155,20 +151,68 @@ console.log(atomic())                // {"retries":3,"timeout":1000}
 console.log(atomic({ timeout: 5 }))  // {"timeout":5}: replaced, not merged
 ```
 
+
+## `=`, `:` and a typed default are three different things
+
+Only the plain `opts = { … }` form merges. The other two spellings that put an object in a
+signature mean something else, and the difference only shows when a caller passes part of
+an object:
+
+```tjs:inline
+// `=` with an object: per-member defaults, partial payloads merged
+function merged(opts = { retries: 3, timeout: 1000 }) {
+  return JSON.stringify(opts)
+}
+
+// `:` with an object: a required SHAPE, every member required
+function shaped(opts: { retries: 3, timeout: 1000 }) {
+  return JSON.stringify(opts)
+}
+
+// A type plus a default: optional, but what you pass must be a whole Point
+Type Point {
+  example: { x: 0, y: 0 }
+}
+function at(p: Point = { x: 1, y: 2 }) {
+  return JSON.stringify(p)
+}
+
+console.log(merged({ retries: 1 }))            // {"retries":1,"timeout":1000}
+console.log(shaped({ retries: 1 }).message)    // timeout is missing
+console.log(shaped().message)                  // the argument is required
+console.log(at())                              // {"x":1,"y":2}
+console.log(at({ x: 5 }).message)              // not a whole Point
+```
+
 ## Things that trip people up
 
 - **A misspelled option is passed through, silently.** `connect(url, { retryz: 9 })` is
   accepted: `retryz` is an excess key, and excess keys pass through, so `retries` keeps its
-  default and nothing complains at runtime. TJS's linter (`lint` from `tjs-lang/lang`) does
-  flag a literal key that is not in the default, under the rule `dict-default-excess-key`.
+  default and nothing complains at runtime. The linter catches this case, but neither the
+  page nor `tjs check` shows it: `tjs check` type-checks and runs no lint rules. Call
+  `lint` from `tjs-lang/lang` on the source yourself:
+
+  ```javascript
+  import { lint } from 'tjs-lang/lang'
+
+  const source = `
+  function connect(url: 'https://example.com', opts = { retries: 3, timeout: 1000.0 }) {
+    return [url, opts.retries]
+  }
+  connect('https://a.dev', { retryz: 9 })
+  `
+  for (const d of lint(source).diagnostics) {
+    console.log(`${d.line}:${d.column} ${d.rule}: ${d.message}`)
+  }
+  // 5:27 dict-default-excess-key: 'retryz' is not a member of connect's dictionary
+  //   parameter — check the spelling (it is passed through, so it will have no effect)
+  ```
+
+  The rule sees only an object **literal** written at a call to a function declared in the
+  same source. A payload built elsewhere and passed as a variable, or one that contains a
+  spread (`{ ...base, retryz: 9 }`), is not checked.
 - **`null` is a value, not an absence.** `undefined` (or leaving the argument out) gets the
   defaults; `null` is checked against the object type and rejected.
-- **`:` with an object is a shape, not a dictionary.** `opts: { retries: 3 }` makes the
-  argument required and every member required. Only `=` gives per-member defaults.
-- **A type plus a default is atomic.** `p: Point = { x: 1, y: 2 }` is the typed-default
-  form: optional, but a value you pass must be a whole `Point`. Dictionary merging belongs to
-  the plain `opts = { … }` form.
 - **It is native TJS only.** Code converted from TypeScript, and `.js` files compiled with
   `dialect: 'js'`, keep JavaScript's atomic defaults, because the same source must keep its
-  JavaScript meaning there. The full specification is in
-  [Dictionary Defaults](/dictionary-defaults/).
+  JavaScript meaning there.

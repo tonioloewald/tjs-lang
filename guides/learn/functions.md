@@ -1,4 +1,5 @@
 <!--{"parent": "learn-to-program.md", "order": 3}-->
+<!-- TODO review -->
 
 # Functions
 
@@ -6,7 +7,6 @@ So far every program has run from top to bottom, once. A **function** is a piece
 with a name, which you can run whenever you like, as often as you like, with different
 values each time. Functions are how programs avoid saying the same thing twice.
 
-<!-- TODO review -->
 ## Saying the same thing twice
 
 Here is a program that works out a 15% tip on three restaurant bills:
@@ -24,8 +24,9 @@ preview.append(`Tips: ${lunchTip}, ${dinnerTip}, ${breakfastTip}`)
 ```
 
 Look at the last tip. The rule "multiply by 0.15" is written out three times, and the third
-copy has its digits swapped, so breakfast costs a 51% tip. Nothing complains: `0.51` is a
-perfectly good number. The program just quietly gives a wrong answer.
+copy has its digits swapped, so breakfast costs a 51% tip: the page shows `10.2` for a bill
+of 20, where 15% would be `3`. Nothing complains: `0.51` is a perfectly good number. The
+program quietly gives a wrong answer, and you only notice if you check the arithmetic.
 
 The cure is to write the rule **once**, give it a name, and use the name every time. That is
 a function. Fix a mistake in a function and it is fixed everywhere the function is used.
@@ -60,7 +61,6 @@ Writing the function does not run it. The lines inside the braces wait until som
 `double`; then they run, once per call. Change `double(21)` to `double(100)` and the sentence
 changes, because the call is worked out again.
 
-<!-- TODO review -->
 Now the tips, with the rule written once:
 
 ```tjs:inline {"view": "code"}
@@ -101,7 +101,6 @@ answer is an **error** saying what was expected and what arrived, instead of a n
 result that would cause trouble later. If you want a function that takes any number,
 fractions included, give it the example `0.0` instead.
 
-<!-- TODO review -->
 The examples you will use most are these:
 
 | You write | It means | It accepts |
@@ -116,7 +115,6 @@ The example only says what **kind** of value: `name: 'Ada'` accepts `'Grace'` ju
 as `name: ''` does. Pick an example a reader would recognise, because the example is also
 documentation. (`tip` above uses `0.0`, because a bill can have pennies in it.)
 
-<!-- TODO review -->
 ### Leaving a value out
 
 Calling `double()` with nothing in the parentheses is a mistake too, and TJS says so. Type
@@ -141,7 +139,6 @@ test 'area multiplies' {
 }
 ```
 
-<!-- TODO review -->
 ### Order matters
 
 The values are matched to the parameters by position: the first value goes to the first
@@ -164,8 +161,9 @@ test 'the word comes first, then how many times' {
 (`word.repeat(times)` is one of the things a string can do for itself: it gives back the
 string written out `times` times.)
 
-Change the call to `repeatWord(3, 'ha')`. The page shows an error naming the parameter
-`word`, and saying it expected a string and got a number. The examples on the parameters are
+Change the call to `repeatWord(3, 'ha')`. Instead of a word, the page shows an error:
+`Expected string for '…repeatWord.word', got number`. It names the function and the
+parameter (`repeatWord.word`), says what that parameter expected, and says what arrived. The examples on the parameters are
 what let TJS spot the swap: it knows `word` should look like `'ha'`, and `3` does not.
 
 ## Words in, words out
@@ -185,7 +183,6 @@ test 'greet puts the name in the middle' {
 }
 ```
 
-<!-- TODO review -->
 ## Functions that use functions
 
 A function can call other functions, so small ones combine into bigger ones. Each small one
@@ -217,7 +214,6 @@ test 'each piece does its own job' {
 answer is handed straight to `withTax`. When `bill` gives a wrong answer, the tests on the
 small functions tell you which piece to look at.
 
-<!-- TODO review -->
 ### Names inside a function stay inside
 
 The parameters of a function, and any `const` or `let` made inside it, belong to that
@@ -259,7 +255,6 @@ the function, and it is a test as well: TJS runs `greet('Ada')` and checks the a
 result line counts it beside the `test` below. Change `'Hello, Ada!'` to `'Hi, Ada!'` and the
 line turns red, saying `greet('Ada')` actually returned `'Hello, Ada!'`.
 
-<!-- TODO review -->
 This is unusual. In most languages the first line of a function says only what kinds of
 value go in and come out, and whether the function does the right thing is a separate
 question, answered (if at all) somewhere else. In TJS the first line is a small worked
@@ -267,7 +262,6 @@ example, like the one at the top of a page of exercises: "for instance, 21 doubl
 TJS runs that example as soon as the program is built, every time, before anything else
 happens.
 
-<!-- TODO review -->
 ### The mistake it catches
 
 The most common mistake with a new function is forgetting `return`. Without it the function
@@ -292,7 +286,6 @@ function double(n: 21): 42 {
 preview.append(`Double 8 is ${double(8)}.`)
 ```
 
-<!-- TODO review -->
 ### Pick an example worth checking
 
 An example is only as good a test as the values in it. `double(n: 0): 0` is true, but it
@@ -315,6 +308,11 @@ preview.append(`You rolled a ${rollDie()}.`)
 (`Math.random()` gives a fraction between 0 and 1, and `Math.floor` rounds down to a whole
 number.) You will not need `:!` often. When you can give a real example, give one.
 
+`rollDie` takes no values at all, so its parentheses are empty, both where it is written and
+where it is called. The parentheses on the call are what run it. Change `rollDie()` to
+`rollDie` in the sentence and the page shows the function's own text instead of a number:
+without parentheses you are talking **about** the function, not asking it for an answer.
+
 ## Values that can be left out
 
 Write `=` instead of `:` to give a parameter a **default**: the value it gets when the caller
@@ -336,7 +334,6 @@ test 'a default fills the gap' {
 `:` means "you must give me one of these"; `=` means "you may, and here is what I use if you
 don't". The default is an example too, so `greet` still only takes strings.
 
-<!-- TODO review -->
 Parameters with defaults go after the ones without, because values are matched by position:
 in `function tip(bill: 0.0, rate = 0.15)`, `tip(40)` means "40, at the usual rate", and
 `tip(40, 0.2)` means "40, at 20%".
@@ -347,7 +344,6 @@ Write a function `minutes(hours: 0)` that gives back how many minutes are in tha
 Show a sentence using it, and add a test that checks `minutes(2)` is `120`. Then give it a
 second parameter, `extraMinutes = 0`, so that `minutes(1, 30)` is `90`, and test that too.
 
-<!-- TODO review -->
 More to try:
 
 - Write `fahrenheit(celsius: 100.0): 212.0`, which turns a temperature in Celsius into

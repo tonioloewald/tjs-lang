@@ -1,40 +1,17 @@
 <!--{"section": "tjs", "type": "example", "group": "patterns", "order": 11, "parent": "tjs-patterns.md"}-->
+<!-- TODO review -->
 
 # Local Module Imports
 
-Import from modules you save in the playground
+Split a program across `.tjs` files with ordinary `import` and `export`; each function keeps its checks when it crosses a file boundary.
 
-> **Needs a second module.** This example imports a module you save in the playground (`mymath`), which a single example on this
-> page cannot load. Run it in the [playground](https://tjs-platform.web.app) after saving that
-> module, or locally with `tjs run` beside it.
+> **Static on this page.** The program below imports a second file, `mymath.tjs`, and an
+> example on this page runs on its own, so it cannot load that file. Below it is the module
+> itself, which does run here, and then the recipe for running both on your own machine.
 
 ```tjs:static
-/#
-# Local Module Imports
-
-You can import from modules saved in the playground!
-
-## How it works:
-1. Save a module (use the Save button, give it a name like "math")
-2. Import it by name from another file
-
-## Try it:
-1. First, create and save a module named "mymath":
-
-    export function add(a: 0, b: 0): 0 {
-      return a + b
-    }
-
-    export function multiply(a: 0, b: 0): 0 {
-      return a * b
-    }
-
-2. Then run this code (it imports from your saved module)
-#/
-
-// This imports from a module you saved in the playground
-// Change 'mymath' to match whatever name you used when saving
-import { add, multiply } from 'mymath'
+// main.tjs
+import { add, multiply } from './mymath.tjs'
 
 function calculate(x: 0, y: 0): 0 {
   // (x + y) * 2
@@ -47,29 +24,25 @@ test 'calculate combines add and multiply' {
 
 console.log('calculate(3, 4) =', calculate(3, 4))
 console.log('calculate(10, 5) =', calculate(10, 5))
+
+// A bad call into the other module is refused there, by add itself
+console.log(add(1.5, 2).message)
 ```
 
-<!-- TODO review -->
-## What to notice
+Run beside `mymath.tjs` (recipe below), it prints:
 
-A TJS file is an ES module. `export` and `import` mean exactly what they mean in
-JavaScript, and nothing about a function's types is lost on the way across: `add` and
-`multiply` carry their own checks and their own `__tjs` metadata into the importing file.
-`calculate` does not re-validate what `add` returns; it does not need to, because `add`
-checked its inputs where it was defined.
+```text
+calculate(3, 4) = 14
+calculate(10, 5) = 30
+Expected integer for 'mymath.tjs:1:add.a', got number
+```
 
-That is the property that makes modules safe to compose. The checks live with the
-function, so a caller in another file cannot skip them, and a bad call made from here
-comes back as a `MonadicError` from `add` naming `add`'s parameter.
-
-<!-- TODO review -->
 ## The module being imported
 
-For reference, here is the module this example expects, as a file of its own. Save it in
-the playground under the name `mymath`, or, in a project, as `mymath.tjs` beside the
-importing file:
+This is `mymath.tjs`. It has no imports, so it runs on this page: its signature examples
+and its `test` block are checked when it is transpiled.
 
-```tjs:static
+```tjs
 export function add(a: 0, b: 0): 0 {
   return a + b
 }
@@ -84,17 +57,81 @@ test 'add and multiply' {
 }
 ```
 
-Its signature examples (`add(0, 0)` is `0`) and its `test` block run when that file is
-transpiled, so the module tests itself; the importing file only tests what it adds.
+The return example `: 0` is a worked example, not only a type: TJS calls `add(0, 0)` and
+`multiply(0, 0)` and checks that each gives `0`. So the module tests itself, and the file
+that imports it only has to test what it adds.
 
-<!-- TODO review -->
+## What to notice
+
+A TJS file is an ES module. `export` and `import` mean what they mean in JavaScript, and
+nothing about a function's checks is lost on the way across. `add` and `multiply` validate
+their own inputs wherever they are called from.
+
+That is why the last line of `main.tjs` gets a `MonadicError` back instead of a wrong
+answer. `1.5` is not an integer, and the error names the function that refused it and
+where that function lives: `mymath.tjs:1:add.a` is parameter `a` of `add`, declared on line
+1 of `mymath.tjs`. The caller did nothing to earn that check; it lives with the function,
+so no caller in any file can skip it.
+
+The error is returned, not thrown, which is why `.message` can be read from the result.
+See _Error Handling_ for how to test for one with `isMonadicError`.
+
+## Running it on your machine
+
+Put the two files side by side in a project that has `tjs-lang` installed, and tell Bun to
+load `.tjs` files through the TJS plugin with a `bunfig.toml` in the same directory:
+
+```text
+my-project/
+  bunfig.toml
+  main.tjs
+  mymath.tjs
+```
+
+```toml
+# bunfig.toml
+preload = ["tjs-lang/bun-plugin"]
+
+[test]
+preload = ["tjs-lang/bun-plugin"]
+```
+
+Then either of these runs `main.tjs` and prints the three lines shown above:
+
+```bash
+bun main.tjs
+tjs run main.tjs
+```
+
+The first `preload` covers `bun` and `tjs run`; the `[test]` one covers `bun test`. Without
+the preload, Bun does not know how to load `./mymath.tjs`, and `tjs run` stops with
+`Export named 'add' not found in module '…/mymath.tjs'`.
+
 ## Gotchas
 
-- **Module names are a playground convenience.** `from 'mymath'` resolves to a module saved
-  in the playground. In a project, import by relative path (`from './mymath.tjs'`), which
-  Bun handles with the `tjs-lang/bun-plugin` preload, or import the emitted `.js`.
-- **Tests that need an import are inconclusive at build time.** When the transpiler cannot
-  load `mymath`, the `calculate` test cannot run. It is reported as inconclusive, not as a
-  pass and not as a failure; run the file where the import resolves to get a real answer.
+- **Write the extension.** `from './mymath.tjs'` works; `from './mymath'` does not find the
+  file. The import is resolved by Bun, which does not guess `.tjs`.
+- **A test that calls an import is inconclusive.** TJS runs a file's `test` blocks and
+  signature examples by executing that file on its own at transpile time, without loading
+  its imports. So in `main.tjs`, `tjs check` and `tjs test` report the `calculate` test and
+  `calculate`'s signature example as _inconclusive_: not a pass, not a failure. That is why
+  the real tests belong in `mymath.tjs`, where the functions are defined. To test
+  `calculate` itself, export it from a module with no top-level output and test it from
+  `bun test`:
+
+  ```javascript
+  // calc.test.ts, with calculate exported from calc.tjs
+  import { test, expect } from 'bun:test'
+  import { calculate } from './calc.tjs'
+
+  test('calculate', () => {
+    expect(calculate(3, 4)).toBe(14)
+  })
+  ```
+
 - **Integers, not numbers.** `a: 0` is an integer example, so `add(1.5, 2)` is refused. Use
   `0.0` for any number (see _Hello TJS_ for the numeric examples).
+- **The old playground.** The retiring playground at
+  [tjs-platform.web.app](https://tjs-platform.web.app) can save a module under a name and
+  import it by that bare name (`from 'mymath'`). That is a playground feature only; in a
+  project, import by relative path as above.

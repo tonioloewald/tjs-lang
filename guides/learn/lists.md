@@ -1,12 +1,11 @@
 <!--{"parent": "learn-to-program.md", "order": 7}-->
+<!-- TODO review -->
 
 # Lists
 
 A shopping list, the scores in a game, the names in a class: most things worth a program
 come in lists. In TJS a list is called an **array**: values in order, inside square
 brackets, separated by commas.
-
-<!-- TODO review -->
 
 Why not just use names? You could keep a class's scores as `score1`, `score2`, `score3`. But
 then adding them up means writing out every name, and a new student means changing the
@@ -34,14 +33,10 @@ test 'reading a list' {
 Ask the console for `fruits[1]`, then `fruits[3]`: there is no fourth fruit, so the answer is
 `undefined`, meaning "nothing here".
 
-<!-- TODO review -->
-
 That is a quiet answer to a real mistake. Asking for an item past the end of a list does not
 stop the program: it gives back `undefined`, and the program carries on with nothing where it
 expected a fruit. If a page ever shows the word `undefined`, look for a list being read past its
-end, very often by one.
-
-<!-- TODO review -->
+end, usually by exactly one item: the off-by-one mistake from Repetition, in a new place.
 
 ## The last item, and changing items
 
@@ -95,14 +90,10 @@ The example `[0.0]` says what `prices` is: a list of numbers. An empty list is s
 of numbers, so `total([])` is fine (and 0). A list with a word in it, or a single number that
 is not in a list, is refused with an error that says what was expected.
 
-<!-- TODO review -->
-
 Read `for (const price of prices)` as "for each price in prices". The name `price` is yours to
 choose; it names the current item, and each round it is the next one. It can be a `const`,
 unlike the counter in a `for` loop, because each round gets a fresh `price` rather than
 changing the old one.
-
-<!-- TODO review -->
 
 ## When a list has the wrong thing in it
 
@@ -121,8 +112,9 @@ const bill = total([2.5, 'four', 1.25])
 preview.append(bill instanceof Error ? bill.message : `The bill comes to ${bill}.`)
 
 test 'one bad item is enough to refuse the list' {
-  expect(bill instanceof Error).toBe(true)
-  expect(bill.message).toContain('prices[1]')
+  const refused = total([2.5, 'four', 1.25])
+  expect(refused instanceof Error).toBe(true)
+  expect(refused.message).toContain('prices[1]')
   expect(total(4) instanceof Error).toBe(true)
 }
 ```
@@ -130,8 +122,8 @@ test 'one bad item is enough to refuse the list' {
 The message names `prices[1]`, the second item, and says a number was expected and a string
 arrived. Without that check, `sum + 'four'` would join instead of adding (Values and Names),
 and the bill would come to `'2.5four1.25'`, a string that looks almost like an answer. With
-it, you find out at once, and you find out where. Change `'four'` to `4` and the bill adds up
-(and the first two checks fail, because they expect an error: that is right too).
+it, you find out at once, and you find out where. Change `'four'` to `4` in the `const bill`
+line and the page shows the bill instead: 7.75.
 
 ## Growing a list
 
@@ -157,15 +149,11 @@ test 'the first squares' {
 `join(', ')` turns a list into one string, with `', '` between the items. In a test, compare
 lists with `toEqual`, which looks at what is inside them.
 
-<!-- TODO review -->
-
 Why not `toBe`? Because two lists made separately are two different lists, even when they hold
 the same things, just as two identical shopping lists are still two pieces of paper. `toBe`,
 like `==`, asks "is this the very same list?"; `toEqual` asks "does it hold the same things?".
 Change one `toEqual` to `toBe` and read the failure: the expected and received lists look the
 same, and that is the clue.
-
-<!-- TODO review -->
 
 ## Finding things in a list
 
@@ -225,8 +213,6 @@ test 'filter keeps what passes the test' {
 }
 ```
 
-<!-- TODO review -->
-
 ## Putting a list in order
 
 `sort` puts a list in order. It changes the list itself, rather than making a new one:
@@ -239,10 +225,11 @@ const numbers = [10, 9, 100, 1]
 const wrong = [...numbers].sort()
 const right = [...numbers].sort((a, b) => a - b)
 
-preview.append(`${names.join(', ')} / ${wrong.join(', ')} / ${right.join(', ')}`)
+preview.append(`${names.join(', ')} / ${numbers.join(', ')} / ${wrong.join(', ')} / ${right.join(', ')}`)
 
 test 'sorting words, and sorting numbers' {
   expect(names).toEqual(['Ada', 'Grace', 'Katherine'])
+  expect(numbers).toEqual([10, 9, 100, 1])
   expect(wrong).toEqual([1, 10, 100, 9])
   expect(right).toEqual([1, 9, 10, 100])
 }
@@ -250,13 +237,41 @@ test 'sorting words, and sorting numbers' {
 
 Words sort as you would expect. Numbers do not, and this catches everybody once: plain `sort`
 compares everything **as text**, letter by letter, and as text `'100'` comes before `'9'`, the
-way `'apple'` comes before `'banana'`. To sort numbers by size, hand `sort` a small function
-that compares two of them: `(a, b) => a - b`. The `map` section above explains the arrow; for
-now, read it as "smaller first".
+way `'apple'` comes before `'banana'`.
 
-`[...numbers]` makes a copy of the list, so the example can sort it two ways without the first
-sort changing what the second one sees. Remove the `[...` and `]` from the first sort and watch
-the third result change.
+To sort numbers by size, hand `sort` a function that compares two of them: `(a, b) => a - b`.
+It is an arrow function like the ones in `map` and `filter`, but it takes two items instead of
+one. `sort` calls it over and over with pairs from the list. When the answer is below zero, `a`
+goes first; when it is above zero, `b` does. `a - b` is below zero exactly when `a` is smaller,
+so the smaller number goes first. Swap it to `b - a` and the biggest goes first.
+
+`[...numbers]` makes a copy of the list: the `...` spreads the items out, and the square
+brackets around them make a new list. Because each sort works on its own copy, `numbers`
+itself stays as it was, and the second result on the page shows it unchanged. Remove the `[...`
+and `]` from the first sort, and the second result comes out sorted too: `sort` changed the
+original, and the test that checks `numbers` fails.
+
+## Taking part of a list: `slice`
+
+`slice(start, end)` copies part of a list into a new one, from position `start` up to, but not
+including, position `end`:
+
+```tjs:inline {"view": "code"}
+const letters = ['a', 'b', 'c', 'd', 'e']
+const firstTwo = letters.slice(0, 2)
+
+preview.append(`${firstTwo.join(', ')} / ${letters.slice(1, 4).join(', ')}`)
+
+test 'slice copies part of a list' {
+  expect(firstTwo).toEqual(['a', 'b'])
+  expect(letters.slice(1, 4)).toEqual(['b', 'c', 'd'])
+  expect(letters.length).toBe(5)
+}
+```
+
+"Up to, but not including" means the end position is one past the last item you get, the same
+way `length` is one past the last position. So `slice(0, 2)` gives two items, and `slice(0, n)`
+gives the first `n`, if the list has that many. Like `map` and `filter`, `slice` leaves the original list alone.
 
 ## Showing a list on the page
 
@@ -284,8 +299,6 @@ few lists, including one with two words of the same length (decide which one sho
 test that). Then show the words from a list that are longer than four letters, as a list on
 the page.
 
-<!-- TODO review -->
-
 Then:
 
 1. Write `average(numbers: [0.0])` with `for … of`. Test it with a few lists. What does it give
@@ -294,4 +307,4 @@ Then:
 3. Use `filter` and `length` to count how many numbers in a list are even. Then do it again
    with `for … of` and a `let`. Which do you find easier to read?
 4. Make a list of five scores, sort it highest first (hint: `(a, b) => b - a`), and show the
-   top three with `slice(0, 3)`. Look up what `slice` does by trying it at a console.
+   top three with `slice(0, 3)`. What does `slice(0, 3)` give for a list of only two scores?
