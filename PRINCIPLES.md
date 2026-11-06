@@ -1,4 +1,5 @@
 <!--{"parent": "the-tjs-language.md", "order": 2}-->
+<!-- TODO review -->
 
 # Design Principles & Invariants
 
@@ -69,7 +70,27 @@ to satisfy it. `as`, `any`, `!`, `@ts-ignore`, and an over-broad type that
 
 **You cannot lie to a worked example.** There is no `as` that makes `add(2, 3)`
 equal `0`. An example is not a claim you can weaken until it passes; it holds or
-it does not, and the checker is the program itself.
+it does not, and the checker is the program itself. This file does not compile:
+
+<!-- tjs-doc: expect-error -->
+
+```tjs:static
+function add(a: 2, b: 3): 0 {
+  return a + b
+}
+```
+
+TJS calls `add(2, 3)` while transpiling, gets 5, and stops with
+`Function signature example is inconsistent: Expected 0 at 'add', got 5`. The only
+way to make it compile is to make the example true:
+
+```tjs
+function add(a: 2, b: 3): 5 {
+  return a + b
+}
+
+console.log(add(2, 3)) // 5
+```
 
 **So the difference is not that TJS has no escape hatches — it is that ours are
 confessions.** `unsafe`, `!`, `:!`, `DangerousLegacyEquals`, `LegacyDefault`,
@@ -97,10 +118,10 @@ written in the language it describes:
   is imperative code describing imperative code, in the same paradigm, and it
   runs, and you can debug it, and it can have tests.
 
-That is also the honest reading of the north star below: JSON-Schema is the
-declarative half and cannot express computation, so `$predicate` is not an
-extension bolted on — it is the imperative half, without which the same
-translation problem reappears inside our own type system.
+That is also the honest reading of the type-system north star (last section):
+JSON-Schema is the declarative half and cannot express computation, so
+`$predicate` is not an extension bolted on — it is the imperative half, without
+which the same translation problem reappears inside our own type system.
 
 And it is why `fromTS` degrades the way it does. Converting a declarative TS
 annotation into a TJS example is translating _back_, and often the information
@@ -225,7 +246,10 @@ Two hard invariants:
    `.tjs` is a **better language, not just JS** — choosing it (the `.tjs`
    extension, `dialect: 'tjs'`, or a bare string, which defaults to native TJS)
    is the opt-in to those modes. Plain JS reaches semantics-preserving transpile
-   via `dialect: 'js'` (or the `TjsCompat` directive).
+   via `dialect: 'js'`, or the bare `TjsCompat` directive at the top of a file.
+   `TjsCompat` restores JavaScript's semantics (`==` coerces again, and so on) but
+   does **not** switch off validation: a parameter example is still checked at
+   runtime. `dialect: 'js'` turns both off.
 
 2. **TJS ⊇ AJS.** Every legal AJS source is legal TJS source. `ajs(src)` and
    `tjs(src)` may do _different and more_ with the same string — TJS may enforce
@@ -271,8 +295,8 @@ that the system contradicts is the claim's bug.
 
 Two shapes get **no signature test at all**, which is a coverage gap rather than
 an inconclusive result: **class methods** and **arrow-function consts**. Worth
-knowing before relying on signature tests as a guarantee, and tracked in
-`TODO.md`.
+knowing before relying on signature tests as a guarantee, and tracked on the
+[Virta board](https://virta.tosijs.net/host/#?virta.scope=tjs-lang).
 
 Without this, AJS agents (which call atoms and may declare return types) and
 multi-function helper sources would be illegal TJS — breaking invariant 2.
@@ -301,30 +325,11 @@ tools must share so `.js` is never silently "improved" into different semantics:
 A bare string defaults to native TJS only because it has no extension to consult;
 any tool that knows the source's origin should pass `dialect` (or use the helper).
 
-### Routing all three dialects (the canonical recipe)
-
-There is intentionally **no one-call `js | ts | tjs` helper** in `tjs-lang/lang`:
-the TS path needs the TypeScript compiler, and folding it in would drag TS into
-the lean, TS-free `tjs-lang/lang` bundle. So a tool that handles all three (a doc
-system, a bundler plugin) routes explicitly — `js`/`tjs` through `tjs()` (cheap,
-no TS), `ts` through `fromTS` (imported from the separate, TS-aware entry):
-
-```js
-import { tjs, sourceKindForFilename } from 'tjs-lang/lang'
-import { fromTS } from 'tjs-lang/lang/from-ts' // pulls in the TS compiler — only on the ts path
-
-function transpileFence(source, kindOrFilename) {
-  const kind = /\.[mc]?[jt]s$|\.tjs$/.test(kindOrFilename)
-    ? sourceKindForFilename(kindOrFilename)
-    : kindOrFilename // 'js' | 'ts' | 'tjs'
-  if (kind === 'ts') return tjs(fromTS(source, { emitTJS: true }).code).code
-  return tjs(source, { dialect: kind }).code // 'js' | 'tjs'
-}
-```
-
-Importing `fromTS` from its own subpath keeps the TS compiler out of consumers
-that only ever touch `js`/`tjs`. (A future `transpileSource` sugar may wrap this,
-but only from a TS-aware entry — never from `tjs-lang/lang`.)
+A tool that accepts all three kinds of source routes `.ts` through `fromTS`,
+imported from its own subpath (`tjs-lang/lang/from-ts`), and everything else
+through `tjs()`. There is deliberately no one-call helper in `tjs-lang/lang`:
+the TypeScript path needs the TypeScript compiler, and folding it in would put
+the compiler in every consumer's bundle.
 
 ## Why this matters
 
@@ -337,35 +342,27 @@ but only from a TS-aware entry — never from `tjs-lang/lang`.)
   AJS/JS snippets asserted to `tjs()` (and the JS to options-off TJS) **without
   throwing**, so a regression is caught immediately.
 
-## The safety layer absorbs termination, so the surface layer optimizes for legibility
+## When a lower layer takes on a duty, the layers above stop paying for it
 
-**AJS bans `for` and keeps `while`.** Against the prior art this looks backwards. Starlark
-made the opposite call — `for` allowed, `while` banned — and was right to, because
-Starlark's termination guarantee **lives in the syntax**: loops range over finite iterables,
-so the bounded form is the safe one and the unbounded form must go.
+When one layer guarantees something completely, the layers above it should be
+re-optimized for something else. Paying for the same guarantee twice means one
+of the two payments is the bug.
 
-Banning the bounded form and keeping the unbounded one would be indefensible under those
-rules. It is correct under ours, because **our termination guarantee does not live in the
-syntax — it lives in fuel** (see `S1`/`S4` in [ASSUMPTIONS.md](ASSUMPTIONS.md)). Every
-evaluation step charges, and execution stops when the budget is gone. Bounded execution is a
-precondition of running at all, so the halting question never reaches the grammar.
+AJS loops are the clearest case. Starlark keeps `for` over finite iterables and
+bans `while`, because Starlark's termination guarantee lives in the syntax: only
+the bounded form can be allowed. AJS's guarantee lives in **fuel** instead —
+every evaluation step is charged, and execution stops when the budget is gone
+(`S1`/`S4` in [ASSUMPTIONS.md](ASSUMPTIONS.md)). So AJS can keep both the bounded
+loop (`for…of`) and the unbounded one (`while`), and choose its constructs for
+legibility alone. It bans C-style `for (;;)` on that ground, not for safety: three
+clauses of mutable-counter bookkeeping in one header is what small models get
+wrong. Every AJS construct choice may ignore termination and ask only _"what does
+a 4B model write correctly?"_ — a question with a measured answer
+(`experiments/agent-legibility/`).
 
-Once fuel carries the halting proof, syntax is **freed from having to encode safety** and can
-be chosen on legibility for the authors alone. And for a small model `while` is one concept
-(condition, body), where C-style `for` compresses three clauses of mutable-counter footgun
-into a header. AJS's authors are small models, so `while` wins on the only axis left.
-
-**The general rule, and why it is written down:** when a lower layer takes on a duty
-completely, the layers above it stop paying for that duty and should be re-optimized for
-something else. Concretely, **every construct choice in AJS may ignore termination entirely
-and ask only: "what does a 4B model write correctly?"** That question has a measurable answer
-(`experiments/agent-legibility/`), which makes this a design principle with a test attached
-rather than a matter of taste.
-
-The same shape recurs elsewhere: the capability membrane absorbs host-reference safety, so
-atom authors write ordinary data-returning functions; verified predicates absorb purity, so
-predicate authors write ordinary JavaScript. When you find yourself paying for a guarantee
-twice, one of the two payments is the bug.
+The same shape recurs elsewhere: the capability membrane absorbs host-reference
+safety, so atom authors write ordinary data-returning functions; verified
+predicates absorb purity, so predicate authors write ordinary JavaScript.
 
 ## Make stupid stuff stand out, and look ugly and clumsy
 
@@ -378,11 +375,11 @@ skims past it in review, and its ugliness is doing real work.
 
 Applied here:
 
-| the good thing       | the escape           |
-| -------------------- | -------------------- |
-| `a == b`             | `LegacyEquals(a, b)` |
-| `Timestamp.now()`    | `LegacyDate()`       |
-| a validated function | `function f(! x: 0)` |
+| the good thing       | the escape                    |
+| -------------------- | ----------------------------- |
+| `a == b`             | `DangerousLegacyEquals(a, b)` |
+| `Timestamp.now()`    | `LegacyDate()`                |
+| a validated function | `function f(! x: 0)`          |
 
 Each escape is longer, noisier, and harder to skim past than the thing it replaces. That is
 not an accident to be tidied up later.
@@ -422,9 +419,11 @@ Three obligations, in priority order — a later one may never be bought with an
 
 **Why this is a principle and not a feature.** It is correct independently of any particular
 roadmap — it improves the TS → TJS path no matter what else is or isn't built — and it makes
-adoption a ladder instead of a leap. Combined with per-mode directives (`TjsCompat`, then one
-mode at a time) it is the Crockford/JSLint dynamic: keep your code, be told what's bad and
-why, tighten one rule at a time. Nobody rewrites a codebase to start.
+adoption a ladder instead of a leap. Combined with per-construct migration — convert the
+file, then mark only the individual sites that need the old behaviour (see "Migrating is
+per-construct" in [TJS-SYNTAX.md](TJS-SYNTAX.md)) — it is the Crockford/JSLint dynamic: keep
+your code, be told what's bad and why, tighten one site at a time. Nobody rewrites a codebase
+to start.
 
 It also decides questions that would otherwise be arguments. A spelling that TJS reads
 differently is **not** a breaking change to schedule; it is a **conversion job**, and the
@@ -447,64 +446,30 @@ obligation 1 violated, however well-intentioned. The value still gets delivered,
 checking that cannot break the program it is inspecting. This is why TS-origin code has
 validation off by default, and it is a design position, not an oversight.
 
-**Enforcement (open):** obligation 1 is behavioral and therefore testable — run the
+**Enforcement (partial):** obligation 1 is behavioural and therefore testable — run the
 TypeScript and its conversion against the same inputs and require identical observable
-results. Until that harness exists this is a contract we keep by hand, which is weaker than
-it should be for something load-bearing.
+results. `bun run test:compat` does this for six real projects by running each project's own
+test suite against the converted code; there is no general per-file harness yet, so for
+everything else this is a contract kept by hand.
 
 ## The formal AST contract is AJS's, and syntax is subordinate to it
 
-**AJS's JSON AST is the specified artifact. TJS does not get one, and does not need one.**
+**AJS's JSON AST is the specified artifact. TJS does not get one.** TJS has no syntax tree to
+specify — it rewrites TJS source to JavaScript text with a set of source transforms and hands
+that to acorn — and the ecosystem does not need a fifth JavaScript AST. The formal artifact
+TJS offers is a serializable _type_ (JSON Schema plus `$predicate`), which is what TypeScript's
+erasure cannot give you.
 
-Why the scope is drawn there:
-
-- **TJS has no AST to specify.** It runs ~16 source-text transforms (`const!`, `!.`,
-  `==`→`Eq`, wasm extraction, parameter rewriting) and hands JS-parseable text to acorn.
-  Type information lives in `TypeDescriptor`, not in a syntax tree. Specifying a TJS AST
-  means building a real parser first — a large, separate decision.
-- **The ecosystem does not need a fifth JavaScript AST.** ESTree, Babel, SWC and
-  typescript-estree already compete; adding another dialect unifies nothing.
-- **TypeScript's conspicuous gap is not its AST — it is type erasure.** The formal artifact
-  worth offering is a serializable _type_ representation (JSON Schema + `$predicate`), which
-  is the north star below. That is a thing TS genuinely cannot do.
-- **AJS is small, subset-by-design, already JSON, and already has a consumer** — the VM
-  executes it. It is specifiable, and a spec would be load-bearing rather than decorative.
-
-### The consequence: AJS's surface syntax may only grow into its AST
-
-Making AJS _nicer_ — a better on-ramp for JS and TJS authors — is bounded by the contract.
-A proposed nicety must be one of:
-
-1. **Sugar that desugars into existing nodes.** Free: the AST is unchanged, and every
-   consumer keeps working.
-2. **A deliberate, versioned, ADDITIVE extension** — new node kinds only, never a changed
-   shape for an existing one, so previously-valid ASTs stay valid.
-
-If a nicety is neither, it does not ship. **The AST is the specification and the surface
-syntax is a projection of it** — not the other way round, which is how contracts erode: the
-usual failure is syntax growing first and the tree being patched to follow.
-
-Current node set (unversioned today — versioning it is prerequisite work):
-`arg`, `array`, `binary`, `call`, `conditional`, `ident`, `literal`, `logical`, `member`,
-`object`, `unary`.
+The consequence for AJS: its surface syntax may only grow into its AST. A new nicety must
+either desugar into existing nodes, or be a deliberate, versioned, additive extension (new
+node kinds, never a changed shape for an existing one). The AST root carries its format
+version (`"$ajs": 2` from the transpiler; unversioned and `$ajs: 1` ASTs are still read), so
+persisted agents stay valid. The format itself is documented in [DOCS-AJS.md](DOCS-AJS.md).
 
 ## North star: JSON-Schema + predicates as the single source of truth for types
 
-**A TJS type is canonically a JSON-Schema node, optionally carrying a `$predicate`
-(a verified-pure predicate cluster) for the computational part JSON-Schema can't
-express.** Examples-as-types, TS-derived types, `Type`/`Generic`, and
-`TypeDescriptor` are surface syntax or internal _projections_ of that one form —
-not competing sources of truth.
-
-Use it as a **decision lens**: for any architecture/impl choice, ask _"does this
-move types toward — or away from — being fully expressible as JSON-Schema +
-`$predicate`?"_ New type power should come from a JSON-Schema keyword or a
-predicate, never a bespoke `TypeDescriptor` field that can't round-trip. dts,
-validation, inference, and autocomplete should _derive from_ the canonical form.
-
-This is what makes types **data** (serializable, inspectable, cross-language). The
-unlock is a small, portable **reference VM for the predicate subset** (pure,
-loop-free, fuel-bounded — a few hundred lines in any language, ideally smaller than
-a JS runtime), so `$predicate` runs anywhere — carried as a **serialized AST**, not
-just source, so a non-JS runtime needn't embed a JS parser. Strategic (possibly
-post-1.0); full design in [`docs/type-system-north-star.md`](docs/type-system-north-star.md).
+A TJS type is canonically a JSON-Schema node, optionally carrying a `$predicate` for the
+computational part JSON-Schema cannot express; examples, `Type`, and TS-derived types are
+projections of that one form. Use it as a decision lens — _does this move types toward that
+form, or away?_ — and see [`docs/type-system-north-star.md`](docs/type-system-north-star.md)
+for the design.

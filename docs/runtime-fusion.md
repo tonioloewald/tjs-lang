@@ -1,6 +1,20 @@
 <!--{"parent": "the-tjs-language.md", "order": 7}-->
+<!-- TODO review -->
 
 # Runtime fusion: what may be shared between TJS modules, and what may not
+
+**If you only want to know what to do:** leave the default alone unless you build an
+application bundle out of many TJS modules. By default every emitted `.js` file carries its own
+copy of a small runtime, so it runs anywhere with no setup and a published library depends on
+nothing. When you bundle many modules with Bun, `tjsPlugin({ sharedPrelude: true })` (from
+`tjs-lang/bun-build-plugin`) makes them share one copy instead; the programmatic spelling is
+`tjs(source, { prelude: 'import' })`. That output imports `tjs-lang/prelude` and is refused at
+load by any other build of tjs-lang, so use it for your own bundle, never for files you
+publish. It shrinks parse size, not download size (§8 has the numbers), and for two or three
+small modules it is larger. How to set up the plugin is in
+[TJS: Typed JavaScript → Module System](../DOCS-TJS.md) and
+[Publishing a library](../guides/sections/ts-publishing-a-library.md). The rest of this page
+is the design: what may be shared between modules, and why.
 
 Every emitted `.js` file carries its own inline runtime — a self-contained prelude so the
 output works with no setup. That is the right default and this note does not propose changing
@@ -46,7 +60,8 @@ major-version compatibility gate (`compareVersions` / `versionsCompatible`). Thi
 that same policy one level down, to the inline prelude — and states the limit: it stops at
 code.
 
-That limit is the reason a future id-based declaration table (`TODO.md`) must derive ids from
+That limit is the reason a future id-based declaration table (a backlog card, imported from
+`TODO.md`) must derive ids from
 content rather than a counter. Content-derived ids let two modules' tables union with no
 collisions; counter-derived ids both start at 1, so they can only be merged by discarding one.
 
@@ -166,7 +181,7 @@ The options as they were weighed:
 3. **Drop fusion for the brand** and accept per-bundle `Predicate` classes, which is the B2
    cross-bundle `instanceof` failure, now pinned by `src/predicate-bundles.test.ts`.
 
-## 8. A shared prelude: one copy per bundle (#3594, planned 2026-10-31)
+## 8. A shared prelude: one copy per bundle (#3594, shipped in 0.14.0)
 
 tosijs-native bundled six small `.tjs` modules with `Bun.build` and got `__tjs_rt` …
 `__tjs_rt5`: six preludes, 69 KB raw. §5 said the rest of the prelude cannot be deduped *by
@@ -179,7 +194,7 @@ like the inline prelude.
 Not one text. The emitter builds it from about twenty `needs*` flags, and three of them change
 function BODIES rather than inclusion: `needsKind` (example-kind markers), `needsSolver` (the
 recursive-Type solver) and `needsExampleSchema` (`toJSONSchema`/`strip`). It also holds
-**per-file state**: `__ac`, the projection table `extend` writes, which §5's predecessor fix made
+**per-file state**: `__ac`, the projection table `extend` writes, which an earlier fix made
 per-file on purpose (a global table let one module's `extend` change another module's `if (x)`).
 
 ### Design
@@ -202,29 +217,38 @@ per-file on purpose (a global table let one module's `extend` change another mod
 3. **Maximal variant ⇒ a differential test.** A file that needed only the narrow `Type` now
    gets the full one. The flags only ADD handling (kind markers, the solver, schema methods),
    but "only adds" is a claim, so it is checked: a corpus is emitted both ways and every
-   call's result, error message and path must agree. Known risk to measure first: the full
-   variant's `if(v.__k)` treats a user value with an own `__k` key as a kind marker; if a row
-   shows that, the marker gets a non-forgeable brand rather than the test an exemption.
-4. **Version-locked.** The emitted call passes the transpiler's version and the factory throws
-   on any mismatch, at load, naming both. The prelude changes nearly every release and its
-   internals are not an API, so a mismatch would silently change what a check returns; a load
-   error is the honest failure. Under the build plugin the transpiler and `tjs-lang/prelude`
-   are the same installed package, so it cannot fire there.
+   call's result, error message and path must agree. The risk measured first was the full
+   variant's `if(v.__k)`, which could treat a user value with an own `__k` key as a kind
+   marker; the corpus includes such values and the two forms agree on them.
+4. **Locked to the exact code.** The emitted call passes a content hash of the prelude the
+   emitter built (`createPrelude('d4d0b72127e3058a')`, say), not a version number, and the
+   factory throws on any mismatch at load, naming both hashes. The prelude changes nearly
+   every release and its internals are not an API, so a mismatch would silently change what a
+   check returns; a load error is the honest failure. Under the build plugin the transpiler and
+   `tjs-lang/prelude` are the same installed package (the plugin resolves the import to its
+   own copy), so it cannot fire there.
 5. **Opt-in, default unchanged.** `tjs(src, { prelude: 'inline' | 'import' })`, default
    `'inline'`: emitted files stay standalone, which is the default this doc's first line
    defends. `tjsPlugin({ sharedPrelude: true })` turns it on for a bundle. `tjs emit` does not
-   get it yet: a published package would then depend on an EXACT tjs-lang version, which is a
-   packaging decision for its author, and the plugin case is what was asked for.
+   does not offer it: a published package would then depend on an EXACT tjs-lang version,
+   which is a packaging decision for its author, and the plugin case is what was asked for.
 6. **What stays per file**: the bare aliases (`Type`, `Is`, …) and the `__tjs` fallback are
    built from this file's flags exactly as now; only the IIFE moves.
 
-### Done when
+### What shipped, and how it is tested
 
-- A five-module `Bun.build` with `sharedPrelude` carries one prelude (measured, and pinned by a
-  test that counts it).
-- The differential corpus agrees; a state-isolation row shows one module's `extend` does not
-  reach another module's `==` or `if`.
-- Default output is byte-identical to today's.
+- `tjs(src, { prelude: 'inline' | 'import' })`, default `'inline'`;
+  `tjsPlugin({ sharedPrelude: true })`; and the `tjs-lang/prelude` entry point, generated into
+  `src/lang/prelude.generated.js` by `bun run build:prelude`.
+- `src/lang/prelude.test.ts`: the committed prelude matches what the emitter builds now; a
+  differential corpus gives the same results inline and imported; one module's `extend` does
+  not reach another module's `==` or `if`; a prelude from another emitter is refused at load,
+  naming both hashes; import-mode output carries no prelude of its own.
+- `src/bun-plugin/build-plugin.test.ts`: a five-module `Bun.build` carries five preludes
+  inline and one with `sharedPrelude`, with the same results; and a wrong signature example
+  still fails the build under `sharedPrelude` (the transpile-time tests run against the inline
+  form, because an `import` cannot resolve where they run).
+- Default output is unchanged; every other test in the suite runs it.
 
 ### Measured (2026-10-31)
 

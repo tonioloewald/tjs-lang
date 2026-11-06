@@ -1,18 +1,25 @@
 <!--{"parent": "tjs-examples.md", "order": 2, "book": ["default", "language"]}-->
 
-# Patterns
-
 <!-- TODO review -->
 
-Basics shows the language one feature at a time; Patterns shows it doing ordinary work.
-These chapters assume you have read Basics, or at least Hello TJS and Required vs Optional.
+# Patterns
 
+Basics shows the language one feature at a time; Patterns shows it doing ordinary work.
+These chapters assume you have read Basics, or at least Hello TJS, Required vs Optional and
+Safety & Validation.
+
+0. **Running TJS: files, CLI, bundlers** comes first, because a real module lives in a
+   file, not in a page. It covers `tjs check` and `tjs run` on the command line, importing
+   `.tjs` files directly under Bun, and adding TJS to a bundled build.
 1. **Higher-Order Functions** and **Async Functions** show that typed signatures survive
    the things JavaScript programs actually do: passing functions around, and awaiting them.
-2. **Error Handling** and **Flight Recorder** belong together. TJS *returns* errors rather
-   than throwing them, which makes them easy to ignore, so the first chapter shows how
-   errors flow through a program and the second shows the runtime's record of every error
-   it saw, including the ones you dropped.
+2. **Error Handling** and **Flight Recorder** belong together. Safety & Validation (in
+   Basics) showed the mechanism: a typed function *returns* an error value instead of
+   throwing, and a typed function handed that error returns it without running. These two
+   chapters start from there. Error Handling shows how errors move through a whole program
+   and where to check for them; Flight Recorder shows the runtime's record of every error
+   it saw, including the ones your code dropped, because returned errors are easy to
+   ignore.
 3. **Schema Validation** shows that the types do not evaporate: every function carries
    its signature at runtime, so you can inspect it, validate data against it and generate
    documentation from it.

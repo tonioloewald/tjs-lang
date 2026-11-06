@@ -1,4 +1,5 @@
 <!--{"parent": "learn-to-program.md", "order": 4}-->
+<!-- TODO review -->
 
 # Checking Your Work
 
@@ -6,10 +7,9 @@ Every example so far has ended with a test, and you have watched them turn green
 that you can write functions, you can write tests of your own. They are how you find out that
 a program does what you meant, and keep finding out every time you change it.
 
-<!-- TODO review -->
-Why not just look at the answer? Because looking does not last. You run `tip(40)`, see 6, and
-are satisfied. A week later you change `tip` to round to the nearest penny, and you look at
-`tip(40)` again, but not at the five other calls you checked last week, and not at the one
+Why not look at the answer instead? Because looking does not last. You run `tip(40)`, see 6,
+and are satisfied. A week later you change `tip` to round to the nearest penny, and you look
+at `tip(40)` again, but not at the five other calls you checked last week, and not at the one
 that now comes out a penny wrong. A test is a look you only have to take once: written down,
 it is taken again, automatically, every time the program runs.
 
@@ -63,7 +63,6 @@ test 'initials take the first letter of each name' {
 - `toContain(part)` for a string or list that should include something.
 - `toBeGreaterThan(n)` and `toBeLessThan(n)` when only a range matters.
 
-<!-- TODO review -->
 ```tjs:inline {"view": "code"}
 const greeting = 'Hello, world!'
 const roll = 4
@@ -76,12 +75,10 @@ test 'a few kinds of check' {
 }
 ```
 
-<!-- TODO review -->
-`greeting.startsWith('Hello')` is a question you can ask a string; its answer is `true` or
+`greeting.startsWith('Hello')` is a question you can ask a string. Its answer is `true` or
 `false`, and `toBe(true)` checks it. Any question with a yes-or-no answer can be tested this
 way.
 
-<!-- TODO review -->
 ## A signature example is a test
 
 You met this in Functions, and it deserves a closer look, because it is the cheapest test you
@@ -97,17 +94,17 @@ preview.append(`Water boils at ${fahrenheit(100)}°F.`)
 
 The first line says: "`fahrenheit(100)` is 212". (The examples are written `100.0` and
 `212.0`, not `100` and `212`, so that temperatures with fractions, like 36.6, are allowed: an
-example with a decimal point means "any number", as you saw in Functions.) TJS reads that line
-as a test. It takes the examples on the parameters (`100`), calls the function with them, and
-compares the answer with the example after the parentheses (`212`). It does this when the program is built,
-before your own code runs, and it counts the result on the test line under the example, like
-any `test` block.
+example with a decimal point means "any number", as you saw in Functions.)
 
-Try it. Change `9 / 5` to `5 / 9`, the classic slip in this formula. The result line turns
-red: `fahrenheit(100)` should have been 212, and was something else. You did not write a
-`test` block, and the mistake was still caught.
+TJS reads that line as a test. It takes the example on the parameter (`100`), calls the
+function with it, and compares the answer with the example after the parentheses (`212`). It
+does this when the program is built, before your own code runs, and reports the result
+alongside your `test` blocks.
 
-<!-- TODO review -->
+Try it. Change `9 / 5` to `5 / 9`, the classic slip in this formula. The result turns red:
+`fahrenheit(100)` should have been 212, and was 87.55555555555556. You did not write a `test`
+block, and the mistake was still caught.
+
 Three things are worth knowing about signature examples:
 
 1. **The answer must be exactly right.** `212` means 212, not "some number". A function
@@ -120,7 +117,8 @@ Three things are worth knowing about signature examples:
    example is no longer true, the example says so the next time the program runs.
 
 So: give every function whose answer you can predict a good signature example (one where a
-wrong function would give a different answer), and add `test` blocks for everything else.
+wrong function would give a different answer), and add `test` blocks for everything else:
+the edges, the mistakes it should refuse, and answers too long to fit on the first line.
 
 ## Test the edges
 
@@ -143,12 +141,11 @@ test 'the edges of voting age' {
 Change `>=` to `>` in `canVote`. Only one check fails, the one at exactly 18, and it is the one
 that matters.
 
-<!-- TODO review -->
 ## Does your test catch anything?
 
 A test that cannot fail tells you nothing. Here is a test that looks fine:
 
-```tjs:static
+```tjs:inline {"view": "code"}
 function canVote(age: 0) {
   return age >= 18
 }
@@ -159,16 +156,15 @@ test 'voting' {
 }
 ```
 
-It passes. It also passes if you change `18` to `16`, or to `21`, or `>=` to `>`: every one
-of those wrong programs still lets a 40-year-old vote and stops a 5-year-old. The test checks
+It passes. Now change `18` to `16`, or to `21`, or `>=` to `>`. It still passes: every one of
+those wrong programs still lets a 40-year-old vote and stops a 5-year-old. The test checks
 easy cases that any reasonable version gets right.
 
 The way to find out whether a test is any good is to **break the program on purpose** and see
 whether the test notices. If you can make a mistake and the tests stay green, you have found a
-test that is missing. Programmers do this so often that there are tools that do it
+check that is missing. Programmers do this so often that there are tools that do it
 automatically; you can do it by hand, in the page, right now.
 
-<!-- TODO review -->
 ## Numbers with fractions are not exact
 
 Here is a surprise that catches every programmer once. Type `0.1 + 0.2` at the console prompt:
@@ -202,9 +198,9 @@ test 'tax, to the nearest penny' {
 }
 ```
 
-Look at what the page shows: not 1.21, but 1.2100000000000002. The two checks say the same
-thing in two ways: rounded to pennies it is 1.21, and it is between 1.2 and 1.22. Whole
-numbers have no such problem: `6 * 7` is exactly 42, always.
+Look at what the page shows: not 1.21, but 1.2100000000000002. The checks say the same thing
+in two ways: rounded to pennies it is 1.21, and it is between 1.2 and 1.22. Whole numbers have
+no such problem: `6 * 7` is exactly 42, always.
 
 ## Mistakes are values, and you can test for them
 
@@ -218,21 +214,30 @@ function double(n: 0) {
 
 test 'the wrong kind of value gives back an error' {
   expect(double('ten') instanceof Error).toBe(true)
+  expect(isMonadicError(double('ten'))).toBe(true)
   expect(double(5)).toBe(10)
 }
 ```
 
-`instanceof Error` asks "is this an error?". Testing the mistakes your function refuses is as
-useful as testing the answers it gives.
+`instanceof Error` asks "is this an error?". `isMonadicError(x)` asks the same question in
+TJS's own words: it is true only for the errors TJS gives back, and later chapters, written for
+working programmers, use it. Both checks pass here. Testing the mistakes your function refuses
+is as useful as testing the answers it gives.
 
 ## Reading a failure
 
-When a check fails, the result line turns red and names the test and the check: what it
-expected and what it got. That second half is the useful part. If the test expected `42` and
-got `"2121"`, the function joined two strings instead of adding two numbers. The failure
-tells you where to look.
+When a check fails, the result turns red and names the test and the check: what it expected
+and what it got. Suppose a test expects `addUp('21', '21')` to be 42. The failure reads
+something like this:
 
-<!-- TODO review -->
+```text
+Test 'adds' (line 5) failed:
+  Expected 42 but got "2121"
+```
+
+The second line is the useful part. The test expected `42` and got `"2121"`: the function
+joined two strings instead of adding two numbers. The failure tells you where to look.
+
 Read a failure before you change anything. There are always two possibilities: the program is
 wrong, or the test is. A test is a program too, and it can have a typo in it. Ask which of the
 two answers, the expected one or the one you got, is actually right. Then fix that side, and
@@ -258,30 +263,19 @@ function shout(words: 'hello') {
 }
 ```
 
-<!-- TODO review -->
 Writing the test first does three things for you. It makes you decide what the function
 should do before you decide how (what should `shout('')` give? You have to choose, and the
 test records the choice). It proves the test can fail: before the function exists, it does.
 And it tells you when to stop: when the tests pass, the job is done.
 
-## Tests and examples
-
-You have now seen two ways to check a function. An **example** in its signature,
-`greet(name: 'Ada'): 'Hello, Ada!'`, checks one call and documents the function at the same
-time. A **test** can check as many calls as you like, the edges, the errors and the results
-that are too long to put in a signature. Use the example for the typical case, and tests for
-the rest.
-
 ## Try it
 
-<!-- TODO review -->
 Write the tests first, then the function: `average(a: 0.0, b: 0.0, c: 0.0)` gives back the
 average of three numbers (add them up, divide by 3). Test `average(1, 2, 3)`, three numbers
 that are all the same, and some negative numbers. Then try `average(1, 2, 2)`: the answer is
 5/3, which has no exact decimal. Decide how to test it, using what you learned about
 fractions.
 
-<!-- TODO review -->
 More to try:
 
 - Give `average` a signature example: `average(a: 1.0, b: 2.0, c: 3.0): 2.0`. Then break the
@@ -290,6 +284,10 @@ More to try:
 - Take `canVote` and its tests from "Test the edges". Make three different mistakes in the
   function, one at a time. Did the tests catch every one? If one got through, write the check
   that would have caught it.
+- Come back to this one after the next chapter, Decisions, which introduces `&&` ("and": both
+  sides must be true). Write `isTeenager(age: 0)`, true from 13 to 19, as
+  `age >= 13 && age <= 19`. Write the tests first, and test both edges from both sides: 12,
+  13, 19 and 20.
 - Write `isTeenager(age: 0)`, true from 13 to 19. Write the tests first, and test both edges
   from both sides: 12, 13, 19 and 20. (You will need `&&` from Decisions; for now, two
   comparisons joined by `&&` both have to be true.)

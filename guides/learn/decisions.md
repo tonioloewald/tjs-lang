@@ -1,12 +1,11 @@
 <!--{"parent": "learn-to-program.md", "order": 5}-->
+<!-- TODO review -->
 
 # Decisions
 
 Every program so far has done the same thing every time. Real programs decide: if the user
 is new, say welcome; if the number is too big, say so. This chapter is about making a program
 choose what to do.
-
-<!-- TODO review -->
 
 ## Questions with yes-or-no answers
 
@@ -21,6 +20,10 @@ in Values and Names: `7 > 3` is `true`. Here is the whole family:
 | `a >= b` | is `a` greater than or equal to `b`?    | `4 >= 5` is false |
 | `a == b` | is `a` the same value as `b`?           | `5 == 5` is true |
 | `a != b` | is `a` a different value from `b`?      | `5 != 5` is false |
+
+`==` is strict about kinds of value: `5 == '5'` is `false`, because one is a number and the
+other is a string, and `'Sunday' == 'sunday'` is `false`, because a capital letter is a
+different letter.
 
 ```tjs:inline {"view": "code"}
 const age = 17
@@ -37,6 +40,10 @@ test 'comparisons answer true or false' {
 Change `age` to `18` and then to `19`, and before each change, predict the sentence. The
 difference between `>` and `>=` is exactly one value: the edge. Decisions go wrong at their
 edges more than anywhere else.
+
+When you change `age`, the test turns red. It was written for an age of 17, and it is telling
+you the answers have changed. That is a test doing its job; change `age` back to 17 and it
+passes again.
 
 ## `if`: only sometimes
 
@@ -63,8 +70,6 @@ test 'a coat when it is cold, not when it is warm' {
 `temperature < 10` is a comparison, so its value is `true` or `false` (see Values and Names). When it is
 true, the block runs and `message` changes; when it is false, the block is skipped. Change
 `advice(5)` to `advice(25)` and watch the advice change.
-
-<!-- TODO review -->
 
 ## A decision is only as good as its input
 
@@ -126,8 +131,6 @@ test 'even and odd' {
 An even number leaves no remainder. Notice that each branch can `return` straight away: once a
 function returns, nothing after it runs.
 
-<!-- TODO review -->
-
 ## One equals sign, or two?
 
 `=` stores a value; `==` asks a question. Typing one when you meant the other is perhaps the
@@ -137,7 +140,22 @@ sense: `n % 2` is a calculation, not a name.
 
 The mistake is sneakier when the left side **is** a name. `if (n = 0)` is legal: it stores 0 in
 `n`, then treats that 0 as the answer to the question, and 0 counts as false, so the block
-never runs, whatever `n` was. That is why the tests in this book check both
+never runs, whatever `n` was:
+
+```tjs:inline {"view": "code"}
+function isZero(n: 0) {
+  if (n = 0) {
+    return 'zero'
+  }
+  return 'not zero'
+}
+
+preview.append(`isZero(0) says: ${isZero(0)}`)
+```
+
+It says `not zero` for 0. Put the second `=` back, `if (n == 0)`, and it says `zero`.
+
+That is why the tests in this book check both
 branches of every decision: a decision that always goes the same way passes half its tests,
 and the other half tell you something is wrong.
 
@@ -172,8 +190,6 @@ test 'grades' {
 The order matters. 95 is also at least 80, but the `score >= 90` test comes first, so it wins.
 Try moving the `score >= 80` branch to the top and see which tests fail.
 
-<!-- TODO review -->
-
 Read the chain as a series of narrowing questions. By the time the program asks
 `score >= 80`, it already knows the score is **not** 90 or more, so that branch means "80 to
 89". Each `else if` only has to rule out what is left. And the final `else` catches
@@ -201,8 +217,6 @@ test 'old enough AND tall enough' {
 }
 ```
 
-<!-- TODO review -->
-
 Notice that `canRide` has no `if` at all. `age >= 8 && height >= 120` already **is** `true` or
 `false`, so the function can return it directly. Writing
 `if (condition) { return true } else { return false }` is a long way to say `return condition`.
@@ -229,31 +243,49 @@ test 'or, and not' {
 ```
 
 A common slip is to write `day == 'saturday' || 'sunday'`, the way you would say it aloud.
-Each side of `||` has to be a whole question, so the comparison must be written out twice. And
-the comparison is exact: `'Sunday'`, with a capital S, is a different string from `'sunday'`.
-Try `isWeekend('Sunday')`.
-
-<!-- TODO review -->
+It does not do what it says. `||` gives back the first side if that is true, and otherwise the
+second side, so for `'tuesday'` the answer is the string `'sunday'`, not `false`. Each side of
+`||` has to be a whole question, so the comparison must be written out twice. And the
+comparison is exact: try `isWeekend('Sunday')`, with a capital S.
 
 ## Choosing between two values
 
-When a decision only picks one of two values, there is a shorter form: `condition ? yes : no`.
-It reads "if the condition is true, this, otherwise that":
+When a decision only picks one of two values, there is a shorter form:
+`condition ? valueIfTrue : valueIfFalse`. It reads "if the condition is true, this, otherwise
+that". Before the `?` is the question; between `?` and `:` is the value to use when the answer
+is true; after the `:` is the value to use when it is false.
 
 ```tjs:inline {"view": "code"}
-const apples = 1
-const label = apples == 1 ? 'apple' : 'apples'
+function fruit(count: 0) {
+  return `${count} ${count == 1 ? 'apple' : 'apples'}`
+}
 
-preview.append(`You have ${apples} ${label}.`)
+const apples = 1
+
+preview.append(`You have ${fruit(apples)}.`)
 
 test 'one apple, many apples' {
-  expect(label).toBe('apple')
-  expect((2 == 1) ? 'apple' : 'apples').toBe('apples')
+  expect(fruit(1)).toBe('1 apple')
+  expect(fruit(3)).toBe('3 apples')
+  expect(fruit(0)).toBe('0 apples')
 }
 ```
 
-Change `apples` to `0`, then `3`. Use this form for small choices like a label or a word; when
-each choice takes more than a line, `if` and `else` are easier to read.
+Change `apples` to `0`, then `3`. The whole `count == 1 ? 'apple' : 'apples'` is a value, which
+is why it can sit inside `${ }` in a template string, where an `if` cannot. The same
+`if`/`else` would need a name to store the word in first:
+
+```javascript
+let word = 'apples'
+if (count == 1) {
+  word = 'apple'
+}
+```
+
+Use `? :` for small choices like a label or a word. When either choice takes more than a line,
+or when the choice is to do something rather than to pick a value, `if` and `else` are easier
+to read. Programmers call `? :` the **conditional operator**, or the **ternary** operator
+because it has three parts.
 
 ## `given`: choosing by value
 
@@ -283,14 +315,24 @@ test 'days of the week' {
 }
 ```
 
-Exactly one block runs: the one whose value matches, or the `else` block when none does.
+Exactly one block runs: the one whose value matches, or the `else` block when none does. The
+`else` is optional; without it, a value that matches nothing runs no block at all. Values are
+compared the way `==` compares them, so `given` works on numbers as well as words, and
+`'Friday'` with a capital F does not match `'friday'`.
 
-`given` is how TJS does what JavaScript and TypeScript do with `switch` and `case`. `switch`
-still works in TJS, exactly as it does in JavaScript, but it has a trap: unless you end each
-case with `break`, the program carries on into the next case. `given` does what you almost
-always want instead. Why TJS added a new word rather than quietly changing what `switch` does
-is a story of its own: testing showed that a new keyword, carefully explained, surprised people
-less. See [Case study: fixing switch](/case-study-switch/).
+`given` is how TJS does what JavaScript and TypeScript do with `switch` and `case`, and it
+does what you almost always want.
+
+If you already know JavaScript: `switch` still works in a `.tjs` file, with exactly
+JavaScript's semantics. Cases fall through unless you write `break`, they share one scope,
+and they compare with `===`. TJS leaves it alone so that JavaScript you paste in still means
+what it meant, and warns at each `switch`, pointing at `given`. A `given` arm never falls
+through, each arm has its own scope, and one arm can list several values, which is the
+legitimate use of fallthrough in a `switch`.
+
+Why TJS added a new word rather than quietly changing what `switch` does is a story of its
+own: testing showed that a new keyword, carefully explained, surprised people less. See
+[Case study: fixing switch](/case-study-switch/).
 
 ## Try it
 
@@ -298,8 +340,6 @@ A cinema charges children (under 12) 5, seniors (65 and over) 6, and everyone el
 `ticketPrice(age: 0)` and test all three prices, plus the edges: an 11-year-old, a
 12-year-old, a 64-year-old and a 65-year-old. Edges are where decisions go wrong, so they are
 where tests earn their keep.
-
-<!-- TODO review -->
 
 Then:
 

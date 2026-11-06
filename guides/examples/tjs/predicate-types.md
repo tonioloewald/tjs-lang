@@ -1,54 +1,52 @@
 <!--{"section": "tjs", "type": "example", "group": "advanced", "order": 30, "parent": "tjs-advanced.md"}-->
+<!-- TODO review -->
 
 # Predicate Types
 
-A type that is a **function you can run** — and, because it is verified safe, one that can
-also validate, autocomplete, and travel as JSON Schema.
+A predicate type is a type that is a **function you can run**. When the toolchain can prove
+the function is safe, the same function also validates untrusted input without hanging,
+supplies autocomplete, and can travel inside a JSON Schema.
 
 ```tjs:inline
 /#
 ## The gap this fills
 
-JSON Schema describes STRUCTURE well and computation not at all. "A string"
-it can say. "A valid CSS colour" it cannot — that is `#f00`, `rgb(1 2 3)`,
-`color-mix(in oklch, red, blue)` and 148 named keywords, which is a grammar,
-not a shape.
+JSON Schema describes STRUCTURE well and computation not at all. It can say
+"a string". It cannot say "a valid CSS colour": that is `#f00`,
+`rgb(1 2 3)`, `color-mix(in oklch, red, blue)` and 148 named keywords, which
+is a grammar, not a shape. So real schemas end up with a `pattern` that
+approximates the grammar badly, or give up and say `type: 'string'`.
 
-So every real schema ends up with a `pattern` that is a bad approximation,
-or gives up and says `type: 'string'`.
+A **predicate** is the missing half: an ordinary function that returns true
+or false. What matters is what becomes possible once the toolchain can PROVE
+the function is safe.
 
-A **predicate** is the missing half: an ordinary function returning true or
-false. The interesting part is not that you can write one — it is what
-becomes possible once the toolchain can PROVE the function is safe.
+## What verification buys
 
-## Verified-safe means three things follow
+A predicate cluster (a few functions that call each other) is checked to be
+pure, synchronous and composable: no IO, no clock, no randomness, no loops,
+no `await`, no `new`. Given that proof:
 
-A predicate cluster is checked to be pure, synchronous and composable: no IO,
-no clock, no randomness, no unbounded regex backtracking. Given that proof:
+1. **It compiles to native JavaScript** with a fuel bound, so validation
+   costs a function call and a hostile input makes it answer `false` instead
+   of hanging.
+2. **It can be mined for completions.** The keyword sets and `startsWith`
+   guards inside the predicate become autocomplete suggestions, so the
+   completions come from the same source as the validation.
+3. **Its source can be carried in JSON Schema** under the `$predicate`
+   keyword. A validator that does not know the keyword checks the structure
+   and ignores it; one that does also runs the predicate.
 
-1. **It compiles to native JavaScript** — validation costs a function call,
-   not an interpreter.
-2. **It can be MINED for completions.** The verifier already knows the
-   keyword sets and `startsWith` guards inside the predicate, so autocomplete
-   comes from the same source as validation and cannot disagree with it.
-3. **It serialises into JSON Schema** as the `$predicate` keyword. Naive
-   validators see ordinary structure and ignore it; aware ones run the
-   predicate. Progressive enhancement, not a fork.
+## `tjs-lang/css` is built this way
 
-That last point is the strategic one: types stop being erased annotations and
-become portable, executable artifacts. See `docs/type-system-north-star.md`.
-
-## `tjs-lang/css` is this made real
-
-Not a toy — the CSS validators are built from verified predicates, and
-`suggestColor` mines its completions from the same predicate that validates.
-The suggestions are guaranteed valid because they are run through the
-compiled predicate before being offered.
+The CSS validators in `tjs-lang/css` are verified predicates, and
+`suggestColor` mines its completions from the same predicate `isColor` runs.
+Each suggestion is run through the compiled predicate before it is offered.
 #/
 
 import { isColor, suggestColor } from 'tjs-lang/css'
 
-// --- A predicate is just a function: run it ---
+// --- A predicate is a function: call it ---
 console.log('validation:')
 console.log('  #ff0000              ->', isColor('#ff0000'))
 console.log('  rebeccapurple        ->', isColor('rebeccapurple'))
@@ -56,14 +54,12 @@ console.log('  rgb(255 128 0)       ->', isColor('rgb(255 128 0)'))
 console.log('  notacolor            ->', isColor('notacolor'))
 console.log('  #gggggg              ->', isColor('#gggggg'))
 
-// --- Completions are MINED from the same predicate that validates ---
-// Not a separate hand-maintained list, so the two cannot drift apart.
+// --- Completions are mined from the same predicate that validates ---
 console.log('\nautocomplete from the same source:')
 const forRe = suggestColor('re')
 console.log('  "re" ->', forRe.map((s) => s.value).join(', '))
 
-// Every suggestion is run through the compiled predicate before being offered,
-// so an invalid completion is not something this API can produce.
+// Every suggestion is run through the compiled predicate before it is offered.
 const allValid = forRe.every((s) => s.kind !== 'value' || isColor(s.value))
 console.log('  all suggestions valid ->', allValid)
 
@@ -81,7 +77,6 @@ test 'and rejects near-misses' {
 test 'completions come from the predicate, and are all valid' {
   const suggestions = suggestColor('re')
   expect(suggestions.length > 0).toBe(true)
-  // The guarantee: mined values are run through the compiled predicate.
   expect(suggestions.every((s) => s.kind !== 'value' || isColor(s.value))).toBe(
     true
   )
@@ -93,25 +88,24 @@ test 'suggestions are relevant to the prefix' {
 }
 ```
 
-<!-- TODO review -->
 ## What to notice
 
 - **`isColor` is called like any function.** There is no schema object to build and no
-  `validate(schema, value)` indirection: a predicate is a value test you can hand to `filter`,
-  `every`, a parameter, or a `Type`.
+  `validate(schema, value)` step: a predicate is a test you can hand to `filter`, `every`, a
+  parameter, or a `Type`.
 - **`suggestColor` never offers anything `isColor` would reject.** The completions are mined
-  out of the predicate's own source (its keyword lists and `startsWith` guards), and each mined
-  value is run back through the compiled predicate before it is returned. A hand-maintained
-  completion list beside a hand-written validator is two sources of truth; this is one.
-- **The import is real library code**, not a stub written for the page. `tjs-lang/css` is
+  from the predicate's own source (its keyword lists and `startsWith` guards), and each mined
+  value is run back through the compiled predicate before it is returned. A completion list
+  kept by hand beside a validator written by hand is two sources of truth that drift apart;
+  this is one.
+- **The import is real library code**, not a stub written for this page. `tjs-lang/css` is
   built entirely from verified predicates, and its `verifyCss()` re-checks every cluster.
 
-<!-- TODO review -->
 ## Writing your own
 
 You do not need the CSS library to get a predicate type. A `Type` with a `predicate` is one,
-and the transpiler runs the predicate-safety verifier over its body when it compiles. This
-example is self-contained:
+and the transpiler runs the predicate-safety verifier over its body when it compiles the file.
+This example has no imports:
 
 ```tjs:inline
 Type HexColor {
@@ -147,28 +141,121 @@ console.log(
 )
 ```
 
-The predicate iterates with `every` rather than a `for` loop on purpose. A predicate the
-verifier can certify (pure, synchronous, no loops, no `await`, no `new`, no IO) compiles to a
-fuel-bounded guard, so a pathological input makes it answer `false` instead of hanging your
-validation. Write the same check with a `for` loop and it still works, because TJS never
-rejects a predicate it cannot verify (that would make legal JavaScript illegal); it simply runs
-as an ordinary, unbounded function. Prefer the verifiable style for anything that will see
-untrusted data.
+The predicate iterates with `every` rather than a `for` loop on purpose. Loops are outside
+what the verifier certifies, because their work is not fuel-bounded. Write the same check
+with a `for` loop and it still works: TJS never rejects a predicate it cannot verify (that
+would make legal JavaScript illegal). It compiles it as a plain function and warns:
 
-<!-- TODO review -->
+```text
+Warning: Type 'Digits': predicate is not verifiable, compiled as a plain function
+(not fuel-bounded, not safe on untrusted data) — Digits (2:4): loops are not allowed —
+iterate with recursion or array methods (every/some/map/filter/reduce) so work stays
+fuel-bounded
+```
+
+Prefer the verifiable style for anything that will see untrusted data.
+
+## Regular expressions: two different paths
+
+Whether a regex is allowed depends on where the predicate runs, and the two paths give
+opposite answers. They do not contradict each other; they run on different engines.
+
+**In a `Type` predicate in a `.tjs` file, a regex makes the predicate unverifiable.** The
+transpiler emits the verified predicate as self-contained native JavaScript, and that output
+cannot carry tjs-lang's own regex engine. A native regex match is one call that fuel cannot
+see inside, so the predicate falls back to a plain function, with a warning that ends:
+
+```text
+regex /^#[0-9a-f]{3}$/ cannot be verified in an emitted guard: a native match is one call
+that fuel cannot see inside. Write the check with string methods (includes, indexOf,
+startsWith, split) to keep it verified, or accept an unverified predicate; compilePredicate
+(a library call) can run regexes on the metered engine
+```
+
+This is the rule [Declarations](/declarations/) states for `Type`, and why its `Email` example
+uses string methods.
+
+**In the library paths, a regex literal is fine.** `compilePredicate` (from `tjs-lang/lang`)
+and every `$predicate` evaluator compile the predicate together with tjs-lang's linear regex
+engine, which charges each step to the predicate's fuel. A pattern that backtracks
+catastrophically in a normal engine answers at once here:
+
+```tjs:inline
+import { compilePredicate } from 'tjs-lang/lang'
+
+// /^(a+)+$/ against "aaa…a!" takes exponential time in a backtracking engine.
+const { isRun } = compilePredicate(
+  `function isRun(s) { return typeof s === 'string' && /^(a+)+$/.test(s) }`,
+  ['isRun']
+)
+
+console.log(isRun('aaaa'))                      // true
+console.log(isRun('a'.repeat(30) + '!'))        // false, immediately
+console.log(isRun('a'.repeat(100000) + '!'))    // false
+```
+
+The linear engine has no backreferences and no lookaround; a pattern that uses them is
+refused.
+
+## Predicates in JSON Schema: `$predicate`
+
+A `$predicate` is a JSON Schema keyword whose value is the source of a predicate cluster; the
+last function in the source is the entry. `tjs-lang/css` builds such schemas for you:
+
+```tjs:inline
+import { cssColorSchema } from 'tjs-lang/css'
+import { compilePredicateSchema } from 'tjs-lang/lang'
+
+const schema = cssColorSchema()
+console.log(Object.keys(schema))   // [ "type", "title", "$predicate" ]
+console.log(schema.type)           // string
+
+// A validator that knows $predicate runs it...
+const aware = compilePredicateSchema(schema)
+console.log(aware('red').valid, aware('notacolor').valid)   // true false
+
+// ...one that does not checks only the structure: any string passes.
+const naive = compilePredicateSchema(schema, { ignorePredicates: true })
+console.log(naive('notacolor').valid)                        // true
+```
+
+That is progressive enhancement: one schema, which other JSON Schema tools accept and check
+loosely, and which a predicate-aware validator checks exactly.
+
+**`tjs-lang/schema` is the batteries-included consumer.** It is tosijs-schema with tjs-lang's
+predicate engine registered on import, so its `validate` runs `$predicate` with no wiring:
+
+```tjs:inline
+import { validate } from 'tjs-lang/schema'
+import { cssColorSchema } from 'tjs-lang/css'
+
+console.log(validate('rebeccapurple', cssColorSchema()))   // true
+console.log(validate('notacolor', cssColorSchema()))       // false
+```
+
+To put your own predicate in a schema, register its source with `trustPredicate` (see the
+[Zod chapter](/ts-from-zod/) for a worked example, and the trust limit below).
+
+**A `Type`'s own schema does not carry its predicate today.** `HexColor.toJSONSchema()` from
+the example above returns `{}`: a declared `Type` exports its structure, not its predicate. To
+ship a predicate in a schema, write it as source and build the `$predicate` node yourself.
+
 ## Limits worth knowing
 
 - **"Verified" is a promise about your own code, not a sandbox.** Verified predicates compile
   to native JavaScript, and no syntactic check makes native JavaScript safe against a
-  *hostile author*. So the JSON-Schema `$predicate` paths (`compilePredicateSchema`,
-  `createPredicateEvaluator`) run a predicate source only if the host registered it with
-  `trustPredicate` or opted in with `trustAllPredicates`; anything else fails closed. Do not
-  accept predicate source from users and expect the verifier to protect you.
-- **Regex literals inside a predicate run on tjs-lang's own linear engine**, not the host's,
-  so a catastrophic-backtracking pattern cannot hang a certified predicate. That engine has no
-  backreferences or lookaround.
-- **The first example imports `tjs-lang/css`**, so it needs a host that can resolve that
-  package. The `HexColor` example has no imports and runs anywhere.
+  _hostile author_. So the `$predicate` paths (`compilePredicateSchema`,
+  `createPredicateEvaluator`, `tjs-lang/schema`'s `validate`) run a predicate source only if
+  the host registered it with `trustPredicate` or opted in with `trustAllPredicates`. Anything
+  else fails closed: `compilePredicateSchema` throws, and `validate` returns `false`. Never pass
+  predicate source you received as data to `trustPredicate`.
+- **A verified predicate is bounded, not fast by fiat.** Fuel stops a runaway predicate; it
+  does not make an expensive one cheap. A `Type` check or a `tjs-lang/schema` `validate` that
+  runs out of fuel answers `false`; a function from `compilePredicate` or
+  `compilePredicateSchema` throws `PredicateFuelExhausted` (exported from `tjs-lang/lang`), so
+  catch it if you call those on untrusted input.
+- **The examples that import `tjs-lang/css`, `tjs-lang/lang` or `tjs-lang/schema` need a host
+  that can resolve those packages.** The `HexColor` example has no imports and runs anywhere.
 
 See [Declarations](/declarations/) for the full `Type` syntax and the
 [north-star note](/type-system-north-star/) for where `$predicate` is heading.

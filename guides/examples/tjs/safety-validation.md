@@ -1,38 +1,29 @@
 <!--{"section": "tjs", "type": "example", "group": "basics", "order": 19, "parent": "tjs-basics.md"}-->
+<!-- TODO review -->
 
 # Safety & Validation
 
-Three levels of runtime validation. Choose per-file or per-function.
+In TJS, a typed parameter is checked every time the function is called, not only when the
+code is compiled. A wrong argument produces an error *value* that says what was expected and
+what arrived. This chapter shows what is checked, how to check return values too, and how to
+turn the checks off where you have a reason to.
+
+## The problem
+
+JavaScript functions accept whatever they are given:
+
+```javascript
+function greet(name) { return `Hello, ${name}!` }
+greet(42) // "Hello, 42!" — no error, just wrong
+```
+
+TypeScript catches this at compile time, but the types are erased, so nothing checks the
+value that actually arrives at runtime: data from a network request, a file, or a caller
+written in plain JavaScript.
+
+## Inputs are checked
 
 ```tjs:inline
-safety inputs
-
-/#
-## The Problem
-
-JavaScript functions silently accept wrong types:
-
-    function greet(name) { return `Hello, ${name}!` }
-    greet(42)  // "Hello, 42!" — no error, just wrong
-
-TypeScript catches this at compile time but the checks
-vanish at runtime. Production gets no protection.
-
-## TJS Safety Levels
-
-The `safety` directive sets the default for the whole file:
-
-| Directive | Validates | Use case |
-|-----------|-----------|----------|
-| `safety none` | Nothing | Metadata only, zero overhead |
-| `safety inputs` | Function inputs | Default — catches bad callers |
-
-Per-function overrides:
-- `!` = unsafe (skip validation): `function fast(! x: 0) { }`
-- `:?` on the return = check what the function returns,
-  at runtime: `function f(x: 0):? 0 { }`
-#/
-
 // --- Input validation catches bad callers ---
 
 function sayHello(name: 'World'): 'Hello, World!' {
@@ -44,23 +35,21 @@ test 'valid input works normally' {
 }
 
 test 'wrong type returns an error, not garbage' {
-  const result = sayHello(42)
-  // Not "Hello, 42!" — an actual error value
-  expect(result instanceof Error).toBe(true)
+  // Not "Hello, 42!": an error value
+  expect(sayHello(42) instanceof Error).toBe(true)
 }
 
 test 'null returns an error' {
-  const result = sayHello(null)
-  expect(result instanceof Error).toBe(true)
+  expect(sayHello(null) instanceof Error).toBe(true)
 }
 
-// --- Numeric narrowing catches subtle bugs ---
+// --- The example decides how strict the check is ---
 
 function setAge(age: +0): +0 {
   return age
 }
 
-test 'positive integer accepted' {
+test 'non-negative integer accepted' {
   expect(setAge(25)).toBe(25)
 }
 
@@ -68,23 +57,11 @@ test 'negative rejected' {
   expect(setAge(-1) instanceof Error).toBe(true)
 }
 
-test 'float rejected (age must be integer)' {
+test 'float rejected (an age is an integer)' {
   expect(setAge(25.5) instanceof Error).toBe(true)
 }
 
-// --- Unsafe functions skip validation (fast path) ---
-
-function fastAdd(! a: 0, b: 0): 0 {
-  return a + b
-}
-
-test 'unsafe function skips checks (trusted callers only)' {
-  expect(fastAdd(3, 4)).toBe(7)
-  // No type error even with wrong type — validation skipped
-  expect(fastAdd('a', 'b')).toBe('ab')
-}
-
-// --- Errors propagate through function chains ---
+// --- Errors pass through typed functions ---
 
 function cleanName(name: ''): '' {
   return name.trim()
@@ -94,74 +71,92 @@ function upperCase(name: ''): '' {
   return name.toUpperCase()
 }
 
-test 'errors propagate automatically' {
-  // cleanName(42) returns error -> upperCase receives error -> returns error
-  const result = upperCase(cleanName(42))
-  expect(result instanceof Error).toBe(true)
+test 'an error travels to the end of the chain' {
+  // cleanName(42) returns an error; upperCase receives it and returns it unchanged
+  expect(upperCase(cleanName(42)) instanceof Error).toBe(true)
+  expect(upperCase(cleanName(' alice '))).toBe('ALICE')
 }
 
-test 'valid input flows through the chain' {
-  expect(upperCase(cleanName('alice'))).toBe('ALICE')
-}
-
-// --- Try without catch: convert exceptions to errors ---
-
-function parseJSON(s: '{}'):! {} {
-  try {
-    return JSON.parse(s)
-  }
-}
-
-test 'valid JSON parses normally' {
-  const result = parseJSON('{"ok":true}')
-  expect(result.ok).toBe(true)
-}
-
-test 'invalid JSON returns error instead of throwing' {
-  const result = parseJSON('not json')
-  expect(result instanceof Error).toBe(true)
-  // No try/catch needed by the caller!
-}
-
-console.log('Valid:', sayHello('World'))
-console.log('Invalid:', sayHello(42))
-console.log('Parse ok:', parseJSON('{"x":1}'))
-console.log('Parse bad:', parseJSON('nope'))
+console.log('sayHello("World"):', sayHello('World'))
+console.log('sayHello(42):     ', sayHello(42).message)
+console.log('setAge(25.5):     ', setAge(25.5).message)
+console.log('chain:            ', upperCase(cleanName(42)).message)
 ```
 
-<!-- TODO review -->
-## What to notice
+### What to notice
 
-**A bad argument produces a value, not an exception.** `sayHello(42)` does not print
-`Hello, 42!` and does not throw: it returns a `MonadicError` describing what was expected,
-what arrived, and where (`Expected string for '…sayHello.name', got number`). Your program
-keeps running, and the error is something you can inspect, log, or return.
-
-**Errors flow through typed functions.** When a function with typed parameters receives a
-`MonadicError` as an argument, it does not run its body; it hands the error back. That is why
-`upperCase(cleanName(42))` needs no check between the two calls: the first failure travels to
-the end of the chain, carrying its original message. You check once, where you finally use
-the result.
+**A bad argument produces a value, not an exception.** `sayHello(42)` neither prints
+`Hello, 42!` nor throws. It returns a `MonadicError` whose message names the expected type,
+the actual type, and the parameter (`Expected string for '…sayHello.name', got number`). Your
+program keeps running, and the error is something you can inspect, log, or return.
 
 **The example decides how strict the check is.** `age: +0` accepts `25` and refuses both `-1`
 and `25.5`. You get "non-negative integer" without writing a validator, because that is what
-the example `+0` says.
+the example `+0` means. (Other examples narrow the same way: `0` is any integer, `0.0` any
+number; see [Declarations](/declarations/).)
 
-**`!` turns validation off for one function.** `fastAdd('a', 'b')` returns `'ab'`, because
-`!` told TJS to trust its callers. Use it on hot internal functions whose inputs were already
-checked at the boundary, never on functions that receive outside data.
+**Errors pass through typed functions.** When a function with typed parameters receives a
+`MonadicError` as an argument, it does not run its body; it returns that error. So
+`upperCase(cleanName(42))` needs no check between the two calls, and the message at the end
+still names `cleanName`, where the failure happened. [Error Handling](/error-handling/) covers
+this in depth, including where in a program to deal with the error.
 
-**`try` without `catch` converts exceptions into values.** `JSON.parse` throws on bad input;
-wrapped in a bare `try { }`, the function returns a `MonadicError` instead, so the caller
-handles bad JSON the same way it handles a bad argument.
+## Turning the checks off
 
-<!-- TODO review -->
+### `!` on one function
+
+A `!` before the parameter list tells TJS to trust the callers of that function and emit no
+checks for it:
+
+```tjs:inline
+function fastAdd(! a: 0, b: 0): 0 {
+  return a + b
+}
+
+test 'an unsafe function skips its checks' {
+  expect(fastAdd(3, 4)).toBe(7)
+  expect(fastAdd('a', 'b')).toBe('ab') // no error: validation is off
+}
+
+console.log("fastAdd('a', 'b'):", fastAdd('a', 'b'))
+```
+
+The signature is still recorded (documentation, autocomplete, the signature test `fastAdd(0, 0)`
+still runs at transpile time); only the runtime check is gone. Use it on hot internal
+functions whose inputs were already checked at the boundary, never on a function that
+receives outside data.
+
+### `safety none` for a whole file
+
+A `safety` line at the top of a file sets the default for every function in it. There are two
+settings that matter: `safety inputs`, which is the default and what every other example in
+this chapter uses (so you never need to write it), and `safety none`, which emits no runtime
+checks in the file at all while keeping the type metadata:
+
+```tjs:inline
+safety none
+
+function greet(name: 'World') {
+  return `Hello, ${name}!`
+}
+
+console.log(greet(42)) // "Hello, 42!": nothing is checked in this file
+```
+
+Reach for `safety none` only when a file is a measured hot spot and everything that calls it
+already validates its data. A third setting, `safety all`, is accepted but currently checks
+the same things as `safety inputs` (see Gotchas).
+
 ## Checking returns as well
 
 Input checks catch bad *callers*. To catch your own bugs, check what a function returns with
-`:?`. (A plain `:` return annotation is a worked example that runs as a test at transpile time;
-`:!` declares the return type without a test; `:?` runs the test *and* validates every return
-at runtime.)
+`:?`. The three return forms differ in what they check:
+
+| Return form | At transpile time | At runtime |
+| --- | --- | --- |
+| `: 0` | runs the signature example as a test | nothing |
+| `:! 0` | nothing (declares the type only) | nothing |
+| `:? 0` | runs the signature example as a test | checks every value returned |
 
 ```tjs:inline
 function average(xs: [0.0]):? 0.0 {
@@ -175,10 +170,10 @@ const r = average([])
 console.log('average([]):    ', r instanceof Error ? r.message : r)
 ```
 
-The bad path is caught where it happens, with the function's name in the message, rather
-than three calls later as a `NaN`.
+The bad path is caught where it happens, with the function's name in the message
+(`Expected number for '…average:return', got string`), rather than three calls later as a
+`NaN`.
 
-<!-- TODO review -->
 ## Class methods and constructors are checked too
 
 Typed parameters on a constructor or a method validate exactly as a function's do, so a class
@@ -207,7 +202,40 @@ const nobody = Account(42, 0)
 console.log('Account(42, 0):', nobody instanceof Error ? nobody.message : nobody)
 ```
 
-<!-- TODO review -->
+(TJS classes are called without `new`; see [Better Classes](/better-classes/).)
+
+## `try` without `catch`
+
+Type checks cover the values you pass. Code you call can still *throw*: `JSON.parse` throws on
+malformed text. In TJS you can write a `try` block with no `catch`, and an exception thrown
+inside it becomes a returned `MonadicError` instead:
+
+```tjs:inline
+function readPort(configText: '{"port":8080}') {
+  try {
+    return JSON.parse(configText).port
+  }
+}
+
+test 'valid JSON parses normally' {
+  expect(readPort('{"port":8080}')).toBe(8080)
+}
+
+test 'invalid JSON returns an error instead of throwing' {
+  expect(readPort('{port') instanceof Error).toBe(true)
+}
+
+console.log('good:', readPort('{"port":8080}'))
+
+const bad = readPort('{port')
+console.log('bad: ', bad instanceof Error ? bad.message : bad)
+```
+
+The caller handles bad JSON the same way it handles a bad argument: by looking at the value it
+got back. The error's message is the original exception's message, so its exact wording comes
+from the JavaScript engine running the page. A `try` with a `catch` (or a `finally`) behaves
+exactly as it does in JavaScript.
+
 ## Gotchas
 
 - **A returned error is easy to ignore.** That is the price of not throwing. If you call a

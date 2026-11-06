@@ -1,506 +1,391 @@
 <!--{"parent": "the-tjs-language.md", "order": 5}-->
+<!-- TODO review -->
 
-# Dictionary Defaults (Merge-on-Partial Object Arguments)
+# Dictionary Defaults
 
-**Status:** Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the `=` merge behaviour; its mode directive was abolished 2026-08-02 and it is now unconditional in `.tjs`), and Stage 3 (deep-partial `.d.ts`) all shipped, plus the `dict-default-excess-key` lint. Stage 4 (dogfood in tosijs-3d) is the remaining follow-up.
-**Feature class:** Language semantics + runtime — **a gated native-TJS mode**
-**Characterization:** JS footgun pave
+In a `.tjs` file, an object literal used as a parameter default is a **dictionary**: each
+member is its own default, and a caller who passes part of the object gets the rest filled
+in.
 
-> Provenance: drafted 2026-07-17 (without the syntax docs at hand), revised
-> 2026-07-18 against empirical findings from the codebase. Claims in the
-> original draft that contradicted existing grammar or measured behavior have
-> been corrected rather than argued with; the corrections are marked.
-
----
-
-## ⚠️ Where we diverge from WebIDL — read this before using the spec as a reference
-
-This design borrows WebIDL's **dictionary** semantics, and the section numbers below
-(§5.x) refer to that spec. **One rule is deliberately different, and it is the one most
-likely to surprise you if you know WebIDL.**
-
-| | WebIDL §5.4 | **TJS** |
-| --- | --- | --- |
-| Excess keys in the payload | **stripped** | **passed through** |
-| Missing members | filled from the default | filled from the default (same) |
-| Wrong member type | rejected | rejected (same) |
-| `__proto__` / `constructor` / `prototype` | n/a | rejected outright |
-
-```javascript
-function place(args = { x: 0, y: 0 }) { return args }
-
-place({ x: 5, z: 9 })
-//  WebIDL:  { x: 5, y: 0 }          ← z is gone
-//  TJS:     { x: 5, y: 0, z: 9 }    ← z survives
-```
-
-**Why WebIDL strips, and why we should not.** A WebIDL dictionary is a **wire format**.
-Its job is to normalise an untrusted bag into exactly the declared shape before it crosses
-a boundary into browser internals, so anything undeclared is noise by definition. A TJS
-`= {…}` parameter is not a boundary — it is an **options bag inside one program**, and
-options bags in JavaScript routinely carry more than the callee declares. A caller
-forwards its own options; one object is passed to two functions; a component spreads
-props. Deleting the caller's data in that situation is not normalisation, it is loss.
-
-TJS shipped the WebIDL behaviour in 0.12.0, with a once-per-site flight-recorder notice so
-the loss was at least visible in a log. **Changed 2026-08-14** (0.13.0) for three reasons:
-
-1. **It is silent where it matters.** The notice appears in a recorder ring, not at the
-   call site, and once per site — so the second call that loses data says nothing.
-2. **It contradicted the rest of the language.** Nothing else in TJS removes or rejects an
-   excess key. Both structural checkers were opened in the same release, after they were
-   found to disagree with each other (`docs/type-identity.md`).
-3. **TypeScript cannot express the closed type this was enforcing.** TS's excess-property
-   check is a *freshness lint on object literals*, not a property of the type — assign
-   through a variable and the same object is accepted — and there is no `Exact<T>` to opt
-   into. A runtime rule stricter than anything the type system it mirrors can state is a
-   rule users cannot reason about.
-
-**What you lose:** if you were relying on a dictionary default to sanitise an untrusted
-payload, it no longer does. That was never a security boundary — the VM's capability
-membrane is — but if you want the WebIDL behaviour, strip explicitly:
-
-```javascript
-const clean = ({ x, y }) => ({ x, y })
-```
-
-**What did NOT change:** members are still validated, missing members still fill from the
-default (recursively), and the prototype-pollution keys are still rejected outright — that
-one is a security guard, not a normalisation policy.
-
-A performance note, since it cuts the friendly way: passing keys through means a
-**complete** payload carrying extra keys no longer needs a rebuild at all. It falls through
-on the untouched-identity path (invariant I3), where it used to be copied in order to be
-stripped.
-
----
-
-## 1. Problem statement
-
-JavaScript default parameters are atomic: `(args = {x: 0, y: 0})` means
-_default or payload, wholesale_. A partial payload `{x: 5}` silently discards
-the default for `y`, yielding `y === undefined`. Nobody passing a partial
-options object intends this.
-
-The consequences in the wild:
-
-- Every options-bag function hand-rolls a merge, and the hand-rolls are where
-  bugs live:
-  - `Object.assign(defaults, payload)` mutates the shared default object in
-    place, corrupting all future calls.
-  - Spread (`{...defaults, ...payload}`) merges one level only; nested
-    defaults silently vanish.
-  - `structuredClone(defaults)` per call is safe but pays full clone cost on
-    every invocation, including complete payloads.
-- The declaration side is equally painful: expressing "each property
-  individually optional with its own default" in TypeScript requires a
-  `Partial<T>` parameter type plus a separate defaults constant plus merge
-  logic — three artifacts for one idea.
-
-This is a pattern that is universally wanted, universally reimplemented, and
-reliably botched. That is the definition of a pave target.
-
-### The platform precedent
-
-The DOM already has the correct semantics. Every options-bag Web API is a
-WebIDL dictionary, and WebIDL dictionaries default _per member_:
-
-- `addEventListener(type, fn, {once: true})` — `capture` and `passive` retain
-  their defaults.
-- `new IntersectionObserver(cb, {threshold: 0.5})` — `rootMargin` stays
-  `'0px'`.
-- `fetch(url, {method: 'POST'})` — every other `RequestInit` member keeps its
-  default.
-
-JS developers already have merge-semantics intuition drilled in by the entire
-platform API surface. Only _userland_ functions exhibit atomic
-default-or-nothing, because JS function defaults cannot express what WebIDL
-dictionaries do. **The JS behavior is the anomaly. tjs adopts the platform's
-model.**
-
----
-
-## 2. What current tjs actually does (measured 2026-07-18)
-
-The original draft assumed partial payloads "in current tjs produce type
-errors." **Measured, they do not** — and the finding reshapes both the framing
-and the implementation plan:
-
-```js
-// = form
+```tjs:inline
 function place(args = { x: 0, y: 0 }) {
   return args
 }
-place({ x: 5 }) // → {x: 5}         (y === undefined — plain JS semantics)
-place() // → {x: 0, y: 0}   (JS evaluates the literal per call)
 
-// colon form (required param, example)
-function placeB(args: { x: 0, y: 0 }) {
+console.log(JSON.stringify(place()))             // {"x":0,"y":0}
+console.log(JSON.stringify(place({ x: 5 })))     // {"x":5,"y":0}
+console.log(JSON.stringify(place({ y: 7 })))     // {"y":7,"x":0}
+console.log(place({ x: 'five' }).message)
+// Expected integer for '…place.args.x', got string
+```
+
+In JavaScript the same signature is all or nothing: `place({ x: 5 })` returns `{ x: 5 }`
+and `y` is `undefined`. This chapter is the reference for the TJS rule. For a guided tour
+with tests, see the [Dictionary Defaults example](/dictionary-defaults-example/).
+
+## Why
+
+Options objects are everywhere in JavaScript, and nobody who passes `{ x: 5 }` means "and
+throw away every other default". So every options function merges by hand, and the
+hand-written merges are where the bugs are:
+
+- `Object.assign(defaults, payload)` writes into the shared defaults object, so one call
+  changes the defaults for every later call.
+- `{ ...defaults, ...payload }` merges one level. A nested default disappears as soon as
+  the caller passes part of the nested object.
+- Destructuring with defaults works, but moves the shape, the types and the defaults out of
+  the signature and into the body.
+
+The web platform already does it the other way. `addEventListener(type, fn, { once: true })`
+keeps the defaults for `capture` and `passive`; `fetch(url, { method: 'POST' })` keeps every
+other option. Those options objects are WebIDL _dictionaries_, and their members default
+individually. TJS gives your own functions the same behaviour, with no new syntax: the
+declaration `args = { x: 0, y: 0 }` already says which members exist, what type each has,
+and what each defaults to.
+
+## The rule
+
+A parameter declared `name = { … }` with an object literal:
+
+1. **Fills absent members** from the default, recursively through nested objects.
+2. **Checks present members** against the default, which is also an example of the
+   member's type (`x: 0` means "an integer, defaulting to 0").
+3. **Keeps keys the default does not mention.**
+4. **Rejects `__proto__`, `constructor` and `prototype`** as keys.
+5. **Never writes into the caller's object.** A complete argument is returned as is; a
+   partial one produces a new object.
+
+A failed check returns a `MonadicError` naming the member (`place.args.x`); it is not
+thrown. The rest of this chapter covers each rule and its edge cases.
+
+It works on any function form: declarations, arrow functions and class methods.
+
+## When a default is used
+
+| The caller passes                  | The member gets                                  |
+| ---------------------------------- | ------------------------------------------------ |
+| nothing, or `undefined`, for the whole argument | a fresh copy of the whole default   |
+| an object without the key          | the member's default                             |
+| the key with the value `undefined` | the member's default                             |
+| the key with any other value       | that value, checked against the default's type   |
+| `null` for the whole argument      | an error: `null` is a value, not an absence      |
+
+Falsy values count as values: `0`, `''` and `false` win over the default. `null` is never
+quietly replaced by a default, because doing so would hide a caller's bug.
+
+A member whose default is `null` or `undefined` accepts **any** value. That is how you
+declare an option with no natural default:
+
+```tjs:inline
+function open(opts = { parent: null, storage: undefined, retries: 3 }) {
+  return opts
+}
+
+console.log(JSON.stringify(open()))                    // {"parent":null,"retries":3}
+console.log(JSON.stringify(open({ parent: 'root' })))  // {"parent":"root","retries":3}
+console.log(open({ storage: new Map() }).storage.size) // 0: any value is accepted
+console.log(JSON.stringify(open({ retries: 0 })))      // {"retries":0,"parent":null}
+console.log(open(null).message)                        // the argument itself is null
+```
+
+(`storage` is missing from the `JSON.stringify` output only because `JSON.stringify` omits
+`undefined` members.)
+
+## Nested objects merge too
+
+A nested object literal in the default is a dictionary in its own right. A caller who
+passes part of it gets the rest of it filled in, and its members are checked:
+
+```tjs:inline
+function move(args = { pos: { x: 0, y: 0 }, label: '' }) {
   return args
 }
-placeB({ x: 5 }) // → {x: 5}         (no missing-member error)
-placeB({ x: 's', y: 1 }) // → passes through (no member type check!)
-placeB({ x: 5, y: 1, z: 9 }) // → passes through (no excess-key handling)
-placeB(5) // → MonadicError    (the ONLY check that fires)
+
+console.log(JSON.stringify(move({ pos: { x: 5 } })))
+// {"pos":{"x":5,"y":0},"label":""}
+
+console.log(move({ pos: { x: 'five' } }).message)   // names args.pos.x
+console.log(move({ pos: null }).message)            // pos must be an object
+
+// Filled-in defaults are fresh on every call: changing one cannot change the next.
+const first = move({ label: 'a' })
+first.pos.x = 999
+console.log(move({ label: 'b' }).pos.x)             // 0
 ```
 
-The emitted validation for an object param is, in its entirety,
-`typeof args !== 'object' || args === null || Array.isArray(args)`. The full
-member shape **is** emitted into `fn.__tjs.params` metadata
-(`kind: 'object', shape: {…}`) — the check just never consumes it.
+## Arrays are values
 
-Two consequences:
+An array in the default is replaced wholesale, never merged index by index. Its elements
+are checked against the default's first element, the same way an [array example](/TJS-SYNTAX/)
+is checked anywhere else:
 
-1. **This feature is a semantics change to valid native-TJS programs**, not an
-   occupation of free space. Partial payloads work today, with JS semantics.
-   That is fine — it is exactly what native-TJS rules are _for_ (honest equality
-   changed `==` itself; raw `new Date()` is not allowed) — but it must be framed
-   and gated as a mode (§3).
-2. **Member-level object validation must be built regardless** (Stage 0). The
-   merge is a phase of a validator that does not yet validate members. Bonus:
-   as of 0.10.1, the inline `Type(...).check()` stub IS strict-structural
-   (fixed under #21-adjacent work), so `Type` checks and param checks of the
-   same shape currently disagree — Stage 0 resolves that inconsistency.
+```tjs:inline
+function tag(args = { tags: [''], n: 0 }) {
+  return args
+}
 
----
-
-## 3. Mode gating (the missing section, now load-bearing)
-
-Dictionary defaults are **native-TJS behaviour**, unconditional in `.tjs`
-(the mode directive was abolished 2026-08-02), and OFF under
-`dialect: 'js'` and for `fromTS`-originated code, and disabled by `TjsCompat`.
-
-This is required by PRINCIPLES.md: `dialect: 'js'` must preserve plain-JS
-semantics, and merge-on-partial observably changes them (`y === undefined` →
-`y === 0`). The subset invariant is satisfied the same way `==` satisfies it —
-choosing `.tjs` is the opt-in.
-
-The §6.1 purity restriction (compile error on impure default literals) is
-likewise native-only; raw `new Date()` not being allowed is the precedent for
-a mode making a JS-legal construct a compile error.
-
----
-
-## 4. Design principles
-
-1. **No new syntax.** The existing declaration `(args = {x: 0, y: 0})` already
-   contains the shape, the types, and the defaults. The feature changes what
-   the runtime does with it, not how it is written.
-2. **A mode, honestly labeled.** Changes the meaning of partial-payload calls
-   in native tjs only (§3). Ship with a CHANGELOG "Changed" entry, not buried
-   in "Added".
-3. **Defaults are data, not effects.** Default objects are restricted to
-   structurally clonable literals (§6.1). This is what makes hoisting sound.
-4. **Zero cost on the happy path.** A complete payload passes through
-   untouched: validation scan only, no allocation, no clone.
-5. **The default object is inviolate.** Neither the runtime nor user code can
-   corrupt it. Dev builds enforce this mechanically (§7.2).
-
----
-
-## 5. Semantics
-
-### 5.1 Member states — resolved: required-ness lives at the PARAM level
-
-**`:` is the required marker; `=` is the defaulted marker. tjs already has
-both, at the level where required-ness actually belongs** (Tonio, 2026-07-18 —
-resolving OQ1). No member-level marker exists or is needed:
-
-| Declaration       | The param | Its members                                            |
-| ----------------- | --------- | ------------------------------------------------------ |
-| `(args: {x: 0})`  | required  | ALL required + type-checked (Stage 0, shipped)         |
-| `(args = {x: 0})` | defaulted | ALL defaulted — merge-on-partial (the mode, this spec) |
-
-A "required member inside a _defaults_ object" is a contradiction in terms —
-if the caller must supply it, it is not a default. The mixed case (a required
-id plus defaulted options) uses **separate parameters** —
-`(id: '', opts = {...})` — which is the platform convention this spec is built
-on (`addEventListener(type, listener, options)`: required positionals, then a
-dictionary of defaults). The draft's WebIDL-keeps-required argument is
-answered, not rejected: required things live in the colon form; the error
-still fires at the call site, just from the declaration level that already
-expresses it.
-
-> The draft also had an "Unchecked" member state marked `x!`. Dropped: `!`
-> does not parse inside object literals (verified), and it is the param/access
-> safety marker. Spike A's `required(example)` wrapper is likewise **cut** —
-> retained in the spike only as evidence the mechanism works if ever needed.
-
-### 5.2 Trigger condition
-
-A member's default fires **only when the key is absent** from the payload.
-
-- **Absent key** → fill with default.
-- **Present, `undefined`** → treated as absent (fills). Matches both JS
-  default-parameter and WebIDL dictionary behavior; JSON payloads cannot
-  express `undefined` anyway.
-- **Present, `null`** → real value. Type-checked: passes iff the member type
-  admits null. In types-by-example terms the natural rule (adopted by Spike A,
-  confirm at Stage 1): **a member admits null iff its default example is
-  `null`**. Never silently replaced — replacement would mask caller bugs.
-
-### 5.3 Recursion
-
-Nested object literals in the default merge recursively, per-key, per-level:
-
-```js
-const place = (args = { pos: { x: 0, y: 0 }, label: '' }) => {}
-place({ pos: { x: 5 } })
-// → {pos: {x: 5, y: 0}, label: ''}
+console.log(JSON.stringify(tag({ n: 1 })))                // {"n":1,"tags":[""]}
+console.log(JSON.stringify(tag({ tags: ['a', 'b'] })))    // {"tags":["a","b"],"n":0}
+console.log(isMonadicError(tag({ tags: ['ok', 42] })))    // true: 42 is not a string
 ```
 
-**Arrays are values, not merge targets.** A payload array replaces the default
-array wholesale (element types still checked against the example element, per
-existing inference convention). Index-wise merging is explicitly rejected.
+Because arrays are not merged, an object inside an array is not filled in either. With a
+default of `{ points: [{ x: 0, y: 0 }] }`, every point a caller passes must have both `x`
+and `y`.
 
-### 5.4 Excess keys
+## Excess keys pass through
 
-Keys present in the payload but absent from the default literal. The draft
-proposed "error in dev, strip in prod"; **revised recommendation** (pending
-Spike A evidence, OQ2): no dev/prod behavior split — this repo deliberately
-avoids behavior matrices. Instead:
+A key the default does not declare is kept, unchecked, in the result:
 
-- **Strip always** (merged result has exactly the declared shape;
-  `additionalProperties: false` is already tjs's emitted-schema posture, and
-  `Type().strip()` is precedent), **and**
-- **record a flight-recorder notice, once per site** (`source: 'type'`,
-  `severity: 'notice'`) — the recorder's documented job is exactly this class
-  of "not an error, but you'll want it after the fact", **and**
-- **transpile-time lint error when the call-site payload is an object
-  literal** — catches the classic `{treshold: 0.5}` typo statically, where it
-  is actually detectable.
+```tjs:inline
+function sized(opts = { w: 100, h: 100 }) {
+  return opts
+}
 
-### 5.5 Top-level absence
+console.log(JSON.stringify(sized({ w: 5, color: 'red' })))
+// {"w":5,"color":"red","h":100}
+```
 
-Calling with no argument: the function receives a **fresh clone** of the full
-default. (JS already produces a fresh object per no-arg call — the literal is
-evaluated per call — so hoist-plus-clone is observably identical. Verified.)
+That has one cost: a misspelled option is accepted silently. `sized({ widht: 5 })` keeps
+`w: 100` and carries `widht` along, and nothing fails at runtime. The linter's
+`dict-default-excess-key` rule catches it when the misspelled key is in an object literal
+written at a call to a function declared in the same file:
 
-### 5.6 Prototype safety
+```javascript
+import { lint } from 'tjs-lang/lang'
 
-Only own enumerable string keys participate. `__proto__`, `constructor`, and
-`prototype` in a payload are rejected outright — deriving the check from the
-canonical `FORBIDDEN_KEYS` list (`src/forbidden-keys.ts`), the single source
-shared by the VM guards, the linter, and this emitter, not a new list. Merge is
-exactly where prototype pollution lives; this closes the class cheaply.
+const source = `
+function sized(opts = { w: 100, h: 100 }) { return opts }
+sized({ widht: 5 })
+`
+for (const d of lint(source).diagnostics) console.log(d.rule, d.message)
+// dict-default-excess-key 'widht' is not a member of sized's dictionary parameter — …
+```
 
----
+A payload built elsewhere and passed in a variable, or one containing a spread, is not
+checked. `tjs check` does not run lint rules, so call `lint` yourself or through your
+editor integration.
 
-## 6. Restrictions
+> **Where TJS diverges from WebIDL**
+>
+> | | WebIDL dictionary | TJS dictionary default |
+> | --- | --- | --- |
+> | Excess keys in the payload | **stripped** | **passed through** |
+> | Missing members | filled from the default | filled from the default |
+> | Wrong member type | rejected | rejected |
+> | `__proto__` / `constructor` / `prototype` | n/a | rejected |
+>
+> **Why WebIDL strips, and TJS does not.** A WebIDL dictionary is a wire format: its job is
+> to turn an untrusted bag into exactly the declared shape before it crosses into browser
+> internals, so anything undeclared is noise. A TJS `= { … }` parameter is an options
+> object inside one program, and those routinely carry more than the callee declares: a
+> caller forwards its own options, one object goes to two functions, a component spreads
+> its props. Deleting the caller's data there is not normalisation, it is loss.
+>
+> TJS stripped excess keys in 0.12.0 and changed in 0.13.0, for three reasons:
+>
+> 1. **The loss was silent.** It was reported once per call site in the flight recorder,
+>    not at the call, so the second call that lost data said nothing.
+> 2. **Nothing else in TJS removes or rejects an excess key.** Shape checks on `:`
+>    parameters and `Type` checks both accept them (see [Type identity](/type-identity/)).
+> 3. **TypeScript cannot express the closed type it was enforcing.** TypeScript's
+>    excess-property check applies only to a fresh object literal (pass the same object
+>    through a variable and it is accepted), and there is no `Exact<T>`. A runtime rule
+>    stricter than anything the matching type system can state is one users cannot
+>    reason about.
+>
+> A dictionary default is therefore not a sanitiser. If you need exactly the declared
+> keys, strip them yourself: `const clean = ({ x, y }) => ({ x, y })`. The security
+> boundary for untrusted data is the VM's capability membrane, not a parameter default.
 
-### 6.1 Default expressions must be pure literals
+## Prototype keys are rejected
 
-The default must be an object literal composed of structurally clonable
-literals: primitives, object literals, array literals. Compile-time error
-otherwise (function calls, identifiers referencing live objects, `new`,
-`Date.now()`, getters/setters, computed keys). Native-mode-only (§3).
+`__proto__`, `constructor` and `prototype` are refused as keys at every level, because a
+merge is exactly where prototype pollution happens. The payload below is what an attacker
+gets from `JSON.parse`, which creates `__proto__` as an ordinary own key:
 
-Rationale: JS evaluates default expressions per call; tjs hoists them (§7.1).
-For pure literals the two are observationally identical; for effectful
-expressions they diverge silently. The restriction closes the divergence at
-compile time.
+```tjs:inline
+function place(args = { x: 0, y: 0 }) {
+  return args
+}
 
-_(Escape valve if per-call computed defaults prove necessary: an explicit
-thunk form. Out of scope for v1.)_
+const hostile = JSON.parse('{"x":1,"__proto__":{"polluted":true}}')
+console.log(isMonadicError(place(hostile)))   // true
+console.log({}.polluted)                      // undefined
+```
 
----
+## Defaults must be literals
 
-## 7. Runtime design
+Every member of the default must be a literal: a number, a quoted string, `true`, `false`,
+`null`, `undefined`, or an array or object literal made of those. A function call, a
+variable, `new`, a template literal, a getter or a computed key is a compile error:
 
-### 7.1 Hoisted template + shape descriptor
+```text
+function stamp(opts = { at: Date.now(), by: '' }) { … }
 
-At transpile time, each qualifying default literal is hoisted to a
-module-level **template** (evaluated once — sound because §6.1 guarantees
-purity) plus a compact **shape descriptor** (member names, states, types,
-nested descriptors). **The descriptor largely exists already**: it is the
-`fn.__tjs.params[…].type` metadata the emitter produces today — Stage 0's job
-is making the emitted check consume it.
+Dictionary default for 'stamp.opts.at' must be a pure literal — member 'at' is not a
+clonable literal value. Compute impure values inside the function body, or use a
+colon-form (required) parameter.
+```
 
-### 7.2 Template integrity
+The reason is that JavaScript evaluates a default once per call, while TJS builds the merge
+from the declaration. For a literal the two are indistinguishable; for `Date.now()` they
+would not be. Compute such values in the body:
 
-Dev builds: template deep-frozen at creation — any attempted write throws at
-the write site instead of corrupting call N+1. Production: freeze elided;
-§7.4's invariants and §7.3 guarantee the runtime never writes it and user code
-never receives it.
+```tjs:inline
+let counter = 0
 
-### 7.3 No-arg calls clone
+function nextId(opts = { id: 0 }) {
+  return opts.id || ++counter    // computed in the body, on each call
+}
 
-A no-payload call receives a **structural clone of the template**, never the
-template itself — otherwise a function mutating its own args poisons every
-future call (the exact bug this paves, reintroduced through the back door).
+console.log(nextId(), nextId(), nextId({ id: 42 }))   // 1 2 42
+```
 
-### 7.4 Check-then-fill
+## A complete argument is returned as is
 
-Per call with a payload:
+When the caller's object already has every declared member, and every member checks, the
+function receives **that object**: no copy is made, so supplying everything costs nothing
+beyond the check. When members are missing, the function receives a new object, and the
+caller's object is left alone:
 
-1. **Scan** payload against the descriptor: validate present members' types,
-   note absent defaulted members, error on absent required members, apply the
-   excess-key policy (see the divergence note at the top — TJS passes them
-   through). Recurse into nested dictionaries.
-2. **Complete payload** → return the payload as-is. Zero allocation. This is
-   the hot path and must stay a pure read-only scan.
-3. **Members absent** → build ONE fresh output object: present members from
-   the payload, absent members cloned from the template (never aliasing
-   mutable template substructure into the result).
+```tjs:inline
+function sized(opts = { w: 100, h: 100 }) {
+  return opts
+}
 
-Invariants (encoded as tests in Spike A):
+const full = { w: 1, h: 2 }
+console.log(sized(full) === full)    // true: the same object
 
-- **I1:** Runtime never writes into the template or the caller's payload.
-- **I2:** No output object aliases a mutable substructure of the template.
-- **I3:** Complete payload ⇒ no allocation (payload returned by reference).
+const part = Object.freeze({ w: 1 })
+const merged = sized(part)
+console.log(merged === part)         // false: a new object
+console.log(JSON.stringify(part))    // {"w":1}: the caller's object is unchanged
+```
 
-### 7.5 Failure mode
+The frozen object shows the merge never writes into what it was given. One consequence of
+the identity rule: if your function changes `opts`, it changes the caller's object when the
+caller passed a complete one, as in plain JavaScript. Copy first if you need to modify it.
 
-All violations (missing required, null-where-not-nullable, member type
-mismatch, excess key under a strict policy) surface through the existing
-runtime type-error channel (`__tjs.typeError` → `MonadicError`) with a path
-(`args.pos.y`). No new error machinery.
+## `=`, `:` and a typed default
 
----
+Three signatures put an object in a parameter, and only the first is a dictionary:
 
-## 8. Interactions
+| Declaration                   | The argument  | Its members                                       |
+| ----------------------------- | ------------- | ------------------------------------------------- |
+| `opts = { retries: 3 }`       | optional      | each optional, filled from the default, checked   |
+| `opts: { retries: 3 }`        | required      | each required and checked (a shape)               |
+| `p: Point = { x: 1, y: 2 }`   | optional      | if passed, must be a whole `Point`; not merged    |
 
-- **Signature-test defaults merge.** `js-tests.ts` already contains a
-  _shallow_ defaults-merge for return examples (`__defaults` +
-  `Object.assign`). It must be subsumed by (or reconciled with) this
-  machinery, or it becomes another divergent copy — the disease #20/#21 just
-  spent a week killing.
-- **`.d.ts` emission.** `generateDTS` must emit **deep-partial** caller-facing
-  parameter types for dictionary-default params while the body-facing type
-  stays complete. (Draft gap, now tracked.)
-- **Implicit test generation.** Defaults are ready-made fixtures: no-arg call,
-  complete-payload call, one-member-absent per defaulted member,
-  absent-required (expect error), null-injection per member. The descriptor
-  drives generation directly.
-- **JSON Schema.** The descriptor maps onto schema `default` / `required`
-  keywords; declared defaults surface in emitted schemas. The literal remains
-  the single source of truth.
-- **WASM blocks.** Merged args crossing into inline WASM are guaranteed
-  complete — no `undefined` members to trap on.
-- **tosijs consumption.** Options-bag-heavy tosijs/tosijs-3d APIs are the
-  first-order beneficiary; migration is deleting merge boilerplate.
+The [example chapter](/dictionary-defaults-example/) runs all three side by side.
 
----
+There is no marker for "a required member inside a dictionary": if the caller must supply
+it, it is not a default. Put required values in their own parameters, before the options,
+the way `addEventListener(type, listener, options)` does:
 
-## 9. Open questions
+```tjs:inline
+function connect(url: 'https://example.com', opts = { retries: 3, timeout: 1000.0 }) {
+  return `${url} retries=${opts.retries} timeout=${opts.timeout}`
+}
 
-1. **Required marker (OQ1). RESOLVED 2026-07-18 — no marker.** `:` vs `=` at
-   the param level IS the required/defaulted distinction (§5.1); members of a
-   default object are defaults by construction. Mixed shapes use separate
-   params (platform convention). The spike's `required(example)` wrapper is
-   cut from v1 (kept in the spike as evidence the mechanism works).
-2. **Excess-key policy (OQ2).** §5.4 carries the recommendation
-   (strip + record + literal-call-site lint); Spike A implements all three
-   candidate policies behind a switch to generate comparative evidence.
-3. **Null admission (OQ3).** §5.2 adopts "example is null ⇒ admits null" for
-   the spike; confirm against real tosijs option shapes at Stage 4.
-4. **Non-dictionary defaults (OQ4).** `(x = 0)`, `(list = [])` keep unchanged
-   JS semantics — the feature triggers only on object-literal defaults.
-   Encoded in Spike A.
+console.log(connect('https://a.dev', { timeout: 250.5 }))
+// https://a.dev retries=3 timeout=250.5
+console.log(isMonadicError(connect()))   // true: url is required
+```
 
----
+## Only object-literal defaults
 
-## 10. Implementation plan
+The rule applies only when the default is an object literal written in the signature.
+Every other default keeps JavaScript's meaning:
 
-Spike-first; each stage lands independently.
+```tjs:inline
+function f(x = 0, list = []) {
+  return JSON.stringify({ x, list })
+}
 
-- **Spike A — semantics harness** (`experiments/dictionary-defaults/`,
-  no transpiler changes). Standalone `merge(descriptor, template, payload)` +
-  exhaustive table-driven suite encoding §5 in full: absence/undefined/null
-  matrix, recursion, arrays-as-values, excess keys under each candidate
-  policy, prototype-pollution attempts, invariants I1–I3, and the js-dialect
-  gate (JS semantics preserved when the mode is off). The suite is the spec's
-  executable form and survives into the final implementation.
-- **Spike B — perf validation.** Check-then-fill benchmarked **against a
-  canonical CORRECT implementation** — the careful hand-written per-shape
-  merge (`{...D, ...p, pos: {...D.pos, ...p.pos}}`) and a correct generic
-  recursive merge — on realistic tosijs-3d option shapes: complete payload
-  (must be ≈ validation-only, zero output allocation), one-absent, no-arg.
-  The broken idioms (shallow spread, mutating assign) may appear as reference
-  rows only, clearly labeled incorrect: **benchmarking against code that
-  doesn't do the job is meaningless** — a baseline must produce the same
-  result to be a baseline. `structuredClone`-then-fill is the safe-but-slow
-  correct variant and stays in the comparison.
+console.log(f())          // {"x":0,"list":[]}
+console.log(f(5, [1]))    // {"x":5,"list":[1]}
+```
 
-  Per direction, the benchmark reports a **three-tier cost story** (now also a
-  shared practice — `tosijs-coding-practices/practices/performance.md`,
-  "Benchmarking a footgun-pave"): tier 1 = the status-quo footguns, timed but
-  labeled incorrect with their breakage demonstrated by test (shallow spread
-  loses nested defaults; mutating assign corrupts the shared defaults object);
-  tier 2 = the clean correct hand-roll (the honest bar); tier 3 = the feature.
-  **The sentence the numbers support: dictionary defaults cost ~531 ns/op vs
-  the footguns' ~85 and the careful hand-roll's ~276 — and buy member
-  validation, merged nested defaults, and incorruptible shared defaults.**
+A default that names a variable (`opts = shared`) is not an object literal either, so it is
+not a dictionary: a caller's object replaces it whole.
 
-  **Results (2026-07-18, M1 Pro, bun 1.3.14, 8-member/3-nested shape, 200k
-  iterations):** the descriptor-driven walker WITH full member validation runs
-  ~543 ns/op on a complete payload vs ~284 for the canonical per-shape spread
-  (which validates nothing) and ~1990 for structuredClone-then-fill; no-arg
-  clone beats `structuredClone` 7× (241 vs 1773); I3 holds (complete payload
-  returned by identity — zero output allocation). **Design conclusion:** the
-  ~2× premium over hand-written merge is the price of the generic walk, not of
-  validation per se — so Stage 1 should emit **shape-specialized
-  merge+validate code** per signature (exact precedent:
-  `generateTypeCheckExpr` already emits per-shape validation), with the
-  descriptor-driven walker as the generic/runtime fallback. Two bonus
-  findings from the agreement check the directive forced: all correct
-  implementations must agree before timing — and making them agree exposed a
-  real semantics hole (payload keys named after `Object.prototype` members,
-  e.g. `toString`, matched the descriptor's prototype chain via `in` and
-  dodged both validation and the excess policy; fixed with null-prototype
-  descriptor maps + a regression test).
-- **Stage 0 — member-level param validation. DONE 2026-07-18** (`generateMemberCheckLines`
-  in `emitters/js.ts`; suite: `src/lang/member-validation.test.ts`). Colon-form (required)
-  object params — positional and destructured — get recursive member checks with precise
-  paths, derived from the same shape metadata that was already emitted. Excess members
-  ignored (OQ2 is mode territory). Scope-guarded by tests: the `=` form keeps plain-JS
-  semantics. One suite update: the TS-chain test that apologetically documented
-  "missing properties pass" now asserts the error (real TS rejects that call statically).
-  Resolves the `Type.check` ↔ param-check inconsistency.
-- **Stage 1 — transpiler. CORE DONE 2026-07-19** (dictionary-default emit +
-  shape-specialized merge codegen; suite: `src/lang/dict-defaults.test.ts`).
-  What shipped: the mode (native-on, off for dialect 'js'/fromTS/VM/TjsCompat,
-  `TjsStrict` enables it for TS-originated source); the §6.1 purity
-  compile-error; merge-on-partial emitted as specialized code per signature —
-  inlined literal fills (fresh by construction, so the hoisted-template +
-  deep-freeze machinery proved unnecessary: no shared template exists to
-  corrupt); §5.2 undefined⇒fill and example-null⇒nullable-any; recursion;
-  arrays-as-values with element checks; excess-strip with a once-per-site
-  flight-recorder notice naming the stripped keys (**as shipped in 0.12.0 —
-  reversed in 0.13.0, see the divergence note at the top; this list is the
-  historical record of the spike**); prototype-pollution rejection; identity
-  return on complete clean payloads.
-  **Measured (same shape/harness as Spike B): complete 91 ns/op, partial 73,
-  no-arg 134 — 3× faster than the careful hand-roll (276) and faster than the
-  INCORRECT shallow spread (107), while validating every member.** The cost
-  story inverts: the paved path beats both doing it right by hand and doing it
-  wrong. Deferred from Stage 1: the excess-key literal-call-site lint;
-  destructured-param dictionary defaults. Note: `!`-unsafe functions skip the
-  merge along with all validation (consistent with `!`). (No required-marker
-  grammar: OQ1 resolved as no-marker, §5.1.)
-- **Stage 2 — runtime integration. RESOLVED 2026-07-19 — subsumed by Stage 1,
-  with one finding.** The specialized codegen IS the runtime integration (no
-  separate walker phase to wire). The js-tests `__defaults` shallow
-  `Object.assign` turned out NOT to be a divergent copy of this merge: the
-  return-example default grammar (`{a: 1, b = 2}`) is **top-level-only by
-  construction** (`parseReturnExample` transforms `=` at depth 1 only), so the
-  shallow merge exactly matches what the grammar can express. Documented here;
-  extending return-example defaults to nesting is a separate feature nobody
-  has asked for.
-- **Stage 3 — dts DONE 2026-07-19; fixture generation deliberately dropped.**
-  `generateDTS` now emits **deep-partial** caller-facing types for
-  dictionary-default params (`args?: { pos?: { x?: number; y?: number } }`) —
-  `place({pos: {x: 5}})` is valid tjs and must be valid TS for callers. Gated
-  on the mode via `result.tjsModes` (now carried on the transpile result);
-  dialect-js output keeps required members (partials genuinely aren't valid
-  there). Arrays are not partialized (values, replaced wholesale). The §8
-  auto-generated fixture set (one-member-absent per member, etc.) is
-  **dropped, not deferred**: those fixtures re-test the LANGUAGE's merge —
-  covered once, centrally, by `dict-defaults.test.ts` — not the user's code.
-  The existing no-arg signature test already exercises user logic under full
-  defaults, which is the per-function value.
-- **Stage 4 — dogfood.** Convert tosijs-3d options-heavy entry points; delete
-  their hand-rolled merges; diff under existing suites.
+## Opting out: `LegacyDefault` and `!`
 
-Out of scope for v1: computed/thunked defaults, call-site default overrides,
-array merge strategies (rejected, not deferred).
+To keep JavaScript's all-or-nothing default for one parameter, wrap the literal in
+`LegacyDefault`. A function marked `!` (validation off) also keeps JavaScript's default,
+along with turning off every other check in that function:
+
+```tjs:inline
+function legacy(opts = LegacyDefault({ x: 0, y: 0 })) {
+  return JSON.stringify(opts)
+}
+
+function fast(! opts = { x: 0, y: 0 }) {
+  return JSON.stringify(opts)
+}
+
+console.log(legacy({ x: 5 }))     // {"x":5}: replaced, not merged
+console.log(fast({ x: 5 }))       // {"x":5}
+console.log(fast({ x: 'five' }))  // {"x":"five"}: nothing is checked
+```
+
+`LegacyDefault` is a named escape, like `LegacyDate` and `DangerousLegacyEquals` (see
+[TJS syntax](/TJS-SYNTAX/)): it marks one site, and it is easy to find in review.
+
+## Which files get dictionary defaults
+
+Dictionary defaults are a rule of native TJS. They are on in every `.tjs` file, and off
+wherever the same source must keep its JavaScript meaning:
+
+| Source                                         | Object-literal default        |
+| ---------------------------------------------- | ----------------------------- |
+| a `.tjs` file                                  | dictionary                    |
+| a `.js` file, or `tjs(src, { dialect: 'js' })` | JavaScript's atomic default   |
+| a file starting with `TjsCompat`               | JavaScript's atomic default   |
+| TypeScript converted with `fromTS`             | JavaScript's atomic default, written as `LegacyDefault({ … })` |
+| converted TypeScript marked `/* @tjs TjsStrict */` | dictionary                |
+
+Where the rule is off, the purity restriction is off too: `args = { at: Date.now() }` is
+legal JavaScript and stays legal. Converting TypeScript writes `LegacyDefault` explicitly,
+so a converted file keeps its behaviour when it later becomes native `.tjs`.
+
+This is the one place where the same characters mean something different in JavaScript and
+in TJS. That is allowed because choosing a `.tjs` file is the opt-in, as it is for `==`;
+see [Principles](/PRINCIPLES/).
+
+## What TypeScript callers see
+
+The generated `.d.ts` describes what a caller may pass, so a dictionary-default parameter
+is **deep-partial**: the parameter and every member are optional, recursively. Arrays are
+not made partial, since they are replaced whole.
+
+```tjs:static
+export function place(args = { pos: { x: 0, y: 0 }, label: '' }, tags = { list: [''] }) {
+  return args
+}
+```
+
+generates:
+
+```ts
+export declare function place(
+  args?: { pos?: { x?: number; y?: number }; label?: string },
+  tags?: { list?: string[] }
+): any
+```
+
+Inside the function every member is present, because the merge has filled them.
+
+## Implementation notes
+
+The transpiler emits merge-and-check code specialised to each signature, with the
+default's members inlined as fresh literals, so no shared template object exists to be
+corrupted. Three invariants hold, and `src/lang/dict-defaults.test.ts` tests them: the merge
+never writes into the caller's object; no result shares a mutable part with another call's
+result; a complete argument is returned by identity, with no allocation. Measured when it
+shipped, this was faster than a careful hand-written merge that checks nothing.
+
+The design history (the spikes, the benchmarks against hand-written merges, the staged
+rollout and the resolved open questions) is in this file's git history up to commit
+`47303274`.

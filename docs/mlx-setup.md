@@ -1,260 +1,285 @@
-<!--{"parent": "ajs.md", "order": 8}-->
+<!--{"parent": "ajs.md", "order": 6.5}-->
+<!-- TODO review -->
 
-# MLX as the local-AI harness
+# Local models with MLX
 
-tjs-lang's batteries talk to any **OpenAI-compatible** local server over HTTP, so the
-backend is a config choice, not a code change. Going forward the intended backend is
-**MLX** (Apple-silicon native, open source) rather than LM Studio (closed source) or
-llama.cpp.
+An AJS agent never talks to a model directly. It calls an atom (`llmPredict`,
+`llmPredictBattery`, `storeVectorize`), and the atom calls a capability the host passed to
+`vm.run`. This chapter sets up a local model server on Apple silicon so those capabilities have
+something real behind them.
 
-Point the batteries at your server with one env var:
+A local model is useful while you build a host or write agents: calls cost nothing, the prompts
+and data never leave your machine, and it works offline. It is also what tjs-lang's own live
+LLM tests run against.
 
-```bash
-export TJS_LLM_BASE_URL=http://localhost:10240/v1   # mlx-omni-server
-```
+The capabilities come from the **batteries** (`tjs-lang/batteries`, re-exported from
+`tjs-lang`): an optional module that supplies ready-made LLM, embedding and store capabilities
+(`getBatteries()`) plus the atoms that read them (`batteryAtoms`), so a host does not have to
+write its own. The batteries speak plain OpenAI-compatible HTTP to a local server, so which
+server is a configuration choice, not a code change. The intended local backend is **MLX**
+(Apple-silicon native, open source), served by `mlx-omni-server`. LM Studio works too and is
+covered in [LM Studio setup](lm-studio-setup.md); use it for vision models and on machines that
+are not Apple silicon.
 
-Nothing else is backend-specific: models are auto-discovered from `/v1/models`, and the
-audit classifies each into LLM / embedding / vision / structured-output capable.
-
-## Which MLX server
-
-| Server            | Endpoints                                             | Use it for                        |
-| ----------------- | ----------------------------------------------------- | --------------------------------- |
-| `mlx-omni-server` | chat, embeddings, **audio/speech (TTS)**, images, STT | the full harness (recommended)    |
-| `mlx_lm.server`   | chat, (limited) completions                           | text-only, minimal                |
-
-`mlx-omni-server` is the better fit because it covers the harness's whole surface —
-including the TTS endpoint the narrative/voice work (ariosto) needs — behind the same
-OpenAI-compatible API the batteries already speak.
-
-## Vision on mlx-omni-server: possible in principle, blocked in practice (v0.5.3, 2026-08-02)
-
-> **Filed upstream** (gates 1 and 2 below): [mlx-omni-server#128](https://github.com/madroidmaq/mlx-omni-server/issues/128)
-> (schema rejects the standard `image_url` block) and
-> [#129](https://github.com/madroidmaq/mlx-omni-server/issues/129) (`MLX_VLM_ONLY_MODELS` gates
-> vision to one architecture). Gate 3 is model-side, not a server bug. Tracked in `UPSTREAM.md`.
-
-Investigated properly, because the first answer ("the server can't do vision") was wrong and
-the real picture is more useful. Three separate gates, in order:
-
-**1. The request schema.** `/v1/chat/completions` types `content` as
-`string | Array<{[k: string]: string}> | null`. The array form therefore accepts
-`{type:'text', text:'…'}` — all values are strings — but **rejects the standard OpenAI
-image block** `{type:'image_url', image_url:{url:'…'}}`, because `image_url` is a nested
-object. Pydantic refuses it before any model is consulted:
-
-```
-"Input should be a valid string" … loc: ["body","messages",0,"content","str"]
-```
-
-A **flattened** `{type:'image_url', image_url:'<data-uri>'}` does satisfy the schema and gets
-through to the handler. So our batteries would need a non-standard request shape.
-
-**2. Architecture routing.** The server sends a model to `mlx_vlm` only if it matches:
-
-```python
-MLX_VLM_ONLY_MODELS = {"gemma4"}      # chat/mlx/model_types.py
-```
-
-**One architecture.** Everything else falls through to `mlx_lm`, which has no vision
-support, and fails with `Model type <arch> not supported` — verified with
-`SmolVLM-Instruct-bf16` (`idefics3`), which mlx_vlm itself supports perfectly well. So the
-choice of VLM is not free: it must be gemma4.
-
-**3. Weight compatibility.** `mlx-community/gemma-4-e2b-it-4bit` routes correctly to
-`mlx_vlm` and then fails loading:
-
-```
-Received 2 parameters not in model:
-  language_model.model.per_layer_model_projection.biases, …scales
-```
-
-— a build/mlx_vlm-version skew, not a routing problem. Another gemma4 build may work; each
-attempt is a multi-gigabyte download, so it is not worth doing speculatively.
-
-**Practical answer:** run the vision lane against LM Studio, which speaks the standard
-OpenAI multimodal format. Chat, embeddings and the full `bun test` gate all work on MLX. The
-vision examples self-skip, which is expected rather than a failure.
-
-### Tried and failed, 2026-08-03 — three servers, three different breakages
-
-Recorded so nobody repeats it. **Every attempt failed for a DIFFERENT reason**, which is
-the useful signal: MLX vision on this stack is currently a moving target of version skew,
-not one fixable bug.
-
-| attempt | failure |
-| --- | --- |
-| `mlx-omni-server` + SmolVLM (`idefics3`) | `Model type idefics3 not supported` — routed to `mlx_lm`, because only `gemma4` reaches `mlx_vlm` |
-| `mlx-omni-server` + `gemma-4-e2b-it-4bit` | routed correctly, then `Received 2 parameters not in model: …per_layer_model_projection.biases/scales` — build/mlx_vlm skew |
-| `mlx-openai-server --model-type multimodal` + SmolVLM | server starts and lists the model, then `BatchGenerator.__init__() got an unexpected keyword argument 'kv_bits'` — the server's own dependency skew |
-| `mlx-openai-server` + `gemma-4-e2b-it-4bit` | **identical** weight error to omni — so that failure is model-side, not server-side |
-
-A fourth attempt closed the matrix: **gemma-4-e2b-it-4bit on `mlx-openai-server`** failed
-with the *identical* `per_layer_model_projection.biases/scales` error it produced on omni.
-Reproducing byte-for-byte on two independent servers proves that one is **model-side, not
-server-side** — the 4-bit build's weights do not match what mlx_vlm 0.4.4 expects.
-
-That is a useful narrowing, because the two failing parameter names are **quantization
-artifacts** (`.scales`, `.biases`). An **unquantized** gemma-4 build (bf16) has neither, so
-it is the obvious next thing to try — and the only attempt worth another download.
-
-Worth noting `mlx-openai-server` got furthest overall: it accepts the **standard** OpenAI
-image block (no flattening needed) and its `/v1/models` actually lists the model, unlike
-omni. Its `kv_bits` skew is the other thing to watch upstream — filed as
-[mlx-openai-server#320](https://github.com/cubist38/mlx-openai-server/issues/320).
-
-**Cost so far:** ~6.6GB of model downloads, none usable. Do not retry speculatively.
-
-**Current answer: use LM Studio for the vision lane.** Chat, embeddings and the full
-`bun test` gate all work on MLX today.
-
-### The likely right answer: run `mlx_vlm.server` for the vision lane
-
-`mlx-vlm` and `mlx-omni-server` are **different things**, and advice about one does not
-transfer. mlx-vlm ships its own OpenAI-compatible server (`python -m mlx_vlm.server`) whose
-whole purpose is VLMs — no `MLX_VLM_ONLY_MODELS` gate, so `Qwen2-VL`, `gemma-3n` and the
-rest work there. mlx-omni-server is a multi-modality *aggregator* that happens to bundle
-mlx_vlm and only routes `gemma4` to it.
-
-So the cheap path is two servers: mlx-omni-server for chat/embeddings, `mlx_vlm.server` on
-another port for vision, with `TJS_VISION_MODEL` pointed at the second. Untested here —
-recorded because it is the first thing to try, not because it is known to work.
-
-**Whichever route**, `src/batteries/llm.ts` may still need the flattened image shape; check
-the target server's schema before assuming the standard OpenAI block is accepted.
+The batteries send no API key (no `Authorization` header), so they cannot talk to a hosted API
+that needs one. To use a hosted model, pass your own `llmBattery` or `llm` capability object to
+`vm.run` instead; the atoms only care that it has the methods they call (see
+[The core `llmPredict` atom](#the-core-llmpredict-atom) for the shape).
 
 ## Setup
 
-Verified end-to-end on macOS 26.5 / Apple silicon, 2026-07-30.
+Use `mlx-omni-server`: the batteries need both chat and embeddings, and it serves both behind
+one OpenAI-compatible API on one port (10240 by default). Verified on macOS 26.5, Apple silicon.
+
+Run the server in one terminal and leave it running; it stays in the foreground.
 
 ```bash
-# 1. install. Use uv — it manages its own Python; the system python3 here is
-#    Xcode's 3.9, too old for MLX, and shouldn't be polluted anyway.
+# 1. Install. uv manages its own Python, so the system python3 (often Xcode's 3.9,
+#    too old for MLX) is neither used nor modified.
 brew install uv
-uv tool install mlx-omni-server      # binary lands in ~/.local/bin
+uv tool install mlx-omni-server
 
-# 2. PRE-DOWNLOAD the models you want (see "on-demand loading" below — the server
-#    will NOT fetch them for you). Small, capable, non-Meta defaults:
-hf download mlx-community/Qwen2.5-1.5B-Instruct-4bit   # chat  (~840MB)
-hf download mlx-community/bge-small-en-v1.5-bf16       # embed (~65MB)
+# 2. Put the server and its `hf` download tool on the PATH. uv installs the server
+#    binary in ~/.local/bin, and `hf` only inside the tool's own environment.
+export PATH="$HOME/.local/share/uv/tools/mlx-omni-server/bin:$HOME/.local/bin:$PATH"
 
-# 3. run the server (default port 10240)
+# 3. Download the models first. The server will not fetch them (see gotcha 2).
+hf download mlx-community/Qwen2.5-1.5B-Instruct-4bit   # chat,  ~840MB
+hf download mlx-community/bge-small-en-v1.5-bf16       # embed, ~65MB
+
+# 4. Run the server.
 mlx-omni-server --port 10240
+```
 
-# 4. point tjs-lang at it, naming the models
+Then, in a second terminal (the one that will run your host), point the batteries at the
+server and name both models:
+
+```bash
 export TJS_LLM_BASE_URL=http://localhost:10240/v1
 export TJS_LLM_MODEL=mlx-community/Qwen2.5-1.5B-Instruct-4bit
 export TJS_EMBEDDING_MODEL=mlx-community/bge-small-en-v1.5-bf16
-
-# 5. verify
-bun run test:llm                     # live smoke: audit + predict + embed
 ```
 
-### Two gotchas that will bite you (both cost real time here)
+The two models above are small enough to run on any Apple-silicon laptop. Any MLX chat or
+embedding model from the `mlx-community` organisation on Hugging Face can replace them; the
+model id you export is the Hugging Face repo id you downloaded.
 
-**1. `/v1/models` returns an empty list — you must name your models.** (Filed upstream:
-[mlx-omni-server#130](https://github.com/madroidmaq/mlx-omni-server/issues/130).) LM Studio lists
-the models it has loaded, so the batteries could *discover* and classify them. mlx-omni-server
-loads a model on demand from the id in each request, so it has nothing to enumerate and
-returns `{"data": []}` — discovery finds nothing and every call fails with "No LLM available"
-even though the server works perfectly. Hence `TJS_LLM_MODEL` / `TJS_EMBEDDING_MODEL`: name
-them and the audit is skipped (a capability probe would load a whole model just to ask about
-it). A declared model is trusted, not probed — so its embedding `dimension` is unknown until
-first use, which is expected, not a failure.
+Check the server from the second terminal before involving tjs-lang:
 
-**2. The server does not download models; it serves what's cached.** It passes
-`local_files_only=True` to HuggingFace, so an unknown model id fails with a confusing
-"outgoing traffic has been disabled" (even with a working connection). Pre-download with
-`hf download <id>` — the `hf` CLI ships inside the uv tool env
-(`~/.local/share/uv/tools/mlx-omni-server/bin`).
-
-**A third, environment-specific one:** if `pyenv` is on the PATH with no usable `python`
-shim, the server dies at startup with `Failed to inspect Python interpreter … pyenv: python:
-command not found`. Put a real Python first on the PATH (the tool's own env works:
-`export PATH="$HOME/.local/share/uv/tools/mlx-omni-server/bin:$PATH"`).
-
-## How this maps onto the three test lanes
-
-The [three-lane discipline](../CLAUDE.md) is unchanged by the backend switch — that's the
-point of having it:
-
-1. **Deterministic plumbing** (`llm-transport.test.ts`, always runs) — the HTTP client is
-   tested against an in-process fixture server. **No backend required**, so a laptop with
-   no MLX installed still runs the whole fast suite.
-2. **Live smoke** (`models.integration.test.ts`, gated by `SKIP_LLM_TESTS`) — the
-   irreducible "our client still works against a real server". Now satisfied by MLX.
-3. **AJS grokkability** (`bun run test:grok`, advisory) — needs a small pinned model;
-   set `GROK_MODEL` to an MLX model id.
-
-## TTS / voice: spike findings (2026-07-30)
-
-For the narrative/voice use-case (ariosto: "specific voices with acting directions"), the
-server's `/v1/audio/speech` is backed by `mlx_audio`, which ships ~40 TTS families. Two things
-make it workable as a harness target:
-
-- **The request schema is `extra = "allow"`** and forwards unknown fields straight to
-  `mlx_audio`'s `generate_audio(**extra)`. So model-specific params (`exaggeration`,
-  `instruct`, …) pass through the standard OpenAI-shaped endpoint. That's the escape hatch a
-  `speak()` capability needs — no forked endpoint required.
-- Models are **pre-downloaded, not fetched on demand** (same as chat — see gotcha 2 above).
-
-### Chatterbox: good voice cloning, but the emotion control is intensity, not emotion
-
-**Verified working** (`mlx-community/chatterbox-fp16`, MIT) — 24kHz WAV, ~1.5–2.6s per short
-line. Caveat: Chatterbox is a **pure voice-cloning model with no built-in voices**; the
-`Chatterbox-TTS-*` repos omit `conds.safetensors` and fail outright with "No conditionals
-available". Use `chatterbox-fp16` (ships default conditionals) or supply `audio_prompt`.
-
-Its only emotion control is an `exaggeration` scalar (0–~1.5, saturates above that).
-**Measured across six presets** (sad/happy/nervous/hesitant/sly/angry, same line, mapped to
-exaggeration+cfg_weight), acoustic analysis says the scalar does **not** encode emotion:
-
-| preset   | dur   | loudness | pitch  |
-| -------- | ----- | -------- | ------ |
-| sly      | 2.00s | 0.095    | 131 Hz |
-| sad      | 2.12s | 0.088    | 121 Hz |
-| hesitant | 2.12s | 0.091    | 133 Hz |
-| nervous  | 2.16s | 0.089    | 163 Hz |
-| happy    | 2.88s | 0.083    | 138 Hz |
-| angry    | 3.96s | 0.098    | 144 Hz |
-
-Loudness is flat (±15%) and pitch nearly so; **duration is the only thing that really moves**.
-In normalized feature distance the closest pairs are sad↔hesitant (1.59) and sly↔hesitant
-(1.75) — and damningly, **sad↔happy (2.25) is barely more distinct than sad↔hesitant**. A single
-intensity scalar cannot encode *valence*, so "sad" and "happy" are not separable this way.
-
-**Conclusion:** parameter-mapping a direction onto `exaggeration` is a dead end. With
-Chatterbox, distinct emotions must come from **reference audio** — a voice bank per character
-per emotion (`narrator-sad.wav`, `narrator-sly.wav`), with `exaggeration` as an intensity trim.
-
-### The better fit: models that take a text instruction
-
-`mlx_audio` includes families with a natural-language style/instruction interface —
-`qwen3_tts`, `moss_tts`, `higgs_audio_v3`, `omnivoice`, `voxcpm2`, `zonos2`, `bailingmm`,
-`irodori_tts`, `tada`. Most promising: **`qwen3_tts`** (Alibaba), whose API is exactly the
-shape the use-case wants:
-
-```python
-generate(text, voice=..., instruct="Instruction text for voice style",
-         ref_audio=..., speed=..., ...)
+```bash
+curl -s http://localhost:10240/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mlx-community/Qwen2.5-1.5B-Instruct-4bit",
+       "messages":[{"role":"user","content":"Say hi"}],"max_tokens":10}'
 ```
 
-That is a real acting-direction interface (direction as *text*), plus `voice` and `ref_audio`
-cloning. **Not yet auditioned** — quality/direction-following is unverified and needs ears.
+A JSON reply with `choices[0].message.content` means the server and the model work. The first
+request for a model loads it, so it can take several seconds.
 
-**Open question for the `speak()` API:** if an instruct-model follows directions well, the
-capability is `speak(text, {voice, direction})` passed straight through. If not, it falls back
-to the voice-bank design, and the LLM's job becomes *selecting a clip + intensity* rather than
-writing a direction string. Audition before designing.
+### The environment variables
 
-## Status
+The batteries read the first three once, when `tjs-lang/batteries` is first imported, so set
+them before the host process starts.
 
-**Use-case 1 (agent-flow testing) works on MLX today** — the live smoke (audit + predict +
-embed) is green against `mlx-omni-server` with no LM Studio involved. Backend-agnostic config
-plus explicit model naming landed (`src/batteries/config.ts`).
+| Variable              | Default                    | Meaning                                                  |
+| --------------------- | -------------------------- | -------------------------------------------------------- |
+| `TJS_LLM_BASE_URL`    | `http://localhost:1234/v1` | the server's `/v1` URL (the default is LM Studio's port) |
+| `TJS_LLM_MODEL`       | none                       | chat model id                                            |
+| `TJS_EMBEDDING_MODEL` | none                       | embedding model id                                       |
+| `TJS_CACHE_DIR`       | OS cache directory         | where the model-audit cache is written                   |
 
-Still ahead for the broader "shared LLM harness" direction: a `speak()` capability for TTS
-with voice + acting directions (ariosto — `mlx-omni-server` exposes `/v1/audio/speech`, and
-its install pulled `vocos-mlx`, so the plumbing is there; the open question is which model
-actually follows *acting directions*), offline/self-hosted coding, and the cross-project
-consumption shape. See `TODO.md`.
+At startup the batteries run a **model audit**: they ask the server's `/v1/models` which models
+it has, probe each one, and pick a chat model and an embedding model. The result is cached on
+disk for 24 hours. When **both** `TJS_LLM_MODEL` and `TJS_EMBEDDING_MODEL` are set, the
+batteries use them as given and skip the audit. When only one is set, they audit and add the
+named one to whatever the audit found.
+
+On `mlx-omni-server` the audit finds nothing (gotcha 1), so **set both**. With only one set, the
+other kind of call fails: with only `TJS_LLM_MODEL`, every embed fails with
+`No embedding model available.`; with only `TJS_EMBEDDING_MODEL`, every chat call fails with
+`No LLM available.`
+
+`TJS_VISION_MODEL` also exists, but `getBatteries()` does not read it; only the vision tests
+and the playground do, and vision does not work on MLX today (see the last section).
+
+## Two gotchas
+
+**1. `/v1/models` returns an empty list, so you must name your models.**
+
+_Symptom:_ the server answers the `curl` check, but every chat call from an agent fails with
+`No LLM available.` and every embed with `No embedding model available.` At startup the console
+shows three warnings: `⚠️ No embedding model found.`, `⚠️ No LLM found.` and
+`⚠️ No LLM with structured output support found.`, each followed by
+`(set TJS_LLM_MODEL / TJS_EMBEDDING_MODEL if your server does not list models)`.
+
+_Cause:_ LM Studio lists the models it has loaded, which is what the audit reads.
+`mlx-omni-server` loads a model on demand from the id in each request, so it has nothing to
+list and returns `{"object":"list","data":[]}`. Filed upstream as
+[mlx-omni-server#130](https://github.com/madroidmaq/mlx-omni-server/issues/130).
+
+_Fix:_ set both `TJS_LLM_MODEL` and `TJS_EMBEDDING_MODEL`, then restart the host.
+
+The same `No LLM available.` appears when no server is listening at `TJS_LLM_BASE_URL` at all,
+because the audit finds no models there either (the console then also shows
+`❌ Failed to connect to the local LLM server`). With both models named there is no audit, so a
+missing server shows up at the first call instead, as
+`No local LLM server reachable at http://localhost:10240/v1. Start your backend (MLX: mlx-omni-server, or LM Studio) or set TJS_LLM_BASE_URL.`
+Either way, run the `curl` check above first.
+
+**2. The server does not download models; it serves what is cached.** It loads models with
+Hugging Face's `local_files_only=True`, so a model id you have not downloaded fails with
+"outgoing traffic has been disabled", even on a working connection. Download it with
+`hf download <id>` (setup step 3; `hf` is on the `PATH` only after step 2).
+
+One environment-specific failure: if `pyenv` is on your `PATH` without a usable `python` shim,
+the server dies at startup with `Failed to inspect Python interpreter … pyenv: python: command
+not found`. Put a real Python first on the `PATH`. The `export` in setup step 2 does this, since
+the tool's own environment comes first.
+
+## Wiring it into a VM
+
+None of the code in this section runs on this site: it needs a model server on your machine.
+
+`getBatteries()` (from `tjs-lang`) runs the audit, or takes the named models, and returns the
+capabilities the battery atoms read. The audit runs once per process: later calls return the
+same capabilities without asking the server again, so restart the host after you change the
+environment variables or start the server.
+
+| Capability key | Read by                                                                 | Contains                    |
+| -------------- | ----------------------------------------------------------------------- | --------------------------- |
+| `llmBattery`   | `llmPredictBattery`, `llmVision`                                        | `predict` and `embed`       |
+| `vector`       | `storeVectorize`                                                        | `embed` only                |
+| `store`        | `storeCreateCollection`, `storeVectorAdd`, `storeSearch`, `storeGet`, `storeSet` | a key-value and vector store |
+
+The store is held in memory and is not persisted: its contents are gone when the host process
+exits. It has nothing to do with the model server; `getBatteries()` returns it whatever server
+you use.
+
+`llmBattery` and `vector` are present even when no model was found. Each call then fails at
+run time with the errors in gotcha 1. They are missing (`null` and `undefined`) only when local
+endpoints are disabled, on an HTTPS page (see [Browser hosts](#browser-hosts)); a battery atom
+then fails with `Capability 'llmBattery' missing or invalid.`, or for `storeVectorize`,
+`Capability 'vector' missing. Ensure vector battery is loaded.`
+
+All of these failures are ordinary atom errors. Without a `try`, the run ends with the message
+in `run.error`. With one, the agent catches it: in AJS the caught value is the message string.
+
+The battery atoms are not in the core VM; register them with `new AgentVM(batteryAtoms)`. This
+host runs an agent that asks the chat model a question, then embeds the answer.
+`llmPredictBattery` returns an OpenAI-style chat message, so the text is in `.content`:
+
+```javascript
+import { AgentVM, batteryAtoms, getBatteries, transpile } from 'tjs-lang'
+
+// The agent, as AJS source text.
+const source = `
+function askAndEmbed({ question = 'What is a sandbox, in one sentence?' }) {
+  let reply = llmPredictBattery({
+    system: 'Answer in one short sentence.',
+    user: question,
+  })
+  let vector = storeVectorize({ text: reply.content })
+  return { answer: reply.content, dimensions: vector.length }
+}
+`
+
+const vm = new AgentVM(batteryAtoms)
+const batteries = await getBatteries()
+const { ast } = transpile(source, { atoms: vm.atoms })
+const run = await vm.run(ast, {}, { fuel: 500, capabilities: batteries })
+console.log(run.error ? run.error.message : run.result)
+// { answer: 'A sandbox is …', dimensions: 384 }
+```
+
+`bge-small-en-v1.5` produces 384-dimensional vectors; the answer text varies from run to run.
+
+Passing `{ atoms: vm.atoms }` lets the transpiler check calls to atoms that are not in the core
+set against their declared inputs. Without it, `storeVectorize({ txt: reply.content })`
+transpiles cleanly and fails only at run time, with
+`'storeVectorize': its input does not have the shape the atom declares`. With it, the
+transpiler refuses the source and names the fix:
+`'storeVectorize' has no input 'txt'. It takes storeVectorize({ text, model }).`
+
+**Fuel and time.** Fuel counts work, not waiting: `llmPredictBattery` costs 100 fuel and
+`storeVectorize` 20, however long the model takes, so 500 leaves room for the rest of the
+agent. Time is limited separately. Each model call has its own timeout (120 seconds for
+`llmPredictBattery`, `llmPredict` and `llmVision`; 60 seconds for `storeVectorize`), and a run
+with no `timeoutMs` gets twice the slowest registered atom's timeout, 240 seconds here. That is
+enough for the first call, which loads the model. Pass a `timeoutMs` only to lower that limit,
+and leave room for the model load if you do.
+
+### The core `llmPredict` atom
+
+There are two LLM atoms because they read different capabilities. `llmPredictBattery` reads
+`llmBattery`, takes `{ system, user }` and returns the whole chat message. The core atom
+`llmPredict({ prompt })` reads `llm`, a capability any host can supply, and returns a string.
+Use `llmPredictBattery` with the batteries; use `llmPredict` when the agent must run on hosts
+that supply only `llm`.
+
+`llm.predict(prompt, options)` must return a **string**. `getBatteries()` does not supply
+`llm`, so adapt the battery in the host. The battery's own method is
+`llmBattery.predict(system, user)`: a system prompt and the user text, returning the chat
+message.
+
+```javascript
+const { llmBattery, ...rest } = await getBatteries()
+const llm = llmBattery && {
+  async predict(prompt) {
+    const message = await llmBattery.predict('You are a concise assistant.', prompt)
+    return message.content ?? ''
+  },
+}
+
+const { ast } = transpile(`
+function summarize({ text = 'AJS agents run in a fuel-metered sandbox.' }) {
+  let summary = llmPredict({ prompt: 'Summarize in five words: ' + text })
+  return { summary }
+}
+`)
+const run = await vm.run(ast, {}, {
+  fuel: 500,
+  capabilities: { ...rest, llmBattery, llm },
+})
+```
+
+The agent gets the model's text back as a string. An adapter that returns the whole message
+object instead fails the atom's output check (`Output validation failed for 'llmPredict'`).
+
+### Browser hosts
+
+A host running in a web page cannot use `getBatteries()` with `mlx-omni-server` as it stands.
+Environment variables are not readable in a browser, so the batteries use the default base URL
+(LM Studio's port, 1234) and cannot name models, and this server lists none. On an HTTPS page
+the batteries also skip local endpoints entirely, because the browser would block an HTTPS page
+calling a plain-HTTP server. For a browser host, use LM Studio as described in
+[LM Studio setup](lm-studio-setup.md#browser-hosts), or pass your own capability object. Either
+way, a page calling `localhost:10240` needs CORS, which `mlx-omni-server` has off by default:
+start it with `--cors-allow-origins="*"` (or the page's origin).
+
+## Running the live LLM tests
+
+This section is for contributors working in the tjs-lang repository; the published package has
+no test scripts.
+
+```bash
+bun run test:llm      # live smoke: audit (or named models), one predict, one embed
+```
+
+This is the "our client still works against a real server" test. The HTTP client itself is
+tested without any server (`src/batteries/llm-transport.test.ts`, an in-process fixture), so
+`bun run test:fast` needs no MLX install.
+
+`bun run test:grok` (which measures how often a small model writes valid AJS, and never fails
+the build) can also target this server. Set `GROK_MODEL` and `TJS_LLM_MODEL` to the same MLX
+model id: the test runs only if its model is in the batteries' model list, which on this server
+holds only the named models. The default, `google/gemma-4-e2b`, is an LM Studio id.
+
+## Vision: use LM Studio for now
+
+No MLX vision model has worked with these batteries yet. `mlx-omni-server` rejects the standard
+OpenAI `image_url` content block
+([mlx-omni-server#128](https://github.com/madroidmaq/mlx-omni-server/issues/128)) and routes only
+the `gemma4` architecture to its vision backend
+([#129](https://github.com/madroidmaq/mlx-omni-server/issues/129)). The one gemma-4 build tried,
+`mlx-community/gemma-4-e2b-it-4bit`, failed to load its weights on both `mlx-omni-server` and
+`mlx-openai-server`. Run `llmVision` against LM Studio.

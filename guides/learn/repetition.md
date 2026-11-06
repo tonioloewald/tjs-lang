@@ -1,4 +1,5 @@
 <!--{"parent": "learn-to-program.md", "order": 6}-->
+<!-- TODO review -->
 
 # Repetition
 
@@ -6,7 +7,6 @@ Computers are good at doing the same thing many times without getting bored or m
 mistake on the four-hundredth try. A **loop** runs a block of code again and again. This
 chapter counts, adds up, builds tables and draws rows of boxes, each with a few lines of loop.
 
-<!-- TODO review -->
 
 Here is the problem. To put the numbers 1 to 5 on the page, you could write five lines:
 `preview.append('1 ')`, `preview.append('2 ')`, and so on. To put 1 to 1,000 on the page you
@@ -28,17 +28,15 @@ A `for` loop has three parts in its parentheses, separated by semicolons:
 2. `i <= 5` is checked before each round: while it is true, the block runs again.
 3. `i++` runs after each round: it adds one to `i`. (`i++` is short for `i = i + 1`.)
 
-So the block runs with `i` set to 1, 2, 3, 4 and 5, and then `i <= 5` is false and the loop
-stops. Change the 5 to 20, or start `i` at 10.
+So the block runs with `i` set to 1, 2, 3, 4 and 5. After the fifth round `i++` makes `i` 6,
+`i <= 5` is false, and the loop stops. Change the 5 to 20, or start `i` at 10.
 
-<!-- TODO review -->
 
-`i` is just a name, like any other; programmers use `i` for a counter out of long habit. It is
-a `let`, not a `const`, because it changes every round. Try changing `let` to `const` in the
-loop: the first round runs, then the loop stops with an error, because `i++` tries to change a
-constant.
+`i` is a name like any other; programmers use `i` for a counter out of long habit. It is a
+`let`, not a `const`, because it changes every round. Try changing `let` to `const` in the
+loop: the first round runs and shows `1`, then the loop stops with an error the first time
+`i++` tries to change a constant.
 
-<!-- TODO review -->
 
 ## Counting other ways
 
@@ -65,8 +63,9 @@ test 'counting by twos, and counting down' {
 }
 ```
 
-`i--` is the opposite of `i++`: it takes one away. Each loop builds a string a piece at a time,
-in a `let` that starts empty (`''`) and grows each round.
+`i += 2` adds 2 to `i`, the shorthand you met in Values and Names. `i--` is the opposite of
+`i++`: it takes one away. Each loop builds a string a piece at a time, in a `let` that starts
+empty (`''`) and grows each round.
 
 ## Off by one
 
@@ -75,6 +74,34 @@ one time too few, because the condition is `<` where it should be `<=`, or the c
 at 0 where it should start at 1. In the countdown above, change `i >= 1` to `i > 1`. The test
 fails, and its message shows the string it got: the `1...` is missing. One character, one
 round.
+
+The two usual ways of counting five rounds look different, and mixing them up is how the
+mistake happens:
+
+```tjs:inline {"view": "code"}
+let fromZero = 0
+for (let i = 0; i < 5; i++) {
+  fromZero += 1
+}
+
+let fromZeroAtMost = 0
+for (let i = 0; i <= 5; i++) {
+  fromZeroAtMost += 1
+}
+
+preview.append(
+  `0 while i < 5: ${fromZero} rounds. 0 while i <= 5: ${fromZeroAtMost} rounds.`
+)
+
+test 'counting the rounds' {
+  expect(fromZero).toBe(5)
+  expect(fromZeroAtMost).toBe(6)
+}
+```
+
+Start at 1 and use `<=`, or start at 0 and use `<`: both run five times. Start at 0 and use
+`<=`, and you get six, because 0, 1, 2, 3, 4 and 5 are six numbers. Counting from 0 looks
+odd now, but lists number their items from 0, so you will see the second form again in Lists.
 
 You cannot always see an off-by-one mistake by looking at the output; with a thousand numbers,
 who notices that the last one is missing? That is why a loop's tests should check its first
@@ -105,7 +132,6 @@ test 'adding up' {
 `sumTo(0)` is 0 because the loop never runs at all: `1 <= 0` is false from the start. A loop
 that may run zero times is normal, and worth a test.
 
-<!-- TODO review -->
 
 Why must `total` be made **outside** the loop? Move the line `let total = 0` inside the loop,
 as its first line, and the example stops with an error: `total` is not defined where the
@@ -142,9 +168,11 @@ test 'the seven times table' {
 }
 ```
 
-`\n` inside a string means "start a new line", and `pre` shows text with its line breaks kept.
+`\n` inside a string means "start a new line", and `pre` shows text with its line breaks kept;
+an ordinary paragraph would run all ten lines together. The test asks two questions of the
+string: `startsWith` checks how it begins, and `includes` checks that the last line is in it
+somewhere.
 
-<!-- TODO review -->
 
 ## Loops inside loops
 
@@ -204,6 +232,11 @@ for (let i = 1; i <= 6; i++) {
 }
 ```
 
+A `div` is a plain box. The part in curly braces gives it settings, each a name, a colon and
+a value: here its `style`, which says how big it is, how much space to leave around it, and
+what colour to fill it. (Things with Parts explains the curly braces properly.) Each round
+makes one box, `i * 10` pixels across, so the first is 10 and the sixth is 60.
+
 Try changing `teal` to `orange`, `6` to `12`, or `i * 10` to `i * i`.
 
 ## `while`: until something changes
@@ -231,10 +264,9 @@ test 'halving' {
 
 Every `while` needs something inside it that eventually makes its condition false; here,
 `n` keeps shrinking. A loop whose condition can never become false runs forever, and the page
-stops responding until you reload it. If that happens, it is not your computer: check what
-your loop changes each round.
+stops responding until you reload it. If that happens, nothing is broken: check what your
+loop changes each round.
 
-<!-- TODO review -->
 
 ## Stopping early with `break`
 
@@ -275,7 +307,6 @@ by `of` (remember `%` from Decisions). Test that `countMultiples(10, 3)` is 3 (3
 Then show the classic: for 1 to 15, show `'fizz'` for multiples of 3, `'buzz'` for multiples
 of 5, `'fizzbuzz'` for both, and the number otherwise.
 
-<!-- TODO review -->
 
 Then:
 

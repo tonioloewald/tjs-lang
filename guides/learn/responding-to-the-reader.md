@@ -1,4 +1,5 @@
 <!--{"parent": "learn-to-program.md", "order": 9}-->
+<!-- TODO review -->
 
 # Responding to the Reader
 
@@ -6,7 +7,6 @@ Until now your programs have run once and stopped. An interactive program waits:
 something, and when the reader clicks or types, it changes. This chapter adds buttons, and a
 way of keeping the page in step with your program that needs almost no code.
 
-<!-- TODO review -->
 Every app you have used works this way. A to-do list waits for you to type, a game waits for
 you to press a key, a shop waits for you to click "add to basket". The program sets things up,
 then hands control to the reader, and runs a little piece of code each time they do something.
@@ -29,13 +29,11 @@ preview.append(
 The function runs on each click, not once when the program starts: that is what makes a page
 interactive.
 
-<!-- TODO review -->
 The `{ onClick: … }` in front of the label is an object (see Things with Parts) of settings
 for the button. `() => preview.append(' 👋')` is a function with no parameters, written with
 an arrow as in Lists. It is not called here: it is handed to the button, which calls it
 later, once per click.
 
-<!-- TODO review -->
 ### A common mistake: calling the handler too early
 
 What happens if you write the handler without the `() =>`?
@@ -83,7 +81,6 @@ Notice what the buttons do *not* do: they never touch the span. They change the 
 everything showing it updates. Add a second `span(counter.count)` anywhere and it keeps up
 too.
 
-<!-- TODO review -->
 Why is this better than changing the span directly? Because as a program grows, the same fact
 turns up in many places: a score in the corner, in the title, on the "game over" screen. If
 every button had to remember every place the score is shown, sooner or later one would be
@@ -114,7 +111,6 @@ preview.append(
 The row of buttons is made with `map`, from a list of amounts, the way the planets were in
 Lists. Add `100` to the list and a new button appears.
 
-<!-- TODO review -->
 ## Typing
 
 Buttons are one way to respond; text boxes are the other. An `input` element makes a box the
@@ -138,12 +134,12 @@ Type in the box. The heading changes with every key, and you did not write an ev
 `bindValue` is a two-way link. The box shows the model, and typing in the box changes the
 model, which changes the heading.
 
-<!-- TODO review -->
 ## Numbers from a text box
 
-Everything typed into a box arrives as **text**, even when it looks like a number. That
-catches everyone. So before building a temperature converter, write the rule that turns what
-the reader typed into an answer, and test it on its own:
+Everything typed into a box arrives as **text**, even when it looks like a number: the
+reader types `37`, and the program receives the string `'37'`. Values and Names showed what
+goes wrong when text is treated as a number. So before building a temperature converter,
+write the rule that turns what the reader typed into an answer, and test it on its own:
 
 ```tjs:inline {"view": "code"}
 function fahrenheit(celsius: 100.0): 212.0 {
@@ -173,9 +169,9 @@ example fails at once, because `convert('100')` no longer gives 212. It gives an
 `fahrenheit`, saying it expected a number and got a string. The mistake is caught where it
 was made.
 
-(In plain JavaScript the same slip is much harder to spot. Some arithmetic quietly turns text
-into a number and some does not: `'100' * 9` is 900, but `'100' + 32` is the text `'10032'`.
-A formula can work for months and then give nonsense when someone rearranges it.)
+(In plain JavaScript the slip is harder to spot: `*` quietly turns text into a number, so
+`'100' * 9` is 900, while `+` joins, so `'100' + 32` is `'10032'`. A formula can work for months
+and then give nonsense when someone rearranges it.)
 
 Now the converter itself. When the reader types, an `onInput` handler reads the box, converts
 it, and puts the answer into the model:
@@ -211,12 +207,11 @@ preview.append(
 `onInput` runs on every change to the box. `event` describes what happened, and
 `event.target` is the box itself, so `event.target.value` is the text in it.
 
-Type `abc` into the box and you meet the other kind of bad input: `Number('abc')` is `NaN`
-("not a number"), and NaN goes through the arithmetic and comes out as NaN. Deciding what to
+Type `abc` into the box and you meet the other kind of bad input: `Number('abc')` is `NaN`,
+and NaN goes through the arithmetic and comes out as NaN, so the page shows `NaN °F`. Deciding what to
 show for input that makes no sense is part of writing an interactive program. Decisions has
 the tools; one of the exercises below asks you to use them.
 
-<!-- TODO review -->
 ## Keep the rules out of the buttons
 
 Look at how the converter was built: the handler is one short line that calls `convert`, and
@@ -250,7 +245,8 @@ test 'the lights go round' {
 ```
 
 `nextLight` is the whole rule, and its signature example and test check every step of the
-cycle. The button only asks for the next colour and stores it:
+cycle. The button only asks for the next colour and stores it. `light.colour` is a part of the
+model, and you can hand it to a function like any other value: `nextLight` sees `'red'`.
 
 ```tjs:inline {"view": "code"}
 import { elements, tosi } from 'tosijs'
@@ -284,7 +280,6 @@ Make a model with a `score`. Give it buttons for **+1**, **-1** and **double**, 
 score on the page. Then add a line that shows `'You win!'` when the score reaches 100.
 (Hint: a second, computed part of the model, set alongside the score.)
 
-<!-- TODO review -->
 More to try:
 
 - Make the converter go the other way too: a second box for °F that updates the °C. Write
@@ -296,6 +291,8 @@ More to try:
 - Real traffic lights in some countries show red and amber together before green. Add that
   step to `nextLight`, and to its test, before you touch the button.
 
+Not every event is a click or a key press. A timer going off is an event, and so is an answer
+arriving from the network; Things That Take Time shows how to wait for them.
 Work them here:
 
 ```tjs:inline {"view": "code"}

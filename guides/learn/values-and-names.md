@@ -1,11 +1,10 @@
 <!--{"parent": "learn-to-program.md", "order": 2}-->
+<!-- TODO review -->
 
 # Values and Names
 
 Programs work with **values**: numbers, text, true and false. This chapter is about the
 kinds of values there are, and how to give a value a name so you can use it again.
-
-<!-- TODO review -->
 
 Here is the problem names solve. Suppose a program works out the area of a room, the cost of
 carpeting it, and how long that will take. The width of the room appears in all three
@@ -25,10 +24,10 @@ console.log('Type 7 * 6, then 10 / 4, then 7 > 3 at the prompt below.')
 - `7 > 3` is **true**. A comparison is a question, and its answer is a **boolean**: `true` or
   `false`.
 
-So far you have met three kinds of value: numbers, strings and booleans. `typeof` tells you
-which kind a value is; try `typeof 42`, `typeof 'hi'` and `typeof true` at the prompt.
-
-<!-- TODO review -->
+Add the strings from the last chapter, text in quotes like `'hi'`, and you have the three
+kinds of value this chapter is about: numbers, strings and booleans. `typeof` tells you which
+kind a value is. Try `typeof 42`, `typeof 'hi'` and `typeof true` at the prompt: the answers
+are `number`, `string` and `boolean`.
 
 ## Arithmetic, in order
 
@@ -50,14 +49,8 @@ test 'multiplication before addition' {
 When you are not sure what order something happens in, add parentheses. They cost nothing,
 and they tell the next reader what you meant.
 
-One surprise is worth meeting now, so it does not surprise you later. At the console, type
-`0.1 + 0.2`. The answer is not quite `0.3`: it is `0.30000000000000004`. Computers store
-fractions in binary, and most decimal fractions, like one tenth, cannot be written exactly in
-binary, just as one third cannot be written exactly in decimal (0.333…). The error is tiny,
-and for most programs it does not matter. When it does, as with money, programmers count in
-whole cents instead of fractions of a pound or dollar.
-
-<!-- TODO review -->
+Fractions have one surprise: `0.1 + 0.2` is not exactly `0.3`. Checking Your Work explains
+why, and what it means for your tests.
 
 ## Strings are values too
 
@@ -100,14 +93,10 @@ Once a value has a name, you can use the name wherever you would use the value. 
 `width` to `10` and look at the sentence, then at the test. Why does the test fail now, and
 what should it expect instead?
 
-<!-- TODO review -->
-
 Notice the order. `area` is worked out on the third line, from the values `width` and `height`
 have at that moment. A name is not a formula that keeps updating; it is a label stuck on a
 value. And a name has to exist before it is used: move the `const area` line to the top, and
 TJS stops with an error, because on that line `width` and `height` do not exist yet.
-
-<!-- TODO review -->
 
 ## Choosing names
 
@@ -117,14 +106,15 @@ cannot contain spaces. So `width`, `roomWidth` and `width2` are names; `2width` 
 and capitalise each word after the first: `roomWidth`, `costPerMetre`. That style is called
 **camelCase**, for the humps.
 
+A few words belong to the language itself, such as `const` and `let`, and cannot be used as
+names.
+
 Capital letters matter. `width` and `Width` are two different names, and it is a common
 mistake to make one and use the other.
 
 Choose names that say what the value **means**, not what kind of value it is. `area` tells a
 reader something; `number` or `x` tells them almost nothing. You write a name once and read it
 dozens of times, so a few extra letters are always worth it.
-
-<!-- TODO review -->
 
 ## When a name goes wrong
 
@@ -159,8 +149,6 @@ test 'the score adds up' {
 `score = score + 10` reads "set `score` to what `score` was, plus 10". Use `const` unless you
 need the name to change; then a reader knows at a glance that the value stays put.
 
-<!-- TODO review -->
-
 Changing a name by adding to it is so common that it has a shorthand: `score += 10` means
 exactly `score = score + 10`. There are `-=`, `*=` and `/=` as well. Rewrite the example with
 `+=` and check that the test still passes.
@@ -168,8 +156,6 @@ exactly `score = score + 10`. There are `-=`, `*=` and `/=` as well. Rewrite the
 `=` is not the `=` of arithmetic. In maths, `x = x + 10` is a contradiction. In a program it is
 an instruction, "put this value in that name", and it is read right to left: work out the
 right-hand side, then store it under the name on the left.
-
-<!-- TODO review -->
 
 ## Text that looks like a number
 
@@ -214,13 +200,9 @@ The last line checks that the **text** `'42'` is not the **number** `42`. They l
 they are different kinds of value, and TJS keeps them apart. (Some other languages quietly
 treat them as equal, which causes a whole family of bugs. TJS does not.)
 
-<!-- TODO review -->
-
 Notice that comparing uses two equals signs. One `=` stores a value in a name; two, `==`, asks a
 question. Mixing them up is a classic mistake, and the next chapter, on decisions, shows what
 TJS does about it.
-
-<!-- TODO review -->
 
 ## Nothing at all
 
@@ -229,7 +211,8 @@ means "nothing here". At a console, type `let later`, press Enter, then type `la
 meet `undefined` again whenever a program looks for something that is not there, such as the
 tenth item of a list that has three.
 
-<!-- TODO review -->
+An empty `let` is usually a mistake waiting to happen: later code expects a number or a
+string and finds nothing. Give every `let` a starting value, as `score` had.
 
 ## Try it
 
@@ -241,6 +224,8 @@ tenth item of a list that has three.
 3. Start a `let total = 0`, add three prices to it with `+=`, and test the total.
 4. Make `const first = 'Ada'` and `const last = 'Lovelace'`, and build the full name from them
    with a space in between. Test that it has 12 characters.
+5. At a console, type `typeof 42`, then `typeof '42'`. Before you press Enter the second time,
+   predict the answer. Then try `typeof Number('42')`.
 
 Work them here:
 

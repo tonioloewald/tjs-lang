@@ -1,8 +1,9 @@
 <!--{"section": "tjs", "type": "example", "group": "patterns", "order": 25, "parent": "tjs-patterns.md"}-->
+<!-- TODO review -->
 
 # Inline WASM
 
-> New to WASM in TJS? Start with the **[WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md)**.
+> New to WASM in TJS? Start with the **[WASM Quick Start](/WASM-QUICKSTART/)**.
 
 Write WebAssembly inline — compiled at transpile time, embedded in the output.
 
@@ -85,8 +86,7 @@ function sumArray(! arr: Float32Array, len: 0):! 0.0 {
   return wasm {
     let sum = 0.0
     for (let i = 0; i < len; i++) {
-      let off = i * 4
-      sum = sum + f32x4_extract_lane(f32x4_load(arr, off), 0)
+      sum = sum + arr[i]
     }
     return sum
   } fallback {
@@ -102,7 +102,6 @@ console.log('lerp(0, 100, 0.25):', lerp(0.0, 100.0, 0.25))
 console.log('sumArray([1,2,3,4]):', sumArray(new Float32Array([1, 2, 3, 4]), 4))
 ```
 
-<!-- TODO review -->
 ## What the example shows
 
 A `wasm { }` block sits inside an ordinary TJS function. The transpiler compiles the block to
@@ -118,18 +117,25 @@ Things to notice:
   returns nothing.
 - **Variables are captured, not declared.** `a`, `b`, `n`, `arr` and `len` are the outer
   function's parameters. The transpiler sees which ones the block uses and passes them in.
+- **Typed arrays are read by index.** `arr[i]` reads an element of a parameter annotated
+  `Float32Array`, `Float64Array`, `Int32Array` or `Uint8Array`; the array arrives as a
+  pointer into WASM memory, and `len` tells the block how many elements to read.
 - **`let` inside the block is typed by its initializer.** `let result = 1` is an `i32`,
   which is what a loop counter wants; `let sum = 0.0` is an `f64`.
-- **Every function is marked `!`.** That skips TJS's runtime validation of the outer
-  function's parameters, which is usually what you want on a hot path. Without it, scalar
-  parameters such as `len: 0` are checked at the call (a fractional `len` returns a
-  `MonadicError`), but a `Float32Array` annotation is not a runtime type: the transpiler
-  warns that it is unchecked.
+- **Every function is marked `!`, and every return is `:!`.** Both turn checks off, for
+  different reasons. The `!` before the parameters skips TJS's runtime validation of the
+  arguments on every call. A WASM block exists to make a hot path fast, and checking each
+  argument costs more than adding two numbers in WASM saves. Without it, scalar parameters
+  such as `len: 0` are checked at the call (a fractional `len` returns a `MonadicError`),
+  while a `Float32Array` annotation is not a runtime type at all: the transpiler warns that
+  it is unchecked. The `:!` makes the return annotation a type only. A plain `: 0` is a
+  worked example that the transpiler tests by calling the function with the parameter
+  examples; `:!` says "returns an integer" without that test. Drop the `!` when the function
+  is called with untrusted input and you want the check.
 - **`fallback { }` is ordinary TJS.** It runs only when the runtime cannot run WASM at all
   (no `WebAssembly`, as in iOS Lockdown Mode, or a refused instantiation). Each such fallback
   is recorded once in `__tjs.records({ source: 'wasm' })`.
 
-<!-- TODO review -->
 ## Checking the block against its fallback
 
 A block and its fallback should give the same answer, and you can make the runtime prove it.
@@ -169,12 +175,9 @@ delete globalThis.__tjs_wasm_enabled
 console.log('7 / 2 in a block:  ', sevenHalves(0))
 ```
 
-`xs[i]` reads an element directly: typed-array element access works inside a block for any
-parameter annotated `Float32Array`, `Float64Array`, `Int32Array` or `Uint8Array`. The
-`sevenHalves` function has no `fallback`; that is allowed, and when WASM is unavailable the
+The `sevenHalves` function has no `fallback`; that is allowed, and when WASM is unavailable the
 transpiler's implicit fallback runs the same body as JavaScript.
 
-<!-- TODO review -->
 ## Limits
 
 A `wasm { }` body is a small, typed subset of JavaScript, not arbitrary code. Anything outside
@@ -192,6 +195,9 @@ JavaScript, because writing `wasm { }` is a request for WASM.
   `x % 2` on a captured number does not compile. For integer algorithms, use a
   [`wasm function`](/wasm-functions/) with `i32` parameters.
 - **`==` and `!=` are JavaScript's inside a block**, not TJS's: `x != x` is true for NaN.
+- **This subset is not AJS.** AJS, the agent language, has `while` and no `for`; a WASM block
+  has `for` and no `while`. They are separate subsets with separate purposes, and rules from
+  one do not carry over to the other.
 
 <!-- tjs-doc: expect-error -->
 

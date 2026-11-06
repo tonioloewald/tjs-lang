@@ -1,11 +1,10 @@
 <!--{"parent": "learn-to-program.md", "order": 1}-->
+<!-- TODO review -->
 
 # Hello, Screen
 
 The first thing worth doing with a program is making something appear. This chapter puts
 words on the page, then real headings and paragraphs.
-
-<!-- TODO review -->
 
 Why start here? Because a program you cannot see is a program you cannot check. Before a
 program can do anything useful it has to be able to tell you what it did, and the simplest way
@@ -24,13 +23,9 @@ Text in quotes is called a **string** (a string of characters). The quotes are n
 the text; they tell TJS where the text starts and stops. Single quotes and double quotes both
 work.
 
-<!-- TODO review -->
-
 Read the line as an instruction: "`preview`, `append` this string". The dot joins a thing to
 something it can do, and the parentheses hold what you are handing it. You will see this
 shape, `thing.action(something)`, all through this book.
-
-<!-- TODO review -->
 
 ## When the quotes go wrong
 
@@ -50,8 +45,6 @@ preview.append(' She said "hello" and waved.')
 
 Double quotes around text with an apostrophe; single quotes around text with double quotes.
 Change the first line to use single quotes all the way round and see what happens.
-
-<!-- TODO review -->
 
 ## Several things, in order
 
@@ -90,13 +83,14 @@ preview.append(
 `h1` makes a big heading, and `p` makes a paragraph. Try adding a second paragraph: put a
 comma after the first `p(…)` and write another one.
 
-<!-- TODO review -->
-
 You do not need to understand the first two lines yet. Read them as "get `h1` and `p` from
 the box of building blocks called `tosijs`". When an example needs a different building block,
 it asks for it by name in the same way.
 
-<!-- TODO review -->
+The first line is called an **import**. It brings in code that someone else wrote and
+published under a name, here `tosijs`, so your program can use it without containing it.
+Nothing about it is special to this book: real programs start with lines like this all the
+time, and a later chapter explains how they work. Until then, copy it as it is.
 
 ## Blocks inside blocks
 
@@ -138,15 +132,15 @@ test 'joining two strings' {
 }
 ```
 
-<!-- TODO review -->
-
 `const message = …` gives the joined string a name, `message`, so the next lines can use it.
 The next chapter is about names; for now, read `const message =` as "call this `message`".
 
 Notice the space after the comma in `'Hello, '`. Delete it, and the test turns red: it expected
 `Hello, screen!` and got `Hello,screen!`. Joining puts strings end to end, exactly, with nothing
-in between. That is a mistake everyone makes, and it is exactly the kind of thing a test is
+in between. That is a mistake everyone makes, and it is the kind of thing a test is
 good at catching, because a missing space is easy to miss by eye.
+
+## Templates
 
 There is a neater way when a string has a value in the middle of it. Use backticks (`` ` ``)
 instead of quotes, and put the value inside `${…}`:
@@ -161,17 +155,8 @@ test 'the name goes in the middle' {
 }
 ```
 
-Change `'Ada'` to your own name. The page changes, and the test line under it turns red: it still expects
-Ada. Change the expected text in the test to match, and it turns green again. You have just
-done what programmers do all day: changed a program, and changed the check that says what it
-should do.
-
-<!-- TODO review -->
-
-## Backticks, not quotes
-
-A string in backticks is called a **template**: TJS fills in each `${…}` before using it. Only
-backticks do that. Here are the same words with two different kinds of quote:
+A string in backticks is called a **template**: TJS fills in each `${…}` before using it.
+Only backticks do that. Here are the same words with the two kinds of quote:
 
 ```tjs:inline {"view": "code"}
 const name = 'Ada'
@@ -186,15 +171,18 @@ test 'only backticks fill in the gaps' {
 }
 ```
 
-With ordinary quotes the `${name}` is just more text, printed exactly as written. If you ever
-see `${` on your page, look at the quote marks: one of them should be a backtick. On most
+With ordinary quotes the `${name}` is more text, printed exactly as written. If you ever see
+`${` on your page, look at the quote marks: one of them should be a backtick. On most
 keyboards the backtick is at the top left, below Escape.
 
 `${…}` can hold more than a name. Anything that has a value works, including a sum:
 `` `Two and two make ${2 + 2}.` `` makes the string `Two and two make 4.` Try it at the end of
-the example above.
+the second example.
 
-<!-- TODO review -->
+Now go back to the first template example and change `'Ada'` to your own name. The page
+changes, and the test under it turns red: it still expects Ada. Change the expected text in
+the test to match, and it turns green again. You have done what programmers do all day:
+changed a program, and changed the check that says what it should do.
 
 ## Try it
 

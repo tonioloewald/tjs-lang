@@ -1,4 +1,5 @@
 <!--{"parent": "learn-to-program.md", "order": 0}-->
+<!-- TODO review -->
 
 # How This Book Works
 
@@ -14,7 +15,6 @@ changes. Reading with the online edition open beside you is the best way to use 
 
 <!--{ "end": "only" }-->
 
-<!-- TODO review -->
 
 ## What a program is
 
@@ -44,7 +44,6 @@ Now change it. Replace `world` with your own name. The page runs your new versio
 type, and the greeting changes. You cannot break anything: if you make a mistake, the
 example tells you what went wrong, and you can fix it or undo it.
 
-<!-- TODO review -->
 
 ## One step after another
 
@@ -60,7 +59,6 @@ Each line is one instruction. Swap the first and last lines and run it in your h
 you look: what will the page say? Then look. Being able to predict what a program will do,
 before it does it, is the skill this book is building.
 
-<!-- TODO review -->
 
 ## Breaking things on purpose
 
@@ -73,7 +71,9 @@ this in the example above:
 2. Put the quote back. Everything works again.
 3. Now change `preview` to `Preview`, with a capital P. This time the program makes sense as
    a sentence, but there is no box called `Preview`: capital and small letters are different
-   to a computer. The message says that `Preview` is not defined.
+   to a computer. The message says that `Preview` is not defined. The exact words depend on
+   your browser: some say `Preview is not defined`, others `Can't find variable: Preview`.
+   Both mean the same thing.
 
 Every mistake you will meet is one of two kinds: the program does not make sense, so it
 cannot run at all, or it runs and does the wrong thing. TJS is good at telling you about both,
@@ -95,7 +95,6 @@ console.log('The console shows what a program tells it.')
 Try typing `2 + 3` at the prompt, then `'Hello, ' + 'world'`. You have just run two tiny
 programs of your own.
 
-<!-- TODO review -->
 
 The console is the quickest way to answer "what does this do?". When you are not sure what a
 piece of a program means, type it at a console and look. Type `10 - 2 - 3`, then
@@ -122,7 +121,6 @@ the greeting and the test fails: the line turns red and says what it expected an
 got. Click it for the details. That is the whole loop of this book: run something, change
 it, and let the tests tell you whether you understand what happened.
 
-<!-- TODO review -->
 
 You do not need to understand how a test works yet; a later chapter, Checking Your Work, is
 about writing your own. For now, read `expect(greeting).toBe('Hello, world!')` as a sentence:
@@ -130,7 +128,6 @@ about writing your own. For now, read `expect(greeting).toBe('Hello, world!')` a
 other than what its author said it should. Sometimes the program is wrong, and sometimes
 the test is: deciding which is part of the job.
 
-<!-- TODO review -->
 
 ## How each chapter works
 
@@ -162,14 +159,13 @@ If you are curious how these live examples work, the
 [tosijs-ui live-example documentation](https://ui.tosijs.net) explains the machinery. You do
 not need it to learn to program.
 
-<!-- TODO review -->
 
 ## Try it
 
 1. In the first example, make the program say hello to two people, with two separate
    `preview.append(…)` lines.
 2. At a console, find out what `7 * 6` is, then what `'7' + '6'` is. They are different. Can
-   you guess why? (The next two chapters explain it.)
+   you guess why? (The next chapters explain it.)
 3. In the test example, change the greeting to `'Hello, TJS!'`, watch the test fail, then
    change the test so it passes again.
 

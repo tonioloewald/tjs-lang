@@ -1,4 +1,5 @@
 <!--{"section": "tjs", "type": "example", "group": "basics", "order": 3, "parent": "tjs-basics.md"}-->
+<!-- TODO review -->
 
 # Object Types
 
@@ -8,10 +9,12 @@ Typed object parameters and returns
 /#
 ## Object Types
 
-Object shapes are defined by example:
-`{ first: '', last: '' }` means an object with string properties.
+An object example describes a shape:
+`{ first: 'Ada', last: 'Lovelace' }` means an object whose `first` and
+`last` are strings.
 
-The return example `: { x: 0, y: 0 }` is tested at transpile time!
+The return example is a worked example, and it is tested at transpile time:
+`fullName` called with the parameter examples must return `'Ada Lovelace'`.
 #/
 test 'createPoint returns correct structure' {
   const p = createPoint(5, 10)
@@ -19,7 +22,7 @@ test 'createPoint returns correct structure' {
   expect(p.y).toBe(10)
 }
 
-function getFullName(person: { first: '', last: '' }): ' ' {
+function fullName(person: { first: 'Ada', last: 'Lovelace' }): 'Ada Lovelace' {
   return person.first + ' ' + person.last
 }
 
@@ -27,40 +30,39 @@ function createPoint(x: 0, y: 0): { x: 0, y: 0 } {
   return { x, y }
 }
 
-function distance(p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 }): 0.0 {
+function distance(p1: { x: 0, y: 0 }, p2: { x: 3, y: 4 }): 5.0 {
   const dx = p2.x - p1.x
   const dy = p2.y - p1.y
   return Math.sqrt(dx * dx + dy * dy)
 }
 
-// Usage - signature tests verify these at transpile time
-const name = getFullName({ first: 'Jane', last: 'Doe' })  // -> 'Jane Doe'
-const dist = distance({ x: 0, y: 0 }, { x: 3, y: 4 })     // -> 5
-
-console.log('Name:', name)
-console.log('Distance:', dist)
+console.log('Name:', fullName({ first: 'Grace', last: 'Hopper' })) // Grace Hopper
+console.log('Distance:', distance({ x: 1, y: 1 }, { x: 4, y: 5 })) // 5
+console.log(fullName({ first: 'Grace' }).message)                  // last is missing
 ```
-
-<!-- TODO review -->
 
 ## What to notice
 
 An object example describes a **shape**: which properties must be there, and what type each
-one holds. `person: { first: '', last: '' }` accepts any object whose `first` and `last` are
-strings. The values in the example (`''`) are only there to say "string"; they are not
-required values.
+one holds. `person: { first: 'Ada', last: 'Lovelace' }` accepts any object whose `first` and
+`last` are strings. The values in the example say "string", and they double as sample data;
+they are not required values, so Grace Hopper is a fine person too.
 
 - **Every listed member is required, and checked.** Leaving `last` out, or passing a number
-  for it, returns a `MonadicError` whose path names the member: `getFullName.person.last`.
-- **Extra members are allowed.** `{ first: 'Jane', last: 'Doe', id: 7 }` is a fine person.
-  A shape says what must be there, not what must not.
+  for it, returns a `MonadicError` whose path names the member: `fullName.person.last`.
+- **Extra members are allowed.** `{ first: 'Grace', last: 'Hopper', born: 1906 }` is a fine
+  person. A shape says what must be there, not what must not.
 - **Number members follow the number rules.** `{ x: 0, y: 0 }` is a point with *integer*
-  coordinates, so `createPoint(1.5, 2)` is rejected. That is why `distance` returns `0.0`:
-  the distance between two integer points is usually not an integer.
-- **The return example is a worked example.** `getFullName`'s `: ' '` is what it returns for
-  the parameter examples (`'' + ' ' + ''`), and `createPoint(x: 0, y: 0): { x: 0, y: 0 }`
-  says `createPoint(0, 0)` returns `{ x: 0, y: 0 }`. Objects are compared by structure, not
-  identity, so a new object with the right contents passes.
+  coordinates, so `createPoint(1.5, 2)` is rejected. That is why `distance` returns `5.0`, a
+  float: the distance between two integer points is usually not an integer.
+- **The return example is a worked example.** `fullName`'s `: 'Ada Lovelace'` is what it
+  returns for its parameter example, and `distance`'s `: 5.0` is the distance from `(0, 0)`
+  to `(3, 4)`. If the function returned anything else, `tjs check` would fail. Choosing
+  realistic examples is what makes this test worth having: a `'' + ' ' + ''` example would
+  only prove the function returns a single space.
+- **Returned objects are compared by structure.** `createPoint(x: 0, y: 0): { x: 0, y: 0 }`
+  says `createPoint(0, 0)` returns `{ x: 0, y: 0 }`. It builds a new object, and that passes
+  because the contents match; identity does not matter here.
 
 ## Nested shapes and arrays
 
@@ -86,14 +88,31 @@ console.log(label({ name: 'box', tags: ['a', 2], size: { w: 3, h: 4 } }).message
 console.log(label({ name: 'box', tags: [], size: { w: 3.5, h: 4 } }).message)
 ```
 
+The last line fails on `size.w`, not on the empty `tags`: an empty array is a valid array
+of strings.
+
+## Optional members
+
+Every member of a shape is required. To let one be absent, give it a union with
+`undefined`:
+
+```tjs:inline
+function greet(user: { name: 'Ada', nick: 'Countess' | undefined }): 'Hello, Countess' {
+  return 'Hello, ' + (user.nick ?? user.name)
+}
+
+console.log(greet({ name: 'Grace' }))                  // Hello, Grace
+console.log(greet({ name: 'Grace', nick: 'Amazing' })) // Hello, Amazing
+console.log(greet({ name: 'Grace', nick: 7 }).message) // nick must be a string if present
+```
+
+Writing `nick: 'Countess'` instead would make `greet({ name: 'Grace' })` an error.
+
 ## Things that trip people up
 
-- **An optional member is spelled as a union with `undefined`.** In a parameter shape,
-  `{ name: '', nick: '' | undefined }` lets `nick` be absent. Writing `nick: ''` makes it
-  required.
 - **A shape is not a dictionary default.** `p: { x: 0, y: 0 }` (colon) requires a whole
   point. `p = { x: 0, y: 0 }` (equals) makes the argument optional *and* fills in missing
   members one by one; see [Dictionary Defaults](/dictionary-defaults-example/).
-- **Name a shape you use twice.** Repeating `{ x: 0, y: 0 }` in three signatures, as this
-  example does, works but drifts. `Type Point { example: { x: 0, y: 0 } }` gives it a name;
-  see [Declarations](/declarations/).
+- **Name a shape you use twice.** Repeating `{ x: 0, y: 0 }` in three signatures, as the
+  first example does, works but drifts. `Type Point { example: { x: 0, y: 0 } }` gives it a
+  name; see [Declarations](/declarations/).

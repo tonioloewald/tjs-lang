@@ -1,58 +1,73 @@
 <!--{"section": "tjs", "type": "example", "group": "advanced", "order": 16, "parent": "tjs-advanced.md"}-->
+<!-- TODO review -->
 
 # Inline Tests: Test Private Functions
 
-Test internals without exporting them - the killer feature
+A TJS file can test its own helpers without exporting them or adding a test-only export.
+
+A `test '…' { }` block runs inside the module it is written in, so it can call anything that
+module declares: exported or not. In most JavaScript setups a test file imports the module
+under test, which means it can only reach what the module exports, and internal helpers end up
+exported "for testing" or tested only through the public API.
+
+Tests run when the file is transpiled, not in a separate test step. The transpiler executes
+the module's own top-level code, runs the tests against it, and leaves the tests out of the
+JavaScript it emits.
+
+The example below is a small sign-up module. Five helpers are private; only `createUser` is
+exported. Every helper is tested directly. Two pieces of TJS syntax carry most of it:
+
+- **A parameter's colon value is an example, not a type.** `email: ''` says `email` is a
+  string, and `''` is the input the signature test calls the function with.
+- **A return annotation is the expected output for those inputs.**
+  `isValidEmail(email: ''): false` means "`isValidEmail('')` returns `false`", and the
+  transpiler checks it. Writing `:!` in place of the `:` keeps the return as documentation
+  and runs nothing.
+
+[The syntax reference](/TJS-SYNTAX/) covers both. Inside a `test` block, `expect` is built in,
+with Jest-style matchers (`toBe`, `toEqual`, `toContain` and others; the full list is in the
+reference under "Test blocks").
 
 ```tjs:inline
-/#
-## Testing Private Functions
-
-This is the killer feature of inline tests:
-You can test functions WITHOUT exporting them.
-
-Traditional testing requires you to either:
-- Export internal helpers (pollutes your API)
-- Test only through public interface (incomplete coverage)
-- Use hacks like rewire/proxyquire (brittle)
-
-TJS inline tests have full access to the module scope.
-Test everything. Export only what you need.
-#/
-
 // ============================================================
-// PRIVATE HELPERS (not exported, but fully testable!)
+// Private helpers (not exported)
 // ============================================================
 
-// Private: Email validation regex
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-// Private: Validate email format
+// The return annotation is a worked example, and it is tested:
+// the transpiler calls isValidEmail('') and checks the result is false.
+// An empty string is not a valid address, so false is the right answer.
 function isValidEmail(email: ''): false {
   return EMAIL_REGEX.test(email)
 }
 
-// Private: Sanitize user input
+// Tested the same way: sanitize('') must return ''.
 function sanitize(input: ''): '' {
   return input.trim().toLowerCase()
 }
 
-// Private: Generate a unique ID
+// The result is random, so no fixed example can match it.
+// `:!` keeps the return as documentation without testing it.
 function generateId(prefix: 'user'):! '' {
   return prefix + '_' + Math.random().toString(36).slice(2, 10)
 }
 
-// Private: Hash password (simplified for demo)
+// A toy hash, for the demo only. Never hash real passwords like this.
+// The worked example is exact: the empty string never enters the
+// loop, so the hash stays 0 and the result is 'hashed_0'.
 function hashPassword(password: ''): 'hashed_0' {
   let hash = 0
   for (let i = 0; i < password.length; i++) {
     hash = ((hash << 5) - hash) + password.charCodeAt(i)
-    hash = hash & hash
+    hash = hash & hash // force to a 32-bit integer
   }
   return 'hashed_' + Math.abs(hash).toString(16)
 }
 
-// Private: Check password strength
+// The return shows the SHAPE (a flag plus a list of messages), not the
+// answer for '' (which is strong: false with four messages), so `:!`
+// keeps it as documentation instead of testing it.
 function isStrongPassword(password: ''):! { strong: true, issues: [''] } {
   const issues = []
   if (password.length < 8) issues.push('Must be at least 8 characters')
@@ -63,24 +78,27 @@ function isStrongPassword(password: ''):! { strong: true, issues: [''] } {
 }
 
 // ============================================================
-// PUBLIC API (this is all that gets exported)
+// Public API (the only export)
 // ============================================================
 
-export function createUser(input: { email: '', password: '' }):! { id: '', email: '', passwordHash: '' } | { error: '', code: 0 } {
+// `Type` declares a named type from an example. Examples widen:
+// `code: 400` means "an integer", not "exactly 400".
+Type NewUser = { id: '', email: '', passwordHash: '' }
+Type Failure = { error: '', code: 400 }
 
-  // Validate email (using private helper)
+// The annotation names two possible shapes, not one result, so it is
+// `:!`: createUser({ email: '', password: '' }) returns a Failure.
+export function createUser(input: { email: '', password: '' }):! NewUser | Failure {
   const cleanEmail = sanitize(input.email)
   if (!isValidEmail(cleanEmail)) {
     return { error: 'Invalid email format', code: 400 }
   }
 
-  // Validate password (using private helper)
   const strength = isStrongPassword(input.password)
   if (!strength.strong) {
     return { error: strength.issues.join(', '), code: 400 }
   }
 
-  // Create user (using private helpers)
   return {
     id: generateId('user'),
     email: cleanEmail,
@@ -89,10 +107,9 @@ export function createUser(input: { email: '', password: '' }):! { id: '', email
 }
 
 // ============================================================
-// TESTS - Full access to private functions!
+// Tests: they call the private helpers directly
 // ============================================================
 
-// --- Test private email validation ---
 test 'isValidEmail accepts valid emails' {
   expect(isValidEmail('test@example.com')).toBe(true)
   expect(isValidEmail('user.name+tag@domain.co.uk')).toBe(true)
@@ -104,127 +121,94 @@ test 'isValidEmail rejects invalid emails' {
   expect(isValidEmail('spaces in@email.com')).toBe(false)
 }
 
-// --- Test private sanitization ---
 test 'sanitize trims and lowercases' {
   expect(sanitize('  HELLO  ')).toBe('hello')
   expect(sanitize('  Test@Email.COM  ')).toBe('test@email.com')
 }
 
-// --- Test private ID generation ---
-test 'generateId creates prefixed unique IDs' {
+test 'generateId creates prefixed, distinct IDs' {
   const id1 = generateId('user')
   const id2 = generateId('user')
   expect(id1.startsWith('user_')).toBe(true)
-  expect(id1 !== id2).toBe(true) // unique each time
-}
-
-test 'generateId respects prefix' {
+  expect(id1 !== id2).toBe(true)
   expect(generateId('post').startsWith('post_')).toBe(true)
-  expect(generateId('comment').startsWith('comment_')).toBe(true)
 }
 
-// --- Test private password hashing ---
 test 'hashPassword is deterministic' {
-  const hash1 = hashPassword('secret123')
-  const hash2 = hashPassword('secret123')
-  expect(hash1).toBe(hash2)
+  expect(hashPassword('secret123')).toBe(hashPassword('secret123'))
 }
 
-test 'hashPassword produces different hashes for different inputs' {
-  const hash1 = hashPassword('password1')
-  const hash2 = hashPassword('password2')
-  expect(hash1 !== hash2).toBe(true)
+test 'hashPassword gives different inputs different hashes' {
+  expect(hashPassword('password1') !== hashPassword('password2')).toBe(true)
 }
 
-// --- Test private password strength checker ---
-test 'isStrongPassword rejects weak passwords' {
-  const result = isStrongPassword('weak')
-  expect(result.strong).toBe(false)
-  expect(result.issues.length).toBeGreaterThan(0)
-}
-
-test 'isStrongPassword accepts strong passwords' {
+test 'isStrongPassword accepts a strong password' {
   const result = isStrongPassword('MyStr0ngP@ss!')
   expect(result.strong).toBe(true)
   expect(result.issues.length).toBe(0)
 }
 
-test 'isStrongPassword lists specific issues' {
-  const noUpper = isStrongPassword('lowercase123')
-  expect(noUpper.issues).toContain('Must contain uppercase letter')
-
-  const noLower = isStrongPassword('UPPERCASE123')
-  expect(noLower.issues).toContain('Must contain lowercase letter')
-
-  const noNumber = isStrongPassword('NoNumbers!')
-  expect(noNumber.issues).toContain('Must contain a number')
-
-  const tooShort = isStrongPassword('Ab1!')
-  expect(tooShort.issues).toContain('Must be at least 8 characters')
+test 'isStrongPassword names each problem' {
+  expect(isStrongPassword('lowercase123').issues).toContain('Must contain uppercase letter')
+  expect(isStrongPassword('UPPERCASE123').issues).toContain('Must contain lowercase letter')
+  expect(isStrongPassword('NoNumbers!').issues).toContain('Must contain a number')
+  expect(isStrongPassword('Ab1!').issues).toContain('Must be at least 8 characters')
 }
 
-// --- Test the public API (integration) ---
-test 'createUser validates email' {
+// The public function is tested too, end to end.
+test 'createUser rejects a bad email' {
   const result = createUser({ email: 'invalid', password: 'StrongPass1!' })
   expect(result.error).toBe('Invalid email format')
 }
 
-test 'createUser validates password strength' {
+test 'createUser rejects a weak password' {
   const result = createUser({ email: 'test@test.com', password: 'weak' })
-  expect(result.error).toBeTruthy()
+  expect(result.code).toBe(400)
 }
 
-test 'createUser succeeds with valid input' {
-  const result = createUser({
-    email: '  Test@Example.COM  ',
-    password: 'MyStr0ngPass!'
-  })
-  expect(result.id).toBeTruthy()
-  expect(result.email).toBe('test@example.com') // sanitized
+test 'createUser cleans the email and hashes the password' {
+  const result = createUser({ email: '  Test@Example.COM  ', password: 'MyStr0ngPass!' })
+  expect(result.email).toBe('test@example.com')
   expect(result.passwordHash.startsWith('hashed_')).toBe(true)
 }
 
 // ============================================================
-// DEMO OUTPUT
+// Demo (top-level code, so it also runs when the tests do; harmless
+// here, and it gives the live example some output)
 // ============================================================
 
-console.log('=== Testing Private Functions Demo ===\n')
-console.log('The functions isValidEmail, sanitize, generateId,')
-console.log('hashPassword, and isStrongPassword are all PRIVATE.')
-console.log('They are NOT exported. But we tested them all!\n')
-
-console.log("Try this in Jest/Vitest without exporting them. You can't.")
-console.log("You'd have to either pollute your API or leave them untested.\n")
-
-console.log('TJS inline tests: Full coverage. Clean exports.\n')
-
-// Show the public API working
-const user = createUser({ email: 'demo@example.com', password: 'SecurePass123!' })
-console.log('Created user:', user)
+console.log(createUser({ email: 'demo@example.com', password: 'SecurePass123!' }))
+// { id: 'user_…' (random), email: 'demo@example.com', passwordHash: 'hashed_…' }
+console.log(createUser({ email: 'demo@example.com', password: 'short' }))
+// { error: 'Must be at least 8 characters, Must contain uppercase letter, Must contain a number', code: 400 }
 ```
 
-<!-- TODO review -->
 ## What to notice
 
-- **The tests sit beside the code they test, in the same scope.** `isValidEmail`,
-  `sanitize` and `isStrongPassword` are never exported, yet every `test '…' { }` block can call
-  them directly. The module's public surface is exactly `createUser`, and nothing had to be
-  exported "for testing".
-- **There are two kinds of test here.** The `test` blocks are the obvious ones. The less
-  obvious ones are the signatures: `sanitize(input: ''): ''` is itself a test. The transpiler
-  calls `sanitize('')` and checks the result deep-equals `''`. A return annotation in TJS is a
-  *worked example*, run as a test, not a type.
+- **The tests share the module's scope.** None of the five helpers is exported, yet every
+  `test` block calls them directly. The module's public surface is exactly `createUser`.
+- **There are two kinds of test here.** The `test` blocks are the obvious ones. The signatures
+  are the others: `isValidEmail(email: ''): false` tells the transpiler to call
+  `isValidEmail('')` and check that the result deep-equals `false`. A return annotation in TJS
+  is a worked example that is run, not a type.
 - **`:!` opts a function out of its signature test.** `generateId` returns a random string, so
-  no fixed example can match it; `isStrongPassword` returns a list whose contents depend on
-  the input. Both are written `:!`, which keeps the return as documentation without running
-  it. Use `:!` when the result is not a fixed function of the example inputs.
-- **Tests do not ship.** They run when the file is transpiled and are stripped from the
-  emitted JavaScript, so a thorough suite costs the production bundle nothing.
+  no example can match it. `isStrongPassword` and `createUser` do return a fixed result for
+  their example inputs, but the annotation describes the general shape rather than that one
+  result. `:!` keeps the return as documentation without running it. Use it when the result is
+  not a fixed function of the example inputs, or when you want the annotation to show a shape
+  rather than the answer for the example.
+- **Pick worked examples you can check by hand.** `hashPassword(password: ''): 'hashed_0'`
+  works because the empty string skips the loop entirely. When an exact answer for the example
+  input is easy to reason about, prefer it to `:!`: it is a free test.
+- **Tests do not ship.** They are left out of the emitted JavaScript, so a thorough suite adds
+  nothing to the production bundle, and there is no build setting to strip them. (Vitest's
+  in-source testing is the closest equivalent: tests go inside an `if (import.meta.vitest)`
+  block, and the build needs a `define` setting to remove them.)
 
-<!-- TODO review -->
 ## When a test fails
 
-A failing test fails the *build*, not just a test report. Take a helper with a bug:
+A failing test stops the transpile: the file does not compile, so on this page the example
+shows the error instead of running. Here is a helper with a bug:
 
 <!-- tjs-doc: expect-error -->
 
@@ -238,15 +222,16 @@ test 'slugify ignores surrounding spaces' {
 }
 ```
 
-The signature example passes (`'Hello World'` has no stray spaces), and the test block
-catches what it misses. From the command line:
+The signature example passes, because `'Hello World'` has no stray spaces. The test block
+catches what the example misses:
 
-- `tjs check file.tjs` exits 1 and prints
-  `Expected "hi-there" but got "--hi-there-"`.
-- `tjs emit file.tjs` refuses to write output until the tests pass (`--jfdi` overrides it).
-- `tjs test file.tjs` lists every signature test and test block with a pass or fail mark.
-- `tjs run file.tjs` still executes the file. It is the one command that does not gate on
-  tests, so do not treat a clean `run` as proof that a file is correct.
+```text
+Expected "hi-there" but got "--hi-there-"
+```
+
+From the command line, a failing test fails `tjs check` (exit 1) and blocks `tjs emit` (unless
+you pass `--jfdi`), but `tjs run` does not run tests at all, so a clean `run` is not proof that
+a file is correct. [Running TJS](/running-tjs/) has the details for each command.
 
 Fix the helper and both kinds of test pass:
 
@@ -263,19 +248,19 @@ test 'slugify collapses runs of whitespace' {
   expect(slugify('Inline   tests')).toBe('inline-tests')
 }
 
-console.log(slugify('  Test the Helpers, Ship the API  '))
+console.log(slugify('  Test the Helpers   Ship the API  ')) // test-the-helpers-ship-the-api
 ```
 
-<!-- TODO review -->
 ## Limits
 
-- **A test needs the module to execute.** Tests run against the module's own top-level code.
-  If that code cannot run at transpile time (it imports a package the transpiler cannot
-  resolve, or touches the DOM), the tests are reported as *inconclusive*, not failed. An
-  inconclusive test does not break the build, so check for that word in the output rather
-  than assuming silence means green.
-- **Top-level side effects run during testing.** The `console.log` calls at the bottom of
-  this example execute when the tests do. Keep expensive or effectful top-level work behind a
-  function call.
-- **Tests are per file.** They see one module's scope. Cross-module behaviour belongs in an
-  ordinary test runner that imports the public API.
+- **A test needs the module to execute.** If the module's top-level code cannot run at
+  transpile time (it touches `document` or another browser-only global, say), its tests are
+  reported as *inconclusive*, not failed. `tjs check` and `tjs test` accept an inconclusive
+  test, and `check` prints a plain ✓, so a quiet check does not mean the tests passed;
+  `tjs emit` currently refuses the file. [Running TJS](/running-tjs/) covers how each command
+  treats them.
+- **Top-level side effects run whenever the file is checked, tested or emitted.** The demo
+  `console.log` calls in the first example run every time the tests do. Keep expensive or
+  effectful top-level work behind a function call.
+- **Tests are per file.** They see one module's scope. Behaviour that spans modules belongs in
+  an ordinary test runner that imports the public API.

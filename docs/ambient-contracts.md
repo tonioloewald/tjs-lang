@@ -1,12 +1,17 @@
 <!--{"parent": "the-tjs-language.md", "order": 12}-->
+<!-- TODO review -->
 
 # Ambient Contracts — probe reality, derive verified predicate contracts
 
-> **Status: design note / idea (2026-07-03).** Not built. Captures the direction
-> and a concrete first spike (CSS + DOM). Related: the predicate engine
-> (`src/lang/predicate.ts`), the `tjs-lang/css` library (`src/css/`), the
-> autocomplete introspection bridge (`demo/src/introspection-bridge.ts`,
-> `editors/introspect-value.ts`), and the VM capability model (`src/vm/`).
+> **Status: exploratory design note (written 2026-07-03, checked 2026-11-06).**
+> The contract tooling is not built: there is no probe, derive or conform step in
+> the package. What exists is a spike in `experiments/ambient/` (`probe.ts` and two
+> demo tests, which still pass) and the pieces it builds on. Since this note was
+> written, one of those pieces has shipped: the `tjs-lang/css` library (0.9.0,
+> 2026-07-06), the CSS value grammar the first spike below leans on. Related: the
+> predicate engine (`src/lang/predicate.ts`), the autocomplete introspection bridge
+> (`demo/src/introspection-bridge.ts`, `editors/introspect-value.ts`), and the VM
+> capability model (`src/vm/`).
 
 ## The itch
 
@@ -28,15 +33,28 @@ safer — it just silences a compiler that can't see the real object. A runtime
 predicate is the truthful tool here:
 
 ```tjs
-// pure, total, verifiable — reads props, no cast, no lie
+// Pure and total: it only reads properties, and it never throws.
 function hasValueTarget(e) {
   return e != null && e.target != null && typeof e.target.value === 'string'
 }
-// usage: hasValueTarget(e) ? e.target.value : undefined  — no ceremony
+
+// Event-shaped objects, like the ones a browser hands a listener.
+const inputEvent = { type: 'input', target: { tagName: 'INPUT', value: 'hi' } }
+const clickOnDiv = { type: 'click', target: { tagName: 'DIV' } }
+
+console.log(hasValueTarget(inputEvent)) // true
+console.log(hasValueTarget(clickOnDiv)) // false: a <div> has no value
+console.log(hasValueTarget(null)) // false, not a crash
+
+// The usage: no cast, and no crash when the value is missing.
+const e = inputEvent
+console.log(hasValueTarget(e) ? e.target.value : undefined) // hi
 ```
 
-That predicate is exactly what the verifier accepts (member access is pure;
-`typeof` → `TypeOf`), compiles to native, and — crucially — is **serializable**.
+That predicate is exactly what the verifier accepts: `verifyPredicate` (from
+`tjs-lang/lang`) reports it safe, because member access and `typeof` are pure. It
+compiles to native JavaScript and, crucially, it is **serializable**: it is source
+text, so it can travel as data.
 So the thought: instead of hand-writing these, could tooling **probe a real
 ambient environment and derive the predicate contracts automatically?**
 
@@ -68,7 +86,8 @@ exists (`$predicate` / `tjs-lang/schema`), the autocomplete provider already has
 an introspection hook (`getMembers` — point it at a captured contract instead of a
 live object), and this is exactly the metadata the pinned "argument-type-driven
 completion" item wants (e.g. `createElement`'s tag→type return shapes), sourced
-from reality instead of hand-authored. See [[introspection-autocomplete]].
+from reality instead of hand-authored. (The introspection-driven autocomplete
+direction is tracked on the project board, not in a published doc.)
 
 ## Contract vs. shim — the distinction that decides feasibility
 
@@ -95,9 +114,15 @@ surface a given program actually touches.
   a real iframe and reads live scope (`introspect-value.ts`,
   `introspection-bridge.ts`); Claude-in-Chrome can drive a _real_ browser. That's
   the "kick the tires" mechanism.
-- **Predicates are the serializable contract form** — verified, ReDoS-safe,
-  compile-to-native, travel as data (the `$predicate` keyword already embeds them
-  in JSON Schema, now evaluated by `tosijs-schema` via `tjs-lang/schema`).
+- **Predicates are the serializable contract form** — verified, compile to
+  native, and travel as data (the `$predicate` keyword already embeds them in JSON
+  Schema, evaluated by `tosijs-schema` via `tjs-lang/schema`). One constraint
+  added since this note was written (0.14.0): the `$predicate` paths run a
+  predicate's source only if the host trusts it (registered with `trustPredicate`, or
+  the `trustAllPredicates` option). Verification is a promise to the author about their
+  own code, not a sandbox for hostile source. So a probed contract is safe to
+  ship as data only from a probe you ran yourself; untrusted contracts would need
+  the AJS VM, which is planned, not built.
 - **The VM already models this as capabilities.** It injects `fetch`/`store`/
   `llm`; "DOM-as-capability, predicate-validated at the boundary" is the same
   pattern. A headless setting swaps the stub; the predicate catches divergence.
@@ -136,8 +161,9 @@ surface a given program actually touches.
    run the contract) + optionally a `.d.ts`-ish view for editors.
 4. **Conform** — a harness that validates a stand-in (happy-dom, a hand stub, a
    VM capability) against the contract, failing loud where it diverges. This is
-   what would have unblocked the Phase 5 real-`tosijs`-theme measurement (blocked
-   because `theme.ts` needs `HTMLElement` at import).
+   what would have unblocked measuring `tjs-lang/css` against a real `tosijs`
+   theme (the CSS library's phase 5 performance work, blocked because `theme.ts`
+   needs `HTMLElement` at import).
 
 ## First spike — CSS + DOM (the convergence point)
 
@@ -155,17 +181,17 @@ predicates_ (`tjs-lang/css`). So the loop is concrete and small:
   derive a shape contract, and diff a happy-dom `style` against it: where does the
   stub lie? Leaf _values_ ride the existing CSS predicates (`isColorValue`,
   `isDimension`, …), so this exercises probe → contract → conformance end-to-end
-  while reusing what phases 1–5 built.
+  while reusing what phases 1–4 of the CSS library built.
 
 ## Ask the environment directly — `CSS.supports` (tosijs-ui port finding)
 
-The tosijs 2.0 port arrived at the same idea from the other side (see
-`../tosijs/TJS-PORT-DX.md`): the strongest form of "probe reality" for CSS is to
+The tosijs 2.0 port arrived at the same idea from the other side (its notes live in
+the `tosijs` repository, not here): the strongest form of "probe reality" for CSS is to
 **ask the browser's own validator** — `CSS.supports(prop, value)` is exact, always
 current with the engine's real support (vendor prefixes, new features, the full
 `calc()`/`var()` grammar), and zero-maintenance. It closes the exact gap the
-hand-authored grammar has: `isCssProperty('align-kontent')` returns `true`
-(identifier-shaped), but `CSS.supports('align-kontent', …)` in a real browser
+hand-authored grammar has: `isCssProperty('align-kontent')` from `tjs-lang/css`
+returns `true` (identifier-shaped; still true on 2026-11-06), but `CSS.supports('align-kontent', …)` in a real browser
 returns `false`. Property names for autocomplete come from the same place (a
 throwaway element's `.style` keys / `CSSStyleDeclaration.prototype`).
 
@@ -177,7 +203,8 @@ This sharpens the contract-vs-fallback split by **when** validation runs:
 - **Transpile-time / SSR / Node** → no `CSS`, so the hand-authored grammar
   predicates (`isColor`/`isLength`/`isStyleValueFor`) are the portable fallback.
 
-So the ideal CSS-value check prefers `CSS.supports` when `typeof CSS !== 'undefined'`
+So the ideal CSS-value check (not built; `tjs-lang/css` has only the grammar
+half) prefers `CSS.supports` when `typeof CSS !== 'undefined'`
 and falls back to the grammar predicate otherwise — which is exactly the
 probe-reality / portable-fallback pairing this whole note is about, one leaf down.
 **Caveat (verified, and it's the same "the stand-in lies" finding): happy-dom
@@ -186,7 +213,8 @@ tests can't rely on it; ground truth needs a real browser or a real CSS engine.
 
 ## Findings from the first spike (2026-07-03)
 
-Built in `experiments/ambient/` (`probe.ts` + two demo tests, 7 green):
+Built in `experiments/ambient/` (`probe.ts` plus two demo tests, 7 tests, still
+green on 2026-11-06). Nothing below has moved out of `experiments/` since:
 
 - **The `event.target` predicate is ordinary.** `hasValueTarget(e)` (reads
   `e.target.value`, the thing TS rejects) verifies pure/safe, compiles native, and
