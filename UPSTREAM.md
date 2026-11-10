@@ -152,6 +152,18 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
+## tosijs-ui — inline live-example views (tosijs-ui#252)
+
+**Virta:** #3925
+
+**Filed 2026-11-10.** Three asks from the learn-to-program book, which uses `{"view": "code"}`
+on nearly every example: (1) in an inline view the affix puts the example's widget column
+between the preview and the code panel, with a redundant "view/edit code" button; (2) a site-
+or page-level default for the inline view, instead of the option on every fence; (3) refresh as
+a button before ⋮, since editing does not re-run an example. **Not worked around:** the book
+tells readers to press ⌘S (the empty Try it examples' comment). **Delete when:** a refresh
+button ships, and the comment can drop the shortcut.
+
 ## tosijs-ui — `<tosi-lottie>` hides its placeholder as soon as it upgrades
 
 **Virta:** #3817

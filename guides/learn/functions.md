@@ -106,11 +106,15 @@ right this time and badly wrong the time the text is `'5 apples'`.
 
 **Unlike JavaScript, TJS is fussy about numbers.** In fact it is fussier than TypeScript, which
 has one kind of number for everything. When you give a whole number as the example, you are
-saying you want a **whole** number, so `2.5` is refused too. If you want a function that takes
-any number, fractions included, give it the example `0.0` instead.
+saying you want a **whole** number, so `2.5` is refused too.
 
-You can be fussier still. Change `double(n: 0)` to `double(n: +0)` in the example above, run
-it, and try `double(-3)`: the `+` says zero or more, so a negative number is refused.
+To take any number, fractions included (programmers call these **floats**), give a number
+with a decimal point as the example. Change `double(n: 0)` to `double(n: 0.0)` in the example
+above, run it, and try `double(2.5)` again: now it is 5. `double('5')` is still refused,
+because text is not a number of any kind.
+
+You can be fussier, too. Change it to `double(n: +0)`, run it, and try `double(-3)`: the `+`
+says zero or more, so a negative number is refused.
 
 <!-- TODO review -->
 The examples you will use most are these:
