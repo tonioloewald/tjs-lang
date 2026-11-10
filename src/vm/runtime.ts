@@ -5262,6 +5262,48 @@ function settledNow(p: Promise<unknown>): Promise<boolean> {
 }
 
 /** Ends the run with `error` (the first halt wins) and returns it to be thrown. */
+/**
+ * Why a custom 'pure' atom's return is not guest data, or undefined when it is (#3991). The
+ * membrane's own rules (`admitKind`), as a CHECK, no copy: primitives, arrays, plain objects and an
+ * exact Date; own DATA properties only (a getter is host code, never run). Charged per node like a
+ * validation, so a huge return costs fuel rather than time for free.
+ */
+function pureReturnRefusal(
+  ctx: RuntimeContext,
+  op: string,
+  value: unknown
+): string | undefined {
+  const seen = new Set<object>()
+  const stack: unknown[] = [value]
+  while (stack.length) {
+    const v = stack.pop()
+    if (ctx.fuel && (ctx.fuel.current -= VALIDATION_FUEL_PER_STEP) <= 0)
+      throw new AgentError('Out of Fuel', op)
+    if (
+      v === null ||
+      v === undefined ||
+      typeof v === 'string' ||
+      typeof v === 'number' ||
+      typeof v === 'boolean'
+    )
+      continue
+    if (typeof v !== 'object')
+      return typeof v === 'function'
+        ? 'a function, which is not a value in AJS'
+        : `a ${typeof v}`
+    if (seen.has(v)) continue
+    seen.add(v)
+    const kind = admitKind(v)
+    if (kind.kind === 'refused') return kind.reason
+    if (kind.kind === 'date') continue
+    for (const d of Object.values(Object.getOwnPropertyDescriptors(v))) {
+      if (!('value' in d)) return 'an accessor property (a getter or setter)'
+      stack.push(d.value)
+    }
+  }
+  return undefined
+}
+
 function haltRun(ctx: RuntimeContext, error: AgentError): AgentError {
   if (ctx.halt && !ctx.halt.error) ctx.halt.error = error
   return ctx.halt?.error ?? error
@@ -5678,9 +5720,31 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           // applied post-construction via EFFECTFUL_CORE_OPS, mutating atom.effects.
           if (atom.effects === 'io' && result !== undefined)
             result = ingressValue(ctx, op, result, outputSchema)
+          // A CUSTOM atom tagged 'pure' skips the membrane, so its return is CHECKED here: guest
+          // data only (#3991). A host's mistake would otherwise put a live Map or class instance
+          // into guest state. Core atoms are exempt: they operate on data already inside the VM.
+          // Non-data is a host bug at the boundary, so it ends the run.
+          else if (
+            result !== undefined &&
+            (coreAtoms as Record<string, unknown>)[op] !== atom
+          ) {
+            const why = pureReturnRefusal(ctx, op, result)
+            if (why) {
+              ctx.error = haltRun(
+                ctx,
+                new AgentError(
+                  `'${op}' is tagged pure but returned something that is not guest data: ${why}. ` +
+                    `Return JSON data or a Date, or tag the atom effects: 'io' so its return is copied.`,
+                  op
+                )
+              )
+              return
+            }
+          }
           // A PURE atom's output check (its value never crossed a boundary): a failure here is
           // the atom's own defect, and stays an ordinary error.
-          else if (
+          if (
+            atom.effects !== 'io' &&
             result !== undefined &&
             outputSchema &&
             !validate(result, outputSchema)

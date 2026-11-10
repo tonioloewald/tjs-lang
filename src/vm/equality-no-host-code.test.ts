@@ -54,10 +54,13 @@ describe('VM equality runs no host code on what it compares', () => {
     expect(withEq).toEqual(without)
   })
 
-  it('== still unwraps a real boxed primitive', async () => {
+  // This row used to smuggle a boxed String in through a host atom tagged 'pure', the one door
+  // that skipped the membrane, to reach `==`'s unwrapping. That door is closed (#3991): a custom
+  // pure atom's return is checked, and a boxed primitive is not guest data. So no boxed
+  // primitive reaches guest code by any door; the unwrapping itself is held to the shared
+  // runtime by `src/unwrap-boxed.test.ts`.
+  it('a boxed primitive cannot reach guest code, even through a pure host atom', async () => {
     const { ast } = transpile(`function f({ a }) { return { same: a == 'x' } }`)
-    // A boxed String crosses the membrane as data only if the host passes one: build it
-    // directly in a pure atom so it reaches the comparison unmembraned.
     const boxed = defineAtom(
       'boxed',
       s.object({}),
@@ -72,7 +75,7 @@ describe('VM equality runs no host code on what it compares', () => {
       return { same: b == 'x' }
     }`)
     const r: any = await new AgentVM({ boxed }).run(ast2, {})
-    expect(r.result?.same ?? r.same).toBe(true)
+    expect(r.error?.message).toMatch(/not guest data/)
     void ast
   })
 })

@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **AJS: a custom atom tagged `pure` can only return guest data** (#3991). `pure` skips the
+  capability membrane, which is right for core atoms (they work on data already inside the VM)
+  but let a HOST atom tagged `pure` put a live `Map`, class instance or getter-bearing object
+  into guest state and into `run.result`, breaking the closed guest value domain. A custom pure
+  atom's return is now checked, not copied, by the membrane's own rules (JSON data plus an exact
+  `Date`, own data properties only); anything else ends the run, naming what was returned.
+  Core atoms are exempt. **What to do:** an atom that returns host objects should be tagged
+  `effects: 'io'`, so its return is copied. Copying every custom atom's return is a planned
+  opt-in (#4007).
+
 - **AJS: an allowlist entry alone no longer opens the private network (BREAKING)** (#3991).
   `allowedFetchDomains` was the whole destination policy: naming a loopback, private or
   link-local address (a typo, a config copied from a dev setup) let agents reach the internal
