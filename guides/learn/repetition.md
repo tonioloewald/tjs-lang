@@ -249,6 +249,109 @@ one box, `i * 10` pixels across, so the first is 10 and the sixth is 60.
 
 Try changing `teal` to `orange`, `6` to `12`, or `i * 10` to `i * i`.
 
+## Shapes from a rule
+
+The boxes above are all the same shape. A loop can do something bigger: follow one rule and
+produce a different shape every time you change a number. Here one function draws any
+regular polygon, the shape with equal sides that a stop sign (8 sides) or a honeycomb cell
+(6) is:
+
+```tjs:inline {"view": "code"}
+import { svgElements } from 'tosijs'
+
+const { svg, polygon } = svgElements
+
+// The corners of a regular polygon, as the "x,y x,y …" text a polygon is drawn from.
+function corners(sides: 3, radius: 40.0, cx: 50.0, cy: 50.0) {
+  let points = ''
+  for (let i = 0; i < sides; i++) {
+    const turn = (i / sides) * 2 * Math.PI
+    const x = cx + radius * Math.cos(turn)
+    const y = cy + radius * Math.sin(turn)
+    points = points + x.toFixed(1) + ',' + y.toFixed(1) + ' '
+  }
+  return points
+}
+
+for (let sides = 3; sides <= 8; sides++) {
+  preview.append(
+    svg(
+      { viewBox: '0 0 100 100', width: 70, height: 70 },
+      polygon({ points: corners(sides, 40, 50, 50), fill: 'teal' })
+    )
+  )
+}
+
+test 'a square has its four corners' {
+  expect(corners(4, 40, 50, 50)).toBe('90.0,50.0 50.0,90.0 10.0,50.0 50.0,10.0 ')
+}
+```
+
+Each corner is the same step further round a circle. A full turn is `2 * Math.PI` (π is
+about 3.14), so corner `i` is `i / sides` of the way round. `Math.cos` and `Math.sin` turn
+"how far round" into how far across (`x`) and how far down (`y`); you do not need to know
+how they work to use them, only what they give you. `toFixed(1)` keeps one decimal place.
+`svg` is a drawing area, `viewBox: '0 0 100 100'` says it is 100 units each way, and a
+`polygon` joins its points with straight lines and fills the shape inside.
+
+The leverage is the point. The loop does not care how many sides there are: change the `8`
+to `40` and the last shape is nearly a circle. Writing those 40 corners out by hand would
+take a page; the rule takes three lines.
+
+## A honeycomb
+
+Put `corners` inside loops inside loops, and a few lines of code tile a whole surface:
+
+```tjs:inline {"view": "code"}
+import { svgElements } from 'tosijs'
+
+const { svg, polygon } = svgElements
+
+function corners(sides: 6, radius: 10.0, cx: 0.0, cy: 0.0) {
+  let points = ''
+  for (let i = 0; i < sides; i++) {
+    const turn = (i / sides) * 2 * Math.PI
+    points =
+      points +
+      (cx + radius * Math.cos(turn)).toFixed(1) +
+      ',' +
+      (cy + radius * Math.sin(turn)).toFixed(1) +
+      ' '
+  }
+  return points
+}
+
+const r = 10 // each hexagon's radius
+const across = 1.5 * r // how far apart the columns are
+const down = Math.sqrt(3) * r // how far apart the rows are
+
+const board = svg({ viewBox: '0 0 130 122', width: 260, height: 244 })
+for (let column = 0; column < 8; column++) {
+  for (let row = 0; row < 6; row++) {
+    const cx = r + column * across
+    // every other column sits half a cell lower, so the edges fit together
+    const cy = down / 2 + row * down + (column % 2) * (down / 2)
+    board.append(
+      polygon({ points: corners(6, r, cx, cy), fill: 'teal', stroke: 'white' })
+    )
+  }
+}
+preview.append(board)
+
+test 'a hexagon is centred where we ask' {
+  expect(corners(6, 10, 20, 20).startsWith('30.0,20.0 ')).toBe(true)
+}
+```
+
+The outer loop walks across the columns and the inner loop down the rows: 8 × 6 = 48
+hexagons. `column % 2` (the remainder from Decisions) is 0 for even columns and 1 for odd
+ones, which is what shifts every other column down by half a cell. `Math.sqrt` is the
+square root; `down` is how tall one hexagon is.
+
+Now change `8` and `6` to `30` and `20`, and widen the `viewBox` to `'0 0 460 360'`: 600
+hexagons, and not one more line of code. That is what loops are for. Not only working
+through a list you already have, but making far more than you could ever write out.
+
 ## `while`: until something changes
 
 `for` is for counting. When you do not know how many rounds it will take, `while` repeats as
@@ -333,6 +436,9 @@ Then:
 3. Write `doublings(target: 0)` with `while`: how many times must you double 1 before it
    reaches `target` or more? `doublings(1)` is 0 and `doublings(2)` is 1; for 1,000, work out
    by hand how many doublings it takes to pass it, then test that too.
+4. Draw a five-pointed star. Start from `corners`, but visit the corners of a pentagon two at a
+   time: corner `i * 2` instead of corner `i`. Does the same trick give a star for 7 sides?
+   For 6? (Try it and see; then think about why.)
 
 Work them here:
 

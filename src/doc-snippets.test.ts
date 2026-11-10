@@ -303,11 +303,13 @@ describe("the book's tests run and pass outright", () => {
       const g = globalThis as any
       const prev = g.preview
       const prevElements = g.elements
+      const prevSvgElements = g.svgElements
       const prevTosi = g.tosi
       g.preview = { append() {}, replaceChildren() {}, textContent: '' }
       // The page also supplies tosijs; the build-time run strips the import, so `elements`
       // is a stand-in too: every element creator returns an inert node.
       g.elements = new Proxy({}, { get: () => () => ({ append() {} }) })
+      g.svgElements = g.elements // the drawing chapters' svg, polygon, … : inert nodes too
       // `tosi(state)` makes reactive state on the page; for the logic a test checks, the plain
       // object behaves the same.
       g.tosi = (state: unknown) => state
@@ -330,6 +332,7 @@ describe("the book's tests run and pass outright", () => {
       } finally {
         g.preview = prev
         g.elements = prevElements
+        g.svgElements = prevSvgElements
         g.tosi = prevTosi
       }
     })
