@@ -78,7 +78,7 @@ export const CORE_ATOM_INPUTS: Readonly<Record<string, AtomInputs>> = {
   },
   template: { keys: ['tmpl', 'vars'], required: ['tmpl', 'vars'] },
   transpileCode: { keys: ['code'], required: ['code'] },
-  try: { keys: ['try', 'catch', 'catchParam'], required: ['try'] },
+  try: { keys: ['try', 'catch', 'catchParam', 'finally'], required: ['try'] },
   uuid: { keys: [], required: [] },
   varAssign: { keys: ['key', 'value'], required: ['key', 'value'] },
   varGet: { keys: ['key'], required: ['key'] },

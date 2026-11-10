@@ -1074,11 +1074,18 @@ function transformTryStatement(
     catchSteps = transformBlock(stmt.handler.body, catchCtx)
   }
 
+  // `finally` (#3983) used to be dropped without a word, so cleanup a program relied on
+  // never ran.
+  const finallySteps = stmt.finalizer
+    ? transformBlock(stmt.finalizer, createChildContext(ctx))
+    : undefined
+
   return {
     op: 'try',
     try: trySteps,
     ...(catchSteps && { catch: catchSteps }),
     ...(catchParam && { catchParam }),
+    ...(finallySteps && { finally: finallySteps }),
   }
 }
 

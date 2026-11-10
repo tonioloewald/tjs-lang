@@ -412,11 +412,9 @@ Some messages name the fix ("use for...of, or map/filter/find/reduce"); others a
 as `Unsupported statement type: BreakStatement` or `Only simple variable assignment is
 supported`. This table is the translation.
 
-Two things are not refused but do not work, so do not write them:
+One thing is not refused but does not work, so do not write it:
 
 - **A helper held as a value.** `let g = double` gives `undefined`, silently.
-- **`finally`.** A `try … finally` transpiles, but the `finally` block does not run. Put the
-  cleanup after the `try`/`catch` instead.
 
 ### Differences from JavaScript
 
@@ -846,7 +844,9 @@ Returns `{ error: 'Division by zero' }`.
   `parseAll` below does).
 - **Re-raising** is calling `Error(…)` again inside the `catch`; that error goes to the next
   `try` out, or ends the run.
-- **There is no working `finally`** (see [What's Forbidden](#whats-forbidden)).
+- **`finally` always runs**, after the `try` and any `catch`, whatever happened in them. A
+  `return` or error from the `try` waits until it finishes; a `return` or error inside the
+  `finally` replaces it, as in JavaScript.
 - **Errors propagate through helpers.** An `Error(...)` in a helper skips the rest of the helper
   and reaches the caller's `try`.
 - **An uncaught error ends the run as a value.** That includes an `Error(...)` outside any `try`.

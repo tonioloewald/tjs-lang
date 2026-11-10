@@ -77,6 +77,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS: `try … finally` runs the `finally` block** (#3983). The transpiler dropped it without a
+  word, so cleanup a program relied on never ran. The `try` node now carries a `finally` block
+  (an AST format addition: a VM older than this release ignores it, as before), run with
+  JavaScript's semantics: after the try and catch whatever happened, a pending return or error
+  restored afterwards, its own return or error winning. A run halted at the capability
+  boundary takes no further steps, `finally` included.
+
 - **AJS: `Error()` keeps a computed message** (#3982). `Error('bad ' + x)`, `Error(msg)` and a
   template reached the error as `'[object Object]'`; only a literal survived. The message is now
   evaluated; a number or boolean becomes its text, and an object is refused by name rather than

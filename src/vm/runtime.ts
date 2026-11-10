@@ -6018,33 +6018,55 @@ export const tryCatch = defineAtom(
     try: s.array(s.any),
     catch: s.array(s.any).optional,
     catchParam: s.string.optional,
+    finally: s.array(s.any).optional,
   }),
   undefined,
   async (step, ctx) => {
-    // Execute try block
-    await runBlock(ctx, step.try)
-
-    // If an error occurred and we have a catch block, handle it
-    if (ctx.error && step.catch) {
-      // Store error message in state for catch block to access
-      // Use the catch parameter name if provided, otherwise 'error'
-      const paramName = step.catchParam || 'error'
-      // reduced HERE, where the error enters guest scope (see `reduceThrown`)
-      const bind = {
-        [paramName]: reduceThrown(ctx.error),
-        errorOp: reduceOp(ctx.error),
-      }
-      // Clear the error - catch block handles it
+    await tryAndCatch(step, ctx)
+    // `finally` (#3983): runs after the try and catch whatever happened in them. A pending
+    // return or error is set aside while it runs and restored if it completes normally; its own
+    // return or error wins, as in JavaScript. A HALTED run takes no further steps, finally
+    // included: a halt ends the run (see `halt`). An exhausted budget is not extended: the
+    // block's first step finds no fuel.
+    if (step.finally && !ctx.halt.error) {
+      const pendingError = ctx.error
+      const pendingOutput = ctx.output
       ctx.error = undefined
-      // Execute the catch block, its parameter (and `errorOp`) bound IN it: a v2 catch block
-      // is a scope, so `catch (e)` shadows an outer `e` instead of overwriting it.
-      await runBlock(ctx, step.catch, undefined, bind)
-      // If catch block didn't set a new error, we're recovered
-      // If it did, that error propagates
+      ctx.output = undefined
+      await runBlock(ctx, step.finally)
+      if (ctx.error === undefined && ctx.output === undefined) {
+        ctx.error = pendingError
+        ctx.output = pendingOutput
+      }
     }
   },
-  { docs: 'Try/Catch', timeoutMs: 0, cost: 0.1 }
+  { docs: 'Try/Catch/Finally', timeoutMs: 0, cost: 0.1 }
 )
+
+/** The try block, then the catch block if the try failed and there is one. */
+async function tryAndCatch(step: any, ctx: RuntimeContext): Promise<void> {
+  // Execute try block
+  await runBlock(ctx, step.try)
+
+  // If an error occurred and we have a catch block, handle it
+  if (ctx.error && step.catch) {
+    // Store error message in state for catch block to access
+    // Use the catch parameter name if provided, otherwise 'error'
+    const paramName = step.catchParam || 'error'
+    // reduced HERE, where the error enters guest scope (see `reduceThrown`)
+    const bind = {
+      [paramName]: reduceThrown(ctx.error),
+      errorOp: reduceOp(ctx.error),
+    }
+    // Clear the error - catch block handles it
+    ctx.error = undefined
+    // Execute the catch block, its parameter (and `errorOp`) bound IN it: a v2 catch block
+    // is a scope, so `catch (e)` shadows an outer `e` instead of overwriting it.
+    await runBlock(ctx, step.catch, undefined, bind)
+    // If catch block didn't set a new error, we're recovered
+    // If it did, that error propagates
+  }
+}
 
 export const errorAtom = defineAtom(
   'Error',

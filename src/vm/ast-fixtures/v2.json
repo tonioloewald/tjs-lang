@@ -857,5 +857,94 @@
     "result": {
       "ok": true
     }
+  },
+  {
+    "name": "try-catch-finally",
+    "version": 2,
+    "source": "function f() { let log = []; try { Error('boom') } catch (e) { log.push('caught ' + e) } finally { log.push('cleanup') } return { log } }",
+    "args": {},
+    "ast": {
+      "$ajs": 2,
+      "op": "seq",
+      "steps": [
+        {
+          "op": "varSet",
+          "key": "log",
+          "value": []
+        },
+        {
+          "op": "try",
+          "try": [
+            {
+              "op": "Error",
+              "args": ["boom"]
+            }
+          ],
+          "catch": [
+            {
+              "op": "evaluate",
+              "value": {
+                "$expr": "methodCall",
+                "object": {
+                  "$expr": "ident",
+                  "name": "log"
+                },
+                "method": "push",
+                "arguments": [
+                  {
+                    "$expr": "binary",
+                    "op": "+",
+                    "left": {
+                      "$expr": "literal",
+                      "value": "caught "
+                    },
+                    "right": {
+                      "$expr": "ident",
+                      "name": "e"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "catchParam": "e",
+          "finally": [
+            {
+              "op": "evaluate",
+              "value": {
+                "$expr": "methodCall",
+                "object": {
+                  "$expr": "ident",
+                  "name": "log"
+                },
+                "method": "push",
+                "arguments": [
+                  {
+                    "$expr": "literal",
+                    "value": "cleanup"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "op": "return",
+          "value": {
+            "log": {
+              "$expr": "ident",
+              "name": "log"
+            }
+          }
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "result": {
+      "log": ["caught boom", "cleanup"]
+    }
   }
 ]
