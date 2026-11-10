@@ -123,6 +123,9 @@ const SNAPSHOT = `(() => [...document.querySelectorAll('tosi-example')].map(e =>
   // panel's Console tab.
   console: ([...e.querySelectorAll('.console-line')].filter(x => !x.closest('[part=codeEditors]')).map(x => x.textContent).join(' ').trim()) || (e.querySelector('.example-console .console-lines')?.innerText || '').trim(),
   inline: [...e.querySelectorAll('.tjs-test-summary, .test-fail')].map(x => x.textContent.trim()).join(' · '),
+  // A scratch area (the learn chapters' Try it examples): source that is only comments, so it
+  // has nothing to show until the reader writes something. Empty is right for those.
+  scratch: !/\\S/.test(String(e.js || '').replace(/\\/\\*[\\s\\S]*?\\*\\//g, '').replace(/\\/\\/[^\\n]*/g, '')),
 })))()`
 
 async function main() {
@@ -255,7 +258,9 @@ async function main() {
           .filter(Boolean)
           .join(' ⏐ ')
         const flat = shown.replace(/\s+/g, ' ').slice(0, 160)
-        if (!shown) {
+        if (!shown && e.scratch)
+          lines.push(`  #${i} ok   (scratch: comments only)`)
+        else if (!shown) {
           lines.push(`  #${i} EMPTY`)
           problems.push(`${slug}#${i}: empty`)
         } else if (
