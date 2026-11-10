@@ -338,10 +338,16 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       const shape: Record<string, TypeDescriptor> = {}
 
       for (const prop of properties) {
-        if (prop.type === 'Property' && prop.key.type === 'Identifier') {
-          const key = prop.key.name
-          shape[key] = inferTypeFromValue(prop.value)
-        }
+        if (prop.type !== 'Property') continue
+        // A computed key known only at run time (`{ [k]: 1 }`) was read by the expression's
+        // NAME, adding a member 'k' (#3990). With a member name unknowable, the object has no
+        // known shape: an ordinary object, and as a default an ordinary JavaScript default.
+        if (prop.computed && prop.key.type !== 'Literal')
+          return { kind: 'object' }
+        // A literal key (`'a b': 1`, `['a']`) is a member like any other; only identifier keys
+        // used to count, so a quoted member was silently unchecked.
+        const key = literalPropertyKey(prop)
+        if (key !== undefined) shape[key] = inferTypeFromValue(prop.value)
       }
 
       return { kind: 'object', shape }
@@ -642,6 +648,23 @@ export function parseParameter(
 /**
  * Extract a literal value from an expression for default values
  */
+/**
+ * A property's key when it is known at compile time: an identifier key, or a literal one
+ * (`'a b': 1`, `['a']`), which used to be ignored (#3990). `undefined` for a spread or a key
+ * known only at run time, and for `'__proto__'`, which as an assignment target replaces the
+ * object's prototype instead of adding a member.
+ */
+function literalPropertyKey(prop: any): string | undefined {
+  if (prop?.type !== 'Property') return undefined
+  const key =
+    prop.key.type === 'Identifier' && !prop.computed
+      ? prop.key.name
+      : prop.key.type === 'Literal'
+      ? String(prop.key.value)
+      : undefined
+  return key === '__proto__' ? undefined : key
+}
+
 export function extractLiteralValue(node: Expression): any {
   switch (node.type) {
     case 'Literal':
@@ -655,9 +678,8 @@ export function extractLiteralValue(node: Expression): any {
     case 'ObjectExpression': {
       const result: Record<string, any> = {}
       for (const prop of (node as any).properties) {
-        if (prop.type === 'Property' && prop.key.type === 'Identifier') {
-          result[prop.key.name] = extractLiteralValue(prop.value)
-        }
+        const key = literalPropertyKey(prop)
+        if (key !== undefined) result[key] = extractLiteralValue(prop.value)
       }
       return result
     }

@@ -77,6 +77,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **TJS: an object example's quoted and computed keys are read correctly** (#3990). Inference
+  read a computed key by the key expression's name, so a dictionary default
+  `opts = { [k]: 1, b: 2 }` gained a member `k` (`{ a: 1, b: 2, k: 1 }` for `k = 'a'`). A key
+  known only at run time now makes the object an ordinary one, and as a default an ordinary
+  JavaScript default. Literal keys (`'a b': 1`, `['a']`), which were silently ignored, are now
+  members, checked and merged like any other; `'__proto__'` is never one.
+
 - **AJS: a computed object key is refused instead of silently renamed** (#3989).
   `{ [k]: 1 }` with `k = 'z'` produced `{ k: 1 }`. A key known only at run time is now a
   transpile error pointing at `Object.fromEntries([[k, v]])`; a literal computed key
