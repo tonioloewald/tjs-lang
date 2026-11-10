@@ -398,6 +398,7 @@ and fail when they run.
 | `break`, `continue`                                | see [Loop idioms](#loop-idioms)                          |
 | `switch`                                           | `if` / `else if`                                         |
 | `throw`                                            | `Error('message')`; see [Errors](#errors)                |
+| a computed object key, `{ [k]: v }`                | `Object.fromEntries([[k, v]])` (a literal key, `['a b']`, works) |
 | Writing a member or index (`o.a = 1`, `xs[0] = v`) | build a new value, `o = { ...o, a: 1 }`, or `xs.push(v)` |
 | Destructuring declarations (`let { a } = o`)       | `const a = o.a`; destructured **parameters** are fine    |
 | `class`, `new`, `this`                             | plain objects; `Date()` and `Set()` without `new`        |

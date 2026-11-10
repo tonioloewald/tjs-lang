@@ -77,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS: a computed object key is refused instead of silently renamed** (#3989).
+  `{ [k]: 1 }` with `k = 'z'` produced `{ k: 1 }`. A key known only at run time is now a
+  transpile error pointing at `Object.fromEntries([[k, v]])`; a literal computed key
+  (`['a b']`) still works.
+
 - **AJS: a helper function no longer reads the run's arguments by name** (#3988). A name a
   helper does not declare fell back to the agent's inputs, so `function g(x) { return x + n }`
   saw the agent's `n`. Helpers are top-level functions, not closures: they see their parameters

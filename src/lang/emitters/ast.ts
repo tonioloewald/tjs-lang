@@ -1096,6 +1096,17 @@ function transformTryStatement(
  * emitter is building. The VM refuses it at run time too (`setGuestKey`).
  */
 function propertyKeyName(prop: any, ctx: TransformContext): string {
+  // A COMPUTED key (`{ [k]: 1 }`) was read by its expression's name, so the object got the key
+  // 'k', silently (#3989). The VM's object node has fixed string keys: a literal computed key is
+  // known here; any other is refused with the remedy.
+  if (prop.computed && prop.key.type !== 'Literal')
+    throw new TranspileError(
+      `A computed key ([…]) is not supported in an AsyncJS object literal. ` +
+        `Build the object with Object.fromEntries([[key, value]]) instead.`,
+      getLocation(prop),
+      ctx.source,
+      ctx.filename
+    )
   const key =
     prop.key.type === 'Identifier'
       ? (prop.key as Identifier).name
