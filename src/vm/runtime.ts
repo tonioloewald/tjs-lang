@@ -6349,6 +6349,10 @@ export const callLocal = defineAtom(
     const scopedCtx: RuntimeContext = {
       ...ctx,
       state: newScopeState(ctx),
+      // NOT the caller's: a name the helper does not declare falls back to `args`, so the
+      // spread let a helper read the run's arguments by name (`x + n` saw the agent's `n`,
+      // #3988). A helper sees its parameters only.
+      args: Object.create(null),
       consts: new Set(),
       output: undefined,
       error: undefined,

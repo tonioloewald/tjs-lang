@@ -77,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS: a helper function no longer reads the run's arguments by name** (#3988). A name a
+  helper does not declare fell back to the agent's inputs, so `function g(x) { return x + n }`
+  saw the agent's `n`. Helpers are top-level functions, not closures: they see their parameters
+  only.
+
 - **AJS: an atom called inside an expression is refused at transpile time** (#3984).
   `return { id: uuid() }` transpiled and failed only when it ran; a local helper in the same
   position was already refused with the remedy. Now atoms are too: "Atom 'uuid' cannot be
