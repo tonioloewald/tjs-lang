@@ -335,3 +335,10 @@ More to try:
 - Write `safeDouble(n: 0.0)` that calls `double`, and gives back the error from `double`
   unchanged if there is one, or the answer if there is not. Test both. Then check with
   `__tjs.errors()` that the refusal was remembered even though `safeDouble` handled it.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

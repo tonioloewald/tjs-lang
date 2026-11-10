@@ -206,3 +206,10 @@ the example above.
    on the first try, then check whether the test agrees.
 4. Break an example on purpose in three different ways: a missing quote, a missing `)`, and a
    capital letter in `preview`. Read each message before you fix it.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

@@ -212,7 +212,7 @@ describe('documentation snippets are real code', () => {
      *
      * A single blanket threshold is the wrong instrument twice over: too low and a
      * comparison guide is permanently red for doing its job, too high and a reference
-     * silently goes half-unchecked. Both entries below are fragment-heavy by nature, and
+     * silently goes half-unchecked. Every entry below is fragment-heavy by nature, and
      * saying so HERE is the point — an allowance nobody can see is the same failure the
      * surrounding test exists to prevent.
      */
@@ -220,6 +220,10 @@ describe('documentation snippets are real code', () => {
       'TJS-FOR-TS.md': {
         ratio: 0.56,
         why: 'a side-by-side migration guide: most snippets are a TS excerpt beside its TJS counterpart, neither of which is a whole program',
+      },
+      'guides/learn/a-calculator.md': {
+        ratio: 0.5,
+        why: 'a worked build: the chapter grows one program and shows each change as an excerpt of it (static fences); the whole program is a live example in the same chapter',
       },
       'guides/footguns.md': {
         ratio: 0.5,

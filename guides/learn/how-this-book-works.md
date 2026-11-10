@@ -172,3 +172,10 @@ not need it to learn to program.
    you guess why? (The next two chapters explain it.)
 3. In the test example, change the greeting to `'Hello, TJS!'`, watch the test fail, then
    change the test so it passes again.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

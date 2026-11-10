@@ -351,3 +351,10 @@ More to try:
   and a predicate, and test both sides of the edge.
 - Write `swap(point: { x: 0, y: 0 })` that gives back a **new** point with `x` and `y`
   exchanged. Test it with `toEqual`, and test that the point you passed in has not changed.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

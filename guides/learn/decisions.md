@@ -304,3 +304,10 @@ Then:
    What should it give back when they are equal? Test that case too.
 3. Use `given` to write `vowel(letter: 'a')` that is `true` for `'a'`, `'e'`, `'i'`, `'o'` and
    `'u'`, and `false` for anything else.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

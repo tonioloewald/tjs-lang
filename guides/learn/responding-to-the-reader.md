@@ -295,3 +295,10 @@ More to try:
   a `message`, set in the handler.
 - Real traffic lights in some countries show red and amber together before green. Add that
   step to `nextLight`, and to its test, before you touch the button.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

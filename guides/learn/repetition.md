@@ -285,3 +285,10 @@ Then:
    line, two on the second, and so on. Show it in a `pre`, and test `triangle(3)`.
 3. Write `doublings(target: 0)` with `while`: how many times must you double 1 before it
    reaches `target` or more? Test it with 1, 2 and 1,000.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

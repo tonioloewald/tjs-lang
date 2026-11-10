@@ -359,3 +359,10 @@ More to try:
   it reads `cost(quantity, price)`. 4 × 2.5 is the same as 2.5 × 4, so you might expect
   nothing to notice. Something does. Read the message: which parameter refused which value,
   and which example told TJS it was wrong?
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

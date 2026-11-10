@@ -293,3 +293,10 @@ More to try:
 - Write `isTeenager(age: 0)`, true from 13 to 19. Write the tests first, and test both edges
   from both sides: 12, 13, 19 and 20. (You will need `&&` from Decisions; for now, two
   comparisons joined by `&&` both have to be true.)
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

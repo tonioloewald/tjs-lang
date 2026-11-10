@@ -295,3 +295,10 @@ Then:
    with `for … of` and a `let`. Which do you find easier to read?
 4. Make a list of five scores, sort it highest first (hint: `(a, b) => b - a`), and show the
    top three with `slice(0, 3)`. Look up what `slice` does by trying it at a console.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

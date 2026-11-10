@@ -241,3 +241,10 @@ tenth item of a list that has three.
 3. Start a `let total = 0`, add three prices to it with `+=`, and test the total.
 4. Make `const first = 'Ada'` and `const last = 'Lovelace'`, and build the full name from them
    with a space in between. Test that it has 12 characters.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```

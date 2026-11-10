@@ -400,3 +400,10 @@ And some bugs to find, each starting with a test:
 - Make `1÷0=` show an error. One way: give the calculator an `error` fact that the display
   shows when it is set, and that only `C` clears. Decide what every other key should do while
   it is showing, and test those decisions too.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+```
