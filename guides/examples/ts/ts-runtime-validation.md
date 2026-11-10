@@ -49,6 +49,7 @@ console.log('10 / 0 =', divide(10, 0))
 // A bad argument is rejected: divide returns an error instead of running.
 // tsc types the result as number, so widen it to say what can come back.
 const result: number | Error = divide('ten' as any, 2)
+console.log('divide("ten", 2) =', result)
 
 if (isMonadicError(result)) {
   console.log('message:', result.message)

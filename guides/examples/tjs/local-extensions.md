@@ -106,6 +106,7 @@ Nothing is added to any prototype, and the call costs the same as calling a func
 
 - **Methods use `this`**, as they would in a class, so write them with method syntax:
 
+  <!-- tjs-doc: expect-error -->
   ```javascript
   extend Array {
     last() { return this[this.length - 1] }  // correct

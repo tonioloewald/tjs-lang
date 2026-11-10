@@ -46,7 +46,7 @@ function findCovers({ song = 'Yesterday', artist = 'Beatles' }) {
 
 `httpFetch`, `llmPredict` and `Schema` need no import: they are built into AJS. `httpFetch` and
 `llmPredict` are atoms, the VM's operations, and an atom takes its inputs by name in a single
-object (`httpFetch({ url })`, never `httpFetch(url)`).
+object (`httpFetch({ url })`, never `httpFetch(url)` (refused)).
 
 ## What to notice
 

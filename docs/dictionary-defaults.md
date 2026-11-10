@@ -19,6 +19,12 @@ console.log(place({ x: 'five' }).message)
 // Expected integer for '…place.args.x', got string
 ```
 
+The result keeps the caller's keys in the caller's order and appends the filled-in
+defaults after them, which is why `{ y: 7 }` comes back as `{"y":7,"x":0}`. Order carries
+no meaning. The last call shows a failed check: `x: 0` declares an integer, so `'five'` is
+refused, and the call returns an error object instead of running the body. (The `…` stands
+for the file and line, which the real message starts with.)
+
 In JavaScript the same signature is all or nothing: `place({ x: 5 })` returns `{ x: 5 }`
 and `y` is `undefined`. This chapter is the reference for the TJS rule. For a guided tour
 with tests, see the [Dictionary Defaults example](/dictionary-defaults-example/).
@@ -49,14 +55,21 @@ A parameter declared `name = { … }` with an object literal:
 
 1. **Fills absent members** from the default, recursively through nested objects.
 2. **Checks present members** against the default, which is also an example of the
-   member's type (`x: 0` means "an integer, defaulting to 0").
+   member's type. `x: 0` means "an integer, defaulting to 0"; write `ratio: 1.0` for a
+   member that takes any number. The default is read the way any
+   [parameter example](/TJS-SYNTAX/#parameters) is.
 3. **Keeps keys the default does not mention.**
 4. **Rejects `__proto__`, `constructor` and `prototype`** as keys.
-5. **Never writes into the caller's object.** A complete argument is returned as is; a
-   partial one produces a new object.
+5. **The merge never writes into the caller's object.** A complete argument is passed to
+   the function as is; a partial one produces a new object. Your function body can still
+   change a complete argument, as in JavaScript (see
+   [A complete argument is passed as is](#a-complete-argument-is-passed-as-is)).
 
-A failed check returns a `MonadicError` naming the member (`place.args.x`); it is not
-thrown. The rest of this chapter covers each rule and its edge cases.
+A failed check is not thrown. The function body does not run, and the call returns a
+`MonadicError` whose message names the member (`place.args.x`). Test for one with
+`isMonadicError(result)`, which every `.tjs` file can call without an import; see
+[Errors](/TJS-SYNTAX/#errors). The rest of this chapter covers each rule and its edge
+cases.
 
 It works on any function form: declarations, arrow functions and class methods.
 
@@ -67,8 +80,9 @@ It works on any function form: declarations, arrow functions and class methods.
 | nothing, or `undefined`, for the whole argument | a fresh copy of the whole default   |
 | an object without the key          | the member's default                             |
 | the key with the value `undefined` | the member's default                             |
+| the key with the value `null`      | an error, unless the member's default is `null` or `undefined` |
 | the key with any other value       | that value, checked against the default's type   |
-| `null` for the whole argument      | an error: `null` is a value, not an absence      |
+| `null`, or any non-object (a number, a string, an array), for the whole argument | an error at the parameter: `null` is a value, not an absence |
 
 Falsy values count as values: `0`, `''` and `false` win over the default. `null` is never
 quietly replaced by a default, because doing so would hide a caller's bug.
@@ -85,7 +99,8 @@ console.log(JSON.stringify(open()))                    // {"parent":null,"retrie
 console.log(JSON.stringify(open({ parent: 'root' })))  // {"parent":"root","retries":3}
 console.log(open({ storage: new Map() }).storage.size) // 0: any value is accepted
 console.log(JSON.stringify(open({ retries: 0 })))      // {"retries":0,"parent":null}
-console.log(open(null).message)                        // the argument itself is null
+console.log(open(null).message)
+// Expected object for '…open.opts', got null
 ```
 
 (`storage` is missing from the `JSON.stringify` output only because `JSON.stringify` omits
@@ -104,8 +119,10 @@ function move(args = { pos: { x: 0, y: 0 }, label: '' }) {
 console.log(JSON.stringify(move({ pos: { x: 5 } })))
 // {"pos":{"x":5,"y":0},"label":""}
 
-console.log(move({ pos: { x: 'five' } }).message)   // names args.pos.x
-console.log(move({ pos: null }).message)            // pos must be an object
+console.log(move({ pos: { x: 'five' } }).message)
+// Expected integer for '…move.args.pos.x', got string
+console.log(move({ pos: null }).message)
+// Expected object for '…move.args.pos', got null
 
 // Filled-in defaults are fresh on every call: changing one cannot change the next.
 const first = move({ label: 'a' })
@@ -129,9 +146,13 @@ console.log(JSON.stringify(tag({ tags: ['a', 'b'] })))    // {"tags":["a","b"],"
 console.log(isMonadicError(tag({ tags: ['ok', 42] })))    // true: 42 is not a string
 ```
 
+An empty array default (`tags: []`) has no element to check against, so it accepts an
+array of anything. Give it an example element, as `['']` above, to check the elements.
+
 Because arrays are not merged, an object inside an array is not filled in either. With a
 default of `{ points: [{ x: 0, y: 0 }] }`, every point a caller passes must have both `x`
-and `y`.
+and `y`. The error for a point that lacks one names only the array, and currently reads
+`Expected array of object for '…points', got array of object`.
 
 ## Excess keys pass through
 
@@ -159,12 +180,12 @@ function sized(opts = { w: 100, h: 100 }) { return opts }
 sized({ widht: 5 })
 `
 for (const d of lint(source).diagnostics) console.log(d.rule, d.message)
-// dict-default-excess-key 'widht' is not a member of sized's dictionary parameter — …
+// dict-default-excess-key 'widht' is not a member of sized's dictionary parameter — check
+// the spelling (it is passed through, so it will have no effect)
 ```
 
 A payload built elsewhere and passed in a variable, or one containing a spread, is not
-checked. `tjs check` does not run lint rules, so call `lint` yourself or through your
-editor integration.
+checked. `tjs check` does not run lint rules, so call `lint` from `tjs-lang/lang` yourself.
 
 > **Where TJS diverges from WebIDL**
 >
@@ -182,21 +203,16 @@ editor integration.
 > caller forwards its own options, one object goes to two functions, a component spreads
 > its props. Deleting the caller's data there is not normalisation, it is loss.
 >
-> TJS stripped excess keys in 0.12.0 and changed in 0.13.0, for three reasons:
->
-> 1. **The loss was silent.** It was reported once per call site in the flight recorder,
->    not at the call, so the second call that lost data said nothing.
-> 2. **Nothing else in TJS removes or rejects an excess key.** Shape checks on `:`
->    parameters and `Type` checks both accept them (see [Type identity](/type-identity/)).
-> 3. **TypeScript cannot express the closed type it was enforcing.** TypeScript's
->    excess-property check applies only to a fresh object literal (pass the same object
->    through a variable and it is accepted), and there is no `Exact<T>`. A runtime rule
->    stricter than anything the matching type system can state is one users cannot
->    reason about.
+> Two more reasons. **Nothing else in TJS removes or rejects an excess key**: shape checks
+> on `:` parameters and `Type` checks both accept them (see [Type identity](/type-identity/)).
+> And **TypeScript cannot express a closed type**: its excess-property check applies only
+> to a fresh object literal, and there is no `Exact<T>`, so a stricter runtime rule would
+> be one TypeScript users could not reason about. (TJS 0.12 did strip excess keys; the
+> [CHANGELOG](/CHANGELOG/) entry for 0.13.0 records the reversal.)
 >
 > A dictionary default is therefore not a sanitiser. If you need exactly the declared
-> keys, strip them yourself: `const clean = ({ x, y }) => ({ x, y })`. The security
-> boundary for untrusted data is the VM's capability membrane, not a parameter default.
+> keys, strip them yourself: `const clean = ({ x, y }) => ({ x, y })`. Untrusted data
+> belongs in an [AJS](/DOCS-AJS/) sandbox, not behind a parameter default.
 
 ## Prototype keys are rejected
 
@@ -216,37 +232,53 @@ console.log({}.polluted)                      // undefined
 
 ## Defaults must be literals
 
-Every member of the default must be a literal: a number, a quoted string, `true`, `false`,
-`null`, `undefined`, or an array or object literal made of those. A function call, a
-variable, `new`, a template literal, a getter or a computed key is a compile error:
+Every member of the default must be a literal: a number literal (a negative one such as
+`-1` is fine), a quoted string, `true`, `false`, `null`, `undefined`, or an array or object
+literal made of those. A function call, a variable, `new`, a template literal or a getter
+is a compile error. So are `NaN` and `Infinity`, which are variables in JavaScript, not
+literals:
 
 ```text
 function stamp(opts = { at: Date.now(), by: '' }) { … }
 
-Dictionary default for 'stamp.opts.at' must be a pure literal — member 'at' is not a
+Dictionary default for '…stamp.opts.at' must be a pure literal — member 'at' is not a
 clonable literal value. Compute impure values inside the function body, or use a
-colon-form (required) parameter.
+colon-form (required) parameter. For JavaScript's atomic default, wrap it in
+LegacyDefault(…).
 ```
 
-The reason is that JavaScript evaluates a default once per call, while TJS builds the merge
-from the declaration. For a literal the two are indistinguishable; for `Date.now()` they
-would not be. Compute such values in the body:
+(The colon form is described below, under "`=`, `:` and a typed default".)
+
+The reason is how the merge is built. The transpiler writes the merge code for each
+signature when it compiles the file, with the default's values copied into that code as
+literals. There is nowhere in that code for a value that has to be computed on each call,
+so the compiler refuses one rather than computing it at the wrong time.
+
+Two cases are not caught yet, and give a wrong default instead of an error: a computed key
+(`{ [k]: 1 }` uses the name `k` as the key) and a call inside an array member
+(`{ at: [tick()] }` fills `[null]`). Do not write either.
+
+To compute a value on each call, give the member the default `undefined`, which accepts
+any value, and fill it in the body:
 
 ```tjs:inline
 let counter = 0
 
-function nextId(opts = { id: 0 }) {
-  return opts.id || ++counter    // computed in the body, on each call
+function nextId(opts = { id: undefined, prefix: 'id' }) {
+  const id = opts.id ?? ++counter    // computed in the body, on each call
+  return `${opts.prefix}-${id}`
 }
 
-console.log(nextId(), nextId(), nextId({ id: 42 }))   // 1 2 42
+console.log(nextId(), nextId(), nextId({ id: 0 }))   // id-1 id-2 id-0
 ```
 
-## A complete argument is returned as is
+## A complete argument is passed as is
 
 When the caller's object already has every declared member, and every member checks, the
 function receives **that object**: no copy is made, so supplying everything costs nothing
-beyond the check. When members are missing, the function receives a new object, and the
+beyond the check. Extra keys do not change this. The same goes for a nested object: in
+`move({ pos: { x: 1, y: 2 } })` the result's `pos` is the caller's `pos` object, even
+though the outer object is new. When members are missing, the function receives a new object, and the
 caller's object is left alone:
 
 ```tjs:inline
@@ -269,13 +301,18 @@ caller passed a complete one, as in plain JavaScript. Copy first if you need to 
 
 ## `=`, `:` and a typed default
 
-Three signatures put an object in a parameter, and only the first is a dictionary:
+Three signatures put an object in a parameter, and only the first is a dictionary. The
+third gives a parameter both a type and a default (`name: Type = value`); here `Point` is
+declared as `Type Point { example: { x: 0, y: 0 } }`.
 
 | Declaration                   | The argument  | Its members                                       |
 | ----------------------------- | ------------- | ------------------------------------------------- |
 | `opts = { retries: 3 }`       | optional      | each optional, filled from the default, checked   |
-| `opts: { retries: 3 }`        | required      | each required and checked (a shape)               |
+| `opts: { retries: 3 }`        | required      | each required and checked                         |
 | `p: Point = { x: 1, y: 2 }`   | optional      | if passed, must be a whole `Point`; not merged    |
+
+"Each required and checked" means the object must have every listed member, each of the
+listed type.
 
 The [example chapter](/dictionary-defaults-example/) runs all three side by side.
 
@@ -310,11 +347,16 @@ console.log(f(5, [1]))    // {"x":5,"list":[1]}
 A default that names a variable (`opts = shared`) is not an object literal either, so it is
 not a dictionary: a caller's object replaces it whole.
 
+Nor is a destructured parameter. `function d({ a, b } = { a: 1, b: 2 })` keeps
+JavaScript's all-or-nothing default, so `d({ a: 5 })` sees `b` as `undefined`. For
+per-member defaults, declare `opts = { a: 1, b: 2 }` and destructure in the body.
+
 ## Opting out: `LegacyDefault` and `!`
 
 To keep JavaScript's all-or-nothing default for one parameter, wrap the literal in
-`LegacyDefault`. A function marked `!` (validation off) also keeps JavaScript's default,
-along with turning off every other check in that function:
+`LegacyDefault`. A `!` at the start of the parameter list turns validation off for the
+whole function (see [Safety markers](/TJS-SYNTAX/#safety-markers)); such a function also
+keeps JavaScript's default, along with skipping every other check:
 
 ```tjs:inline
 function legacy(opts = LegacyDefault({ x: 0, y: 0 })) {
@@ -330,8 +372,9 @@ console.log(fast({ x: 5 }))       // {"x":5}
 console.log(fast({ x: 'five' }))  // {"x":"five"}: nothing is checked
 ```
 
-`LegacyDefault` is a named escape, like `LegacyDate` and `DangerousLegacyEquals` (see
-[TJS syntax](/TJS-SYNTAX/)): it marks one site, and it is easy to find in review.
+`LegacyDefault` is one of TJS's [named escapes](/TJS-SYNTAX/#named-escapes): each brings
+back one JavaScript behaviour at one site, under a long name that is easy to find in
+review.
 
 ## Which files get dictionary defaults
 
@@ -342,17 +385,18 @@ wherever the same source must keep its JavaScript meaning:
 | ---------------------------------------------- | ----------------------------- |
 | a `.tjs` file                                  | dictionary                    |
 | a `.js` file, or `tjs(src, { dialect: 'js' })` | JavaScript's atomic default   |
-| a file starting with `TjsCompat`               | JavaScript's atomic default   |
-| TypeScript converted with `fromTS`             | JavaScript's atomic default, written as `LegacyDefault({ … })` |
-| converted TypeScript marked `/* @tjs TjsStrict */` | dictionary                |
+| a `.tjs` file whose first line is the `TjsCompat` directive | JavaScript's atomic default |
+| TypeScript converted with `fromTS` (or `tjs convert`) | JavaScript's atomic default, written as `LegacyDefault({ … })` |
+| converted TypeScript marked with the comment `/* @tjs TjsStrict */` | dictionary  |
 
-Where the rule is off, the purity restriction is off too: `args = { at: Date.now() }` is
-legal JavaScript and stays legal. Converting TypeScript writes `LegacyDefault` explicitly,
+`TjsCompat` and `TjsStrict` are described under [TJS syntax](/TJS-SYNTAX/). Where the rule
+is off, the literal-only restriction is off too: `args = { at: Date.now() }` is legal
+JavaScript and stays legal. Converting TypeScript writes `LegacyDefault` explicitly,
 so a converted file keeps its behaviour when it later becomes native `.tjs`.
 
-This is the one place where the same characters mean something different in JavaScript and
-in TJS. That is allowed because choosing a `.tjs` file is the opt-in, as it is for `==`;
-see [Principles](/PRINCIPLES/).
+The same characters mean something different in JavaScript and in TJS here, as they do for
+`==` (which in TJS does not coerce types). That is allowed because choosing a `.tjs` file
+is the opt-in; see [Principles](/PRINCIPLES/).
 
 ## What TypeScript callers see
 
@@ -381,11 +425,14 @@ Inside the function every member is present, because the merge has filled them.
 
 The transpiler emits merge-and-check code specialised to each signature, with the
 default's members inlined as fresh literals, so no shared template object exists to be
-corrupted. Three invariants hold, and `src/lang/dict-defaults.test.ts` tests them: the merge
-never writes into the caller's object; no result shares a mutable part with another call's
-result; a complete argument is returned by identity, with no allocation. Measured when it
-shipped, this was faster than a careful hand-written merge that checks nothing.
+corrupted. Three invariants hold, and
+[`src/lang/dict-defaults.test.ts`](https://github.com/tonioloewald/tjs-lang/blob/main/src/lang/dict-defaults.test.ts)
+tests them: the merge never writes into the caller's object; no result shares a mutable
+part with another call's result; a complete argument is returned by identity, with no
+allocation. Measured when it shipped, a complete argument took about 91 ns and a partial
+one about 73 ns, against about 276 ns for a careful hand-written merge that does no
+type checking.
 
 The design history (the spikes, the benchmarks against hand-written merges, the staged
-rollout and the resolved open questions) is in this file's git history up to commit
-`47303274`.
+rollout and the resolved open questions) is in the
+[previous version of this page](https://github.com/tonioloewald/tjs-lang/blob/47303274/docs/dictionary-defaults.md).

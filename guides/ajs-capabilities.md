@@ -10,16 +10,36 @@ own without opening a hole in the sandbox.
 Two words carry the whole chapter:
 
 - An **atom** is an operation an agent calls by name, such as `httpFetch({ url })`. It declares
-  the inputs it takes, what it returns, and what it costs in fuel. The VM ships about fifty, and
-  you can add more.
+  the inputs it takes, what it returns, and what it costs in fuel. The VM ships about fifty core
+  atoms, plus six battery atoms, and you can add more.
 - A **capability** is a host function that an atom calls to reach the world: your `fetch`, your
   store, your model client. You pass capabilities to each run, in `capabilities`.
 
-An agent never sees a capability. It calls `httpFetch`; the atom checks the request, calls the
-`fetch` capability you passed for this run, and copies the answer back in as plain data. With no
-`fetch` capability, `httpFetch` uses the built-in client, which fetches nothing unless the run
-names the domains it may reach. With no `llm` capability, `llmPredict` fails with
-`Capability 'llm.predict' missing`.
+Three more terms recur:
+
+- **Fuel** is the run's work budget. Every atom and every expression step spends some, and the
+  run stops with `Out of Fuel` when it is gone. A run gets 1000 by default; a `storeGet` costs 5,
+  an `httpFetch` 5 and an `llmPredict` 100. The full table is in
+  [What a run costs](/DOCS-AJS/#what-a-run-costs).
+- The **guest** is the agent: its code and every value it holds.
+- The **boundary** is the copy that every value crossing between guest and capability goes
+  through, in both directions. An atom tagged `'io'` (the default) puts its inputs and its return
+  through it.
+
+An agent never sees a capability. A call to an IO atom goes like this:
+
+1. The agent calls the atom with named inputs: `httpFetch({ url })`.
+2. The VM checks the call's quota and charges its fuel.
+3. **Outbound copy.** The inputs are copied out of the guest and checked against the atom's
+   input schema.
+4. The atom's body runs and calls the capability you passed for this run.
+5. **Inbound copy.** Whatever the capability returns is copied back in as plain data and checked
+   against the atom's output schema.
+6. The agent gets the copy.
+
+When a capability is absent, the atom decides what happens. With no `fetch`, `httpFetch` uses
+the built-in client, which fetches nothing unless the run names the domains it may reach. With no
+`llm`, `llmPredict` fails with `Capability 'llm.predict' missing`.
 
 ```javascript
 import { transpile } from 'tjs-lang/lang'
@@ -34,6 +54,7 @@ const source = `function lookup({ id = 'u1' }) {
 const data = new Map([['user:u1', { name: 'Ada', role: 'admin' }]])
 
 const vm = new AgentVM()
+// atoms: vm.atoms lets the transpiler check every atom call (see Registering atoms)
 const { ast } = transpile(source, { atoms: vm.atoms })
 const run = await vm.run(ast, { id: 'u1' }, {
   fuel: 1000,
@@ -44,41 +65,48 @@ const run = await vm.run(ast, { id: 'u1' }, {
     },
     llm: { predict: async (prompt) => `(model reply to ${prompt.length} chars)` },
   },
+  // request-scoped data for the VM: here, the only domains the built-in client may fetch
+  context: { allowedFetchDomains: ['api.example.com'] },
 })
 console.log(run.result)
 // → { user: { name: 'Ada', role: 'admin' }, summary: '(model reply to 61 chars)' }
 ```
 
+`vm.run` resolves to `{ result, error, fuelUsed, … }` and does not throw for anything the agent
+does; [What `vm.run` returns](/ajs-host/#what-vmrun-returns) has every field.
+
 Capabilities are passed per run, not per VM. One `AgentVM` can serve many agents, each with a
-different set.
+different set. This chapter refers to several other run options (`context`, `quotas`,
+`quotaUsed`, `timeoutOverrides`, `membraneMaxBytes`, `maxHeapBytes`); each is described in
+[Run options](/ajs-host/#run-options).
 
 ---
 
 ## The Capabilities interface
 
 These are the keys the built-in atoms look for. Any key you add is yours to read from your own
-atoms.
+atoms. In the table, `data` means plain data, as defined in
+[What a capability may return](#what-a-capability-may-return).
 
-| Key          | Signature                                                       | Used by                                                                            |
-| ------------ | --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `fetch`      | `(url, init) => Promise<data>`                                  | `httpFetch`                                                                        |
-| `store`      | `{ get, set, query?, queryPredicate?, vectorSearch? }`           | `storeGet`, `storeSet`, `storeQuery`, `storeQueryWhere`, `storeVectorSearch`       |
-| `llm`        | `{ predict(prompt, options?) => Promise<string>, embed? }`      | `llmPredict`                                                                       |
-| `agent`      | `{ run(agentId, input) => Promise<data> }`                      | `agentRun`, for an `agentId` that is neither an AST nor a stored procedure token   |
-| `code`       | `{ transpile(source) => ast }`                                  | `runCode`, `transpileCode`                                                         |
-| `xml`        | `{ parse(xml) => Promise<data> }`                               | `xmlParse`                                                                         |
-| `llmBattery` | `{ predict(system, user, tools?, responseFormat?), embed }`     | `llmPredictBattery`, `llmVision` (battery atoms)                                   |
-| `vector`     | `{ embed(text) => Promise<number[]> }`                          | `storeVectorize` (battery atom)                                                    |
+| Key          | Signature                                                   | Used by                                                                                                     | When absent                                                                              |
+| ------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `fetch`      | `(url, init) => Promise<data>`                              | `httpFetch`                                                                                                 | The built-in client, limited to `context.allowedFetchDomains`                            |
+| `store`      | `{ get, set, query?, queryPredicate?, vectorSearch?, … }`   | `storeGet`, `storeSet`, `storeQuery`, `storeQueryWhere`, `storeVectorSearch`; battery atoms `storeSearch`, `storeCreateCollection`, `storeVectorAdd` | A fresh in-memory store for each run                                                     |
+| `llm`        | `{ predict(prompt, options?) => Promise<string>, embed? }`  | `llmPredict`                                                                                                | `llmPredict` fails: `Capability 'llm.predict' missing`                                   |
+| `agent`      | `{ run(agentId, input) => Promise<data> }`                  | `agentRun`, for an `agentId` that is neither an AST nor a stored procedure token                            | `agentRun` with such an id fails: `Capability 'agent.run' missing`                       |
+| `code`       | `{ transpile(source) => ast }`                              | `runCode`, `transpileCode`                                                                                  | Both fail: `Capability 'code.transpile' missing. …`                                      |
+| `xml`        | `{ parse(xml) => Promise<data> }`                           | `xmlParse`                                                                                                  | `xmlParse` fails: `Capability 'xml.parse' missing`                                       |
+| `llmBattery` | `{ predict(system, user, tools?, responseFormat?), embed }` | `llmPredictBattery`, `llmVision` (battery atoms)                                                            | Those atoms fail                                                                         |
+| `vector`     | `{ embed(text) => Promise<number[]> }`                      | `storeVectorize` (battery atom)                                                                             | `storeVectorize` fails                                                                   |
 
-What each atom sends and returns is in the [Atom Reference](/ajs-atoms/). What follows is what
-your function receives.
+Every failure in the last column is an ordinary error the agent can catch. What each atom sends
+and returns is in the [Atom Reference](/ajs-atoms/). What follows is what your function
+receives.
 
 ### fetch
 
-`httpFetch({ url, method, headers, body, responseType })` admits the request first: the URL must
-be `http:` or `https:`, the method GET or HEAD unless the run allows more, and the headers from a
-closed list ([Fetch policy](/ajs-host/#fetch-policy) has the run options that widen them).
-Then it calls your function:
+`httpFetch({ url, method, headers, body, responseType })` admits the request, then calls your
+function:
 
 ```javascript
 fetch(url, {
@@ -95,31 +123,55 @@ a small object such as `{ ok, status, body }`; never the `Response` (see
 [What a capability may return](#what-a-capability-may-return)). A throw becomes an ordinary error
 the agent can catch, with your message.
 
-The built-in client (used when you pass no `fetch`) follows no redirects, sends no cookies, reads
-the body under the run's size cap, and fetches only the domains in the run's
-`context.allowedFetchDomains`. Your `fetch` replaces all of that, so it has to make the same
-decisions. [Writing a safe fetch capability](#writing-a-safe-fetch-capability) does.
+**The VM checks these whatever `fetch` you pass:**
+
+- The URL is `http:` or `https:`. A plain relative path (`/users/1`) is also handed to your
+  function when no allowlist is set, so decide what it means or refuse it.
+- The method is GET or HEAD, unless `context.allowedFetchMethods` adds more.
+- Every header name is on a closed list: `accept`, `accept-language`, `authorization`,
+  `cache-control`, `content-language`, `content-type`, the four `if-…` conditional headers,
+  `range`, `user-agent`, `x-api-key`, `x-request-id`, `x-correlation-id` and
+  `x-requested-with`. `context.allowedRequestHeaders` adds names.
+- The request depth (`context.requestDepth`) is below 10.
+- When `context.allowedFetchDomains` is set, the host is on it.
+
+**Your `fetch` owns everything else:** which hosts it reaches when no allowlist is set,
+redirects, cookies and other ambient credentials, how much of the body it reads, rate limits and
+retries, and what `responseType` means. The boundary still refuses a return over
+`membraneMaxBytes` (4MB by default), but only after your function has read it into memory.
+
+The built-in client makes those decisions like this: it follows no redirects and returns one as
+`{ redirect: true, status, location }` with `location` made absolute; it sends no cookies; it
+reads at most `membraneMaxBytes` of the body; it returns parsed JSON for a JSON content type or
+`responseType: 'json'`, a `data:` URL for `responseType: 'dataUrl'`, and text otherwise.
+[Writing a safe fetch capability](#writing-a-safe-fetch-capability) builds one that makes the
+same decisions. [Fetch policy](/ajs-host/#fetch-policy) has the run options in full.
 
 ### store
 
 ```javascript
 const store = {
-  get: async (key) => value, //            storeGet({ key })
-  set: async (key, value) => {}, //        storeSet({ key, value })
-  query: async (query) => [rows], //       storeQuery({ query }), optional; what `query` means is yours
-  queryPredicate: async ({ collection, predicate, limit }) => [rows], // storeQueryWhere, optional
-  vectorSearch: async (collection, vector, k, filter) => [docs], //    storeVectorSearch, optional
+  get: async (key) => value, //       storeGet({ key })
+  set: async (key, value) => {}, //   storeSet({ key, value })
+  // optional:
+  query: async (query) => [rows], //  storeQuery({ query }); what `query` means is yours
+  queryPredicate: async ({ collection, predicate, limit }) => [rows], // storeQueryWhere
+  vectorSearch: async (collection, vector, k, filter) => [docs], // storeVectorSearch passes no
+  //                                     filter; only the battery atom storeSearch passes one
 }
 ```
 
 Only `get` and `set` are required. `storeQuery` returns `[]` when your store has no `query`, and
-`storeVectorSearch` returns `[]` without `vectorSearch`. `storeQueryWhere` is the exception: it
-fails rather than return unfiltered rows, because a filter that silently does not filter is a
-data leak. Its `predicate` is a canonical verified predicate built with `canonicalizePredicate`
-from `tjs-lang/lang`; the store can evaluate it next to the data and cache on its `key`.
+`storeVectorSearch` returns `[]` without `vectorSearch`. `storeQueryWhere` is the exception: the
+agent calls `storeQueryWhere`, the VM calls your `queryPredicate`, and without one it fails
+(`Capability 'store.queryPredicate' missing …`) rather than return unfiltered rows, because a
+filter that silently does not filter is a data leak. Its `predicate` is a canonical verified
+predicate, built with `canonicalizePredicate` from `tjs-lang/lang`: a pure function in a
+normalized form, with a `key` that is the same for any two predicates that mean the same thing.
+The store can evaluate it next to the data, and cache results on that `key`.
 
-When you pass no `store`, each run gets its own in-memory store, discarded when the run ends.
-This agent runs in the page that way, so it counts one visit every time:
+When you pass no `store`, each run gets its own in-memory store, discarded when the run ends. So
+this agent, run without a store, always returns a count of 1, because every run starts empty:
 
 ```ajs
 function visits({ page = '/home' }) {
@@ -135,13 +187,20 @@ It returns `{ page: '/home', count: 1 }`. Pass a `store` and the count survives 
 ### llm
 
 `llmPredict({ prompt, options })` calls `llm.predict(prompt, options)` and must get a **string**
-back. Anything else fails output validation, which the agent can catch.
+back. Anything else, including `null`, fails output validation, which the agent can catch.
 
 `options` arrives as the agent wrote it, after the VM has checked it. Only these keys are
 admitted: `model`, `temperature`, `maxTokens`, `max_tokens`, `topP`, `top_p`, `stop`, `seed`,
 `responseFormat`, `tools`. Any other key fails the call (an agent cannot pass `apiKey` or
-`baseUrl` to your client). `responseFormat` and `tools` are checked as guest schemas before your
-function sees them. Map them to your provider's request yourself; nothing is forwarded for you.
+`baseUrl` to your client). `responseFormat` arrives in OpenAI's `response_format` shape, one of
+`{ type: 'text' }`, `{ type: 'json_object' }` or `{ type: 'json_schema', json_schema: { name,
+schema } }`, and its schema and any `tools` schemas have already been checked against the
+restricted schema dialect agents may use. Map them to your provider's request yourself; nothing
+is forwarded for you.
+
+`predict` receives no `AbortSignal`. When the run times out, or `llmPredict`'s own 120-second
+timeout passes, the agent stops waiting, but your request keeps going unless you bound it
+yourself, as the example does with `AbortSignal.timeout`:
 
 ```javascript
 const llm = {
@@ -156,9 +215,12 @@ const llm = {
         max_tokens: options.maxTokens ?? options.max_tokens,
         response_format: options.responseFormat,
       }),
+      signal: AbortSignal.timeout(120_000),
     })
+    if (!res.ok) throw new Error(`model server: HTTP ${res.status}`)
     const json = await res.json()
-    return json.choices[0].message.content // a string
+    // content is null when the model answers with tool calls: turn that into a string
+    return json.choices[0].message.content ?? ''
   },
 }
 ```
@@ -168,29 +230,42 @@ interface for your own atoms; no core atom calls it.
 
 ### agent
 
-`agentRun({ agentId, input })` runs a sub-agent. When `agentId` is an AST or a stored procedure
-token, the sub-agent runs inside the current run on the same fuel and needs no capability. Any
-other `agentId` (a name, a URL) goes to `agent.run(agentId, input)`, which receives copies of both.
-Return the sub-agent's result; if you return a `RunResult` from your own `vm.run`, the atom
-unwraps it and turns its `error` into an error in the caller.
+`agentRun({ agentId, input })` runs a sub-agent. When `agentId` is an AST, or a token returned
+by `storeProcedure` (see [Stored procedures](/ajs-atoms/#stored-procedures)), the sub-agent runs
+inside the current run on the same fuel and needs no capability. Any other `agentId` (a name, a
+URL) goes to `agent.run(agentId, input)`, which receives copies of both. Return the sub-agent's
+result. If you return the `RunResult` of your own `vm.run` (the `{ result, error, … }` object),
+the atom unwraps it and turns its `error` into an error in the caller.
 
 A new `vm.run` inside `agent.run` starts a fresh fuel budget and fresh quotas. To hold a quota
-across the nested run, pass the same `quotaUsed` object to both; see
+(a cap on calls per atom, such as `quotas: { llmPredict: 3 }`) across the nested run, pass the
+same `quotaUsed` counter object to both runs; see
 [Quotas across nested runs](/ajs-host/#quotas-across-nested-runs).
 
 ### code
 
 `runCode({ code, args })` and `transpileCode({ code })` let an agent compile AJS it wrote itself.
-Both need `code.transpile(source)`, which returns the AST. Source over 8KB is refused before it
-reaches you, because transpiling runs before fuel can stop it. Pass the VM's atoms so calls in
-the generated code are checked like any other:
+Both need `code.transpile(source)`, which returns the AST. Pass the VM's atoms so calls in the
+generated code are checked like any other:
 
 ```javascript
 const code = { transpile: (source) => transpile(source, { atoms: vm.atoms }).ast }
 ```
 
-`runCode`'s program shares the run's fuel, heap budget and capabilities, but sees only the `args`
-it is given. Leave `code` out and neither atom can run.
+This puts a parser back on the agent's path. `tjs-lang/vm-ast` has none, so that nothing an
+agent sends can reach parser code, and this capability runs the parser on source the agent
+chose. Source over 8KB is refused before it reaches you, because parsing runs before fuel can
+stop it; a run's `maxSourceBytes` can lower that cap but not raise it. Where a slow parse would
+hurt, run `transpile` in a worker. [Transpile where parsing is safe](/ajs-host/#transpile-where-parsing-is-safe)
+explains the trade-off.
+
+`runCode`'s program shares the run's fuel, its heap budget (`maxHeapBytes`, the bytes the agent
+may hold at once) and its capabilities, but sees only the `args` it is given.
+
+### xml
+
+`xmlParse({ str })` calls `xml.parse(str)` with the agent's string and returns what it resolves
+to, under the same rules as every other capability: plain data only, through the boundary.
 
 ### llmBattery and vector (the batteries)
 
@@ -199,30 +274,33 @@ for chat and embeddings, plus an in-memory key-value and vector store. The batte
 registered on the VM; the capabilities come from `getBatteries()`:
 
 ```javascript
-import { AgentVM, batteryAtoms } from 'tjs-lang/vm-ast'
+import { AgentVM, batteryAtoms } from 'tjs-lang/vm-ast' // also exported by tjs-lang/vm
 import { getBatteries } from 'tjs-lang/batteries'
 
 const vm = new AgentVM(batteryAtoms)
 const batteries = await getBatteries() // probes the local server once, then caches the audit
 
 // batteries = {
-//   llmBattery, // { predict(system, user, tools, responseFormat), embed } — null without a server
-//   vector, //     { embed } — undefined without a server
-//   store, //      key-value plus createCollection / vectorAdd / vectorSearch, always present
-//   models, //     what the audit found — null without a server
+//   llmBattery, // { predict(system, user, tools, responseFormat), embed }
+//   vector, //     { embed }
+//   store, //      key-value plus createCollection / vectorAdd / vectorSearch
+//   models, //     what the audit found
 // }
 const run = await vm.run(ast, args, { fuel: 1000, capabilities: batteries })
 ```
 
-`llmBattery` and `vector` are empty when no server answers, and always in a browser page served
-over HTTPS, which cannot call a local `http:` endpoint. The atoms that need them then fail with a
-"missing" error the agent can catch. `TJS_LLM_BASE_URL` picks the server; the setup guides are
-[MLX](/mlx-setup/) and [LM Studio](/lm-studio-setup/).
+`llmBattery` and `models` are `null`, and `vector` is `undefined`, only in a browser page served
+over HTTPS, which cannot call a local `http:` endpoint. The battery atoms then fail with a
+"missing" error the agent can catch. Anywhere else the capabilities are always present: when no
+server answers, `getBatteries()` logs that it could not connect and still returns them, and each
+call then fails at the connection, again as an error the agent can catch. `TJS_LLM_BASE_URL`
+picks the server; the setup guides are [MLX](/mlx-setup/) and [LM Studio](/lm-studio-setup/).
 
 `llmPredictBattery` returns the model's message object (`{ role, content, tool_calls }`), not a
 string; `llmPredict` returns a string. To use the battery atoms with your own backends, supply
 the same keys: `llmBattery.predict(system, user, tools, responseFormat)`, `vector.embed(text)`,
-and a `store` with `createCollection(name, schema, dimension)`, `vectorAdd(collection, doc)` and
+and a `store` with `createCollection(name, schema, dimension)` (`storeCreateCollection` always
+passes `undefined` for `schema`), `vectorAdd(collection, doc)` and
 `vectorSearch(collection, vector, k, filter)`.
 
 ---
@@ -238,8 +316,12 @@ built from what the VM reads, one value at a time, and only these values cross:
 
 Shared references and cycles are kept. Everything else is refused: functions, `Map`, `Set`, typed
 arrays, `ArrayBuffer`, `RegExp`, `Error`, class instances (including a `Response`), subclasses of
-`Array` or `Date`, and objects from another realm (an iframe, a `node:vm` context). A
-`JSON.parse(JSON.stringify(value))` round-trip turns any of those into plain data.
+`Array` or `Date`, and objects from another realm (an iframe, a `node:vm` context).
+
+Convert such a value yourself, field by field: a `Map` to an object or to an array of
+`[key, value]` pairs, an instance to the fields the agent needs. A
+`JSON.parse(JSON.stringify(value))` round-trip is not a fix. It loses data silently: a `Map` or
+`Set` becomes `{}`, a `Date` becomes a string, and functions vanish.
 
 A refused return is a bug in the host, so it **ends the run**, even inside the agent's `try`. A
 return that is merely too large (over `membraneMaxBytes`, 4MB by default) or too deeply nested is
@@ -288,6 +370,46 @@ change.
 
 ---
 
+## Which failures an agent can catch
+
+A failure is either catchable, so the agent's `try`/`catch` sees it as a string, or it **ends the
+run**: nothing after it runs, not even a `catch` block, and the host gets it as `run.error`. The
+rule is who caused it. The world's failures are catchable; bugs, in the agent or in the host, end
+the run, because a program that could catch a bug could loop on it.
+
+| Failure                                                       | Whose fault | Result         | Message, for an atom `forecast`                                    |
+| ------------------------------------------------------------- | ----------- | -------------- | ------------------------------------------------------------------ |
+| The capability throws                                         | the world   | catchable      | your message, such as `HTTP 503`                                   |
+| The atom's body throws (a missing capability, a bad value)    | the world   | catchable      | the body's message, such as `Capability 'weather' missing`         |
+| The return is too large or too deeply nested                  | the world   | catchable      | `… the value exceeds the 4194304-byte membrane budget`             |
+| The return does not match the output schema                   | the world   | catchable      | `Output validation failed for 'forecast'`                          |
+| The atom's own timeout passes                                 | the world   | catchable      | `Atom 'forecast' timed out`                                        |
+| A quota is used up                                            | the world   | catchable      | `Quota exceeded for 'forecast': 0 calls allowed`                   |
+| An IO atom's input does not match its input schema            | the agent   | ends the run   | `'forecast': its input does not have the shape the atom declares`  |
+| The capability returns a value that is not plain data         | the host    | ends the run   | `… capability return contains a Map; only plain data (and Date) crosses …` |
+| Fuel runs out, or the run's timeout passes                    | the budget  | ends the run   | `Out of Fuel`, `Execution timeout after …`                         |
+
+In AJS, a caught error is a string, the error's message. This agent asks for a page its host does
+not allow and catches the refusal:
+
+```ajs
+function tryFetch({ url = 'https://not-on-the-list.example/' }) {
+  try {
+    let page = httpFetch({ url })
+    return { page }
+  } catch (err) {
+    return { failed: err }
+  }
+}
+```
+
+It returns `{ failed: 'Fetch blocked: …' }`, with a message that says why: no allowlist was
+configured, or the domain is not on it. [Catchable failures and run-ending refusals](/ajs-host/#catchable-failures-and-run-ending-refusals)
+covers the host's side, and [Catchable, and run-ending](/DOCS-AJS/#catchable-and-run-ending) the
+agent's.
+
+---
+
 ## Writing an atom
 
 `defineAtom` takes five arguments:
@@ -308,10 +430,45 @@ const atom = defineAtom(
 | Option          | Default  | Meaning                                                                                                    |
 | --------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
 | `cost`          | `1`      | Fuel charged per call. A number, or `(input, ctx) => number` computed from the resolved input.             |
-| `timeoutMs`     | `1000`   | Wall-clock limit per call, in milliseconds. `0` means none. A host can override it per run.                |
-| `effects`       | `'io'`   | `'io'` puts the atom's inputs and return through the capability boundary. `'pure'` opts out.               |
+| `timeoutMs`     | `1000`   | Wall-clock limit per call, in milliseconds. `0` means none. Core atoms set their own (`httpFetch` 30 s, `llmPredict` 120 s), and a host can override any atom's per run with `timeoutOverrides`. |
+| `effects`       | `'io'`   | `'io'` puts the atom's inputs and return through the boundary. `'pure'` opts out.                          |
 | `resolveInputs` | `true`   | The VM evaluates the agent's inputs to values before calling you. `false` for atoms that take steps.       |
 | `docs`          | `''`     | A description, shown by `vm.getTools()` and in tooling.                                                    |
+
+The VM checks the output schema on every call. It checks the input schema, through the outbound
+copy, **only for IO atoms**. For a pure atom the input schema is what the transpiler and
+`vm.getTools()` use, but at run time the body gets whatever the AST holds (a hand-built AST, or
+source transpiled without `atoms`, can pass anything), so a pure atom checks its own inputs.
+
+### What an atom can use
+
+The implementation receives its input and `ctx`, the run's context:
+
+- **`ctx.capabilities`** is the object the host passed to `vm.run`, exactly as passed. The VM
+  never copies or writes it. Check for your key and throw a clear error when it is missing.
+- **`storeOf(ctx)`** returns the host's `store`, or the run's own in-memory store when there is
+  none. Use it instead of `ctx.capabilities.store`, which is `undefined` in that case.
+- **`ctx.signal`** is the run's `AbortSignal`. It aborts when the run times out, when the host
+  cancels it, and when the run ends while your call is still in flight (after this atom's own
+  timeout, for instance). Pass it to `fetch` and to anything else that can be cancelled.
+- **`ctx.error`** is how errors travel. An error in AJS is a value, not an exception: a failing
+  step sets `ctx.error`, and the steps after it skip until a `catch` takes it. A throw from your
+  body becomes such an error. Child scopes share `ctx.error` with the context they came from, so
+  an atom that runs steps reads their failure there.
+- **`egressValue(ctx, op, value)`** copies a guest value out of the run, charged and capped at
+  `membraneMaxBytes`. An IO atom with `resolveInputs: false` must pass everything it hands a
+  capability through it, because the VM's automatic copy happens only for resolved inputs.
+- **`createChildScope(ctx)` / `releaseScope(scope)`** give steps a scope of their own. Always
+  release in a `finally`.
+
+Run steps only on the `ctx` you received or on a `createChildScope(ctx)` scope, never on a copy
+such as `{ ...ctx }`. With `resolveInputs: true` a copy is refused by name. With
+`resolveInputs: false`, the case for step-taking atoms, nothing stops you, and a copy loses
+the steps' errors: a step that fails sets `error` on the copy, and the run carries on as if it
+had succeeded.
+
+An atom must also be non-blocking: no long synchronous work, because no timeout can interrupt
+it. Do heavy computation in a worker, and await it.
 
 ### A pure atom
 
@@ -323,8 +480,10 @@ const slugify = defineAtom(
   'slugify',
   s.object({ text: s.string }),
   s.string,
-  async ({ text }) =>
-    text.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+  async ({ text }) => {
+    if (typeof text !== 'string') throw new Error('slugify: text must be a string')
+    return text.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  },
   { effects: 'pure', docs: 'Turn a title into a URL slug' }
 )
 ```
@@ -332,15 +491,24 @@ const slugify = defineAtom(
 An agent calls it like any atom, with named inputs: `let slug = slugify({ text: title })`
 returns `'hello-world'` for `'Hello, World!'`.
 
+The regexes here run on the host's engine over a string the agent chose, and that is fine: they
+are your code, and simple enough to run in linear time. Keep any regex in an atom's body that
+way, because a synchronous match cannot be interrupted by a timeout. (The `pattern` ban on IO
+atom schemas, below, is about regexes the VM itself would run during validation.)
+
 Mark an atom `'pure'` only when all three hold: it reads no capability, it gives the same output
 for the same input, and it has no side effects. Two things depend on the tag:
 
 - **The boundary.** A pure atom's return is not copied. That is right for a value computed from
   data already inside the run, and wrong for anything from outside: a "pure" atom that returns a
-  `Map` hands the agent the live `Map`. Leave a host-data atom on the `'io'` default.
-- **Predicates.** A verified predicate (see `tjs-lang/lang`'s predicate verifier) may call only
-  pure atoms. It reads the tag through `effectfulFromAtoms(vm.atoms)`, so an IO atom tagged pure
-  would let an impure predicate pass as verified.
+  `Map` puts that `Map` into the agent's state and the run's result, without the shape and size
+  checks the boundary would have made. Leave a host-data atom on the `'io'` default.
+- **Predicates.** A verified predicate may call only pure atoms, so an IO atom tagged pure would
+  let an impure predicate pass as verified.
+
+> Verified predicates are small pure functions that `tjs-lang/lang` certifies and compiles to
+> native JavaScript, for uses such as `storeQueryWhere` filters. The verifier reads atom tags
+> through `effectfulFromAtoms(vm.atoms)`.
 
 ### An IO atom over a REST API
 
@@ -397,10 +565,10 @@ const { ast } = transpile(
   { atoms: vm.atoms }
 )
 const run = await vm.run(ast, {}, { fuel: 100, capabilities: { weather } })
-// run.result → { daily: [{ date: '2026-11-06', maxC: 6.8 }, { date: '2026-11-07', maxC: 8.6 }] }
+// run.result → { daily: [{ date: '…', maxC: 6.8 }, { date: '…', maxC: 8.7 }] }  (live data)
 ```
 
-What the VM does around that call, in order:
+What the VM does around that call follows the steps at the top of this chapter:
 
 1. **Quota and fuel.** A `quotas` entry for `forecast` is checked first; then `cost` is charged.
    The cost function sees the resolved input **before** it is checked against the schema, which
@@ -408,7 +576,8 @@ What the VM does around that call, in order:
 2. **The outbound copy.** The input is copied out of the run (the copy is charged too) and
    validated against the input schema. An input that does not match is the agent's bug, so the
    run ends: `'forecast': its input does not have the shape the atom declares`.
-3. **The call**, under `timeoutMs`.
+3. **The call**, under `timeoutMs`. An error the body throws, such as the `days` check, is
+   catchable.
 4. **The inbound copy.** The return crosses the boundary under the rules above, then is checked
    against the output schema. A mismatch there is the world's doing (an API that changed), so the
    agent can catch it: `Output validation failed for 'forecast'`.
@@ -416,14 +585,21 @@ What the VM does around that call, in order:
 Two rules for IO atoms are enforced when you call `defineAtom`:
 
 - **An input schema is required.** Write `s.object({})` for an atom that takes nothing.
-- **No `pattern` or `patternProperties` in it.** Validating would run that regex on the host's
-  regex engine over strings the agent chose. Check the format in the atom's body instead.
+- **No `pattern` or `patternProperties` in it.** The VM validates the schema itself, before your
+  body runs and outside fuel, and that would compile the pattern on the host's regex engine and
+  run it over strings the agent chose. Check the format in the atom's body instead.
 
 ### A step-taking atom
 
-Control atoms (`if`, `while`, `try`) take **steps**, not values: lists of AST nodes to run. Such
-an atom must set `resolveInputs: false`, or the VM evaluates the steps as data before you see
-them. With it off, you resolve the value inputs yourself with `resolveValue(value, ctx)`.
+Control atoms (`if`, `while`, `try`) take **steps**, not values: lists of AST nodes to run. You
+write one to add a new kind of control flow, such as a retry loop, for hosts that build agents
+as ASTs. AJS source cannot pass steps to an atom, so a step-taking atom is called from the
+builder (`vm.Agent`, the fluent API that writes ASTs; see
+[Builder API](/DOCS-AJS/#builder-api)) or from a hand-built AST.
+
+Such an atom must set `resolveInputs: false`, or the VM evaluates the steps as data before you
+see them. With it off, you resolve the value inputs yourself with `resolveValue(value, ctx)`.
+Being pure, it also gets no input check from the VM, so it checks `attempts` itself.
 
 This one runs its steps up to `attempts` times, until a pass ends without an error:
 
@@ -442,7 +618,7 @@ const retry = defineAtom(
       const scope = createChildScope(ctx) // variables set by the steps stay in here
       try {
         await seq.exec({ op: 'seq', steps: step.steps }, scope)
-        if (!ctx.error) return
+        if (!ctx.error) return // the scope shares ctx.error
         if (i < attempts) ctx.error = undefined // clear it and go again
       } finally {
         releaseScope(scope) // always: an unreleased scope stays counted against the heap
@@ -452,10 +628,14 @@ const retry = defineAtom(
   // pure: it touches no capability (the steps it runs are charged as they run)
   { resolveInputs: false, effects: 'pure', timeoutMs: 0, cost: 1 }
 )
-```
 
-AJS source cannot pass steps to an atom, so a step-taking atom is called from the builder (or a
-hand-built AST):
+// A test atom: fails on its first two calls, then returns 3.
+let calls = 0
+const flaky = defineAtom('flaky', s.object({}), s.number, async () => {
+  if (++calls <= 2) throw new Error(`flaky: failure ${calls}`)
+  return 3
+})
+```
 
 ```javascript
 const vm = new AgentVM({ retry, flaky })
@@ -467,31 +647,21 @@ const ast = vm.Agent.retry({
   .as('result')
   .return(s.object({ result: s.number }))
   .toJSON()
+
+const run = await vm.run(ast, {}, { fuel: 100 })
+// run.result → { result: 3 }
 ```
 
-With a `flaky` atom that fails twice and then returns 3, the run's result is `{ result: 3 }`. The
-builder writes a v1 AST, where a bare string such as `'n'` is a variable reference when a
-variable by that name exists. Clearing `ctx.error` cannot revive a run that the boundary ended:
-the next step sees the halt and stops.
+`flaky` fails twice, the third pass succeeds, and the run's result is `{ result: 3 }`. With
+`attempts: 2` the run ends with `flaky: failure 2`.
 
-### What else an atom can use
+Watch the strings. The builder writes a v1 AST, where a bare string is a variable reference when
+a variable by that name is in scope, and a literal otherwise. `value: 'n'` stores the value of
+`n`; `key: 'answer'` stays the literal `'answer'` only because no variable named `answer`
+exists. (The transpiler writes v2 ASTs, where a bare string is always a literal.)
 
-- **`ctx.capabilities`** is the object the host passed to `vm.run`, exactly as passed. The VM
-  never copies or writes it. Check for your key and throw a clear error when it is missing.
-- **`storeOf(ctx)`** returns the host's `store`, or the run's own in-memory store when there is
-  none. Use it instead of `ctx.capabilities.store`, which is `undefined` in that case.
-- **`ctx.signal`** is the run's `AbortSignal`. It aborts when the run times out, when the host
-  cancels it, and when the run ends while your call is still in flight (after this atom's own
-  timeout, for instance). Pass it to `fetch` and to anything else that can be cancelled.
-- **`egressValue(ctx, op, value)`** copies a guest value out of the run, charged and capped at
-  `membraneMaxBytes`. An IO atom with `resolveInputs: false` must pass everything it hands a
-  capability through it, because the VM's automatic copy happens only for resolved inputs.
-- **`createChildScope(ctx)` / `releaseScope(scope)`** give steps a scope of their own. Run steps
-  on the context you received or on such a scope; running them on a copy of `ctx` is refused.
-  Always release in a `finally`.
-
-An atom must also be non-blocking: no long synchronous work, which no timeout can interrupt. Do
-heavy computation in a worker, or in TJS with `wasm {}` blocks, and await it.
+Clearing `ctx.error` cannot revive a run that ended: a run-ending refusal is recorded on the run
+itself, and the next step sees it and stops.
 
 ---
 
@@ -504,9 +674,9 @@ const vm = new AgentVM({ slugify, forecast })
 ```
 
 **The key is the name agents call.** `new AgentVM({ slug: slugify })` makes `slug({ text })`
-work and `slugify({ text })` fail with `Unknown Atom: slugify`. Use the op code as the key,
-which shorthand does for you. A key that matches a core atom replaces it, which is how a test
-swaps in a fake `httpFetch`.
+work and `slugify({ text })` fail with `Unknown Atom: slugify`. Use the op code as the key, which
+object shorthand (`{ slugify }`) does for you. A key that matches a core atom replaces it, which
+is how a test swaps in a fake `httpFetch`.
 
 Then give the same atoms to the transpiler, so calls are checked where the source is compiled:
 
@@ -514,11 +684,11 @@ Then give the same atoms to the transpiler, so calls are checked where the sourc
 const { ast } = transpile(source, { atoms: vm.atoms })
 ```
 
-With `atoms`, a wrong call fails at transpile time with a message:
+With `atoms`, a wrong call fails at transpile time with a message and its location:
 
 ```text
-'slugify' has no input 'txt'. It takes slugify({ text }).
-'slugify' takes named arguments: write slugify({ name: value, … }), not slugify(a, b).
+'slugify' has no input 'txt'. It takes slugify({ text }). at <source>:1:31
+'slugify' takes named arguments: write slugify({ name: value, … }), not slugify(a, b). Positional arguments are for local functions. at <source>:1:31
 ```
 
 Without it, core atoms are still checked, but a call to your atom is compiled as written and
@@ -543,8 +713,8 @@ back off could simply not. Put each rule here:
   should read the header it received and pass it into its own run as `context.requestDepth`.
 - **Rate limits, retries and backoff**, shared by every run that uses the capability. An agent
   that controlled its own retry loop could turn it into a flood.
-- **A bounded body**, so one large response cannot exhaust host memory before the boundary's own
-  size cap applies.
+- **A bounded body**, read in chunks and abandoned once it passes the limit, so one large
+  response cannot exhaust host memory before the boundary's own size cap applies.
 
 ```javascript
 function createFetchCapability({
@@ -555,23 +725,53 @@ function createFetchCapability({
 }) {
   const gap = 1000 / perSecond
   let next = 0
+
+  // Wait `ms`, or reject as soon as the run is aborted.
   const pause = (ms, signal) =>
     new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, ms)
-      signal?.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timer)
-          reject(new Error('aborted'))
-        },
-        { once: true }
-      )
+      if (signal?.aborted) return reject(new Error('aborted'))
+      const onAbort = () => {
+        clearTimeout(timer)
+        reject(new Error('aborted'))
+      }
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, ms)
+      signal?.addEventListener('abort', onAbort, { once: true })
     })
 
+  // Read at most maxBodyBytes, and stop reading the moment the body passes it.
+  async function readBody(res) {
+    const reader = res.body?.getReader()
+    if (!reader) return ''
+    const chunks = []
+    let size = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > maxBodyBytes) {
+        await reader.cancel()
+        throw new Error('Response too large')
+      }
+      chunks.push(value)
+    }
+    const bytes = new Uint8Array(size)
+    let at = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, at)
+      at += chunk.byteLength
+    }
+    return new TextDecoder().decode(bytes)
+  }
+
   return async (url, init = {}) => {
-    const { protocol, host } = new URL(url)
-    if (protocol !== 'https:' && protocol !== 'http:') throw new Error(`Scheme not allowed: ${protocol}`)
-    if (!allowedHosts.includes(host)) throw new Error(`Host not allowed: ${host}`)
+    const target = new URL(url) // a relative URL throws here, so it is refused
+    if (target.protocol !== 'https:' && target.protocol !== 'http:')
+      throw new Error(`Scheme not allowed: ${target.protocol}`)
+    if (!allowedHosts.includes(target.host)) throw new Error(`Host not allowed: ${target.host}`)
+    if (init.responseType === 'dataUrl') throw new Error('responseType dataUrl is not supported')
 
     const request = {
       method: init.method ?? 'GET',
@@ -588,24 +788,33 @@ function createFetchCapability({
       next = start + gap
       if (start > now) await pause(start - now, init.signal)
 
-      const res = await fetch(url, request)
+      const res = await fetch(target, request)
       if ((res.status === 429 || res.status >= 500) && attempt < retries) {
         await res.body?.cancel()
         await pause(250 * 2 ** attempt, init.signal)
         continue
       }
-      if (res.status >= 300 && res.status < 400) {
+      // A redirect, in the built-in client's shape. A browser hides it: type 'opaqueredirect',
+      // status 0, no location.
+      const location = res.headers.get('location')
+      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400 && location)) {
         await res.body?.cancel()
-        return { ok: false, status: res.status, location: res.headers.get('location') }
+        return { redirect: true, status: res.status, location: location && new URL(location, target).href }
       }
       if (Number(res.headers.get('content-length') ?? 0) > maxBodyBytes) {
         await res.body?.cancel()
         throw new Error('Response too large')
       }
-      const text = await res.text()
-      if (text.length > maxBodyBytes) throw new Error('Response too large')
-      const type = res.headers.get('content-type') ?? ''
-      return { ok: res.ok, status: res.status, body: type.includes('application/json') ? JSON.parse(text) : text }
+      const text = await readBody(res)
+      const json =
+        init.responseType === 'json' ||
+        (init.responseType !== 'text' && (res.headers.get('content-type') ?? '').includes('application/json'))
+      if (!json) return { ok: res.ok, status: res.status, body: text }
+      try {
+        return { ok: res.ok, status: res.status, body: JSON.parse(text) }
+      } catch {
+        throw new Error(`${target.host} sent a body that is not valid JSON`)
+      }
     }
   }
 }
@@ -614,22 +823,29 @@ const fetchCap = createFetchCapability({ allowedHosts: ['api.example.com'] })
 await vm.run(ast, args, { fuel: 1000, capabilities: { fetch: fetchCap } })
 ```
 
-Against a test server, an agent calling `httpFetch({ url })` gets
+Against a test server on Bun, an agent calling `httpFetch({ url })` gets
 `{ ok: true, status: 200, body: { … } }` after two 503s are retried, gets
-`{ ok: false, status: 302, location: '…' }` for a redirect, and gets an error it can catch,
-`Host not allowed: evil.test`, for anything off the list.
+`{ redirect: true, status: 302, location: 'http://…/flaky' }` for a redirect, and gets errors it
+can catch for a host off the list (`Host not allowed: evil.test`), a body that streams past the
+limit with no `content-length` (`Response too large`) and malformed JSON. In a browser the
+redirect arrives as `{ redirect: true, status: 0, location: null }`, because the browser hides
+it.
 
 Every agent reading this capability's results reads `ok`, `status` and `body`, so the shape is
-part of your API: tell agent authors (or the model's system prompt) what it is. In a browser,
-`redirect: 'manual'` yields an opaque response with status 0 rather than the 3xx; treat that as a
-redirect too. The wait for a rate limit counts against `httpFetch`'s 30-second timeout; raise it
-with `timeoutOverrides: { httpFetch: … }` if your limiter queues for longer.
+part of your API: tell agent authors (or the model's system prompt) what it is. The wait for a
+rate limit counts against `httpFetch`'s 30-second timeout. If your limiter queues for longer,
+raise it for the run:
 
-The VM also checks the request before your function runs, whatever capability you pass: the
-scheme, the method (GET and HEAD unless `context.allowedFetchMethods` adds more) and the header
-names (`context.allowedRequestHeaders` adds more). If you set `context.allowedFetchDomains`, it is
-enforced on your capability's requests too. [Safe Eval](/safe-eval/) has a shorter `fetch`
-capability built the same way, and the same policy stated as data with `fetchPolicy`.
+```javascript
+await vm.run(ast, args, {
+  fuel: 1000,
+  capabilities: { fetch: fetchCap },
+  timeoutOverrides: { httpFetch: 60_000 },
+})
+```
+
+[Safe Eval](/safe-eval/) has a shorter `fetch` capability built the same way, and the same policy
+stated as data with `fetchPolicy`.
 
 ---
 

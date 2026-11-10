@@ -44,8 +44,8 @@ console.log(processData('Test', 42, true, ['a', 'b', 'c'], 'on'))
 
 // TypeScript refuses these two calls at compile time. `as any` gets them past
 // the compiler, the way data from JSON.parse or a network response does.
-console.log(processData('Test', 42, true, ['a', 1] as any, 'on'))
-console.log(processData('Test', 42, true, ['a'], 'maybe' as any))
+console.log('Wrong tag:', processData('Test', 42, true, ['a', 1] as any, 'on'))
+console.log('Wrong mode:', processData('Test', 42, true, ['a'], 'maybe' as any))
 ```
 
 The converter writes this TJS for the `type` and the function (the `/* line N */` marker

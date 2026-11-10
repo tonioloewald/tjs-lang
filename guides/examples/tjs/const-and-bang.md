@@ -11,6 +11,12 @@ shouldn't have, and something was `null` when you didn't check.
 - `x!.y` is a **runtime** check on a value: if `x` is `null` or `undefined`, the expression
   becomes a `MonadicError` instead of throwing a `TypeError`.
 
+A `MonadicError` is an error that is **returned as a value instead of thrown**. It is a
+subclass of `Error` with a `message` and a `path` (plus `expected` and `actual`), and
+`isMonadicError(x)` tells it apart from an ordinary value. Nothing stops the program when one
+is made; you check for it where you are ready to handle it. [Error Handling](/error-handling/)
+covers the rest.
+
 ```tjs:inline
 /#
 ## `const!` and `!.` at a glance
@@ -79,6 +85,13 @@ test 'a chain fails at the first missing link' {
 }
 ```
 
+`isMonadicError` and `__tjs` need no import here: the TJS runtime provides them as globals in
+the CLI and on this site. In your own project, import `isMonadicError` from
+`tjs-lang/runtime`, or install the runtime with `installRuntime()` from the same module. The
+`/# … #/` block is a [doc comment](/TJS-SYNTAX/#doc-comments-) that renders as prose above
+the code, and the `test` blocks are [inline tests](/TJS-SYNTAX/#test-blocks) that run when the
+file is transpiled; neither is part of the feature.
+
 The output:
 
 ```text
@@ -94,6 +107,10 @@ chains propagate:
   {a:null}      -> Expected non-null for 'bang.b', got null
 ```
 
+Read the message as `bang.` followed by the member you tried to read. In
+`deep({ a: null })`, `root.a` is the `null`, and the failing read is `.b`, so the message
+says `'bang.b'`. It ends `got null` or `got undefined`, whichever the value was.
+
 ## `const!`: immutability checked by the compiler
 
 JavaScript's `const` fixes the _name_, not the value:
@@ -103,11 +120,16 @@ const LIMITS = { max: 10 }
 LIMITS.max = 99 // legal: const stops rebinding, not mutation
 ```
 
-The usual fix is `Object.freeze`. It is a runtime call, it only goes one level deep, and in
-sloppy-mode code a write to a frozen object fails silently instead of throwing.
+The usual fix is `Object.freeze`. It is a runtime call, and in non-strict (sloppy-mode)
+scripts a write to a frozen object fails silently instead of throwing.
 
-`const!` moves the check to compile time. Each of these is refused when the file is
-transpiled, so the mistake surfaces before any test has to reach that line:
+`const!` moves the check to compile time. It is a check on the **name**, one level deep: the
+compiler looks for writes to `limits.something` and refuses them. That is not a stronger
+guarantee than `Object.freeze` (it is shallow too, and it cannot see writes made through
+another name; see the trip-ups below), but it is an earlier one: the mistake surfaces before
+any test has to reach that line.
+
+Each of these blocks is **refused** when the file is transpiled, with the message shown:
 
 <!-- tjs-doc: expect-error -->
 
@@ -120,7 +142,7 @@ limits.max = 20 // Cannot mutate immutable binding 'limits'
 
 ```tjs:static
 const! limits = { max: 10, retries: 3 }
-limits.retries += 1 // compound assignment; ++, -- and delete are refused too
+limits.retries += 1 // Cannot mutate immutable binding 'limits'
 ```
 
 <!-- tjs-doc: expect-error -->
@@ -130,11 +152,22 @@ const! queue = [3, 1, 2]
 queue.sort() // Cannot call mutating method on immutable binding 'queue'
 ```
 
-The full list of refusals: assignment to a member (`limits.max = …`, `queue[0] = …`), every
-compound assignment (`+=`, `??=`, `<<=` and the rest), `++` and `--`, `delete`, and calls to
-the mutating methods `push`, `pop`, `shift`, `unshift`, `splice`, `sort`, `reverse`, `fill`,
-`copyWithin` and `set`. Rebinding the name (`limits = {}`) throws a `TypeError` when it runs,
-as it does for any `const`.
+The full list of refusals:
+
+- assignment to a member: `limits.max = …`, `queue[0] = …`
+- the compound assignments `+=`, `-=`, `*=`, `/=`, `%=`, `&&=`, `||=`, `??=`, `<<=`, `>>=`,
+  `>>>=`, `&=`, `|=` and `^=` (but not `**=`, which gets through)
+- `++` and `--` on a member, and `delete` of a member
+- calls to the array methods `push`, `pop`, `shift`, `unshift`, `splice`, `sort`, `reverse`,
+  `fill` and `copyWithin`, and to `set` (which covers `Map`'s `set` and a typed array's)
+
+The method list is about arrays. On a `const!` `Map` or `Set`, `delete`, `clear` and `add`
+are not refused, and neither is a method of your own class that changes the object.
+
+Rebinding the name (`limits = {}`) is not a `const!` check at all: the emitted code is a
+plain `const`, and JavaScript already refuses that. `tjs check` passes it; the error comes
+when the code runs (a `TypeError` in a browser; under `tjs run`, Bun reports
+`This assignment will throw because "limits" is a constant`).
 
 Reading is unrestricted, and so are methods that return a new value instead of changing the
 old one. To sort a `const!` array, sort a copy:
@@ -170,13 +203,19 @@ once the file has compiled.
 ### Only on objects and arrays
 
 `const!` protects the contents of a value, and a number, string or boolean has no contents to
-protect. `const! n = 5` is a compile error that tells you to write `const n = 5`:
+protect. Given a literal (`5`, `'hi'`, `true`, `null`), `const!` is a compile error that tells
+you to write `const` instead:
 
 <!-- tjs-doc: expect-error -->
 
 ```tjs:static
-const! retries = 3 // redundant: a primitive cannot be mutated
+const! retries = 3
+// `const! retries = 3` is redundant — `3` is a primitive, and a primitive cannot be mutated.
 ```
+
+The rest of that message says "`const!` adds DEEP immutability". It does not: as this page
+says, the check covers one level only. The check also looks only at a literal, so
+`const! n = 5 * 2` or a template string compiles without complaint.
 
 `const!` also declares one name at a time. A destructuring form such as
 `const! { a, b } = settings` is a syntax error.
@@ -190,21 +229,22 @@ const name = cache.miss.name
 // TypeError: Cannot read properties of null (reading 'name')
 ```
 
-Put `!` before the dot and the read checks first:
+In TJS, put `!` before the dot and the read checks first:
 
-```javascript
+```tjs:static
 const name = cache.miss!.name
 // a MonadicError: Expected non-null for 'bang.name', got null
 ```
 
-`x!.y` means: if `x` is `null` or `undefined`, the result is a `MonadicError`; otherwise it is
-exactly `x.y`, with no wrapper and no copy. Only `null` and `undefined` count as missing. `0`,
-`''` and `false` are values, and `''!.length` is `0`.
+`x!.y` means: if `x` is `null` or `undefined`, the result is a `MonadicError`; otherwise the
+value is exactly `x.y`, with no wrapper and no copy. (Calling a method this way, `x!.y()`, is
+the exception: the method loses its `this`; see the trip-ups.) Only `null` and `undefined`
+count as missing. `0`, `''` and `false` are values: after `const s = ''`, `s!.length` is `0`.
 
 **Chains propagate.** If the left side of a `!.` is already a `MonadicError`, the error passes
 through unchanged. `a!.b!.c` therefore stops at the first missing link and carries that
-error to the end, so you check once, at the end, rather than at every hop. The error you get
-names the hop that failed: in the first example, `deep({ a: null })` reports `'bang.b'`.
+error to the end. Put `!.` on every hop that might be missing, then test the final result
+once, instead of writing an `if` at every hop.
 
 ### How this differs from `?.`
 
@@ -217,13 +257,17 @@ when the TJS runtime is installed (it is in the CLI and on this site) it is also
 the flight recorder, `__tjs.errors()`, even if nothing checks the return value. See
 [Error History](/error-history/) for the recorder.
 
+`?.` is still the right tool when a missing value is expected and `undefined` is a fine
+answer, such as an optional setting you will default with `??`. Use `!.` when a missing value
+means something went wrong and you want to know where.
+
 ## Bang access in practice
 
 Bang access is most useful at the edge of a program, where data arrives with holes in it.
 Reach into the data with `!.`, then check once:
 
 ```tjs:inline
-function cityOf(user: { name: '', profile: { address: { city: '' } } | null }) {
+function cityOf(user) {
   const city = user.profile!.address!.city
   return isMonadicError(city) ? `${user.name}: no address on file` : `${user.name}: ${city}`
 }
@@ -274,13 +318,17 @@ unchecked: undefined
 
 - **`const!` is shallow.** It guards the members of the binding itself. `LIMITS.max = 99` is
   an error, but a write one level further down (`SETTINGS.theme.color = 'red'`, or
-  `SETTINGS.tags.push('x')`) is not caught, and neither is a write through another name
-  (`const alias = SETTINGS; alias.theme = null`) or inside a function you pass it to. Treat
-  `const!` as a guard against the obvious slip, not as a frozen value.
-- **`const!` follows the name across the whole file.** The check matches the name, not the
-  scope, so once `const! config` exists, `function f(config) { config.port = 1 }` elsewhere in
-  the same file is refused too, even though that `config` is a different variable. Rename
-  the parameter.
+  `SETTINGS.tags.push('x')`) is not caught, and neither is a write made inside a call
+  (`Object.assign(SETTINGS, { theme: null })`). Treat `const!` as a guard against the obvious
+  slip, not as a frozen value.
+- **`const!` matches the name as text, anywhere in the file.** It does not follow scopes or
+  values. Two things follow, and both are limitations of the current check rather than
+  design. A write through a _different_ name escapes: `const alias = SETTINGS;
+  alias.theme = null` compiles, and so does a write inside a function whose parameter has
+  another name. A write through the _same_ name is caught even when it is unrelated: once
+  `const! config` exists, `function f(config) { config.port = 1 }` is refused, and so is
+  `app.config.port = 3`, where `config` is a property of another object. Rename to get past
+  a false refusal.
 - **It is a compile-time check only.** Nothing stops another module from mutating the object
   at runtime. If a value must not change at runtime, freeze it and pay for the freeze.
 - **`!.` checks the left side only.** `user.profile!.address` checks `user.profile`. If `user`
@@ -289,8 +337,13 @@ unchecked: undefined
   the method with no receiver, so a method that uses `this` fails. Check the object first and
   call the method normally: `if (obj != null) obj.method()`.
 - **`!.` is for reading dotted members.** There is no computed form (`list![0]` is a syntax
-  error), it cannot be the target of an assignment (`a!.b = 1` is a syntax error), and it
-  does not combine with `?.`.
+  error), it cannot be the target of an assignment (`a!.b = 1` is a syntax error), `!?.` is a
+  syntax error, and it does not apply to a literal on its left (`''!.length` is a syntax
+  error; use a name).
+- **Mixing `!.` with `?.` mixes the results.** Both orders compile. A `?.` hop gives
+  `undefined`, and a `!.` after it turns that `undefined` into an error: with `a = null`,
+  `a?.b!.c` is a `MonadicError` (`'bang.c', got undefined`), while `o!.f?.x` with
+  `o.f = null` is plain `undefined`. Pick one style per chain.
 - **The error's path is generic.** The message says `Expected non-null for 'bang.address'`:
   it names the member you tried to read, not the variable it was read from.
 - **`!` on a parameter is something else.** In a parameter list, a leading `!`

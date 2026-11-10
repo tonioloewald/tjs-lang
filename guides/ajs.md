@@ -30,7 +30,7 @@ transpiler's job: it rejects bad programs before they reach the VM and explains 
 
 The built-in operations an agent calls, such as `llmPredict`, `httpFetch` or `storeGet`, are
 **atoms**. An atom takes one object of named inputs, `storeSet({ key, value })`, and the
-transpiler refuses a positional call, `storeSet('k', v)`. Some JavaScript is left out, and
+transpiler refuses a positional call, `storeSet('k', v)` (refused). Some JavaScript is left out, and
 each refusal names the replacement: there is no C-style `for` (use `for...of`, or `while` with
 a counter), and no `throw`, because an error is a value, not an exception that could escape
 into the host (call `Error('message')`, which a `try`/`catch` can take). [The language

@@ -25,6 +25,9 @@ setTimeout(() => console.log('The kettle has boiled.'), 2000)
 console.log('Getting out a cup.')
 ```
 
+`() => console.log(…)` is a function with no name, written with an arrow, as in Responding
+to the Reader. It is handed to `setTimeout`, not called.
+
 Look at the order the lines appear in. The program does not stop at `setTimeout` and wait
 two seconds. It hands the function over to be run later, carries on at once, and gets out
 the cup. Two seconds after that, the kettle boils.
@@ -34,17 +37,20 @@ the reader clicks; the function you give `setTimeout` is one that runs when the 
 In both cases you are writing code now that will run later, and the program does not wait
 for it.
 
-Here is a timer on the page, with a model (Responding to the Reader) to show its message:
+Here is a timer on the page. It shows its message with a model: as in Responding to the
+Reader, a model is an object made with `tosi`, and when one of its parts changes, the page
+changes to match.
 
 ```tjs:inline {"view": "code"}
 import { elements, tosi } from 'tosijs'
 
-const { reminder } = tosi({ reminder: { message: 'No reminder set.' } })
+const { reminder } = tosi({ reminder: { message: 'No reminder set.', count: 0 } })
 
 function remindLater() {
   reminder.message = 'Waiting…'
   setTimeout(() => {
-    reminder.message = 'Time to stand up and stretch!'
+    reminder.count = reminder.count + 1
+    reminder.message = `Reminder ${reminder.count}: time to stand up and stretch!`
   }, 3000)
 }
 
@@ -59,7 +65,9 @@ preview.append(
 The button is given `remindLater` itself, with no `( )` after it: as in Responding to the
 Reader, the button needs a function to call later, not the answer of calling it now. Each
 click sets a new reminder. Click three times quickly and you get three reminders, each
-arriving three seconds after its own click.
+arriving three seconds after its own click: the count goes 1, 2, 3. Nothing stops a second
+reminder being set while the first is still waiting. Sometimes that is what you want; the
+next example shows how to prevent it when it is not.
 
 ## A countdown
 
@@ -111,6 +119,10 @@ test 'tick counts down, and stops at zero' {
 }
 ```
 
+- `let timer = null` makes the name before there is a timer to put in it. `null` means
+  "nothing yet". It is `let`, not `const`, because a timer is put into it later. It is
+  outside `start`, so the function inside `setInterval` can still find it, every second,
+  long after `start` has finished.
 - `setInterval(…, 1000)` runs its function once a second. It gives back a **timer id**, a
   value that stands for this particular timer. The program keeps it in `timer`.
 - `clearInterval(timer)` stops the timer that id stands for. Without it, the function would
@@ -118,8 +130,12 @@ test 'tick counts down, and stops at zero' {
 - `running` remembers whether a countdown is already going. Without that check, a second
   click on **Start** would start a second timer, and the number would fall twice a second.
   Try it: delete the three lines starting `if (countdown.running)`, and click **Start** twice.
-- `let timer = null` makes the name before there is a timer to put in it. `null` means
-  "nothing yet".
+
+That experiment shows something else too. At zero, only one of the two timers stops. The
+second click put the second timer's id into `timer`, so the first id was lost, and
+`clearInterval(timer)` stops only the second timer. The first goes on running `tick(0)` every
+second, and nothing can stop it, because a timer whose id is lost can never be stopped.
+Reload the page to clear it.
 
 The timer's function is two lines: it asks `tick` for the next number, and stops at zero.
 The rule itself is in `tick`, where a test can check it without waiting ten seconds.
@@ -133,7 +149,20 @@ can look as if two countdowns are fighting. Let the countdown finish, or reload 
 Timers are enough for one thing happening later. They get awkward for a sequence: boil an
 egg for three minutes, then make toast for two, then serve. With only `setTimeout`, each
 step goes inside the function of the step before, and the code drifts further to the right
-with every step.
+with every step:
+
+```javascript
+breakfast.step = 'Boiling an egg…'
+setTimeout(() => {
+  breakfast.step = 'Making toast…'
+  setTimeout(() => {
+    breakfast.step = 'Breakfast is ready.'
+  }, 2000)
+}, 3000)
+```
+
+Two steps are already hard to read: the 2000 belongs to the toast, but it sits far below it,
+and the 3000 for the egg comes last of all. Every new step adds another level.
 
 TJS, like JavaScript, has a better way to write it: an **async function**, in which you can
 **await** a wait. First, a small function that waits:
@@ -182,8 +211,21 @@ preview.append(
 - `await wait(3000)` pauses `makeBreakfast` until the promise is kept, then carries on with
   the next line. The steps read from top to bottom, in the order they happen.
 
+Compare it with the `setTimeout` version above: the same steps, the same waits, and each wait
+sits next to the step it belongs to.
+
 While `makeBreakfast` is paused, the rest of the page is not. The browser goes on responding
 to the reader, and other examples on this page go on working. Only `makeBreakfast` waits.
+`await` is what makes that possible: it hands control back to the page while it waits. A
+program that waited without it, by going round a loop until the time was up, would keep the
+page busy the whole time, and the page would freeze.
+
+You can see that the page keeps working: press **Make breakfast**, and press it again while
+the egg is boiling. Now two breakfasts are being made at once, and their messages tangle:
+the first says "Breakfast is ready." while the second is still making toast. This is the
+same problem as clicking **Start** twice on the countdown, and the same `running` check would
+fix it.
+
 `await` can only be used inside an `async` function, or at the top level of an example,
 outside every function, as the next examples do.
 
@@ -216,9 +258,11 @@ The test uses `await` too. A test can wait for an answer in the same way as the 
 program, and it is checked when the answer arrives.
 
 Notice that `slowDouble` has no worked example of its answer, no `: 42` after the
-parentheses. TJS checks a worked example by calling the function and comparing the answer at
-once, and at that moment an async function's answer has not arrived, so the example would not
-be checked. A test that awaits the answer does the job instead.
+parentheses. TJS checks a worked example by calling the function and comparing the answer
+straight away, and at that moment an async function's answer has not arrived, so the example
+cannot be checked. If you write one anyway, TJS does not complain, even when it is wrong, so
+leave it off and write a test that awaits the answer. `wait` has no worked example for the
+same reason: what it gives back is a promise.
 
 ### A common mistake: using the ticket as if it were the sandwich
 
@@ -251,9 +295,11 @@ and gives back the answer, 42.
 ### Mistakes arrive later too
 
 A typed async function checks what it is given, as every TJS function does, and when the
-value is wrong it gives back an error instead of an answer (When Things Go Wrong). The
-difference is when you see it: the error arrives where the answer would have, after the
-`await`.
+value is wrong it gives back an error instead of an answer (When Things Go Wrong). The check
+happens as soon as the function is called, before any waiting, so a wrong value is refused
+at once, without the one-second wait. But like everything an async function gives back, the error comes wrapped in a
+promise. You only see it once you `await`: without the `await`, `slowDouble('ten')` is a
+promise, and asking whether a promise is an error says no.
 
 ```tjs:inline {"view": "console"}
 function wait(ms: 1000) {
@@ -280,6 +326,8 @@ test 'a wrong value arrives as an error' {
 }
 ```
 
+`received`, as in When Things Go Wrong, is the value that was refused.
+
 So the habit from When Things Go Wrong carries over unchanged: await the result, then check
 it with `instanceof Error` before you use it.
 
@@ -292,7 +340,30 @@ been leading here.
 
 Many services answer in **JSON**, a way of writing data that looks almost exactly like the
 objects in Things with Parts. This example asks [Open-Meteo](https://open-meteo.com), a free
-weather service that answers any web page, for the temperature in Berlin right now:
+weather service, for the temperature in Berlin right now. Many services only answer pages
+on their own website, or ask for a key first; Open-Meteo answers any web page, which is why
+this book uses it. (Asking a service that does not answer your page looks like the "could
+not be reached" failure described below.)
+
+Its reply looks like this, with a few parts left out:
+
+```json
+{
+  "latitude": 52.52,
+  "longitude": 13.42,
+  "current_units": { "time": "iso8601", "temperature_2m": "°C" },
+  "current": { "time": "2026-11-10T15:45", "temperature_2m": 4.0 }
+}
+```
+
+The reply is an object with parts, and the part called `current` is an object too. Inside
+it, `temperature_2m` is the temperature 2 metres above the ground, in °C. So once the reply is
+turned into an object called `data`, the temperature is at `data.current.temperature_2m`.
+
+One more new thing before the example: `fetch` can fail by **throwing** an error, as the
+mistakes that stop the program do (When Things Go Wrong), but this time something can be done
+about it. `try { … } catch { … }` is the part that deals with it, and it is explained just
+after the example, under "Throwing, and catching".
 
 ```tjs:inline {"view": "code"}
 import { elements, tosi } from 'tosijs'
@@ -343,10 +414,12 @@ test 'the report reads well' {
 
 There are two waits in `currentTemperature`. `await fetch(address)` waits for the reply to
 start arriving; `await response.json()` waits for the rest of it, and turns the JSON into an
-object. In that object, the temperature is at `data.current.temperature_2m` (Open-Meteo's
-own documentation lists what is where).
+object: the one shown above.
 
-The address is built from the latitude and longitude, so it works for anywhere: Paris is
+The address carries the question. After the `?`, an address can hold named values, each
+written `name=value`, with `&` between them. Here there are three: the latitude, the
+longitude, and `current=temperature_2m`, which says what we want to know. The address is
+built from the latitude and longitude, so it works for anywhere: Paris is
 48.85 and 2.35. One of the exercises below asks you to add a second city.
 
 ### When the other computer does not answer
@@ -359,21 +432,49 @@ so that `ask` only has to check for one thing:
 - `response.ok` is true when the service answered and was happy with the question. When it
   is false, `response.status` is a number saying why (404 means "no such address"). The
   function gives back an `Error` with that number in it.
-- When there is no reply at all, `fetch` does not give back an error value: it **throws**
-  one. A thrown error stops the function right there, and keeps going up through every
-  function that called it, stopping each, until something catches it.
-  `try { … } catch { … }` is that something: if anything inside the `try` block throws, the
-  program jumps to the `catch` block instead of stopping. Here the `catch` block gives back an `Error`, like
-  the rest of the function.
+- When there is no reply at all, `fetch` does not give back an error value: it throws one.
+  The `catch` block turns that into an `Error` value, like the rest of the function.
 
-Try the failures on purpose. Change `api.open-meteo.com` to `api.open-meteo.co` (a computer
-that does not exist) and press the button. Then put it back, and change `forecast` to
-`forcast` (an address the service does not have).
+### Throwing, and catching
 
-TJS's own errors and the errors you give back are values, and only `fetch` and a few other
-built-in functions throw. That is why this book has not needed `try` before. A good place for
-it is exactly here, around the one call that talks to the network, turning a throw into an
-error value that the rest of your program already knows how to check.
+A thrown error stops the function right there: the lines after it do not run. It keeps going
+up through every function that called it, stopping each one, until something catches it.
+`try { … } catch { … }` is what catches it: if anything inside the `try` block throws, the
+program jumps to the `catch` block and carries on from there.
+
+`JSON.parse`, which turns JSON text into an object, throws when the text is not JSON, so it
+makes a small example:
+
+```tjs:inline {"view": "console"}
+console.log('Before.')
+
+try {
+  JSON.parse('{ this is not JSON')
+  console.log('This line never runs.')
+} catch {
+  console.log('Caught it: that was not JSON.')
+}
+
+console.log('After.')
+```
+
+The line after `JSON.parse` never runs, because the throw jumps straight to `catch`. Then the
+program carries on after the whole `try … catch`. To see the difference, delete everything
+from `try {` to the last `}` except the `JSON.parse` line: now the example stops at
+`JSON.parse` and shows its message, and "After." never appears.
+
+Try the failures on purpose, in the weather example. Change `api.open-meteo.com` to
+`api.open-meteo.co` (a computer that does not exist) and press the button: after a moment,
+which can be a few seconds, the page says "Sorry, the weather service could not be reached.
+Try again in a minute." Then put it back, and change `forecast` to `forcast` (an address the
+service does not have): now it says "Sorry, the weather service answered 404. Try again in a minute."
+
+You have met thrown errors before. The mistakes that stop the program, in When Things Go
+Wrong, such as `… is not defined`, are thrown errors too. Until now there was nothing to do
+about them but fix the typo. `fetch` is different: it throws because of the world, not
+because of a mistake in your code, so it is worth catching. A good place for `try` is
+exactly here, around the code that talks to the network, turning a throw into an error value
+that the rest of your program already knows how to check.
 
 ### Testing the parts that wait
 
@@ -381,8 +482,11 @@ The test above checks `weatherReport`, not `currentTemperature`. A test that cal
 service would fail whenever the network did, and it would ask Berlin for the weather every
 time the page is opened. The temperature changes, too, so there is no answer it could expect.
 Instead, keep the network call small, and put everything that can be worked out without the
-network into a function like `weatherReport`, with examples and tests, as the calculator does
-with `press`.
+network into a function like `weatherReport`, with examples and tests.
+
+The test gives `weatherReport` a whole number, -3, although its example is 21.5. That is
+fine: a number with a decimal point as the example accepts any number, whole or not
+(Functions), and temperatures can be either.
 
 ## Try it
 
@@ -403,7 +507,7 @@ over. The `0` in `'0:05'` is a decision (Decisions): add it when the seconds are
 programming, a different one each time. It answers in plain text, not JSON, so read it with
 `await response.text()` instead of `response.json()`. Make a button that fetches one and
 shows it. GitHub allows only about sixty of these requests an hour from each computer; when
-you go over, `response.ok` is false and `response.status` is 403. Make the page show a
+you go over, `response.ok` is false and `response.status` is 403 (sometimes 429). Make the page show a
 friendly message instead of the saying when that happens, or when the network is down, and
 try it by changing the address.
 
@@ -419,3 +523,10 @@ More to try:
   as it awaits inside: `while (lights.running)` with an `await` in it pauses on each turn,
   and the page keeps working while it waits. Without the `await`, the loop would never let
   the page do anything else, and the page would freeze.
+
+Work them here:
+
+```tjs:inline {"view": "code"}
+// Your code here. Show results with preview.append(…), check them with a
+// test block, then press the refresh button (or ⌘S / Ctrl+S) to run it.
+```

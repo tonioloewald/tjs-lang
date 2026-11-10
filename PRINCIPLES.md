@@ -20,9 +20,11 @@ annotation is indistinguishable from a right one until a consumer's runtime
 disagrees. `as`, `!`, `any` and a stale `.d.ts` are all the same failure — a
 claim outranking the thing it describes.
 
-**A TJS type is an example: a real value that exists at runtime.** An example is
-not a claim about a value, it _is_ a value, so there is nothing for it to be
-wrong about. That is the whole design, and everything below follows from it.
+**A TJS type is an example: a real value that exists at runtime.** In
+`function greet(name: 'Alice')`, `'Alice'` is a real string: it says `name` takes a
+string, and it is a value the function can be called with. An example is not a
+claim about a value, it _is_ a value, so there is nothing for it to be wrong
+about. That is the whole design, and everything below follows from it.
 
 ### Why the drift is structural, not carelessness
 
@@ -61,16 +63,14 @@ annotation the programmer's objective is not _"describe this accurately"_, it is
 _"clear the error."_ Those are different goals and only one of them is being
 optimized.
 
-That is the same defect this project already knows in another costume: **a gate
-that alters the thing it measures.** `tosijs-ui` changed its semver policy after
-finding versions were being chosen to dodge a review, so the number stopped
-describing the change. A type checker is a gate, and the annotations are authored
-to satisfy it. `as`, `any`, `!`, `@ts-ignore`, and an over-broad type that
+It is a familiar defect: **a gate that alters the thing it measures**, the way
+teaching to the test changes what a test score means. A type checker is a gate,
+and the annotations are authored to satisfy it. `as`, `any`, `!`, `@ts-ignore`, and an over-broad type that
 "works" are not failures of the system — they are its **equilibrium**.
 
 **You cannot lie to a worked example.** There is no `as` that makes `add(2, 3)`
 equal `0`. An example is not a claim you can weaken until it passes; it holds or
-it does not, and the checker is the program itself. This file does not compile:
+it does not, and the checker is the program itself. This does not compile:
 
 <!-- tjs-doc: expect-error -->
 
@@ -81,7 +81,7 @@ function add(a: 2, b: 3): 0 {
 ```
 
 TJS calls `add(2, 3)` while transpiling, gets 5, and stops with
-`Function signature example is inconsistent: Expected 0 at 'add', got 5`. The only
+`Transpile-time test failures`, reporting `Expected 0 at 'add', got 5`. The only
 way to make it compile is to make the example true:
 
 ```tjs
@@ -93,18 +93,26 @@ console.log(add(2, 3)) // 5
 ```
 
 **So the difference is not that TJS has no escape hatches — it is that ours are
-confessions.** `unsafe`, `!`, `:!`, `DangerousLegacyEquals`, `LegacyDefault`,
-`/* @tjs-unsafe */`: each is named, greppable, and deliberately ugly (see _"Make
+confessions.** `!`, `:!`, `DangerousLegacyEquals`, `LegacyDefault`, `LegacyDate`:
+each is named, greppable, and deliberately ugly (see _"Make
 stupid stuff stand out"_ below). `as Foo` looks like ordinary code, which is
 precisely what makes it dangerous — the lie and the truth are visually
 indistinguishable, so nothing accumulates as evidence and no reviewer can grep
 for the debt.
 
 The uncomfortable corollary, and it is the right behaviour: **`fromTS` preserves
-the lies rather than laundering them.** A TypeScript `: string` becomes `:!`,
-because a set is not a worked example and inventing one would be manufacturing a
-truth we do not have. Converted code is therefore honest about how much of it is
-still assertion — which is the point of the conversion contract below, where TJS
+the lies rather than laundering them.** A TypeScript return type becomes a `:!`
+return, which declares the type and tests nothing:
+
+```text
+TypeScript:  function name(id: number): string { … }
+TJS:         function name(id: number):! string { … }
+```
+
+`: string` names a set, not a worked example, and inventing one would be
+manufacturing a truth we do not have. (Parameter types carry over as bare type
+names, such as `id: number`, which are checked at runtime.) Converted code is
+therefore honest about how much of it is still assertion — which is the point of the conversion contract below, where TJS
 is _equivalent-or-better_ and tells you where to improve rather than pretending
 the improvement already happened.
 
@@ -114,19 +122,15 @@ written in the language it describes:
 - **An example is a value.** `function greet(name: 'Alice')` — `'Alice'` is
   JavaScript, evaluated by JavaScript, present at runtime. There is no second
   language and therefore no translation step to drift.
-- **A predicate is code.** `predicate(x) { return typeof x === 'number' && x > 0 }`
-  is imperative code describing imperative code, in the same paradigm, and it
-  runs, and you can debug it, and it can have tests.
+- **A predicate is code.** A `predicate(x) { return x > 0 }` inside a `Type`
+  declaration (see [Declarations](/declarations/)) is imperative code describing
+  imperative code, in the same paradigm, and it runs, and you can debug it, and
+  it can have tests.
 
 That is also the honest reading of the type-system north star (last section):
 JSON-Schema is the declarative half and cannot express computation, so
 `$predicate` is not an extension bolted on — it is the imperative half, without
 which the same translation problem reappears inside our own type system.
-
-And it is why `fromTS` degrades the way it does. Converting a declarative TS
-annotation into a TJS example is translating _back_, and often the information
-simply is not there — `: string` names a set, not a worked example. `:!` records
-that loss explicitly instead of inventing a value and pretending.
 
 ### It adjudicates. That is what makes it a principle rather than a mood.
 
@@ -135,21 +139,18 @@ already decides three live cases that were each carrying their own local rule:
 
 - **A signature example that does not hold is an error, not a type pattern.**
   `function add(a: 2, b: 3): 0` **must fail**, because `add(2,3)` is 5. It is
-  perennially tempting to "fix" that canary into a type match; the temptation is
-  exactly the inversion this principle forbids. `:!` exists to say _"I have only
-  a claim here, not a worked example"_ — which is also what `fromTS` must emit
-  for TypeScript's `: string`, and the marker records the loss honestly.
-  (`src/lang/features.test.ts`, "signature test canaries".)
-- **Where the inline stub and the real `Type` disagree, the stub is right.**
-  Not because it is better, but because emitted code calls it, so it is what
-  runs. `docs/type-identity.md` measures four such disagreements; CLAUDE.md's
-  instruction — _"the stubs are the contract for emitted code; fix them"_ —
-  is this principle, and now has a reason attached rather than standing on
-  authority.
-- **Do not widen a known-disagreement list to make red go away.** A disagreement
-  is a fact about the system. Recording it as permitted does not make it stop
-  being one; it just reserves slack for a future regression to occupy silently.
-  (`src/lang/equality-invariants.test.ts`.)
+  perennially tempting to "fix" that into a type match; the temptation is
+  exactly the inversion this principle forbids. `:!` is the way to say _"I have
+  only a claim here, not a worked example"_.
+- **Where the inline runtime and the full runtime disagree, the inline one is
+  right.** Emitted JavaScript carries a small built-in copy of `Type` and its
+  relatives, and calls that copy even when the full runtime is loaded. Not
+  because the copy is better, but because it is what runs, so it is what gets
+  fixed. [`docs/type-identity.md`](docs/type-identity.md) measures four such
+  disagreements.
+- **A measured disagreement is not permitted behaviour.** It is a fact about the
+  system. Recording it as allowed does not make it stop being one; it just
+  reserves slack for a future regression to occupy silently.
 
 ### Applied to our own documentation
 
@@ -164,8 +165,9 @@ data rather than prose.
 ### The direction it points
 
 Probe reality, then derive the contract — never the reverse. This is what
-`docs/ambient-contracts.md` is for: TypeScript's `e.target.value` pessimism is a
-claim, and a measured, verified predicate over the real object is a fact. When
+`docs/ambient-contracts.md` is for. TypeScript types an event's `e.target` as a
+bare `EventTarget`, so `e.target.value` does not type-check without a cast, even
+when the element is plainly an input. That pessimism is a claim, and a measured, verified predicate over the real object is a fact. When
 the two conflict the annotation loses, and the useful artifact is the one you can
 execute.
 
@@ -173,10 +175,12 @@ execute.
 
 **TJS provides two sanctioned paths and should not accumulate a third kind of thing.**
 
-- **The on-ramp** — `fromTS` / `dialect: 'js'`. Converted source keeps JavaScript semantics
-  _wholesale_, marked by the provenance annotation. You are not in TJS yet, and the file says so.
-- **The off-ramp** — graduation. Remove the annotation and opt into every rule at once
-  (`src/lang/graduate.ts`).
+- **The on-ramp** — `fromTS` / `dialect: 'js'` (see _Dialect resolution_, below).
+  Converted source keeps JavaScript semantics _wholesale_, marked by the annotation `fromTS`
+  writes at the top of the file, `/* tjs <- input.ts */`. You are not in TJS yet, and the file
+  says so.
+- **The off-ramp** — graduation (`graduate()`). It removes the annotation, so the file opts
+  into every TJS rule at once, and applies the rewrites that are only correct once it is gone.
 
 Both are **file-level and total**. A file is either playing by JS rules or by TJS rules, and
 which one is legible at a glance.
@@ -188,7 +192,7 @@ relieves exactly the pressure that would otherwise get the file graduated proper
 
 The precedent is the one JavaScript itself set: **strict mode and ESM removed legacy behaviour
 without a trapdoor.** There is no `unstrict` block, no `/* @allow-with */`, no way back to
-`with` or to sloppy-mode `arguments` aliasing. Measured, `"use strict"` still permits `var` and
+`with` or to sloppy-mode `arguments` aliasing. `"use strict"` still permits `var` and
 `eval` — so the lesson is not _which_ constructs were removed, it is that **where something was
 removed, it was removed outright**. A language that takes something away and then hands you a
 way back has not taken it away; it has added a feature and a caveat.
@@ -196,7 +200,8 @@ way back has not taken it away; it has added a feature and a caveat.
 ### The consequence, and the one honest exception
 
 Prefer refusing a construct to providing an escape for it. `var` has `let`/`const`; `eval()`
-has `Eval()`; both are refused outright, and neither loses functionality that the on-ramp does
+has `Eval()`; native `.tjs` refuses both outright (plain JavaScript keeps them, through the
+on-ramp), and neither loses functionality that the on-ramp does
 not already cover — if you truly need the legacy behaviour, you are describing a file that
 should not have graduated yet.
 
@@ -212,30 +217,37 @@ the exception, and a confession earns its place by passing **both** of two tests
 `eval` is the case that shows why both are required. It passes the first — direct `eval` is a
 syntactic form that reads the CALLER's scope, and no wrapper can reproduce that, so the
 capability is strictly unavailable once refused. It is refused anyway, because nothing uses it:
-measured, zero occurrences in real `.tjs` source. **An irreplaceable capability nobody reaches
+this repository's own `.tjs` source contains no call to it. **An irreplaceable capability nobody reaches
 for is not a capability, it is surface area.**
 
-`LegacyDate` passes both. A `Date` INSTANCE cannot be produced any other way — `Timestamp` is
-epoch-ms, and an API that wants a `Date` wants the object — and real source needs it. So it
+`LegacyDate` passes both. Native TJS refuses `new Date()` and offers `Timestamp` (epoch
+milliseconds) instead; `LegacyDate()` is how you get a real `Date` when an API demands one. A
+`Date` INSTANCE cannot be produced any other way — `Timestamp` is a number, and an API that wants a `Date` wants the object — and real source needs it. So it
 stays, and it is not on a deletion schedule. It is the honest exception rather than a
 transition.
 
-Naming still matters independently of that: `unsafe` gated three unrelated things behind one
-vague marker and could not be removed in one step, because "what breaks if this goes?" had no
-answer. Naming each part makes each individually greppable, individually measurable and
-therefore individually **decidable** — which is how two of the three came to be refused and one
-kept.
+Naming still matters independently of that. The old `unsafe` prefix gated three unrelated
+things behind one vague, now deprecated marker (`unsafe var`, `unsafe eval(…)`, `unsafe new Date(…)`) and
+could not be removed in one step, because "what breaks if this goes?" had no answer. Naming
+each part made each individually greppable, individually measurable and therefore individually
+**decidable**: `var` and `eval` came to be refused, `new Date` became `LegacyDate`, and
+`unsafe` itself is deprecated.
 
 ## Language subset relationships
 
+```text
+JavaScript   ⊆   TJS in the js dialect (dialect: 'js', TjsCompat, converted TypeScript)
+AJS          ⊆   TJS
 ```
-JavaScript          ⊆   TJS (no modes on)   ⊆   TJS (modes on)
-AJS                 ⊆   TJS
-```
+
+Native `.tjs` is not a further superset. It is a stricter dialect of the same
+language: it refuses `var`, `eval()` and `new Date()`, and changes what `==` and
+truthiness mean. That is why the dialect, not the language, is what a file opts
+into.
 
 Two hard invariants:
 
-1. **TJS ⊇ JavaScript.** With no modes toggled on, every legal JavaScript
+1. **TJS ⊇ JavaScript.** In the js dialect, every legal JavaScript
    program is legal TJS _with the same meaning_. TJS _adds_ capability
    (types-as-examples, runtime contracts, monadic errors) but never removes the
    ability to transpile valid JS, and never silently changes its semantics.
@@ -245,7 +257,7 @@ Two hard invariants:
 
    `.tjs` is a **better language, not just JS** — choosing it (the `.tjs`
    extension, `dialect: 'tjs'`, or a bare string, which defaults to native TJS)
-   is the opt-in to those modes. Plain JS reaches semantics-preserving transpile
+   is the opt-in to those rules. Plain JS reaches semantics-preserving transpile
    via `dialect: 'js'`, or the bare `TjsCompat` directive at the top of a file.
    `TjsCompat` restores JavaScript's semantics (`==` coerces again, and so on) but
    does **not** switch off validation: a parameter example is still checked at
@@ -253,7 +265,7 @@ Two hard invariants:
 
 2. **TJS ⊇ AJS.** Every legal AJS source is legal TJS source. `ajs(src)` and
    `tjs(src)` may do _different and more_ with the same string — TJS may enforce
-   `:` contracts, run signature tests, treat `:` like `->`, etc. — but TJS must
+   `:` contracts, run signature tests, etc. — but TJS must
    never **reject** source that AJS accepts.
 
 (TypeScript → TJS is a _conversion_, not a subset relation, and is explicitly
@@ -269,29 +281,25 @@ So when a richer TJS feature evaluates subset code:
 - A check that **runs and fails** (e.g. a function's example output ≠ its
   declared example) → a hard error is fine. The code is genuinely wrong.
 - A check that **cannot run** (references TJS can't resolve at build time, a
-  test harness that can't execute the module, etc.) → **inconclusive +
-  warning**, never a hard error. Inconclusive ≠ failed.
+  test harness that can't execute the module, etc.) → **inconclusive**, never a
+  hard error. Inconclusive ≠ failed.
 
 ### Worked example: signature tests
 
 TJS runs a function's signature example as a build-time test (call with the
-parameter examples, assert the result matches the return example). This is a
-Very Good Thing™ — but it must obey the rule above:
+parameter examples, assert the result matches the return example). It must obey
+the rule above:
 
 - Self-contained, executable, self-consistent function → test runs; mismatch is
   a hard error. ✅
 - Function **uses** a name TJS can't resolve at build time — an AJS atom
   (`httpFetch`, `llm`, `store`), or an imported binding it actually calls → the
-  test is **inconclusive**, surfaced as a warning (including in the playground),
-  **never** a transpile error.
+  test is **inconclusive**, recorded as such in the transpile result's
+  `testResults`, and **never** a transpile error.
 
-Measured 2026-09-05, because this list previously also said "the harness can't
-execute the module (e.g. multiple top-level functions)" and **that is not true**:
-several top-level functions each get their own test and all of them run, as do
-exported ones, and an `import` the function does not use costs nothing. What is
-actually inconclusive is _using_ an unresolvable name. Corrected here rather than
-softened, per the principle at the top of this file — a claim about the system
-that the system contradicts is the claim's bug.
+Several top-level functions in one file each get their own test, and all of them
+run, as do exported ones; an `import` the function does not use costs nothing.
+Only _using_ an unresolvable name makes a test inconclusive.
 
 Two shapes get **no signature test at all**, which is a coverage gap rather than
 an inconclusive result: **class methods** and **arrow-function consts**. Worth
@@ -305,7 +313,7 @@ multi-function helper sources would be illegal TJS — breaking invariant 2.
 
 The unit of opt-in is the **dialect**, and `tjs()` takes it explicitly:
 
-| input                          | modes        | meaning                          |
+| input                          | TJS rules    | meaning                          |
 | ------------------------------ | ------------ | -------------------------------- |
 | `tjs(src, { dialect: 'js' })`  | OFF          | plain JS — semantics preserved   |
 | `tjs(src, { dialect: 'tjs' })` | ON           | native TJS                       |
@@ -348,7 +356,8 @@ When one layer guarantees something completely, the layers above it should be
 re-optimized for something else. Paying for the same guarantee twice means one
 of the two payments is the bug.
 
-AJS loops are the clearest case. Starlark keeps `for` over finite iterables and
+AJS loops are the clearest case. Starlark (the configuration language of the Bazel
+build tool, built never to hang) keeps `for` over finite iterables and
 bans `while`, because Starlark's termination guarantee lives in the syntax: only
 the bounded form can be allowed. AJS's guarantee lives in **fuel** instead —
 every evaluation step is charged, and execution stops when the budget is gone
@@ -357,7 +366,7 @@ loop (`for…of`) and the unbounded one (`while`), and choose its constructs for
 legibility alone. It bans C-style `for (;;)` on that ground, not for safety: three
 clauses of mutable-counter bookkeeping in one header is what small models get
 wrong. Every AJS construct choice may ignore termination and ask only _"what does
-a 4B model write correctly?"_ — a question with a measured answer
+a small language model write correctly?"_ — a question with a measured answer
 (`experiments/agent-legibility/`).
 
 The same shape recurs elsewhere: the capability membrane absorbs host-reference
@@ -375,11 +384,11 @@ skims past it in review, and its ugliness is doing real work.
 
 Applied here:
 
-| the good thing       | the escape                    |
-| -------------------- | ----------------------------- |
-| `a == b`             | `DangerousLegacyEquals(a, b)` |
-| `Timestamp.now()`    | `LegacyDate()`                |
-| a validated function | `function f(! x: 0)`          |
+| task                  | the good thing       | the escape                    | what the escape gives up                  |
+| --------------------- | -------------------- | ----------------------------- | ----------------------------------------- |
+| compare two values    | `a == b`             | `DangerousLegacyEquals(a, b)` | no type coercion (`0 == ''` is true)      |
+| a point in time       | `Timestamp.now()`    | `LegacyDate()`                | an immutable number, for a mutable object |
+| declare a function    | `function f(x: 0)`   | `function f(! x: 0)`          | every runtime check of its parameters     |
 
 Each escape is longer, noisier, and harder to skim past than the thing it replaces. That is
 not an accident to be tidied up later.
@@ -407,21 +416,23 @@ Three obligations, in priority order — a later one may never be bought with an
 
 1. **Equivalent.** The converted file behaves identically to the TypeScript it came from.
    Never silently change semantics. Where TJS reads a spelling differently, **rewrite it to
-   preserve meaning** rather than letting the extension change it: `n = 5` (TypeScript
-   `number`) converts to `n = 5.0`, which accepts floats and still defaults to `5`.
+   preserve meaning** rather than letting the extension change it. In TJS an example of `5`
+   means integer-only, while `5.0` means any number, so `n = 5` (TypeScript `number`)
+   converts to `n = 5.0`, which accepts floats and still defaults to `5`.
 2. **Or better.** Where TJS can be safer at no cost to behavior, take it — runtime validation
    from annotations TypeScript erases, real types on the boundary, footguns closed where the
    fix is provably meaning-preserving.
 3. **With guidance to improve further.** Where we _could_ be better but can't prove the
-   rewrite safe, **say so at the site**: `// TJS: \`= 5\` narrows to an integer, \`= +5\` to
-   unsigned`. A gnarly coercion we can't rewrite becomes a visible marker, not a silent
-   pass-through.
+   rewrite safe, **say so at the site**, with a comment such as
+   `` // TJS: `= 5` narrows to an integer, `= +5` to unsigned ``. A gnarly coercion we can't
+   rewrite becomes a visible marker, not a silent pass-through. This is the target: `fromTS`
+   does not write these guidance comments yet.
 
 **Why this is a principle and not a feature.** It is correct independently of any particular
 roadmap — it improves the TS → TJS path no matter what else is or isn't built — and it makes
 adoption a ladder instead of a leap. Combined with per-construct migration — convert the
-file, then mark only the individual sites that need the old behaviour (see "Migrating is
-per-construct" in [TJS-SYNTAX.md](TJS-SYNTAX.md)) — it is the Crockford/JSLint dynamic: keep
+file, then mark only the individual sites that need the old behaviour (see "Named
+escapes" in [TJS-SYNTAX.md](TJS-SYNTAX.md)) — it is the Crockford/JSLint dynamic: keep
 your code, be told what's bad and why, tighten one site at a time. Nobody rewrites a codebase
 to start.
 
@@ -441,10 +452,11 @@ not a no-op is never dropped — it is rewritten to preserve meaning, or flagged
 
 **Corollary — we do not add runtime type checking to TypeScript that crashes it.** Enforcing
 annotations on converted TS would return errors where `tsc`-clean code ran fine; that is
-obligation 1 violated, however well-intentioned. The value still gets delivered, but through
-**observe mode** — check, record, return the original value — which is the only form of type
-checking that cannot break the program it is inspecting. This is why TS-origin code has
-validation off by default, and it is a design position, not an oversight.
+obligation 1 violated, however well-intentioned. The only form of type checking that cannot
+break the program it is inspecting is an **observe mode**: check, record, and return the
+original value. TJS does not have one yet (every current setting changes what a failing call
+returns), which is why TS-origin code has validation off by default. That is a design
+position, not an oversight.
 
 **Enforcement (partial):** obligation 1 is behavioural and therefore testable — run the
 TypeScript and its conversion against the same inputs and require identical observable
@@ -454,9 +466,10 @@ everything else this is a contract kept by hand.
 
 ## The formal AST contract is AJS's, and syntax is subordinate to it
 
-**AJS's JSON AST is the specified artifact. TJS does not get one.** TJS has no syntax tree to
-specify — it rewrites TJS source to JavaScript text with a set of source transforms and hands
-that to acorn — and the ecosystem does not need a fifth JavaScript AST. The formal artifact
+**AJS's JSON AST is the specified artifact. TJS does not get one.** AJS programs are stored
+and sent as JSON syntax trees, so that format has to stay stable. TJS programs are not: TJS
+rewrites its source to JavaScript text and parses that as JavaScript, and the ecosystem does
+not need yet another JavaScript syntax tree. The formal artifact
 TJS offers is a serializable _type_ (JSON Schema plus `$predicate`), which is what TypeScript's
 erasure cannot give you.
 

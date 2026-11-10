@@ -3849,8 +3849,8 @@ function assertPureDictTemplate(
         `Dictionary default for '${mpath}' must be a pure literal — ` +
           `member '${key}' is not a clonable literal value. Compute impure ` +
           `values inside the function body, or use a colon-form (required) ` +
-          `parameter. (TjsDictDefaults mode; disable with TjsCompat or ` +
-          `dialect: 'js'.)`
+          `parameter. For JavaScript's atomic default, wrap it in ` +
+          `LegacyDefault(…).`
       )
     }
     if (member.kind === 'object' && member.shape) {

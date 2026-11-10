@@ -7,7 +7,6 @@ Computers are good at doing the same thing many times without getting bored or m
 mistake on the four-hundredth try. A **loop** runs a block of code again and again. This
 chapter counts, adds up, builds tables and draws rows of boxes, each with a few lines of loop.
 
-
 Here is the problem. To put the numbers 1 to 5 on the page, you could write five lines:
 `preview.append('1 ')`, `preview.append('2 ')`, and so on. To put 1 to 1,000 on the page you
 would need a thousand lines, and if you then wanted them separated by commas instead of spaces,
@@ -25,22 +24,26 @@ for (let i = 1; i <= 5; i++) {
 A `for` loop has three parts in its parentheses, separated by semicolons:
 
 1. `let i = 1` runs once, before anything else: it makes a counter called `i`.
-2. `i <= 5` is checked before each round: while it is true, the block runs again.
+2. `i <= 5` is checked before each round, including the first: if it is true, the block runs;
+   if it is false, the loop ends.
 3. `i++` runs after each round: it adds one to `i`. (`i++` is short for `i = i + 1`.)
 
 So the block runs with `i` set to 1, 2, 3, 4 and 5. After the fifth round `i++` makes `i` 6,
 `i <= 5` is false, and the loop stops. Change the 5 to 20, or start `i` at 10.
 
+The **block** is the code between `{` and `}`, as it was for `if` in Decisions: here it is the
+one line that puts `i` on the page.
 
 `i` is a name like any other; programmers use `i` for a counter out of long habit. It is a
 `let`, not a `const`, because it changes every round. Try changing `let` to `const` in the
 loop: the first round runs and shows `1`, then the loop stops with an error the first time
 `i++` tries to change a constant.
 
-
 ## Counting other ways
 
-Each of the three parts can be anything that makes sense. Count by twos by adding 2 each round,
+The three parts do not have to count by one from 1. The start can set the counter to any
+value, the check can be any true-or-false question, and the step can change the counter however
+you like. Count by twos by adding 2 each round,
 or count down by starting high and subtracting:
 
 ```tjs:inline {"view": "code"}
@@ -65,14 +68,17 @@ test 'counting by twos, and counting down' {
 
 `i += 2` adds 2 to `i`, the shorthand you met in Values and Names. `i--` is the opposite of
 `i++`: it takes one away. Each loop builds a string a piece at a time, in a `let` that starts
-empty (`''`) and grows each round.
+empty (`''`) and grows each round. `evens = evens + …` could also be written `evens += …`; the
+two mean the same, and this chapter uses both.
 
 ## Off by one
 
 The most common loop mistake has a name: **off by one**. The loop runs one time too many or
 one time too few, because the condition is `<` where it should be `<=`, or the counter starts
 at 0 where it should start at 1. In the countdown above, change `i >= 1` to `i > 1`. The test
-fails, and its message shows the string it got: the `1...` is missing. One character, one
+fails (tests work as they did in Checking Your Work: each `expect(…).toBe(…)` is one check, and
+a failure is reported beside the example), and its message shows the string it got: the `1...`
+is missing. One character, one
 round.
 
 The two usual ways of counting five rounds look different, and mixing them up is how the
@@ -90,7 +96,8 @@ for (let i = 0; i <= 5; i++) {
 }
 
 preview.append(
-  `0 while i < 5: ${fromZero} rounds. 0 while i <= 5: ${fromZeroAtMost} rounds.`
+  `Starting at 0 and going while i < 5: ${fromZero} rounds. `,
+  `Starting at 0 and going while i <= 5: ${fromZeroAtMost} rounds.`
 )
 
 test 'counting the rounds' {
@@ -132,20 +139,21 @@ test 'adding up' {
 `sumTo(0)` is 0 because the loop never runs at all: `1 <= 0` is false from the start. A loop
 that may run zero times is normal, and worth a test.
 
-
 Why must `total` be made **outside** the loop? Move the line `let total = 0` inside the loop,
 as its first line, and the example stops with an error: `total` is not defined where the
 function returns it. A name made inside a block belongs to that block, and is gone when the
 block ends. Worse, if it did survive, it would be reset to 0 every round. The running total has
 to live outside the loop so that it lasts from one round to the next.
 
-And try `sumTo(2.5)`: the example `0` says `n` is a whole number, so TJS refuses the call and
-gives back an error instead of adding up to two and a half.
+Now change `sumTo(100)` in the `preview.append` line to `sumTo(2.5)`. The example `0` says `n`
+is a whole number, so TJS refuses the call and gives back an error instead of adding up to two
+and a half: the preview shows a `MonadicError` saying it expected an integer.
 
 ## Building a table
 
 The block of a loop can do anything a program can do, including building text. Here a loop
-builds a times table, one line per round:
+builds a times table, one line per round. The first two lines are the import from Hello,
+Screen: they fetch `pre` from tosijs, the way that chapter fetched `h1` and `p`.
 
 ```tjs:inline {"view": "code"}
 import { elements } from 'tosijs'
@@ -170,9 +178,8 @@ test 'the seven times table' {
 
 `\n` inside a string means "start a new line", and `pre` shows text with its line breaks kept;
 an ordinary paragraph would run all ten lines together. The test asks two questions of the
-string: `startsWith` checks how it begins, and `includes` checks that the last line is in it
-somewhere.
-
+string, written with a dot as in Checking Your Work: `startsWith` checks how it begins, and
+`includes` checks that the last line is in it somewhere.
 
 ## Loops inside loops
 
@@ -206,7 +213,8 @@ test 'three rows of five' {
 The inner loop puts five stars on a line; the outer loop runs it three times and ends each line.
 That is 15 stars from a few lines of code. Try `grid(10, 20)`. Then the challenge: change the
 inner loop's condition to `column <= row`, so each row is as long as its number, and see what
-shape you get.
+shape you get. (Keep the answer in mind: Try it at the end asks for that shape the other way
+up.)
 
 ## Drawing many things
 
@@ -234,8 +242,10 @@ for (let i = 1; i <= 6; i++) {
 
 A `div` is a plain box. The part in curly braces gives it settings, each a name, a colon and
 a value: here its `style`, which says how big it is, how much space to leave around it, and
-what colour to fill it. (Things with Parts explains the curly braces properly.) Each round
-makes one box, `i * 10` pixels across, so the first is 10 and the sixth is 60.
+what colour to fill it. (Things with Parts explains the curly braces properly.)
+`display: 'inline-block'` lets the boxes sit side by side, like words in a line; without it
+each box would start a new line. `px` means pixels, the dots on your screen. Each round makes
+one box, `i * 10` pixels across, so the first is 10 and the sixth is 60.
 
 Try changing `teal` to `orange`, `6` to `12`, or `i * 10` to `i * i`.
 
@@ -262,11 +272,14 @@ test 'halving' {
 }
 ```
 
+The example is `0.0`, not `0`, because halving makes fractions (100, 50, 25, 12.5, …), and
+`n: 0` would accept whole numbers only. `n = n / 2` gives the parameter a new value: inside the
+function, a parameter is a name you can change, like a `let`.
+
 Every `while` needs something inside it that eventually makes its condition false; here,
 `n` keeps shrinking. A loop whose condition can never become false runs forever, and the page
 stops responding until you reload it. If that happens, nothing is broken: check what your
 loop changes each round.
-
 
 ## Stopping early with `break`
 
@@ -297,29 +310,33 @@ Without `break`, the loop would carry on to 1,000 and keep overwriting `answer`;
 loop stops at 32, the first number that works. (32 × 32 is 1,024, and 31 × 31 is 961.)
 
 When to use which loop? Use `for` when you know how many rounds: count from here to there. Use
-`while` when you know when to **stop**, but not how long it will take. Use `break` when you are
-searching, and can stop as soon as you have found it.
+`while` when you know when to **stop**, but not how long it will take. Inside either one, use
+`break` when you are searching, and can stop as soon as you have found it.
 
 ## Try it
 
 Write `countMultiples(n: 0, of: 0)` that counts how many numbers from 1 to `n` divide evenly
 by `of` (remember `%` from Decisions). Test that `countMultiples(10, 3)` is 3 (3, 6 and 9).
-Then show the classic: for 1 to 15, show `'fizz'` for multiples of 3, `'buzz'` for multiples
-of 5, `'fizzbuzz'` for both, and the number otherwise.
-
+Then try a famous beginner's puzzle called FizzBuzz. For each number from 1 to 15, add a
+word to a string: `fizz` for multiples of 3, `buzz` for multiples of 5, `fizzbuzz` for
+multiples of both, and the number itself otherwise, with a space after each. Show the string
+with `preview.append`. It should begin `1 2 fizz 4 buzz fizz` and end `fizzbuzz`. Hint: check
+for "both" before the others. Why does the order matter?
 
 Then:
 
 1. Write `factorial(n: 0)`, which multiplies 1 × 2 × 3 × … × `n`. Test that `factorial(5)` is
    120. What should `factorial(0)` be? (Mathematicians say 1. Does your loop agree?)
-2. Using two loops, make `triangle(rows: 0)` that builds a triangle of stars, one on the first
-   line, two on the second, and so on. Show it in a `pre`, and test `triangle(3)`.
+2. Using two loops, make `triangle(rows: 0)` that builds an upside-down triangle of stars:
+   `rows` stars on the first line, one fewer on the next, down to one. Start from `grid` and the
+   challenge in "Loops inside loops". Show it in a `pre`, and test `triangle(3)`.
 3. Write `doublings(target: 0)` with `while`: how many times must you double 1 before it
-   reaches `target` or more? Test it with 1, 2 and 1,000.
+   reaches `target` or more? `doublings(1)` is 0 and `doublings(2)` is 1; for 1,000, work out
+   by hand how many doublings it takes to pass it, then test that too.
 
 Work them here:
 
 ```tjs:inline {"view": "code"}
 // Your code here. Show results with preview.append(…), check them with a
-// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+// test block, then press the refresh button (or ⌘S / Ctrl+S) to run it.
 ```

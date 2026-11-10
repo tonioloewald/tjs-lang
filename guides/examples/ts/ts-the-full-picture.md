@@ -80,7 +80,7 @@ const badOrder = { customer: 'Bob' } as any
 const result = processOrder(badOrder)
 
 // What a caller that knows nothing about TJS receives:
-console.log('Bad order:', JSON.stringify(result))
+console.log('Bad order:', result)
 console.log('result.success:', result.success)
 ```
 
@@ -91,7 +91,7 @@ code runs):
 Valid order: {"success":true,"total":29.979999999999997}
 Empty order: {"success":false,"error":"Order must have at least one product"}
 String price: {"path":"…:processOrder.order","expected":"Order","actual":"object","name":"MonadicError"}
-Bad order: {"path":"…:processOrder.order","expected":"Order","actual":"object","name":"MonadicError"}
+Bad order: MonadicError: Expected Order for '…:processOrder.order', got object
 result.success: undefined
 ```
 

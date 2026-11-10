@@ -32,11 +32,29 @@ import config from '../tjs-site.config'
  * package that way, and they opened with four backticks PRECISELY BECAUSE their code contains
  * three. The authors did the right thing and the extractor punished them for it.
  */
+/**
+ * The example's code: the first LIVE fence in the example's own language (`section`: tjs,
+ * ajs or ts), else the first fence of any kind. Taking the first fence regardless let a
+ * short `text` or `javascript` aside, or a `:static` excerpt, placed above the example become
+ * the playground's code.
+ */
+const SECTION_LANGUAGES: Record<string, string[]> = {
+  tjs: ['tjs'],
+  ajs: ['ajs'],
+  ts: ['ts', 'typescript'],
+}
 function firstCodeBlock(
-  text: string
+  text: string,
+  section?: string
 ): { language: string; code: string } | null {
-  const m = text.match(/^(`{3,})(\w+)?(?::[a-z]+)?\n([\s\S]*?)^\1\s*$/m)
-  return m ? { language: m[2] || 'javascript', code: m[3].trim() } : null
+  const fences = [
+    ...text.matchAll(/^(`{3,})(\w+)?(?::([a-z]+))?[^\n]*\n([\s\S]*?)^\1\s*$/gm),
+  ]
+  const wanted = (section && SECTION_LANGUAGES[section]) || []
+  const m =
+    fences.find((f) => wanted.includes(f[2] ?? '') && f[3] !== 'static') ??
+    fences[0]
+  return m ? { language: m[2] || 'javascript', code: m[4].trim() } : null
 }
 
 /**
@@ -200,7 +218,7 @@ for (const doc of docs as any[]) {
   // every page would put a second copy of every snippet into a 1.2 MB corpus the demo loads
   // at runtime.
   if (doc.type !== 'example') continue
-  const block = firstCodeBlock(doc.text)
+  const block = firstCodeBlock(doc.text, doc.section)
   if (block) {
     doc.code = block.code
     doc.language = block.language

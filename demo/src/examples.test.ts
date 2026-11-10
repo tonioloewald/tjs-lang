@@ -41,6 +41,7 @@ describe('TJS Playground Examples with tests', () => {
     'Full-Stack Demo: Client App', // requires saved module
     'CDN Hints (overriding the default)', // imports tosijs and date-fns
     'Predicate Types', // imports tjs-lang/css
+    'Built-in Types and Dates', // imports tjs-lang
   ])
 
   for (const example of tjsExamples) {
@@ -86,6 +87,9 @@ describe('TJS Playground Examples actually run', () => {
     'Date Formatting (with import)':
       'bare import, unresolvable in this harness',
     'Local Module Imports': 'imports a sibling module the playground provides',
+    'Built-in Types and Dates':
+      'imports tjs-lang, unresolvable in this harness',
+    'What .tjs Refuses': 'imports tjs-lang/eval, unresolvable in this harness',
     'Lodash Utilities (with import)':
       'bare import, unresolvable in this harness',
     'Schema Validation': 'imports tosijs-schema',
@@ -138,7 +142,12 @@ describe('TJS Playground Examples actually run', () => {
       if (PRINTS_UNDEFINED[example.title]) return
 
       // A computation that silently produced nothing — what `dot()` printed.
-      const empty = lines.filter((l) => /\b(undefined|NaN)\b/.test(l))
+      // A validation message reporting a MISSING value ("got undefined") is a demonstration,
+      // not a computation that produced nothing.
+      const empty = lines.filter(
+        (l) =>
+          /\b(undefined|NaN)\b/.test(l) && !/Expected .+, got undefined/.test(l)
+      )
       expect(empty).toEqual([])
     })
   }
@@ -163,8 +172,10 @@ describe('TypeScript Playground Examples actually run', () => {
   const MUST_REJECT: Record<string, RegExp> = {
     'Hello TypeScript': /^Bad call result:/,
     'Runtime Validation': /^divide\("ten", 2\) =/,
-    'Object Validation': /^(String input|Wrong member type):/,
-    'The Full Picture': /^Bad order:/,
+    'Object Validation': /^(String input|Wrong member type|Missing member):/,
+    'The Full Picture: an order handler end to end': /^Bad order:/,
+    'Nested Objects': /^Bad (address|order|list):/,
+    'Type Transformation': /^Wrong (tag|mode):/,
   }
 
   test('apparatus: the TS examples are there, and the rejection list names real ones', () => {

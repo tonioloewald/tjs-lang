@@ -4,18 +4,26 @@
 # Higher-Order Functions
 
 A higher-order function takes a function as an argument, returns one, or both. `map` and
-`filter` are the familiar ones. In TJS you write them the way you write any other
-function: each parameter gets an example, and for a function parameter the example is a
-function.
+`filter` are the familiar ones. Types-as-examples work well for data, because TJS can
+look at a value and check it. A function is harder: TJS can tell that a value is a
+function, but not what it will do until it is called. This page shows where TJS draws
+that line.
+
+A reminder of the parameter syntax (the full rules are in [TJS Syntax](/tjs-syntax/)):
+`name: example` is a required parameter, and `name = example` is an optional one whose
+example is also its default. `['']` means "an array of strings" and `[0]` "an array of
+integers". For a function parameter, the example is a function.
 
 ```tjs:inline
-// A function parameter's example is a function. Here it is also the
-// default, so leaving it out gives you the identity function.
-function mapStrings(arr: [''], fn = (x) => x): [''] {
+// The example is also the default: leave fn out and you get the
+// identity function, which returns its argument unchanged.
+// The returns are marked :! (type only, not tested); see below for why.
+function mapStrings(arr: [''], fn = (x) => x):! [''] {
   return arr.map(fn)
 }
 
-function filterNumbers(arr: [0], predicate = (x) => true): [0] {
+// The default predicate keeps every element
+function filterNumbers(arr: [0], predicate = (x) => true):! [0] {
   return arr.filter(predicate)
 }
 
@@ -31,14 +39,19 @@ const addOne = (x) => x + 1
 const doubleThenAddOne = compose(addOne, double)
 
 console.log('Mapped:', mapStrings(['hello', 'world'], (s) => s.toUpperCase()))
+// Mapped: [ "HELLO", "WORLD" ]
 console.log('Default fn:', mapStrings(['as', 'is']))
+// Default fn: [ "as", "is" ]
 console.log('Filtered:', filterNumbers([1, 2, 3, 4, 5, 6], (x) => x % 2 === 0))
+// Filtered: [ 2, 4, 6 ]
 console.log('doubleThenAddOne(5):', doubleThenAddOne(5))
+// doubleThenAddOne(5): 11
 
 // compose has no return example (see below), so a test states what it does
 test 'compose applies g first, then f' {
   expect(compose(addOne, double)(5)).toBe(11)
   expect(compose(double, addOne)(5)).toBe(12)
+  // no arguments: both defaults, the identity of the identity
   expect(compose()(7)).toBe(7)
 }
 ```
@@ -52,7 +65,9 @@ required.
 
 At the call, TJS checks the one thing it can check cheaply and honestly: **is this a
 function?** Pass a string, `null` or a number where `fn` belongs and you get a
-`MonadicError` back, not a `TypeError` three frames later inside `arr.map`.
+`MonadicError` back: an error object _returned_ as the function's result instead of
+thrown (see [Error Handling](/error-handling/)). You find out at the call, not from a
+`TypeError` three frames later inside `arr.map`.
 
 What it does _not_ check is the callback's own signature. `(x) => x` does not mean "takes
 one argument and returns the same type": any function passes. Whether a function does
@@ -61,34 +76,41 @@ know.
 
 ## Why `compose` has no return example
 
-On most TJS functions the return annotation is a worked example that is run as a test
-when the file is transpiled: `function add(a: 2, b: 3): 5` calls `add(2, 3)` and fails
-the build if the answer is not `5`.
+On most TJS functions the return annotation is a worked example that is run as a test.
+`function add(a: 2, b: 3): 5` makes TJS call `add(2, 3)` when the file is transpiled
+(which `tjs check` does), and the check fails if the answer is not `5`.
 
-That test is never built for a function with a function-valued example. TJS reads
-example values as data, without executing them, so that checking a file never runs code
-from its annotations. A number, a string or an array is data. `(x) => x` is code, so TJS
-cannot turn it into an argument, and it drops the signature test for that function
-altogether. It does this silently: `tjs check` reports nothing, not even a skipped test.
+That test calls your function, with the parameter examples as its arguments. A number, a
+string or an array is data, and TJS can hand it over as an argument. `(x) => x` is code:
+to use it as an argument TJS would have to run code written inside an annotation, and it
+never does that. So for a function with a function-valued example, TJS drops the
+signature test altogether. It does this silently: `tjs check` reports nothing, not even a
+skipped test.
 
-So on a function-taking signature, a return annotation such as `: 0` documents the return
-type and nothing more. It behaves like `:!`, and it would pass even if every example said
-otherwise. Two honest options:
+That means a plain return annotation such as `: ['']` on `mapStrings` would document the
+return type and nothing more. It would pass even if it were wrong. Two honest options:
 
-- write `:!` (for example `function apply(fn = (x) => x, n: 5):! 0`), so the code says
-  what TJS will do; or
-- leave the return annotation off and write a `test` block, as `compose` does above.
+- write `:!`, which marks a return example as a type only, not run as a test. That is
+  what `mapStrings` and `filterNumbers` do above, so the code says what TJS will do; or
+- leave the return annotation off and write a `test` block, as `compose` does.
 
-There is also no way to write "returns a function" after the colon. Writing
-`(x) => x` as a return example is a syntax error, because TJS reads the `=>` as an arrow
-body on a function declaration. A function that returns a function goes without a return
-example.
+You also cannot write a function as a return example.
+`function f(k: 2): (x) => x * k { … }` is a syntax error: TJS takes the `=>` after the
+return annotation as the start of an arrow function, which a `function` declaration
+cannot have. You can name a `FunctionPredicate` instead (`function f(k: 2):! Unary`, see
+[below](#describing-a-callbacks-shape)). That records the intent in the source, but
+nothing checks it, and `tjs check` reports the return type as `any`.
 
 ## Callbacks keep their own checks
 
 The checks live with each function, not with the caller. A TJS function passed as a
-callback still validates its own arguments wherever it ends up being called, and a
-function that _returns_ a function is checked when you call it:
+callback still validates its own arguments wherever it ends up being called. A factory,
+a function that returns a function, is checked when you call it; the function it returns
+is not (more on that in the next section).
+
+`0.0` in these examples declares a float, which accepts any number; `0` would accept
+integers only. The `String(...)` wrappers turn an error into its readable message for
+printing.
 
 ```tjs:inline
 // A TJS function passed as a callback keeps its own checks
@@ -96,7 +118,7 @@ function half(n: 0.0): 0.0 {
   return n / 2
 }
 
-function mapAll(xs: [0.0], fn = (x) => x): [0.0] {
+function mapAll(xs: [0.0], fn = (x) => x):! [0.0] {
   return xs.map(fn)
 }
 
@@ -113,22 +135,25 @@ function multiplier(k: 2.0) {
   return (x) => x * k
 }
 
-const triple = multiplier(3)
-console.log('triple(5):', triple(5))
+const looseTriple = multiplier(3)
+console.log('looseTriple(5):', looseTriple(5))
+console.log("looseTriple('a'):", looseTriple('a'))
 console.log("multiplier('3'):", String(multiplier('3')))
 ```
 
-Look at the third line of output: `map` did not stop at the bad element. `half('8')`
-returned an error _value_ and `map` carried on, so the result holds one error and one
-number. That is monadic errors working as designed, and it is why you check results at
-the edge of a pipeline (see _Error Handling_).
+The third line of output shows that `map` did not stop at the bad element. `half('8')`
+returned an error _value_ and `map` carried on, so the result holds one error message
+and the number `2` (both printed as strings by `.map(String)`). Errors that are returned
+rather than thrown work this way by design,
+and it is why you check results at the edge of a pipeline (see
+[Error Handling](/error-handling/)).
 
 ## Checking the function a factory returns
 
 Only top-level functions validate their parameters: a top-level `function`, or a typed
 arrow assigned at top level (`const h = (x: 0) => x`). A function created _inside_
 another one is not checked, even with typed parameters. The arrow `multiplier` returns
-takes anything, and `triple('a')` is `NaN`, not an error.
+takes anything, which is why `looseTriple('a')` printed `NaN` rather than an error.
 
 When the returned function needs a check, have it hand the work to a top-level typed
 function:
@@ -144,20 +169,23 @@ function scaler(k: 2.0) {
   return (x) => scaleBy(x, k)
 }
 
-const triple = scaler(3)
-console.log('triple(5):', triple(5))
-console.log("triple('a'):", String(triple('a')))
+const checkedTriple = scaler(3)
+console.log('checkedTriple(5):', checkedTriple(5))
+console.log("checkedTriple('a'):", String(checkedTriple('a')))
 ```
 
-`scaleBy` has only data examples, so its return example is a real test: the build calls
-`scaleBy(2.0, 3.0)` and fails if the answer is not `6.0`. The `test` block in the first
-example does the same job for `compose`, which cannot have one.
+`scaleBy` has only data examples, so its return example is a real test: `tjs check`
+calls `scaleBy(2.0, 3.0)` and fails if the answer is not `6.0`. The `test` block in the
+first example does the same job for `compose`, which cannot have one.
 
 ## Describing a callback's shape
 
-`FunctionPredicate` (see _Declarations_) declares a function type: its parameters and
-its return. Calling the declaration answers "is this a function?" and carries the
-contract for tools, docs and `.d.ts` output:
+`FunctionPredicate` (see [Declarations](/declarations/)) declares a function type: its
+parameters and its return. Calling the declaration returns `true` or `false`, and it
+checks only whether the value is a function. The `params` and `returns` are not checked
+at call time: `Unary(() => 'x')` is `true` even though it takes no `x` and returns a
+string. They are a description for readers and tools; an exported `FunctionPredicate`
+becomes a function type in `.d.ts` output (`export type Unary = (x: number) => number`).
 
 ```tjs:inline
 FunctionPredicate Unary {
@@ -165,8 +193,9 @@ FunctionPredicate Unary {
   returns: 0
 }
 
-console.log('Unary((n) => n + 1):', Unary((n) => n + 1))
-console.log("Unary('not a function'):", Unary('not a function'))
+console.log('Unary((n) => n + 1):', Unary((n) => n + 1)) // true
+console.log("Unary(() => 'x'):", Unary(() => 'x')) // true: shape not checked
+console.log("Unary('not a function'):", Unary('not a function')) // false
 ```
 
 A `FunctionPredicate` name is not yet a parameter annotation. `function run(fn: Unary)`

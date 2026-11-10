@@ -168,7 +168,7 @@ site render above the code ([Doc comments](/TJS-SYNTAX/#doc-comments-)).
 Every `f32x4_*` intrinsic works on all four lanes at once, so a loop that steps `i += 4` does
 a quarter of the iterations a scalar loop would. That also means **the length must be a
 multiple of 4**: the loop reads and writes four floats per step and has no tail loop.
-1024 is.
+`SIZE` is 1024, which is.
 
 Read the loops with these things in mind:
 
@@ -298,12 +298,12 @@ handles any per-lane choice: saturating, or replacing out-of-range values.
 
 ## Limits
 
-- **Lengths must be a multiple of 4.** A SIMD loop reads and writes four floats per step, and
-  there is no automatic tail loop. Nothing checks this, and breaking it does not fail
-  loudly. With an ordinary typed array, the last step reads and writes past the end of the
-  copy inside WASM memory; those writes are not copied back, so they are lost. With a
-  `wasmBuffer` array, the same step writes into whatever was allocated next, which silently
-  corrupts a neighbouring array. Either pad your arrays (zeros are harmless in a sum or a dot
+- **Lengths must be a multiple of 4, and no larger than the array.** A SIMD loop reads and
+  writes four floats per step, and there is no automatic tail loop. Nothing checks `len`
+  against the array, and getting it wrong does not fail loudly. With an ordinary typed array,
+  the extra steps read and write past the end of the copy inside WASM memory; those writes are
+  not copied back, so they are lost. With a `wasmBuffer` array, they can write into whatever
+  was allocated next, which silently corrupts a neighbouring array. Either pad your arrays (zeros are harmless in a sum or a dot
   product) or finish the last one to three elements in JavaScript, as the last lines above
   do.
 - **SIMD loads need a typed-array parameter, and should get a `Float32Array`.** A plain

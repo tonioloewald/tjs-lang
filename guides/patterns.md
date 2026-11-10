@@ -805,8 +805,8 @@ with the builder, in host code that produces the AST.
 The builder (`vm.Agent`) is a fluent API that builds the same kind of AST the transpiler emits,
 one step per method call. Each atom is a method taking that atom's named inputs; `.as(name)`
 binds the previous step's result to a variable; `.return(schema)` ends the program, returning the
-variables the schema names; `.toJSON()` gives the AST. `memoize(block, key)` and
-`cache(block, key, ttlMs)` take the block as a function from a builder to a builder, and the
+variables the schema names; `.toJSON()` gives the AST. `.memoize(block, key)` and
+`.cache(block, key, ttlMs)` take the block as a function from a builder to a builder, and the
 block's `return` is the cached value.
 
 `memoize` caches for the rest of the run, by a key you choose:

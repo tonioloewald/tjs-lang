@@ -29,16 +29,20 @@ test 'reading properties' {
 }
 ```
 
-Ask the console for `ada.born + 36`, then for `ada.died`: an object with no `died` property
+Ask the console for `ada.born + 36`, then for `ada.died` (type each at its prompt and press
+Enter, as in the Lists chapter): an object with no `died` property
 answers `undefined`, just as a list does past its end.
 
 That `undefined` is worth a second look, because it is also what you get from a **typo**.
-Write `ada.nmae` instead of `ada.name` and there is no error: the object simply has no part
+Write `ada.nmae` instead of `ada.name` and there is no error: the object has no part
 called `nmae`, so the answer is `undefined`, and the page says "undefined was born in 1815".
 Try it. Later in this chapter you will see how to make TJS check that the parts you need are
 really there.
 
 ## Changing and adding parts
+
+Assign to a property to change it: `counter.count = 5`. Assign to a property the object does
+not have yet, and the object gains it.
 
 ```tjs:inline {"view": "code"}
 const counter = { label: 'clicks', count: 0 }
@@ -54,8 +58,13 @@ test 'parts can change, and new parts can be added' {
 }
 ```
 
-`const` means the name `counter` always points at the same object; the object's parts can
-still change.
+`counter.colour = 'green'` adds a part that was not there before.
+
+But isn't `counter` a `const`? It is, and `const` means the name `counter` always points at
+the same object. Changing the object's parts is fine. Pointing the name at a different object
+is not: add the line `counter = { label: 'taps' }` and the program stops with an error saying
+`counter` is a constant. The section Same parts, different objects, below, comes back to what
+"points at" means.
 
 ## Parts inside parts
 
@@ -102,20 +111,21 @@ function countWords(words: ['']) {
   return counts
 }
 
-const counts = countWords(['the', 'cat', 'saw', 'the', 'other', 'cat'])
+const tally = countWords(['the', 'cat', 'saw', 'the', 'other', 'cat'])
 
-preview.append(`"the" appears ${counts.the} times, "cat" ${counts['cat']} times.`)
+preview.append(`"the" appears ${tally.the} times, "cat" ${tally['cat']} times.`)
 
 test 'counting words' {
-  expect(counts['the']).toBe(2)
-  expect(counts.saw).toBe(1)
-  expect(counts.dog).toBe(undefined)
+  expect(tally['the']).toBe(2)
+  expect(tally.saw).toBe(1)
+  expect(tally.dog).toBe(undefined)
 }
 ```
 
-`counts[word]` means "the part of `counts` whose name is whatever `word` is". The first time
-a word turns up there is no such part yet (`undefined`), so it is set to 0 before adding one.
-`counts.the` and `counts['the']` mean the same thing; the brackets are for when you do not
+An empty pair of braces, `{}`, is an object with no parts yet. `counts[word]` means "the
+part of `counts` whose name is whatever `word` is". The first time a word turns up there is
+no such part yet (`undefined`), so it is set to 0 before adding one.
+`tally.the` and `tally['the']` mean the same thing; the brackets are for when you do not
 know the name until the program runs.
 
 ## Going through the parts
@@ -124,10 +134,6 @@ know the name until the program runs.
 `for … of`, like any list:
 
 ```tjs:inline {"view": "code"}
-import { elements } from 'tosijs'
-
-const { ul, li } = elements
-
 const stock = { apples: 12, pears: 0, plums: 30 }
 
 const lines = []
@@ -135,7 +141,7 @@ for (const fruit of Object.keys(stock)) {
   lines.push(`${fruit}: ${stock[fruit]}`)
 }
 
-preview.append(ul(...lines.map((line) => li(line))))
+preview.append(lines.join(', '))
 
 test 'every fruit gets a line' {
   expect(Object.keys(stock)).toEqual(['apples', 'pears', 'plums'])
@@ -144,11 +150,13 @@ test 'every fruit gets a line' {
 ```
 
 The names come out in the order the parts were added. (One exception: names that are whole
-numbers, like `'2'`, come first, smallest first.)
+numbers come first, smallest first, so `Object.keys({ b: 1, 2: 1, a: 1 })` gives
+`['2', 'b', 'a']`.)
 
 ## Lists of objects
 
-Most real data is a list of objects: rows in a table, people in a class, items in a basket.
+Real data usually comes many at a time: a list of objects. Rows in a table, people in a
+class, items in a basket.
 Everything from Lists works on them. `map` turns each row into a line of text, and `for … of`
 adds up the bill:
 
@@ -185,7 +193,8 @@ parts. Follow `total` through the three rounds:
 
 ## Functions that make objects
 
-A function can give back an object, which is how you return several answers at once:
+A function can give back an object, which is how you return several answers at once. Here
+`numbers: [0.0]` means a list of numbers, decimals allowed, as in Functions:
 
 ```tjs:inline {"view": "code"}
 function stats(numbers: [0.0]) {
@@ -213,7 +222,8 @@ test 'one call, two answers' {
 ```
 
 `{ smallest, largest }` is short for `{ smallest: smallest, largest: largest }`: when a part
-has the same name as the value you are putting in it, you can write the name once.
+has the same name as the value you are putting in it, you can write the name once. (Given an
+empty list, both answers are `undefined`: there is no first number to start from.)
 
 ## Same parts, different objects
 
@@ -235,14 +245,17 @@ test 'equal parts are not the same object' {
 ```
 
 `a` and `b` have the same parts, but they are two separate objects, made by two separate
-pairs of braces. `==` asks "is this the very same object?", and they are not. `c` is not a
-copy: `const c = a` gives the same object a second name, so `a == c` is true. Change `c.x` to
-5 and print `a.x` to see it.
+pairs of braces. For numbers and strings, `==` compares values, as it always has. For
+objects and lists it asks "is this the very same object?", and they are not. `c` is not a
+copy: `const c = a` gives the same object a second name, so `a == c` is true. Add the lines
+`c.x = 5` and `preview.append(a.x)` at the end to see it.
 
-To ask "do these have the same parts?", use `Is(a, b)`, which looks inside, or, in a test,
-`toEqual`. (TJS keeps `==` as a quick "same thing?" question on purpose: comparing every part
-of two large objects can take a long time, and you should be able to see when a program does
-that.)
+To ask "do these have the same parts?", use `Is(a, b)`, which looks inside. `Is` is built into
+TJS; there is nothing to import or write. Tests make the same split: `toBe` asks the `==`
+question and `toEqual` asks the `Is` question, which is why the tests on this page use
+`toEqual` for objects and lists. (TJS keeps `==` as a quick "same thing?" question on
+purpose: comparing every part of two large objects can take a long time, and you should be
+able to see when a program does that.)
 
 ## An object as a parameter
 
@@ -255,7 +268,8 @@ function area(rect: { width: 0.0, height: 0.0 }) {
   return rect.width * rect.height
 }
 
-preview.append(`A 3 by 4 rectangle has an area of ${area({ width: 3, height: 4 })}.`)
+preview.append(`A 3 by 4 rectangle has an area of ${area({ width: 3, height: 4 })}. `)
+preview.append(`Without a height: ${area({ width: 3 }).message}`)
 
 test 'area needs both parts' {
   expect(area({ width: 3, height: 4 })).toBe(12)
@@ -265,20 +279,28 @@ test 'area needs both parts' {
 }
 ```
 
-Extra parts are fine (the rectangle can have a colour). A missing part is refused, and the
-error names it: `area({ width: 3 })` gives back an error saying a number was expected for
-`rect.height` and it got `undefined`. (Had the example been `{ width: 0, height: 0 }`, only
-whole numbers would be accepted, and `area({ width: 2.5, height: 4 })` would be refused.)
+Extra parts are fine (the rectangle can have a colour). A missing part is refused: the
+function does not run, and its answer is an error value instead, which `instanceof Error`
+recognises, as in Checking Your Work. The error names the part. The preview shows its
+`message`: a number was expected for `rect.height`, and it got `undefined`. (The message
+also says where in the program the call was checked.) Had the example been
+`{ width: 0, height: 0 }`, only whole numbers would be accepted, and
+`area({ width: 2.5, height: 4 })` would be refused.
 
 This is the answer to the typo problem from the start of the chapter. Call
-`area({ width: 3, hieght: 4 })` and TJS does not quietly multiply by `undefined`: it says the
-rectangle has no `height`, at the moment the mistake happens, and names the part. Try it. The example
-in the parameter is a promise about the parts, and TJS checks the promise on every call.
+`area({ width: 3, hieght: 4 })` and TJS does not quietly multiply by `undefined`: at the
+moment the mistake happens, it says a number was expected for `rect.height` and it got
+`undefined`. Try it. The example in the parameter is a promise about the parts, and TJS checks the promise on every call.
 
 ## Naming a shape: `Type`
 
 When the same shape turns up in several places, give it a name. A `Type` describes a shape
-with a sentence and an example:
+with a sentence and an example. `Type` is its own kind of declaration, not an object, so its
+lines need no commas.
+
+The example below works out the straight-line distance between two points, by Pythagoras:
+3 across and 4 up is 5 away. Two new pieces of arithmetic do it: `**` raises to a power, so
+`3 ** 2` is 9, and `Math.sqrt` is the square root.
 
 ```tjs:inline {"view": "code"}
 Type Point {
@@ -299,11 +321,16 @@ test 'a Point is anything shaped like one' {
 }
 ```
 
-- `a: Point` reads "a must be a Point", and is checked on every call, like any example.
-- `Point.check(value)` asks the question yourself: is this shaped like a Point?
-- `**` raises to a power: `3 ** 2` is 9. `Math.sqrt` is the square root.
+- `a: Point` reads "a must be a Point". It works like writing the example `{ x: 0, y: 0 }`
+  there yourself, with a name and a description attached, and it is checked on every call.
+- A `Type` has parts of its own. `check` is one of them, and it is a function you call:
+  `Point.check(value)` asks the question yourself: is this shaped like a Point?
+- The example uses whole numbers, so a `Point` has whole-number parts: positions on a grid.
+  Try `Point.check({ x: 1.5, y: 2 })`. For any position, the example would be
+  `{ x: 0.0, y: 0.0 }`.
 
-The description is for people: it turns up in the documentation TJS writes for your code.
+The description is for people. It says what the example alone cannot, and a program can read
+it back as `Point.description`.
 
 ## A shape with a rule
 
@@ -335,33 +362,43 @@ test 'a Percent must be from 0 to 100' {
 }
 ```
 
+`predicate(value) { … }` is a function written inside the `Type`, without the word
+`function`; TJS calls it for you. It does not need to check "whole number": the example `50`
+already says that, so `50.5` is refused before the predicate is asked.
+
 `progressBar(150)` never runs: 150 is a whole number, but the predicate says no, so the call
-gives back an error that says a `Percent` was expected. Without the check, the body would ask
-for `-5` dots, and `repeat` would stop the program with an error of its own that says nothing
-about percentages. The rule is written once, in the `Type`, and every function that takes a
-`Percent` gets it for free. (The example `50` already says "whole number", so `50.5` is refused
-before the predicate is asked.)
+gives back an error value that says a `Percent` was expected. Without the check, the body would
+ask for `-5` dots, and `repeat` would give a different kind of error: one that stops the whole
+program, and says nothing about percentages. The rule is written once, in the `Type`, and
+every function that takes a `Percent` gets it for free.
 
 Keep a predicate a plain check: comparisons on the value, combined with `&&` and `||`. No
-loops, nothing fetched from the internet, nothing changed. A predicate like that is one TJS
-can prove safe: whatever value it is handed, it answers yes or no, quickly, and touches
-nothing else. The Predicate Types chapter, later in the book, shows what that proof makes
-possible.
+loops (a loop might never finish, and a check that never answers is no check), nothing
+fetched from the internet, nothing changed. A predicate like that is one TJS can prove safe:
+whatever value it is handed, it answers yes or no, quickly, and touches nothing else. The
+[Predicate Types](/predicate-types/) page shows what that proof makes possible; it is written
+for working programmers, so save it for after this book.
 
 ## Try it
 
 Make a `Type Book` with a `title` and a number of `pages`. Write `longBooks(books: [Book])` that
 gives back the titles of the books with more than 300 pages, and test it with a list of three
-books (one short, two long), and with an empty list. `[Book]` means "a list of Books", and
-every book in it is checked: test that a list with a book missing its `pages` is refused.
+books (one short, two long), and with an empty list. `[Book]` means "a list of Books", just
+as `['']` meant a list of strings, and every book in it is checked. Test that a list with a
+book missing its `pages` is refused:
+`expect(longBooks([{ title: 'Short' }]) instanceof Error).toBe(true)`. This error points at
+the book (`books[0]`) rather than at the missing part.
 
 More to try:
 
 - Use `countWords` to find which letter is most common in a sentence. (A string can be split
-  into a list of its letters with `sentence.split('')`.)
+  into a list of its letters with `sentence.split('')`.) Then go through `Object.keys` of the
+  result, as in the stock example, keeping the letter with the biggest count, the way `stats`
+  keeps the largest number. Spaces count too: what does that do to your answer?
 - Write `Type Temperature` for a number of degrees Celsius that cannot be below -273.15
-  (absolute zero; nothing is colder). Give it a description, an example with a decimal point,
-  and a predicate, and test both sides of the edge.
+  (absolute zero; nothing is colder). Give it a description, an example with a decimal point
+  such as `20.5` (with a whole-number example, `20.5` itself would be refused, as with `area`),
+  and a predicate. Test that -273.15 is accepted and -273.16 is refused.
 - Write `swap(point: { x: 0, y: 0 })` that gives back a **new** point with `x` and `y`
   exchanged. Test it with `toEqual`, and test that the point you passed in has not changed.
 
@@ -369,5 +406,5 @@ Work them here:
 
 ```tjs:inline {"view": "code"}
 // Your code here. Show results with preview.append(…), check them with a
-// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+// test block, then press the refresh button (or ⌘S / Ctrl+S) to run it.
 ```

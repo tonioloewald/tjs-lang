@@ -37,13 +37,13 @@ test 'comparisons answer true or false' {
 }
 ```
 
-Change `age` to `18` and then to `19`, and before each change, predict the sentence. The
-difference between `>` and `>=` is exactly one value: the edge. Decisions go wrong at their
-edges more than anywhere else.
+Change `age` to `18` and then to `19`, and before each change, predict the sentence. The test
+will turn red when you do. It was written for an age of 17, and it is telling you the answers
+have changed. That is a test doing its job, not something you broke; change `age` back to 17
+and it passes again.
 
-When you change `age`, the test turns red. It was written for an age of 17, and it is telling
-you the answers have changed. That is a test doing its job; change `age` back to 17 and it
-passes again.
+The difference between `>` and `>=` is exactly one value: the edge. Decisions go wrong at their
+edges more than anywhere else.
 
 ## `if`: only sometimes
 
@@ -67,23 +67,27 @@ test 'a coat when it is cold, not when it is warm' {
 }
 ```
 
-`temperature < 10` is a comparison, so its value is `true` or `false` (see Values and Names). When it is
-true, the block runs and `message` changes; when it is false, the block is skipped. Change
-`advice(5)` to `advice(25)` and watch the advice change.
+`message` starts out holding one sentence, and the line inside the braces replaces it with
+another. That is why it is made with `let`, not `const`: a `let` name can be given a new value
+(see Values and Names). `temperature < 10` is a comparison, so its value is `true` or `false`.
+When it is true, the block runs and `message` changes; when it is false, the block is skipped.
+Change `advice(5)` to `advice(25)` and watch the advice change.
 
 ## A decision is only as good as its input
 
-What happens if `advice` is asked about something that is not a temperature at all? Change
-`advice(5)` to `advice('cold')`. Without a check, the comparison `'cold' < 10` would quietly
-answer `false`, and the program would cheerfully tell you to have a nice day. TJS does not let
-that happen. `temperature: 0` says `advice` takes a whole number, so the call never reaches
-the `if`: it gives back an error saying an integer was expected and a string arrived, and that
-error is what appears on the page.
+What happens if `advice` is asked about something that is not a temperature at all? In the
+`advice` example above, change `advice(5)` to `advice('cold')`. Without a check, the comparison
+`'cold' < 10` would quietly answer `false`, and the program would cheerfully tell you to have a
+nice day. TJS does not let that happen. The example value in `temperature: 0` says `advice`
+takes a whole number, so the call never reaches the `if`. It gives back an error instead, and
+that error is what appears on the page. Its message says `Expected integer` (integer is the
+programmer's word for a whole number) and ends `got string`.
 
-Now try `advice(9.5)`. That is refused too, and this time TJS is right and the program is
-wrong: temperatures have fractions, but the example `0` says "whole number". Change the example
-to `0.0`, which means any number, and `advice(9.5)` works. The example in a function's
-parentheses is a statement about what the function accepts, and it is worth getting right.
+Now change it to `advice(9.5)`. That is refused too, with a message ending `got number`, and
+this time TJS is right and the program is wrong. Temperatures have fractions, but the example
+value `0` says "whole number". As you saw in Functions, an example value is a sample of the
+kind of value you expect, and writing `0.0`, with a decimal point, says fractions are welcome.
+Here is the same function with `0.0` as the example value:
 
 ```tjs:inline {"view": "code"}
 function advice(temperature: 0.0) {
@@ -103,12 +107,19 @@ test 'any number is a temperature; a word is not' {
 }
 ```
 
-The last check is the one from Checking Your Work: a wrong kind of value gives back an error,
-and a test can say so.
+Now `advice(9.5)` works. The example value in a function's parentheses is a statement about
+what the function accepts, and it is worth getting right.
+
+The last check is the one from Checking Your Work: `x instanceof Error` asks "is `x` an error?".
+A wrong kind of value gives back an error, and a test can say so.
 
 ## `else`: one or the other
 
 `else` gives the other choice: what to do when the condition is false.
+
+The example below uses `%`, which gives the **remainder** after dividing: `7 % 2` is 1, because
+7 is three 2s and 1 over. An even number leaves no remainder when divided by 2, so "`n` is
+even" is written `n % 2 == 0`.
 
 ```tjs:inline {"view": "code"}
 function describe(n: 0) {
@@ -127,9 +138,8 @@ test 'even and odd' {
 }
 ```
 
-`%` gives the **remainder** after dividing: `7 % 2` is 1, because 7 is three 2s and 1 over.
-An even number leaves no remainder. Notice that each branch can `return` straight away: once a
-function returns, nothing after it runs.
+Notice that each branch can `return` straight away: once a function returns, nothing after it
+runs.
 
 ## One equals sign, or two?
 
@@ -138,9 +148,13 @@ most famous mistake in programming. Try it: in `describe`, change `n % 2 == 0` t
 The example stops with an error before anything runs, because "store 0 in `n % 2`" makes no
 sense: `n % 2` is a calculation, not a name.
 
-The mistake is sneakier when the left side **is** a name. `if (n = 0)` is legal: it stores 0 in
-`n`, then treats that 0 as the answer to the question, and 0 counts as false, so the block
-never runs, whatever `n` was:
+The mistake is sneakier when the left side **is** a name. First, one new fact: when `if` is
+given something other than `true` or `false`, it decides for itself. `0`, `''` (empty text),
+`null` and `undefined` count as false; every other value counts as true.
+
+Now, `if (n = 0)` is legal. It stores 0 in `n`, then treats that 0 as the answer to the
+question, and 0 counts as false, so the block never runs, whatever `n` was. TJS does not warn
+about this one:
 
 ```tjs:inline {"view": "code"}
 function isZero(n: 0) {
@@ -151,11 +165,17 @@ function isZero(n: 0) {
 }
 
 preview.append(`isZero(0) says: ${isZero(0)}`)
+
+test 'isZero' {
+  expect(isZero(5)).toBe('not zero')
+}
 ```
 
-It says `not zero` for 0. Put the second `=` back, `if (n == 0)`, and it says `zero`.
+It says `not zero` for 0, and its one test passes, because that test only asks about the
+"not zero" branch. Add a test for the other branch, `expect(isZero(0)).toBe('zero')`, and it
+turns red. Put the second `=` back, `if (n == 0)`, and both pass.
 
-That is why the tests in this book check both
+Your tests are what catch this mistake, which is why the tests in this book check both
 branches of every decision: a decision that always goes the same way passes half its tests,
 and the other half tell you something is wrong.
 
@@ -188,7 +208,8 @@ test 'grades' {
 ```
 
 The order matters. 95 is also at least 80, but the `score >= 90` test comes first, so it wins.
-Try moving the `score >= 80` branch to the top and see which tests fail.
+Try swapping the numbers in the first two questions, so the first reads `if (score >= 80)` and
+the second `else if (score >= 90)`, and see which expectation fails, and why.
 
 Read the chain as a series of narrowing questions. By the time the program asks
 `score >= 80`, it already knows the score is **not** 90 or more, so that branch means "80 to
@@ -197,11 +218,14 @@ everything nothing else did, so `grade` always gives back an answer.
 
 ## Combining conditions
 
-Three words build bigger conditions out of smaller ones:
+Three symbols build bigger conditions out of smaller ones. Read them aloud as words:
 
 - `&&` means **and**: both must be true.
 - `||` means **or**: at least one must be true.
 - `!` means **not**: it turns true into false and false into true.
+
+You have already met `!` in `!=`, "not equal". On most keyboards `|` is Shift plus the
+backslash key, `\`.
 
 ```tjs:inline {"view": "code"}
 function canRide(age: 0, height: 0) {
@@ -243,10 +267,11 @@ test 'or, and not' {
 ```
 
 A common slip is to write `day == 'saturday' || 'sunday'`, the way you would say it aloud.
-It does not do what it says. `||` gives back the first side if that is true, and otherwise the
-second side, so for `'tuesday'` the answer is the string `'sunday'`, not `false`. Each side of
-`||` has to be a whole question, so the comparison must be written out twice. And the
-comparison is exact: try `isWeekend('Sunday')`, with a capital S.
+It does not do what it says. For `'tuesday'` the answer is not `false` but the text `'sunday'`,
+and text that is not empty counts as true, so `if (isWeekend(day))` would treat every day as a
+weekend. Each side of `||` has to be a whole question, so the comparison must be written out
+twice. Try the slip in `isWeekend` and watch the test go red: even `isWeekend('sunday')` now
+gives back the text `'sunday'` rather than `true`.
 
 ## Choosing between two values
 
@@ -272,13 +297,23 @@ test 'one apple, many apples' {
 ```
 
 Change `apples` to `0`, then `3`. The whole `count == 1 ? 'apple' : 'apples'` is a value, which
-is why it can sit inside `${ }` in a template string, where an `if` cannot. The same
-`if`/`else` would need a name to store the word in first:
+is why it can sit inside `${ }` in a template string, where an `if` cannot. Written with `if`,
+the same function needs a name to store the word in first:
 
-```javascript
-let word = 'apples'
-if (count == 1) {
-  word = 'apple'
+```tjs:inline {"view": "code"}
+function fruitWithIf(count: 0) {
+  let word = 'apples'
+  if (count == 1) {
+    word = 'apple'
+  }
+  return `${count} ${word}`
+}
+
+preview.append(`You have ${fruitWithIf(3)}.`)
+
+test 'the same answers as fruit' {
+  expect(fruitWithIf(1)).toBe('1 apple')
+  expect(fruitWithIf(3)).toBe('3 apples')
 }
 ```
 
@@ -290,7 +325,7 @@ because it has three parts.
 ## `given`: choosing by value
 
 When the decision is "which of these values is it?", a chain of `else if`s gets long. `given`
-lists the values instead. Each line names one or more values, then the block to run:
+lists the values instead. Each **arm** names one or more values, then the block to run:
 
 ```tjs:inline {"view": "code"}
 function kindOfDay(day: 'monday') {
@@ -316,19 +351,41 @@ test 'days of the week' {
 ```
 
 Exactly one block runs: the one whose value matches, or the `else` block when none does. The
-`else` is optional; without it, a value that matches nothing runs no block at all. Values are
-compared the way `==` compares them, so `given` works on numbers as well as words, and
-`'Friday'` with a capital F does not match `'friday'`.
+`else` comes after the closing brace of the whole `given`, the same way it follows the closing
+brace of an `if`. It is optional; without it, a value that matches nothing runs no block at all.
+
+Values are compared the way `==` compares them, so `'Friday'` with a capital F does not match
+`'friday'`, and `given` works on numbers as well as words:
+
+```tjs:inline {"view": "code"}
+function howMany(n: 0) {
+  given n {
+    1, 2, 3 {
+      return 'a few'
+    }
+  } else {
+    return 'more than a few'
+  }
+}
+
+preview.append(`2 is ${howMany(2)}.`)
+
+test 'numbers work too' {
+  expect(howMany(2)).toBe('a few')
+  expect(howMany(7)).toBe('more than a few')
+}
+```
 
 `given` is how TJS does what JavaScript and TypeScript do with `switch` and `case`, and it
-does what you almost always want.
+does what you almost always want. In a `switch`, forgetting one word, `break`, makes the next
+choice run as well; a `given` arm cannot run into the next one.
 
-If you already know JavaScript: `switch` still works in a `.tjs` file, with exactly
-JavaScript's semantics. Cases fall through unless you write `break`, they share one scope,
-and they compare with `===`. TJS leaves it alone so that JavaScript you paste in still means
-what it meant, and warns at each `switch`, pointing at `given`. A `given` arm never falls
-through, each arm has its own scope, and one arm can list several values, which is the
-legitimate use of fallthrough in a `switch`.
+> **If you already know JavaScript:** `switch` still works in a `.tjs` file, with exactly
+> JavaScript's semantics. Cases fall through unless you write `break`, they share one scope,
+> and they compare with `===`. TJS leaves it alone so that JavaScript you paste in still means
+> what it meant, and warns at each `switch`, pointing at `given`. A `given` arm never falls
+> through, each arm has its own scope, and one arm can list several values, which is the
+> legitimate use of fallthrough in a `switch`.
 
 Why TJS added a new word rather than quietly changing what `switch` does is a story of its
 own: testing showed that a new keyword, carefully explained, surprised people less. See
@@ -344,16 +401,16 @@ where tests earn their keep.
 Then:
 
 1. Add a rule: on Tuesdays everyone pays 4. Give `ticketPrice` a second parameter,
-   `day: 'monday'`, and decide which check should come first. Test a Tuesday child and a
-   Tuesday senior.
+   `day: 'monday'` (`'monday'` is only the example value: any day's name will do), and decide
+   which check should come first. Test a Tuesday child and a Tuesday senior.
 2. Write `bigger(a: 0.0, b: 0.0)` that gives back whichever number is larger, using `? :`.
    What should it give back when they are equal? Test that case too.
 3. Use `given` to write `vowel(letter: 'a')` that is `true` for `'a'`, `'e'`, `'i'`, `'o'` and
-   `'u'`, and `false` for anything else.
+   `'u'`, and `false` for anything else. Each arm, and the `else`, needs its own `return`.
 
 Work them here:
 
 ```tjs:inline {"view": "code"}
 // Your code here. Show results with preview.append(…), check them with a
-// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+// test block, then press the refresh button (or ⌘S / Ctrl+S) to run it.
 ```

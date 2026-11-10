@@ -53,9 +53,15 @@ Read it a line at a time:
 - `function double(…)` gives the function its name.
 - `n` is a **parameter**: a name for the value the function is given. Each time the function
   runs, `n` is whatever value it was handed.
+- `: 0` after `n` says what kind of value `n` should be: a whole number. There is more on this
+  below.
 - `return n * 2` gives the answer back to whoever asked.
 - `double(21)` **calls** the function: it runs it with `n` set to 21, and the call becomes
   the answer, 42.
+- The `test` block is the kind you met in How This Book Works. Read
+  `expect(double(21)).toBe(42)` as "expect double 21 to be 42". It is not part of what the
+  page shows: the line under the result says whether the tests passed, and turns red when one
+  fails.
 
 Writing the function does not run it. The lines inside the braces wait until something calls
 `double`; then they run, once per call. Change `double(21)` to `double(100)` and the sentence
@@ -76,17 +82,20 @@ test 'a tip is 15% of the bill' {
 }
 ```
 
+`tip` uses `0.0` where `double` used `0`, because a bill can have pennies in it; the next
+section says why that matters.
+
 If the restaurant decides tips should be 20%, there is one place to change, and the test tells
 you which answers moved. Try it.
 
 ## What `: 0` means
 
 The `: 0` after `n` says what kind of value `n` should be, by giving an **example** of one:
-`0` is a whole number, so `double` expects a whole number. The example is not a default and
-not a special value; any whole number will do.
+`0` is a whole number, so `double` expects a whole number. `n` does not start out as 0, and 0
+is not special: any whole number will do.
 
-Because TJS knows what `double` expects, it checks every call. Try these at the console's
-prompt:
+Because TJS knows what `double` expects, it checks every call. This example opens with a
+console, like the one in How This Book Works: type each call at its prompt and press Enter.
 
 ```tjs:inline {"view": "console"}
 function double(n: 0) {
@@ -101,7 +110,8 @@ answer is an **error** saying what was expected and what arrived, instead of a n
 result that would cause trouble later.
 
 `'5'` in quotes is text that happens to look like a number, the way a number typed into a
-form arrives. Plain JavaScript would quietly turn it into a number and answer 10, which is
+form arrives. TJS is built on JavaScript, the language web pages run, and plain JavaScript
+would quietly turn it into a number and answer 10, which is
 right this time and badly wrong the time the text is `'5 apples'`.
 
 **Unlike JavaScript, TJS is fussy about numbers.** In fact it is fussier than TypeScript, which
@@ -122,19 +132,20 @@ The examples you will use most are these:
 | --- | --- | --- |
 | `n: 0` | a whole number | `5`, `-3`, `0` |
 | `n: 0.0` | any number | `5`, `2.5`, `-0.1` |
-| `n: +0` | a whole number, zero or more | `0`, `5`, but not `-3` |
+| `n: +0` | a whole number, zero or more (`+` for "not negative") | `0`, `5`, but not `-3` |
 | `name: ''` | a string (any text) | `'Ada'`, `''` |
 | `ok: true` | a boolean | `true`, `false` |
 
 The example only says what **kind** of value: `name: 'Ada'` accepts `'Grace'` just as happily
 as `name: ''` does. Pick an example a reader would recognise, because the example is also
-documentation. (`tip` above uses `0.0`, because a bill can have pennies in it.)
+documentation.
 
 ### Leaving a value out
 
 Calling `double()` with nothing in the parentheses is a mistake too, and TJS says so. Type
-`double()` at the console above: the error says it expected an integer and got `undefined`,
-which is JavaScript's word for "nothing was here". A parameter written with `:` must be given.
+`double()` at the console above: the error says it expected an integer (a whole number) and
+got `undefined`, which is JavaScript's word for "nothing was here". A parameter written with
+`:` must be given.
 
 ## Several parameters
 
@@ -173,13 +184,19 @@ test 'the word comes first, then how many times' {
 }
 ```
 
-(`word.repeat(times)` is one of the things a string can do for itself: it gives back the
-string written out `times` times.)
+(`word.repeat(times)` asks the string to do one of its own jobs, the way `.toUpperCase()` did
+in Values and Names: it gives back the string written out `times` times.)
 
-Change the call to `repeatWord(3, 'ha')`. Instead of a word, the page shows an error:
-`Expected string for '…repeatWord.word', got number`. It names the function and the
-parameter (`repeatWord.word`), says what that parameter expected, and says what arrived. The examples on the parameters are
-what let TJS spot the swap: it knows `word` should look like `'ha'`, and `3` does not.
+Change the call to `repeatWord(3, 'ha')`. Instead of a word, the page shows an error that ends
+`repeatWord.word', got number`; the part before `repeatWord` says where in the program the
+function is, so it varies. The message names the function and the parameter
+(`repeatWord.word`), says what that parameter expected (a string), and says what arrived (a
+number). The examples on the parameters are what let TJS spot the swap: it knows `word`
+should look like `'ha'`, and `3` does not.
+
+A refused call does not crash the program. It gives back an **error** value instead of an
+answer, and a test can check for one: `x instanceof Error` asks "is `x` an error?". That is
+what the second line of the test does: it checks that the swapped call is refused.
 
 ## Words in, words out
 
@@ -209,7 +226,7 @@ function cost(price: 2.5, quantity: 1) {
 }
 
 function withTax(amount: 10.0) {
-  return amount * 1.2
+  return amount * 1.2 // the amount plus a fifth of it: 20% tax
 }
 
 function bill(price: 2.5, quantity: 1) {
@@ -225,6 +242,7 @@ test 'each piece does its own job' {
 }
 ```
 
+Multiplying by 1.2 adds 20%, the same trick as multiplying by 0.15 to get 15%.
 `withTax(cost(price, quantity))` is worked out from the inside: `cost` runs first, and its
 answer is handed straight to `withTax`. When `bill` gives a wrong answer, the tests on the
 small functions tell you which piece to look at.
@@ -267,20 +285,18 @@ test 'greet works for other names too' {
 
 The first line now reads: "given `'Ada'`, `greet` returns `'Hello, Ada!'`". That documents
 the function, and it is a test as well: TJS runs `greet('Ada')` and checks the answer. The
-result line counts it beside the `test` below. Change `'Hello, Ada!'` to `'Hi, Ada!'` and the
-line turns red, saying `greet('Ada')` actually returned `'Hello, Ada!'`.
+line under the result counts it beside the `test` below. Change `'Hello, Ada!'` to
+`'Hi, Ada!'` and the line turns red: `Expected "Hi, Ada!" at 'greet', got "Hello, Ada!"`.
 
-This is unusual. In most languages the first line of a function says only what kinds of
-value go in and come out, and whether the function does the right thing is a separate
-question, answered (if at all) somewhere else. In TJS the first line is a small worked
-example, like the one at the top of a page of exercises: "for instance, 21 doubled is 42".
-TJS runs that example as soon as the program is built, every time, before anything else
-happens.
+The first line is a small worked example, like the one at the top of a page of exercises:
+"for instance, greeting Ada gives `Hello, Ada!`". TJS runs that example every time you change
+the code, before your program runs. (This is unusual: in most languages the first line only
+says what kinds of value go in and come out.)
 
 ### The mistake it catches
 
 The most common mistake with a new function is forgetting `return`. Without it the function
-works out the answer, then throws it away and gives back `undefined`:
+works out the answer, then drops it and gives back `undefined`:
 
 <!-- tjs-doc: expect-error -->
 ```tjs:static
@@ -289,9 +305,10 @@ function double(n: 21): 42 {
 }
 ```
 
-With the answer example in place, this never gets as far as being used: the example fails at
-once, saying `double(21)` should have been 42 and was `undefined`. Try it on the live example
-below: delete the word `return` and watch the result line.
+This time the parameter's example is `21` rather than `0`; the next section says why. With
+the answer example in place, this never gets as far as being used: the example fails at
+once, with `Expected 42 at 'double', got undefined`. Try it on the live example below:
+delete the word `return` and watch the line under the result.
 
 ```tjs:inline {"view": "code"}
 function double(n: 21): 42 {
@@ -320,8 +337,9 @@ function rollDie():! 1 {
 preview.append(`You rolled a ${rollDie()}.`)
 ```
 
-(`Math.random()` gives a fraction between 0 and 1, and `Math.floor` rounds down to a whole
-number.) You will not need `:!` often. When you can give a real example, give one.
+(`Math` is a collection of number jobs built into the language. `Math.random()` gives a
+fraction between 0 and 1, and `Math.floor` rounds down to a whole number.) You will not
+need `:!` often. When you can give a real example, give one.
 
 `rollDie` takes no values at all, so its parentheses are empty, both where it is written and
 where it is called. The parentheses on the call are what run it. Change `rollDie()` to
@@ -346,18 +364,26 @@ test 'a default fills the gap' {
 }
 ```
 
+`preview.append` can take several values, separated by commas; it shows them one after
+another, here with a space between.
+
 `:` means "you must give me one of these"; `=` means "you may, and here is what I use if you
 don't". The default is an example too, so `greet` still only takes strings.
 
-Parameters with defaults go after the ones without, because values are matched by position:
-in `function tip(bill: 0.0, rate = 0.15)`, `tip(40)` means "40, at the usual rate", and
-`tip(40, 0.2)` means "40, at 20%".
+Put parameters with defaults after the ones without. Values are matched by position, so in
+`function tip(bill: 0.0, rate = 0.15)`, `tip(40)` means "40, at the usual rate", and
+`tip(40, 0.2)` means "40, at 20%". TJS lets you write them the other way round, but then the
+default is no use: in `tip(rate = 0.15, bill: 0.0)`, `tip(40)` hands 40 to `rate` and
+nothing to `bill`, and the call is refused.
 
 ## Try it
+
+Write your answers in the empty example at the end of the chapter.
 
 Write a function `minutes(hours: 0)` that gives back how many minutes are in that many hours.
 Show a sentence using it, and add a test that checks `minutes(2)` is `120`. Then give it a
 second parameter, `extraMinutes = 0`, so that `minutes(1, 30)` is `90`, and test that too.
+Copy the shape of the tests above: `test 'a name' { expect(…).toBe(…) }`.
 
 More to try:
 
@@ -368,12 +394,12 @@ More to try:
   `rate = 0.15`. Test a 20% tip.
 - Break things on purpose: in `bill`, swap `price` and `quantity` in the call to `cost`, so
   it reads `cost(quantity, price)`. 4 × 2.5 is the same as 2.5 × 4, so you might expect
-  nothing to notice. Something does. Read the message: which parameter refused which value,
-  and which example told TJS it was wrong?
+  nothing to notice. Something does. Read the message: which parameter refused, what kind of
+  value did it get, and which example told TJS it was wrong?
 
 Work them here:
 
 ```tjs:inline {"view": "code"}
 // Your code here. Show results with preview.append(…), check them with a
-// test block, and press ⌘S (Ctrl+S on Windows and Linux) to run it.
+// test block, then press the refresh button (or ⌘S / Ctrl+S) to run it.
 ```

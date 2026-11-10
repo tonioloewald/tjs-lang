@@ -85,6 +85,8 @@ describe('shipped benchmarks are sized by duration, not iteration count', () => 
   const NOT_BENCHMARKS: Record<string, string> = {
     'wasm-starfield.md':
       'animation loop — frame delta and an FPS counter, not a measurement of anything',
+    'safer-code.md':
+      'names performance.now() in prose as the clock that never jumps; measures nothing',
   }
 
   const files = globSync('guides/examples/**/*.md', { cwd: ROOT }).map((p) =>

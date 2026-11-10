@@ -7,7 +7,7 @@ _Code as data. Safe. Async. Sandboxed._
 
 This chapter is the language guide and reference for people (and models) who **write** AJS
 agents. Running agents in your own application (budgets, timeouts, capabilities, tracing) is
-covered in [Hosting the VM](/ajs-host/); giving agents new powers is in
+covered in [Embedding the AJS VM](/ajs-host/); giving agents new powers is in
 [Capabilities and Custom Atoms](/ajs-capabilities/); every atom's inputs and outputs are in the
 [Atom Reference](/ajs-atoms/).
 
@@ -33,16 +33,49 @@ The compiled form is plain JSON, so it can be:
 - executed in a sandboxed VM that has no I/O except what the host grants, and that stops every
   program within a fuel budget.
 
+Three words recur on every page of this book:
+
+- The **host** is the application that runs the VM: your server, your page, your worker.
+- A **capability** is a function the host hands the VM for one run, such as `fetch` or a model
+  client. With no capabilities, an agent cannot touch the outside world at all.
+- **Fuel** is the run's budget for work. Every step costs some, and the run stops when it is
+  spent, so no program runs forever.
+
 `httpFetch` above is an **atom**: a built-in operation the VM provides. Every effect an agent
 has on the world goes through an atom, and every atom that touches the world needs a capability
 the host chose to grant.
+
+### How the pieces fit
+
+Source goes to the transpiler, which writes the JSON AST. The host gives the AST, the arguments
+and a budget to the VM, and gets back a value, never an exception:
+
+```typescript
+import { transpile } from 'tjs-lang/lang'
+import { AgentVM } from 'tjs-lang/vm-ast'
+
+const { ast } = transpile(`
+  function add({ a: 0, b: 0 }) {
+    return { sum: a + b }
+  }
+`)
+const vm = new AgentVM()
+const run = await vm.run(ast, { a: 2, b: 3 }, { fuel: 100 })
+// run.result: { sum: 5 }, run.error: undefined, run.fuelUsed: about 0.5
+```
+
+Transpiling and running can happen in different places: the AST is data, so it can be compiled
+once, stored, and run later or elsewhere. Capabilities are passed as `vm.run(ast, args, {
+capabilities })`. Everything about the host side is in [Embedding the AJS VM](/ajs-host/).
 
 ## Use cases
 
 ### AI agents
 
-Fetch, think, answer. The model call needs an LLM capability, so on this page the example stops
-with a message saying so; run it locally with a model (see [Hosting the VM](/ajs-host/)).
+Fetch, think, answer. The model call needs an LLM capability. Without one, `llmPredict` fails
+with `Capability 'llm.predict' missing` (an ordinary error a `try` can catch), so run this with
+a model configured (see [Embedding the AJS VM](/ajs-host/)). On the doc site, where no model is
+available, the live example says so.
 
 ```ajs
 function researchAgent({ topic = 'sandboxing' }) {
@@ -113,7 +146,9 @@ Returns `{ backend: 'api-pool', timeout: 5000 }`.
 
 ### Remote jobs
 
-Send the code to the data instead of the data to the code.
+Send the code to the data instead of the data to the code. The client transpiles the agent and
+sends its AST to the service that holds the data; the service runs it there with its own
+capabilities and budget, and only the result travels back. The agent itself is ordinary AJS:
 
 ```ajs
 function applyTransform(item, transform) {
@@ -133,14 +168,17 @@ function processDataBatch({ items = [1, 2, 3], transform = 'double' }) {
 }
 ```
 
-Returns `{ processed: 3, results: [2, 4, 6] }`.
+Returns `{ processed: 3, results: [2, 4, 6] }`. `applyTransform` is a helper, and helpers take
+ordinary positional arguments; only the last function, the entry point, takes one object of
+named arguments (see [Local helper functions](#local-helper-functions)).
 
 ---
 
 ## Syntax
 
 AJS is a JavaScript subset: familiar syntax, fewer features. It is deliberately small, small
-enough for a 4B-parameter model to write correctly.
+enough that small local models write it well; the project measures this with a pinned small model
+(see [Maintaining this prompt](/ajs-llm-prompt/#maintaining-this-prompt)).
 
 ### What's Allowed
 
@@ -155,7 +193,7 @@ function tour({ name = 'Ada', items = [{ name: 'a', qty: 2 }, { name: 'b', qty: 
   // Conditionals, ternary, logical operators
   const size = items.length > limit ? 'big' : 'small'
   const label = name || 'anonymous'
-  const note = items[0]?.note ?? 'none'
+  const note = items[0].note ?? 'none' // member reads are already null-safe; no ?. needed
 
   // for...of and while (there is no C-style for)
   let names = []
@@ -168,7 +206,7 @@ function tour({ name = 'Ada', items = [{ name: 'a', qty: 2 }, { name: 'b', qty: 
     count += 1
   }
 
-  // Object and array literals, spread
+  // Object and array literals, spread. To change a member, build a new object.
   const defaults = { color: 'red', size }
   const merged = { ...defaults, size: 'medium' }
   const all = [...names, 'z']
@@ -176,7 +214,7 @@ function tour({ name = 'Ada', items = [{ name: 'a', qty: 2 }, { name: 'b', qty: 
   // Arrow functions, passed straight to map / filter / find / reduce
   const total = items.reduce((sum, item) => sum + item.qty, 0)
 
-  // try / catch: the error is a string
+  // try / catch (see Errors)
   let parsed = null
   try {
     parsed = JSON.parse('{ not json')
@@ -188,44 +226,119 @@ function tour({ name = 'Ada', items = [{ name: 'a', qty: 2 }, { name: 'b', qty: 
 }
 ```
 
-It returns `greeting: 'Hello, Ada!'`, `names: ['a']`, `count: 3`, `total: 2`,
-`merged: { color: 'red', size: 'medium' }` and `parsed: { failed: true }`.
+It returns:
+
+```javascript
+{
+  greeting: 'Hello, Ada!',
+  size: 'small',
+  label: 'Ada',
+  note: 'none',
+  names: ['a'],
+  count: 3,
+  merged: { color: 'red', size: 'medium' },
+  all: ['a', 'z'],
+  total: 2,
+  parsed: { failed: true },
+}
+```
 
 Also allowed: every compound assignment (`+=`, `-=`, `*=`, …), `++` and `--` as statements,
 assignment to an outer variable from inside a loop body, `typeof`, `%` and `**`.
 
+`console.log`, `console.warn` and `console.error` are for debugging: each call, with its
+arguments, shows up in the run's trace when the host turns tracing on. They print nothing by
+themselves (see [Tracing for audit](/ajs-host/#tracing-for-audit)).
+
+### Loop idioms
+
+There is no C-style `for`, no `break` and no `continue`. These three shapes cover what they did:
+
+```ajs
+function loops({ xs = [1, 5, 9, 2] }) {
+  // Walk indices: while with a counter
+  let i = 0
+  let labelled = []
+  while (i < xs.length) {
+    labelled.push(`${i}:${xs[i]}`)
+    i += 1
+  }
+
+  // Stop early: put the stop condition in the while
+  let j = 0
+  let found = null
+  while (found == null && j < xs.length) {
+    if (xs[j] > 4) {
+      found = xs[j]
+    }
+    j += 1
+  }
+
+  // Skip an item: an if around the body
+  let small = []
+  for (const x of xs) {
+    if (x < 5) {
+      small.push(x)
+    }
+  }
+
+  return { labelled, found, small }
+}
+```
+
+Returns `{ labelled: ['0:1', '1:5', '2:9', '3:2'], found: 5, small: [1, 2] }`. A `return` inside a
+loop also ends it, and the whole function. More shapes are in [Patterns](/patterns/).
+
 ### Calling atoms
 
-**Atoms take named arguments, and the transpiler checks them.** Call an atom with one object
-literal, `storeSet({ key, value })`, or with nothing, `random()`. A positional call, a spread, an
-input the atom does not declare, or a missing required input fails at transpile time and names
-what the atom takes: `storeSet('k', v)` (refused).
+**Atoms take named arguments.** Call an atom with one object literal, `storeSet({ key, value })`,
+or with nothing, `random()`. The transpiler refuses a positional call, a spread, an input the
+atom does not declare, and a missing required input:
 
-Your own functions (helpers, below) and builtins (`Math.max(a, b)`, `Error('message')`,
-`encodeURIComponent(s)`) take positional arguments as usual.
+- `storeSet('k', v)` (refused) gets `'storeSet' takes named arguments: write
+  storeSet({ name: value, … })`, plus a reminder that positional arguments are for local
+  functions.
+- `storeSet({ key: 'k' })` is refused with `'storeSet' needs 'value'. It takes storeSet({ key,
+  value })`.
+
+The transpiler checks input **names**. It does not check value types (`httpFetch({ url: 5 })`
+transpiles, and fails when it runs), and it does not know atoms the host adds unless the host
+passes them in; a call to a name that is not an atom at all fails at run time with `Unknown Atom:
+<name>`. These checks help the author. They are not the safety boundary: the VM is, and it is
+safe whatever AST it is given.
+
+Like a helper call, an atom call stands on its own: `let id = uuid()`, then use `id`. An atom call
+inside a larger expression (`return { id: uuid() }`) fails when it runs. See
+[Where calls may appear](/patterns/#where-calls-may-appear).
+
+Your own functions (helpers, below) and builtins (`Math.max(a, b)`, `encodeURIComponent(s)`) take
+positional arguments as usual. `Error('message')` looks like a builtin but raises an error; see
+[Errors](#errors).
 
 Every atom call is awaited for you. There is no `await` (it is a transpile error), and an `async`
 marker on a function is ignored.
 
 The atoms an author reaches for most:
 
-| Atom                                             | Does                                                    |
-| ------------------------------------------------ | ------------------------------------------------------- |
-| `httpFetch({ url, method?, headers?, body? })`   | an HTTP request, through the host's `fetch` capability  |
-| `llmPredict({ prompt, options? })`               | a model completion, as a string                         |
-| `storeGet({ key })`, `storeSet({ key, value })`  | the key-value store                                     |
-| `regexMatch({ pattern, value })`                 | `true` if `value` matches `pattern`                     |
-| `agentRun({ agentId, input })`                   | run another agent                                       |
-| `random()`, `uuid()`, `hash({ value })`          | utilities                                               |
+| Atom                                                           | Returns                                                                                  |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `httpFetch({ url, method?, headers?, body?, responseType? })`  | the response body: parsed JSON for a JSON response, else text; a `data:` URL for `responseType: 'dataUrl'` |
+| `llmPredict({ prompt, options? })`                             | the model's completion, as a string                                                      |
+| `storeGet({ key })`                                            | the stored value, or `undefined`                                                         |
+| `storeSet({ key, value })`                                     | nothing                                                                                  |
+| `agentRun({ agentId, input })`                                 | the other agent's result object                                                          |
+| `random()`, `uuid()`                                           | a number from 0 up to 1; a UUID string                                                   |
+| `hash({ value, algorithm? })`                                  | a hex digest string, SHA-256 unless `algorithm` says otherwise                           |
 
-The full list, with inputs, outputs, costs and the capability each needs, is the
-[Atom Reference](/ajs-atoms/). The host can add atoms of its own; calls to them are checked the
-same way when the host passes them to the transpiler.
+`httpFetch` goes through the host's `fetch` capability, `llmPredict` through its model, and the
+store atoms through its store. An `agentId` is an AST (for example one passed in as an argument),
+a token from `storeProcedure`, or a name the host's agent capability knows. The full list, with
+inputs, outputs, costs and the capability each needs, is the [Atom Reference](/ajs-atoms/).
 
 ### Local helper functions
 
-A source file may declare several top-level functions. The **last** one is the entry point; the
-ones before it are **helpers** that the entry (or other helpers) call by name:
+A source file contains only function declarations. The **last** one is the entry point; the ones
+before it are **helpers** that the entry (or other helpers) call by name:
 
 ```ajs
 function double(x) {
@@ -247,13 +360,20 @@ function main({ n = 3 }) {
 Returns `{ a: 6, b: 7 }`. Helpers behave like ordinary functions, with a few deliberate rules:
 
 - **Top-level siblings, not closures.** A helper sees only its own parameters, never the
-  caller's locals.
-- **They may return any value** (number, string, array, object). Only the entry function is held
-  to the object-return contract.
+  caller's locals. (An arrow function passed to `map` and friends is different: it is part of the
+  caller's body, so it may read the caller's variables.)
+- **Nothing else at top level.** A top-level `const` or `let` outside the functions is ignored,
+  so the entry reads it as `undefined`; put constants inside the entry or pass them as arguments.
+  Functions cannot nest: a function declared inside another is a transpile error.
+- **They may return any value** (number, string, array, object). Only the entry function must
+  return an object (see [Input/Output Contract](#inputoutput-contract)).
 - **Recursion is allowed.** Runaway recursion is bounded by fuel, with a call-depth cap (256)
   that ends in an ordinary error, never a host crash.
-- **Call them at statement level.** A helper call cannot sit inside a larger expression; assign
-  it to a variable first:
+- **A helper call stands on its own.** It may be the whole right-hand side of a declaration or
+  assignment (`const d = double(n)`, `d = double(n)`), a statement by itself, the value of a
+  `return` (`return double(n)`), or the body of an arrow (`xs.map((x) => double(x))`). Anywhere
+  else, such as `double(n) + 1` or `if (double(n) > 1)`, is a transpile error that says to assign
+  the result first:
 
   ```javascript
   // Fails at transpile time:
@@ -269,27 +389,41 @@ loop) does not grow the agent's AST.
 
 ### What's Forbidden
 
-Each of these is a transpile error that says what to write instead.
+Each of these is refused, most when the agent is transpiled. The rows marked _run time_ transpile
+and fail when they run.
 
-| Feature                                   | Instead                                                                                                                       |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| C-style `for (;;)`, `for...in`, `do...while` | `for...of`, or `while` with a counter; `Object.keys(obj)` to walk keys                                                     |
-| `break`, `continue`                       | an `if` around the loop body, or a `return`                                                                                   |
-| `switch`                                  | `if` / `else if`                                                                                                              |
-| `throw`                                   | `Error('message')` (see [Errors](#errors))                                                                                    |
-| Destructuring _declarations_              | `let { a } = o` and `let [a] = xs` are refused; read members (`const a = o.a`). Destructured **parameters** are fine          |
-| `class`, `new`, `this`                    | plain objects; `Date()` and `Set()` without `new`                                                                             |
-| Functions as values                       | A function cannot be stored, passed or returned. An arrow function passed straight to `map`, `filter`, `find` or `reduce` may read outer variables |
-| `await`                                   | nothing: the VM awaits every atom call                                                                                        |
-| `eval`, `Function`                        | nothing: there is no way to run a string as code                                                                              |
-| `import` / `export`                       | the host registers atoms; an agent is self-contained                                                                          |
-| `__proto__`, `constructor`, `prototype`   | these property names are refused, read or written                                                                             |
-| `++` / `--` used as a value               | `x++` as its own statement, or `x = x + 1`                                                                                    |
+| Feature                                            | Instead                                                  |
+| -------------------------------------------------- | -------------------------------------------------------- |
+| C-style `for (;;)`, `for...in`, `do...while`       | `for...of`, or `while`; see [Loop idioms](#loop-idioms)  |
+| `break`, `continue`                                | see [Loop idioms](#loop-idioms)                          |
+| `switch`                                           | `if` / `else if`                                         |
+| `throw`                                            | `Error('message')`; see [Errors](#errors)                |
+| Writing a member or index (`o.a = 1`, `xs[0] = v`) | build a new value, `o = { ...o, a: 1 }`, or `xs.push(v)` |
+| Destructuring declarations (`let { a } = o`)       | `const a = o.a`; destructured **parameters** are fine    |
+| `class`, `new`, `this`                             | plain objects; `Date()` and `Set()` without `new`        |
+| A builtin or method as a value (_run time_)        | call it; see [below](#functions-and-namespaces-are-not-values) |
+| `await`                                            | nothing: the VM awaits every atom call                   |
+| `eval`, `Function`                                 | nothing: no string runs as code                          |
+| `import` / `export`                                | an agent is self-contained; the host chooses the atoms   |
+| `__proto__`, `constructor`, `prototype` (_run time_ for reads) | other property names                         |
+| `++` / `--` used as a value                        | `x++` as its own statement, or `x = x + 1`               |
+
+Some messages name the fix ("use for...of, or map/filter/find/reduce"); others are terse, such
+as `Unsupported statement type: BreakStatement` or `Only simple variable assignment is
+supported`. This table is the translation.
+
+Two things are not refused but do not work, so do not write them:
+
+- **A helper held as a value.** `let g = double` gives `undefined`, silently.
+- **`finally`.** A `try … finally` transpiles, but the `finally` block does not run. Put the
+  cleanup after the `try`/`catch` instead.
 
 ### Differences from JavaScript
 
-**Null-safe member access.** Every member access behaves like optional chaining. Reading a
-property of `null` or `undefined` gives `undefined` instead of throwing:
+**Null-safe member access.** Agents work on data from outside (API responses, model output) that
+is often missing a field, and a crash on the first absent field would make every agent a pile of
+checks. So every member access behaves like optional chaining: reading a property of `null` or
+`undefined` gives `undefined` instead of throwing.
 
 ```ajs
 function f({ x = null }) {
@@ -298,15 +432,17 @@ function f({ x = null }) {
 }
 ```
 
-Agents should not crash on missing data. Returns `{ missing: true }`.
+Returns `{ missing: true }`. The cost: a typo such as `user.nmae` also reads as `undefined`
+instead of failing. Declared parameter types and a declared result (see
+[Input/Output Contract](#inputoutput-contract)) catch some of these at the edges.
 
 **Computed member access** works with literals and variables: `items[0]`, `user['name']`,
 `items[i]` and `user[key]` are all member reads, with the same null-safety. The key must be a
 string, number, boolean or null.
 
-**Equality is footgun-free `===`.** `==` and `!=` do not coerce types, and they are not
-structural. They unwrap boxed primitives and treat `null` and `undefined` (and `NaN`) as equal.
-`===` and `!==` are strict identity.
+**Equality.** `==` is `===`, with two exceptions: `null == undefined` is true, and `NaN == NaN`
+is true. Nothing is coerced (`'1' == 1` is false), and objects and arrays compare by identity, not
+contents. `===` and `!==` are strict identity.
 
 ```ajs
 function equality() {
@@ -319,26 +455,32 @@ function equality() {
 }
 ```
 
-**There is no `Is`.** TJS's structural comparison (`a Is b`) is not available in AJS. Compare the
-fields you care about, or compare `JSON.stringify(a) == JSON.stringify(b)` when key order is the
-same on both sides.
+**Comparing contents.** Since `==` on objects compares identity, compare the fields you care
+about, or compare `JSON.stringify(a) == JSON.stringify(b)` when key order is the same on both
+sides. (TJS's structural `Is` does not exist in AJS.)
+
+**`Object.assign` returns a new object.** It never changes its first argument:
+`Object.assign(o, extra)` leaves `o` as it was. Write `o = Object.assign(o, extra)`, or
+`o = { ...o, ...extra }`.
 
 **Functions and namespaces are not values.** Call them; don't hold them. `Math.max(a, b)` and
 `s.trim()` work; `const m = Math`, `const f = parseInt`, `items.map(parseInt)` and
 `Object.values(Math)` are refused. A value in AJS is data: numbers, strings, booleans, null,
-arrays and objects. A `Set` is an array of its items, and a `Date` is a plain object of its
-fields; the VM supplies their methods, so reading one as a value (`const f = tags.add`) is
-refused too.
+arrays and objects. Sets and dates are data too (an array, and a plain object of fields; see
+[Set](#set) and [Date](#date)), so reading one of their methods as a value (`const f = tags.add`)
+is refused as well.
 
 ### Operators
 
-Arithmetic, comparison and string operators (`+`, `-`, `*`, `<`, …), template interpolation and
-computed keys take **primitives**: strings, numbers, booleans or null. An object or array operand
-is an error, not a silent conversion to its string form:
+Arithmetic and ordering operators (`+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, …), template
+interpolation and computed keys take **primitives**: strings, numbers, booleans or null. Mixing
+primitives works as in JavaScript (`'a' + 1` is `'a1'`, `'a' < 'b'` is true). An object or array
+operand is an error, not a silent conversion to its string form. It is an ordinary error, which a
+`try` can catch:
 
 ```ajs
 function operators({ tags = ['a', 'b'] }) {
-  // 'tags: ' + tags would end the run: '+' needs a string, not an array.
+  // 'tags: ' + tags would be an error: '+' needs a string, number, boolean or null, not an array.
   return { joined: 'tags: ' + tags.join(','), json: JSON.stringify({ tags }) }
 }
 ```
@@ -346,26 +488,42 @@ function operators({ tags = ['a', 'b'] }) {
 Say what you mean: `arr.join(',')`, `JSON.stringify(obj)`. JavaScript's implicit conversion of an
 array to a string is an allocation the VM cannot budget, so AJS refuses it rather than guessing.
 
+`==`, `!=`, `===` and `!==` accept any values; on objects they compare identity.
+
 ### Methods
 
-Strings and arrays have their JavaScript methods, with three rules:
+These are the methods a guest may call. Anything else is refused, and the error names it.
 
-- **Exactly the documented arguments, with the types they read.** `'x'.repeat('3')` is an error
-  (a count is a number), and so is `s.slice(0, 1, 2)` (one argument too many).
+| Receiver        | Methods                                                                                                                                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| string          | `at` `charAt` `charCodeAt` `codePointAt` `concat` `endsWith` `startsWith` `includes` `indexOf` `lastIndexOf` `localeCompare` `normalize` `padStart` `padEnd` `repeat` `slice` `substring` `substr` `split` `replace` `replaceAll` `match` `search` `toLowerCase` `toUpperCase` `trim` `trimStart` `trimEnd` `toString` |
+| number          | `toFixed` `toExponential` `toPrecision` `toString`                                                                                                                                                                                                                              |
+| array           | `map` `filter` `find` `reduce` (with an arrow), `at` `concat` `copyWithin` `fill` `includes` `indexOf` `lastIndexOf` `join` `pop` `shift` `reverse` `push` `unshift` `slice` `sort` `toSorted` `toReversed` `splice` `toSpliced` `with` `flat` `toString`                         |
+| object          | `hasOwnProperty` `propertyIsEnumerable` `toString`                                                                                                                                                                                                                              |
+| set, date       | see [Set](#set) and [Date](#date)                                                                                                                                                                                                                                               |
+
+The namespaces (`Math`, `JSON`, `Array`, `Object`, `String`, `Number`, `Date`, `Schema`) are
+under [Expression Builtins](#expression-builtins). Three rules apply to every call:
+
+- **Exactly the arguments the method takes, with the types it reads.** `'x'.repeat('3')` is an
+  error (a count is a number), and so is `s.slice(0, 1, 2)` (one argument too many).
 - **Arguments are primitives**, unless the method uses an argument as a value:
   `arr.includes(obj)`, `arr.concat(other)` and `Object.keys(obj)` take objects;
   `'s'.includes(arr)` and `Math.max(arr)` do not.
-- **Callbacks only where they are listed.** `map`, `filter`, `find` and `reduce` take an arrow
-  function. `some`, `every`, `findIndex` and a `sort` comparator are not available; use
-  `for...of`, or `filter(...).length`.
+- **Callbacks on four methods only.** `map`, `filter` and `find` take `(item) => …`; `reduce`
+  takes `(acc, item) => …` and an initial value. There is no index argument (`(x, i) => i` gives
+  `undefined` for `i`), and a destructured callback parameter does not work either; use
+  `for...of` with a counter. `some`, `every`, `findIndex`, `flatMap` and a `sort` comparator are
+  not available; use `for...of`, or `filter(...).length`. `sort()` with no comparator works.
 
-A method the VM does not list is not callable, and the error names it. Why the list is closed:
-[`docs/vm-budgets.md`](docs/vm-budgets.md).
+Why the list is closed (every method has a declared bound on what it may allocate):
+[VM budgets](/vm-budgets/).
 
 ### Regular expressions
 
-Regex is **deprecated in AJS 0.14** in favour of `Pattern`, a grammar built as data
-([`docs/pattern.md`](docs/pattern.md)). It still works, within limits.
+Regex is **deprecated in AJS 0.14**. Its planned replacement, `Pattern` (a grammar built as data;
+see [Pattern](/pattern/)), is not in the VM yet, so regex is what you use today. It works within
+the limits below, and is planned to leave the core VM no earlier than 0.15.
 
 Regex literals work as search patterns in `replace`, `replaceAll`, `split`, `match` and
 `search`, and as the `pattern` of the `regexMatch` atom:
@@ -390,9 +548,10 @@ run; the work is charged as fuel. The engine supports classes, `.`, anchors, `\b
 `g i m s u y`.
 
 It does **not** support backreferences (`\1`, `\k<n>`), lookahead or lookbehind, `\p{…}`, or the
-`d` and `v` flags. A regex literal using one is a transpile error at its location. Counts above
-`{10000}` are refused, and so is a pattern that compiles to more than 20,000 instructions. An
-optional range costs about four instructions per count, so `\w{0,5000}` is refused too.
+`d` and `v` flags; a regex literal using one is a transpile error at its location. Very large
+patterns are refused too. As a rule of thumb, keep repeat counts in the low thousands:
+`{10000}` is the hard limit for a fixed count, and an optional range is refused well before it
+(`\w{0,5000}` is too big).
 
 ---
 
@@ -410,21 +569,42 @@ function add({ a = 2, b = 3 }) {
 - **The entry function must return a plain object:** `return { sum }`. A non-object return
   (`return a + b`) ends the run with `Agent must return an object, got number`.
 - **A bare `return`** is allowed, and the result is `{}`.
-- **Parameters name the arguments.** Write them destructured, `function add({ a, b })`, which
-  reads as what the caller actually passes. Positional parameters, `function add(a: 2, b: 3)`,
-  compile to the same contract and read the same named arguments; destructured is the
-  recommended convention.
+- **Entry parameters are always named arguments.** Write them destructured,
+  `function add({ a, b })`, which reads as what the caller actually passes. Positional
+  parameters on the entry, `function add(a: 2, b: 3)`, compile to the same contract and still
+  read named arguments (`{ a: 1, b: 1 }`); destructured is the recommended convention. Helper
+  parameters, by contrast, are positional.
+
+> **A colon in a parameter is not JavaScript renaming.** In JavaScript, `{ a: x }` in a
+> parameter renames `a` to `x`, and `{ a: 0 }` is a syntax error. In AJS, `{ a: 0 }` means
+> "required argument `a`, and `0` is an example of it": an integer.
 
 ### Parameters are the input contract
 
-The VM checks the arguments against the parameters **before** the agent runs, and refuses a
-mismatch with `Input validation failed: args do not match expected schema`:
+The VM checks the arguments against the parameters **before** the agent runs. A mismatch never
+reaches the agent: the host gets back a run whose `error` is `Input validation failed: args do
+not match expected schema` (the message does not name the field), and no fuel is spent.
 
-- `name: example` is a **required** argument whose type is the example's: `{ n: 5 }` requires an
-  integer `n`. The colon value is an example, not a TypeScript literal type.
+- `name: example` is a **required** argument whose type is the example's. The colon value is an
+  example, not a TypeScript literal type.
 - `name = value` is **optional**, with a default of that type: `{ n = 5 }`.
 - An untyped parameter, `{ input }`, is required and accepts any value.
-- An argument the agent does not declare is refused.
+- An argument the agent does not declare is refused, when the agent declares any parameters. An
+  entry with no parameters at all, `function f()`, accepts any arguments and ignores them.
+
+What an example accepts:
+
+| Example                  | Accepts                                                      |
+| ------------------------ | ------------------------------------------------------------ |
+| `0`                      | an integer                                                   |
+| `0.0`                    | any number                                                   |
+| `+0`                     | an integer, 0 or more                                        |
+| `''`                     | a string                                                     |
+| `true`                   | a boolean                                                    |
+| `['']`                   | an array of strings                                          |
+| `{ k: 0 }`               | an object with exactly a required integer `k`                |
+| `'low' \| 'high'`        | one of these exact strings                                   |
+| `null`                   | any value                                                    |
 
 So `function f({ a: 0, b = 'x' })` accepts `{ a: 1 }` and `{ a: 1, b: 'y' }`, and refuses `{}`,
 `{ a: 'one' }` and `{ a: 1, z: 2 }`.
@@ -440,12 +620,16 @@ function score({ n = 12 }): { score: 0, label: 'low' | 'high' } {
 }
 ```
 
+A lone example widens to its type (`score: 0` means any integer). A union of string literals,
+`'low' | 'high'`, is an exact list of allowed values, like an enum.
+
 - Every declared member must be present, with the declared type, and no undeclared member may
-  appear. Returning `{ score: 1.5 }`, `{ score: 3, label: 'mid' }` or an extra `debug` key ends
-  the run with `Result does not match the declared result type`.
+  appear. Each of these ends the run with `Result does not match the declared result type`:
+  `{ score: 1.5, label: 'low' }` (not an integer), `{ score: 3, label: 'mid' }` (not one of the
+  values), `{ score: 3 }` (no `label`), and `{ score: 3, label: 'low', debug: 1 }` (an extra key).
 - A member that may be absent says so: `note: '' | undefined`.
 - Returning nothing at all, when a result is declared, is an error.
-- A failed run reports its own error, not the contract's.
+- If the agent fails before it returns, the run reports that failure, not a contract error.
 - The check is paid from the fuel the run has left, so a run that cannot afford it ends
   `Out of Fuel`.
 - An agent returns an object, so a declared result that is not one (`): 0`, `): ''`) can never be
@@ -493,7 +677,7 @@ function statics() {
     values: Object.values({ a: 1 }), // [1]
     entries: Object.entries({ a: 1 }), // [['a', 1]]
     fromEntries: Object.fromEntries([['a', 1]]), // { a: 1 }
-    assigned: Object.assign({}, { a: 1 }, { b: 2 }), // { a: 1, b: 2 }
+    assigned: Object.assign({}, { a: 1 }, { b: 2 }), // a new object: { a: 1, b: 2 }
     letter: String.fromCharCode(65), // 'A'
     isNaN: Number.isNaN(NaN), // true
     finite: Number.isFinite(100), // true
@@ -505,13 +689,19 @@ function statics() {
 
 `parseInt`, `parseFloat` and `encodeURIComponent` are available as plain functions too. To turn a
 number into a string, use a template: `` `${n}` ``. `String(n)` and `Number(s)` are not functions
-in AJS.
+in AJS. Because of how the transpiler reads calls, the error says something unhelpful,
+`'String' takes named arguments`; it means `String` is not available.
 
 ### Set
 
-`Set(items)` makes a set of unique items. A set **is an array** of its items, data that JSON and
-the capability boundary keep as it is, and the VM supplies its methods. `size` is its length.
-Change a set with its own methods: `push` and `Object.assign` are refused on a set.
+`Set(items)` makes a set of unique items. A set **is an array** of its items: `JSON.stringify`, a
+store or a capability sees a plain array. The VM remembers which arrays are sets for the length
+of the run and supplies their methods to those, and only those.
+
+- **Unlike JavaScript:** `remove`, not `delete`; `diff`, not `difference`; `size` is the length.
+- Change a set with its own methods: `push` is refused on a set.
+- A set that comes back from a store, `JSON.parse` or a capability is a plain array again. Call
+  `Set(x)` on it to get set methods back.
 
 ```ajs
 function sets() {
@@ -529,18 +719,23 @@ function sets() {
 }
 ```
 
+Sets also have `clear()` and `toArray()`.
+
 ### Date
 
 `Date(x)` (or `Date()` for now) makes a date. `x` is an ISO string, a number of milliseconds,
 another date, or a **stored** date: an object with a numeric `timestamp`, which is what a date
-becomes after JSON, a store or a capability, so a date round-trips. `Date.parse(text)` is the
-same.
+becomes after JSON, a store or a capability. `Date(stored)` turns it back into a date; until you
+do, it is a plain object without date methods. `Date.parse(text)` is the same as `Date(text)`.
 
-A date is a frozen **data object**: `value` (ISO string), `timestamp` (ms), `year`, `month`
-(1–12), `day`, `hours`, `minutes`, `seconds` and `dayOfWeek`, every field in **UTC**, so a
-program gives the same result on every host. It has one form everywhere: `JSON.stringify(d)`, a
+A date is a **data object** with the fields `value` (ISO string), `timestamp` (ms), `year`,
+`month`, `day`, `hours`, `minutes`, `seconds` and `dayOfWeek`. Every field is in **UTC**, so a
+program gives the same result on every host. You cannot change a field (AJS has no member
+assignment); `d.add(…)` makes a new date. A date has one form everywhere: `JSON.stringify(d)`, a
 capability's input and the run's result all see this object. For the ISO string, write
 `d.value`.
+
+> **`month` runs from 1 to 12**, unlike JavaScript's 0 to 11. January is `1`.
 
 ```ajs
 function dates() {
@@ -550,13 +745,17 @@ function dates() {
     year: d.year, // 2024
     month: d.month, // 1
     days: next.diff(d, 'days'), // 1 (also 'seconds', 'minutes', 'hours'; default ms)
-    before: d.isBefore(next), // true
-    day: d.format('YYYY-MM-DD'), // '2024-01-15', in UTC (also 'ISO', 'date', 'time')
+    before: d.isBefore(next), // true (also isAfter)
+    day: d.format('YYYY-MM-DD'), // '2024-01-15', in UTC
     iso: d.value, // '2024-01-15T10:00:00.000Z'
     now: Date.now(), // a timestamp
   }
 }
 ```
+
+`format` takes either a keyword, `'ISO'`, `'date'` (`2024-01-15`) or `'time'` (`10:00:00`), or a
+template using the tokens `YYYY`, `MM`, `DD`, `HH`, `mm` and `ss`, each replaced once. Other
+letters are left as they are.
 
 ### Schema
 
@@ -565,38 +764,56 @@ Build JSON schemas for structured model output and for validation. In AJS a sche
 `record`, `union`, `tuple`, `enum`, `const`, `fromExample`, `response` and `isValid` build or
 check plain JSON. There is no builder chaining (`.min()`, `.optional`): write the keyword.
 
+Wherever a schema is expected, you may pass an **example** instead, and it is read the way a
+parameter example is: `{ name: '', age: 0 }` means an object with a string `name` and an integer
+`age`. An object whose `type` is a JSON type name (`'string'`, `'object'`, …) or a list of them is
+read as a schema, not an example, so an example cannot have a field called `type`.
+
 ```ajs
 function validate({ input = { email: 'a@b.co', age: 30, role: 'user' } }) {
-  // From an example
-  let person = Schema.response('person', { name: '', age: 0 })
+  let user = Schema.object({
+    email: Schema.email,
+    age: { type: 'integer', minimum: 0, maximum: 150 }, // constraints are plain keywords
+    nickname: { type: ['string', 'null'] },
+    role: Schema.enum(['admin', 'user', 'guest']),
+  })
+  let ok = Schema.isValid(input, user)
 
-  // With constraints: plain keywords
-  let user = Schema.response(
-    'user',
-    Schema.object({
-      email: Schema.email,
-      age: { type: 'integer', minimum: 0, maximum: 150 },
-      nickname: { type: ['string', 'null'] }, // a nullable field is optional
-      role: Schema.enum(['admin', 'user', 'guest']),
-    })
-  )
-
-  let ok = Schema.isValid(input, user.json_schema.schema)
-  return { ok, person }
+  // For a model's structured output, from an example
+  let format = Schema.response('person', { name: '', age: 0 })
+  return { ok, format }
 }
 ```
 
-`Schema.response(name, schema)` gives the `{ type: 'json_schema', json_schema: { name, strict,
-schema } }` shape a model's `responseFormat` takes; `ok` is `true` for the default input.
+`ok` is `true` for the default input. In `Schema.object`, every field is required except one whose
+type includes `'null'`, as `nickname` does here.
 
-**A guest schema is a closed dialect.** It may use `type`, `properties`, `items`,
-`additionalProperties`, `anyOf`, `oneOf`, `required`, `enum`, `const`, the numeric and size
-bounds (`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minLength`,
-`maxLength`, `minItems`, `maxItems`, `minProperties`, `maxProperties`), `format` (`email`, `uuid`,
-`uri`, `ipv4`, `date`, `date-time`, `emoji`), `title`, `description`, `default` and `examples`,
-and nothing else, each with exactly its JSON value type, at most 10,000 nodes and 64 levels
-deep. `pattern` is refused, because it would compile on the host's regex engine; match inside the
-program with `regexMatch`. Validation costs fuel in proportion to schema size times data size.
+`Schema.response(name, schema)` wraps a schema in the shape a model's `responseFormat` takes,
+`{ type: 'json_schema', json_schema: { name, strict, schema } }`. Pass it as
+`llmPredict({ prompt, options: { responseFormat: format } })`.
+
+**A guest schema is a closed dialect.** It may use only these keywords, each with exactly its
+JSON value type:
+
+- **Structure:** `type`, `properties`, `items`, `additionalProperties`, `anyOf`, `oneOf`,
+  `required`, `enum`, `const`.
+- **Bounds:** `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`,
+  `minLength`, `maxLength`, `minItems`, `maxItems`, `minProperties`, `maxProperties`.
+- **Formats:** `format`, one of `email`, `uuid`, `uri`, `ipv4`, `date`, `date-time`, `emoji`.
+- **Annotations:** `title`, `description`, `default`, `examples`.
+- **Size:** at most 10,000 nodes and 64 levels deep.
+
+`pattern` is refused. To check a field's shape, validate first and match the field afterwards:
+
+```ajs
+function checkCode({ input = { code: 'AB-12' } }) {
+  let ok = Schema.isValid(input, { code: '' })
+  let shaped = regexMatch({ pattern: /^[A-Z]{2}-\d{2}$/, value: input.code })
+  return { ok: ok && shaped }
+}
+```
+
+Returns `{ ok: true }`. Validation costs fuel in proportion to schema size times data size.
 
 ---
 
@@ -623,10 +840,17 @@ function safeDivide({ a = 10, b = 0 }) {
 Returns `{ error: 'Division by zero' }`.
 
 - **`err` is a string**, the error's message. `err.message` is `undefined`.
+- **Give `Error` a literal message.** For now a computed message, `Error('bad: ' + x)` or
+  `Error(m)`, arrives as `'[object Object]'`. To report data with a failure, return it from the
+  `catch` (as `parseAll` below does) rather than building it into the message.
+- **Re-raising** is calling `Error(…)` again inside the `catch`; that error goes to the next
+  `try` out, or ends the run.
+- **There is no working `finally`** (see [What's Forbidden](#whats-forbidden)).
 - **Errors propagate through helpers.** An `Error(...)` in a helper skips the rest of the helper
   and reaches the caller's `try`.
-- **An uncaught error ends the run as a value.** The host receives it as the run's `error`, with
-  the fuel spent so far. Nothing is thrown into the host's code.
+- **An uncaught error ends the run as a value.** That includes an `Error(...)` outside any `try`.
+  The host receives it as the run's `error`, with the fuel spent so far. Nothing is thrown into
+  the host's code.
 
 Collect failures and carry on, the pattern for batch work where one bad item should not sink the
 rest:
@@ -647,23 +871,34 @@ function parseAll({ items = ['1', 'x', '3', '{"a":4}'] }) {
 }
 ```
 
+Returns `results: [1, 3, { a: 4 }]`, `ok: false`, and one entry in `errors` whose `item` is
+`'x'` and whose `error` is the parser's message.
+
 ### Catchable, and run-ending
+
+The rule: **if the world did it, you can catch it; if your program or the host broke a contract,
+the run ends.**
 
 `try`/`catch` catches **failures of the world**: a fetch that fails or is not allowed, a model
 that is down, bad JSON, a store that throws, a capability's answer that is too large or does not
-have the shape the atom declares. Every one of these is something a program might reasonably
-retry or work around.
+have the shape the atom declares. It also catches ordinary mistakes inside the program, such as an
+operator given an array. Every one of these is something a program might reasonably retry or work
+around.
 
 ```ajs
 function blocked() {
   try {
     httpFetch({ url: 'https://example.com/' })
   } catch (err) {
-    return { caught: err } // 'Fetch blocked: domain not in allowlist. …'
+    return { caught: err } // 'Fetch blocked: …'
   }
   return { fetched: true }
 }
 ```
+
+`httpFetch` reaches only the domains the host allows (or whatever its own `fetch` capability
+permits), and the message says which rule refused it; see
+[Fetch policy](/ajs-host/#fetch-policy).
 
 Some errors **end the run**, even inside a `try`. Nothing after them runs: no `catch` block, no
 later step, no step of a parent agent.
@@ -671,14 +906,16 @@ later step, no step of a parent agent.
 - **Out of fuel.** The budget is spent; the run stops with `Out of Fuel`.
 - **A bug at the capability boundary.** An atom called with input that does not match what it
   declares, or a value that cannot be copied out to a capability (too large, too deep, not plain
-  data). The program built that value, so it is the program's bug.
+  data). The program built that value, so it is the program's bug. ("Too large" is catchable
+  coming in and run-ending going out for this reason: the world sent the first, the program built
+  the second.)
 - **A broken host contract.** A capability that hands back something JSON cannot express (a
   function, a getter, a class instance).
 
 ```ajs
-function badInput() {
+function badInput({ port = 8080 }) {
   try {
-    httpFetch({ url: 5 }) // url must be a string
+    httpFetch({ url: port }) // url must be a string; port is a number
   } catch (err) {
     return { caught: err } // never reached
   }
@@ -688,65 +925,87 @@ function badInput() {
 
 This run ends with `'httpFetch': its input does not have the shape the atom declares`. A bug is
 not something to retry, and a program that could catch these could loop on them. The transpiler
-reports the ones it can see before the program runs. (An `agentRun` served by the host is a
-separate run: a refusal ends **that** run, and the parent sees an ordinary, catchable failure.)
+checks atom input names, not their types, so this is found only when the call runs.
 
-### What a run costs
+One exception: when `agentRun` hands a sub-agent to the host, the host runs it as a separate run.
+A refusal ends **that** run, and the parent sees an ordinary failure it can catch.
 
-Every step costs fuel, and the host sets the budget. The base costs:
+---
 
-| Operation                     | Fuel |
-| ----------------------------- | ---- |
-| Expression node               | 0.01 |
-| Variable set/get              | 0.1  |
-| Control flow (if, while, seq) | 0.1  |
-| `httpFetch`                   | 5    |
-| `storeVectorize`              | 20   |
-| `llmPredict`                  | 100  |
-| `llmVision`                   | 150  |
+## What a run costs
+
+Every step costs fuel. The host sets the budget per run; if it sets none, the budget is 1000.
+The base costs:
+
+| Operation                                    | Fuel |
+| -------------------------------------------- | ---- |
+| Expression node                              | 0.01 |
+| Variable set/get                             | 0.1  |
+| Control flow (if, while, a block of steps)   | 0.1  |
+| `httpFetch`                                  | 5    |
+| `llmPredict`                                 | 100  |
+| `storeVectorize` (battery, if the host adds it) | 20 |
+| `llmVision` (battery, if the host adds it)   | 150  |
+
+Most agents are cheap except for their model calls: the `applyDiscounts` rule engine above costs
+about 2 fuel, and `repoSummary` about 7, most of it the fetch. A budget of 1000 buys fewer than ten
+`llmPredict` calls.
 
 Work that grows with its input (copying, string building, a regex, a validation) is charged on top,
 in proportion to the work. A `while (true)` loop simply runs out. Hosts also set a wall-clock
-timeout, a live-memory ceiling and per-atom call quotas; see [Hosting the VM](/ajs-host/).
+timeout, a live-memory ceiling and per-atom call quotas; see [Embedding the AJS VM](/ajs-host/).
 
 ---
 
 ## JSON AST Format
 
-AJS compiles to a JSON AST. This is the version-2 format the transpiler writes (`"$ajs": 2`). In
-it a bare string is always a string; a variable is always an explicit `{ "$expr": "ident" }`
-node.
+AJS compiles to a JSON AST. You read it to audit what an agent will do before it runs (every
+atom call is a named step), to debug the transpiler, or to build agents in code. This is the
+version-2 format the transpiler writes (`"$ajs": 2`).
 
-### Sequence
+### An agent
 
-`function f() { let x = 10; let y = 20; return { sum: x + y } }` compiles to:
+`function greet({ name: 'Ada' }) { let r = httpFetch({ url: 'https://example.com/' + name }); return { r } }`
+compiles to:
 
 ```json
 {
   "$ajs": 2,
   "op": "seq",
   "steps": [
-    { "op": "varSet", "key": "x", "value": 10 },
-    { "op": "varSet", "key": "y", "value": 20 },
+    { "op": "varsImport", "keys": ["name"] },
+    {
+      "op": "httpFetch",
+      "url": {
+        "$expr": "binary",
+        "op": "+",
+        "left": { "$expr": "literal", "value": "https://example.com/" },
+        "right": { "$expr": "ident", "name": "name" }
+      },
+      "result": "r"
+    },
     {
       "op": "return",
-      "value": {
-        "sum": {
-          "$expr": "binary",
-          "op": "+",
-          "left": { "$expr": "ident", "name": "x" },
-          "right": { "$expr": "ident", "name": "y" }
-        }
-      }
+      "value": { "r": { "$expr": "ident", "name": "r" } }
     }
   ],
-  "inputSchema": { "type": "object", "properties": {} }
+  "inputSchema": {
+    "type": "object",
+    "properties": { "name": { "type": "string" } },
+    "required": ["name"],
+    "additionalProperties": false
+  }
 }
 ```
 
-A function's parameters become `varsImport` steps (a default becomes an `if` that assigns it)
-and the `inputSchema` the VM checks the arguments against. A declared result becomes
-`outputSchema`.
+- Each statement is a **step** with an `op`. An atom call is a step named after the atom, with
+  its inputs as fields and `result` naming the variable it writes.
+- Parameters become a `varsImport` step and the `inputSchema` the VM checks the arguments
+  against. A default becomes an `if` that assigns it; a declared result becomes `outputSchema`.
+- **Values.** A constant that is the whole value of a step field is written bare (`"value": 10`
+  in `{ "op": "varSet", "key": "x", "value": 10 }`). Inside an expression, a constant is a
+  `{ "$expr": "literal" }` node. A bare string is always a string; a variable is always an
+  explicit `{ "$expr": "ident" }` node.
 
 ### Expressions
 
@@ -770,7 +1029,7 @@ and the `inputSchema` the VM checks the arguments against. A declared result bec
             "right": { "$expr": "ident", "name": "name" } },
   "right": { "$expr": "literal", "value": "!" } }
 
-// Method call (only methods the VM lists; see docs/vm-budgets.md)
+// Method call (only the methods listed under Methods)
 { "$expr": "methodCall", "object": {...}, "method": "split", "arguments": [...] }
 ```
 
@@ -789,7 +1048,7 @@ and the `inputSchema` the VM checks the arguments against. A declared result bec
 }
 ```
 
-### Loops and assignment
+### Loops, assignment and try
 
 ```json
 {
@@ -817,6 +1076,16 @@ and the `inputSchema` the VM checks the arguments against. A declared result bec
 
 `varSet` declares a variable in the current scope; `varAssign` writes an existing one in the
 scope that owns it, which is how a loop body updates a variable declared outside it.
+
+`for (const x of xs) { … }` becomes a `map` step with `"loop": true`, and `try`/`catch` a `try`
+step:
+
+```text
+{ "op": "map", "items": { "$expr": "ident", "name": "xs" }, "as": "x",
+  "steps": [ ... ], "loop": true }
+
+{ "op": "try", "try": [ ... ], "catch": [ ... ], "catchParam": "err" }
+```
 
 ASTs without `"$ajs"` (or with `"$ajs": 1`), which the builder and older transpilers write, still
 run, under the version-1 rule: a bare string that names a variable in scope is read as that
@@ -853,43 +1122,42 @@ const { result } = await new AgentVM().run(ast, { price: 100, taxRate: 0.2 })
 // result: { total: 120 }
 ```
 
-The builder writes a version-1 AST. It is lower-level than the transpiler: nothing checks atom
-calls or parameters for you, and the VM runs the AST as written.
+`.return` takes the shape of the result: a schema whose `properties` name the variables to
+return (`total`, of any type, here). The builder writes a version-1 AST, the format ASTs were
+first persisted in, which the VM keeps running so stored agents keep working. It is lower-level
+than the transpiler: nothing checks atom calls or parameters for you, and the VM runs the AST as
+written. That costs convenience, not safety: the VM's guarantees do not depend on the
+transpiler's checks.
 
 ---
 
 ## Limitations
 
-### What AJS doesn't do
+What AJS leaves out is listed under [What's Forbidden](#whats-forbidden). The reasons, in short:
 
-- **No function values.** A function cannot be stored, passed or returned; arrow functions given
-  straight to `map`, `filter`, `find` or `reduce` are the exception.
-- **No classes.** Use plain objects.
-- **No `break`, `continue` or `switch`.** Use conditions and `return`.
-- **No modules.** An agent is self-contained; the host decides which atoms exist.
-- **No direct DOM or host access.** Everything goes through capabilities.
-- **No structural `Is`.** Compare fields, or JSON.
+- **Routes out of the sandbox.** `eval`, `Function`, `import`, `this`, `class` and prototype
+  access would each give a guest a way to reach the host.
+- **Syntax models get wrong.** `switch` fall-through, `break` and `continue` in nested loops and
+  C-style `for` bounds are frequent sources of bugs in generated code; `for...of`, `while` and
+  `if` say the same things more plainly.
+- **Code that is hard to audit.** No function values means every call in the AST names what it
+  calls.
 
-### What AJS intentionally avoids
-
-- Language features that open routes out of the sandbox.
-- Syntax that models frequently get wrong.
-- Patterns that make code hard to audit.
-
-AJS is interpreted from its JSON AST, so it is slower than native JavaScript. Execution is
-predictable and bounded, and I/O dominates most agent workloads. For compute-heavy work, do it in
-the host, in TJS (with `wasm {}` blocks where it matters), and expose it as an atom.
+AJS is interpreted from its JSON AST, so it is much slower than native JavaScript for
+computation. Execution is predictable and bounded, and I/O dominates most agent workloads. For
+compute-heavy work, do it in the host, in TJS (with `wasm {}` blocks where it matters), and expose
+it as an atom ([Capabilities and Custom Atoms](/ajs-capabilities/)).
 
 ---
 
 ## Learn more
 
 - [AJS Examples](/ajs-examples/): runnable agents, from first steps to multi-agent pipelines.
-- [Patterns](guides/patterns.md): idioms for real agents.
-- [AJS LLM System Prompt](guides/ajs-llm-prompt.md): a prompt for models that write AJS.
-- [Hosting the VM](/ajs-host/): budgets, timeouts, capabilities, quotas and tracing.
+- [Patterns](/patterns/): idioms for real agents.
+- [AJS LLM System Prompt](/ajs-llm-prompt/): a prompt for models that write AJS.
+- [Embedding the AJS VM](/ajs-host/): budgets, timeouts, capabilities, quotas and tracing.
 - [Capabilities and Custom Atoms](/ajs-capabilities/): giving agents new powers, and the battery
   setup for local models.
 - [Atom Reference](/ajs-atoms/): every atom's inputs, outputs, cost and capability.
-- [Safe Eval](guides/safe-eval.md): AJS as a safe `eval` inside an application.
-- [VM budgets](docs/vm-budgets.md): why the VM refuses what it refuses.
+- [Safe Eval](/safe-eval/): AJS as a safe `eval` inside an application.
+- [VM budgets](/vm-budgets/): why the VM refuses what it refuses.

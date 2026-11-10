@@ -4,14 +4,14 @@
 # Better Classes
 
 A TJS class is a JavaScript class with three changes: you call it like a function, `new` on
-it is an error, and its typed parameters are checked. Everything else (methods, `extends`,
-`super`, private fields, getters and setters, static members) works as it does in
-JavaScript.
+it is an error, and its typed parameters are checked. A class may also declare more than one
+constructor (see [Polymorphic Constructors](/polymorphic-constructors/)). Everything else
+(methods, `extends`, `super`, private fields, getters and setters, static members) works as
+it does in JavaScript.
 
 ## The problem
 
-In JavaScript a class must be constructed with `new`. Forget it and you get an exception,
-while the older `function` constructors gave you something worse, a silent `undefined`:
+In JavaScript a class must be constructed with `new`. Forget it and you get an exception:
 
 ```javascript
 class Point {
@@ -58,15 +58,25 @@ test 'callable without new' {
 }
 ```
 
+`x: 0.0` means "a number, for example 0.0". The colon value is an example, not a literal
+type, and the `.0` makes it a float, so any number is accepted. Writing `0` instead would
+mean an integer.
+
 `Point(3, 4)` returns a real `Point`: `instanceof` is true and the methods are on the
-prototype, exactly as if it had been built with `new`. Every class declared in a `.tjs` file
-is wrapped this way.
+prototype, exactly as if it had been built with `new`. `Point` is still a class, with the
+same prototype and static members, so `extends Point` and `instanceof Point` work as usual,
+including from plain JavaScript. Every class declared in a `.tjs` file can be called this
+way.
+
+The `test` block is a TJS inline test. It runs when the file is checked or transpiled, and a
+failing `expect` is reported as an error. See
+[Inline Tests](/inline-tests-test-private-functions/).
 
 ## `new` is an error
 
 On a class declared in the same file, `new Point(3, 4)` does not compile. The call already
-constructs, so `new` would be decoration, and two spellings for one thing invite the old
-mistake in reverse.
+constructs, so `new` would be decoration. If both spellings were allowed, every reader would
+have to wonder whether `Point(…)` and `new Point(…)` differ, and code would mix them.
 
 <!-- tjs-doc: expect-error -->
 
@@ -85,6 +95,10 @@ The compiler says what to do: "`new Point` is not allowed in TJS — a class is 
 `Point(…)` does exactly what `new Point(…)` does and returns the same object. Drop the
 keyword."
 
+The rule is checked per file, against the classes that file declares. A TJS class imported
+from another module accepts `new` and behaves the same either way, and plain JavaScript code
+that imports a TJS class can use `new Point(3, 4)` or `Point(3, 4)`.
+
 Built-ins are untouched. `new Set()`, `new Map()` and `new Float32Array(4)` still need their
 `new`, because JavaScript requires it.
 
@@ -93,7 +107,9 @@ Built-ins are untouched. `new Set()`, `new Map()` and `new Float32Array(4)` stil
 A typed parameter on a constructor, a method, a static method or a private method is checked
 exactly as it would be on a function (see [Safety and Validation](/safety-validation/)). A
 wrong argument returns a `MonadicError` and the body does not run, so you never get an object
-in a half-built state.
+in a half-built state. A `MonadicError` is an error value that TJS returns instead of
+throwing (it is an `Error`, so `instanceof Error` is also true); test for it with
+`isMonadicError`. [Error Handling](/error-handling/) explains why errors are returned.
 
 ```tjs:inline
 class Box {
@@ -116,14 +132,16 @@ console.log('scaled:', Box(2, 3).scale(2).area())
 
 const bad = Box('two', 3)
 console.log('Box("two", 3) is a Box?', bad instanceof Box)
+console.log('is an error?', isMonadicError(bad))
 console.log('error:', bad.message)
 
 console.log('scale(1.5):', Box(2, 3).scale(1.5).message)
 ```
 
-`width: 0` means "an integer, for example 0" (the colon value is an example, not a literal
-type), so `'two'` and `1.5` are both refused. The error names the class, the member and the
-parameter.
+`width: 0` means "an integer, for example 0", so `'two'` and `1.5` are both refused. The
+error names the source location, the class, the member and the parameter, for example
+`Expected integer for 'better-classes.tjs:2:Box.constructor.width', got string` (the file
+name depends on where the code runs).
 
 ## Defaults, subclasses and chaining
 
@@ -160,14 +178,15 @@ const n = NamedCounter('visits', 10).add()
 console.log(n.toString(), '| instanceof Counter?', n instanceof Counter)
 
 const oops = Counter().add(1.5)
-console.log('add(1.5):', oops instanceof Error ? oops.message : oops)
+console.log('add(1.5):', isMonadicError(oops) ? oops.message : oops)
 ```
 
-`NamedCounter('visits', 10)` constructs the subclass, `super(start)` runs `Counter`'s
+`name: 'clicks'` has no `=`, so `name` is required: `'clicks'` is an example of a string,
+not a default. `NamedCounter('visits', 10)` constructs the subclass, `super(start)` runs `Counter`'s
 constructor, and `add(1.5)` is refused because `by` is an integer. Because `add` returns
 `this`, calls chain.
 
-## Private fields, getters and setters
+## Private fields, getters, setters and statics
 
 These are JavaScript's own features and behave the same in TJS. A `#name` field or method is
 reachable only from inside the class body. A `get` runs when the property is read, and a
@@ -208,12 +227,16 @@ t.celsius = 'hot'
 console.log('after t.celsius = "hot":', t.celsius)
 ```
 
-`Object.keys(t)` is empty because `#celsius` is private. The last two lines show the one
-exception to parameter checking: **setters are not validated.** A setter's return value is
-thrown away by the assignment, so a refusal would silently drop the write rather than report
-it. The `: 0.0` on the setter's parameter documents intent and checks nothing. If a setter
-must refuse bad values, test them in its body, or use a method such as `setCelsius(value:
-0.0)` whose result the caller can inspect.
+`Object.keys(t)` is empty because `#celsius` is private. `fromFahrenheit` is a static method,
+and its `f: 0.0` parameter is checked like any other.
+
+The last two lines show the one exception to parameter checking: **setters are not
+validated.** TJS reports a bad argument by returning an error value, but an assignment
+discards whatever the setter returns, so a refusal would silently drop the write rather than
+report it. The `: 0.0` on the setter's parameter documents intent and checks nothing.
+
+If a setter must refuse bad values, test them in its body, or use a method such as
+`setCelsius(value: 0.0)` whose result the caller can inspect.
 
 ## Classes as callbacks
 
@@ -229,48 +252,46 @@ class Counter {
 const counters = [1, 2, 3].map(Counter)
 console.log('map(Counter):', counters.map((c) => c.count).join(', '))
 
-class Color {
-  constructor(r: +0, g: +0, b: +0) {
-    this.r = r
-    this.g = g
-    this.b = b
-  }
-
-  constructor(hex: '#000000') {
-    const n = parseInt(hex.slice(1), 16)
-    this.r = (n >> 16) & 255
-    this.g = (n >> 8) & 255
-    this.b = n & 255
+class Rect {
+  constructor(width: 0, height: 0 = 1) {
+    this.width = width
+    this.height = height
   }
 }
 
-const direct = ['#ff0000', '#00ff00'].map(Color)
-console.log('map(Color):', direct[0].message)
+const direct = [4, 5].map(Rect)
+console.log('map(Rect) heights:', direct.map((r) => r.height).join(', '))
 
-const wrapped = ['#ff0000', '#00ff00'].map((hex) => Color(hex))
-console.log('map((hex) => Color(hex)):', wrapped.map((c) => c.r + ',' + c.g).join(' | '))
+const wrapped = [4, 5].map((w) => Rect(w))
+console.log('map((w) => Rect(w)) heights:', wrapped.map((r) => r.height).join(', '))
 ```
 
 Watch the arguments. `map` calls its callback with three: the item, its index and the whole
-array. `Counter` has one parameter, and extra arguments are ignored, so `map(Counter)` works.
-`Color` has two constructors, one taking three numbers and one taking a hex string, and it
-picks between them by the arguments it receives. Called as `Color('#ff0000', 0, [...])` it
-matches neither, so every element is an error. When the arguments a caller passes are not
-the ones you mean, wrap the class in an arrow function that passes exactly the arguments you
-want.
+array. With one constructor, arguments beyond its parameters are ignored, so `Counter`, which
+has one parameter, works.
 
-Multiple constructors are covered in [Polymorphic Constructors](/polymorphic-constructors/).
+`Rect` has two. `map` fills `height` with the index, which is a valid integer, so
+`[4, 5].map(Rect)` builds `Rect(4, 0)` and `Rect(5, 1)`: wrong heights, and no error. A class
+with several constructors is chosen by the number and types of its arguments, so there the
+extra index and array can make no constructor match, and every element comes back as an
+error (see [Polymorphic Constructors](/polymorphic-constructors/)).
+
+When the arguments a caller passes are not the ones you mean, wrap the class in an arrow
+function that passes exactly the arguments you want.
 
 ## Gotchas
 
 - **Only classes declared in `.tjs` are wrapped.** A class imported from a plain JavaScript
   module, an old-style `function` + `prototype` constructor, or a built-in keeps
-  JavaScript's rules, so those still need `new`. TypeScript converted with `fromTS` keeps
-  them too, unless the file opts into full TJS with `TjsStrict`.
+  JavaScript's rules, so those still need `new`. Classes in TypeScript converted to TJS
+  (with `fromTS`) keep JavaScript's `new` rules too, unless the file opts into full TJS with
+  a `/* @tjs TjsStrict */` comment. See [TJS for TypeScript developers](/TJS-FOR-TS/).
 - **A failed construction is a value.** `Box('two', 3)` returns a `MonadicError`, not a
   `Box`. Reading a property of it gives `undefined`, and calling a method that the error
   does not have throws a `TypeError`. Check the result with `isMonadicError(box)`, or pass
-  it to a function with typed parameters, which passes the error along. See [Error Handling](/error-handling/).
+  it to a function with typed parameters, which passes the error along. An untyped
+  parameter does not: the body runs with the error as its argument. See
+  [Error Handling](/error-handling/).
 - **Validation covers parameters, not fields.** The checks run when a constructor or method
   is called. Assigning `box.width = 'oops'` afterwards is ordinary JavaScript and is not
   checked, and neither is a setter (see above).

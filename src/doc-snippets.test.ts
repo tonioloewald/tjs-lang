@@ -119,7 +119,8 @@ function snippets(doc: string): Snippet[] {
     // Other HTML comments may sit between the directive and the fence (`<!-- prettier-ignore -->`
     // is common). Requiring the directive to touch the fence silently dropped it, so an
     // `expect-error` block was checked as ordinary code.
-    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n(?:<!--(?:(?!-->)[\s\S])*-->\s*\n)*)?```(typescript|tjs|js|javascript)(?::[a-z]+)?(?:[ \t]*\{.*\})?\n([\s\S]*?)```/g
+    // The fence may be indented (inside a list item), and the directive with it.
+    /(?:<!--\s*tjs-doc:\s*(fragment|expect-error)\s*-->\s*\n(?:\s*<!--(?:(?!-->)[\s\S])*-->\s*\n)*[ \t]*)?```(typescript|tjs|js|javascript)(?::[a-z]+)?(?:[ \t]*\{.*\})?\n([\s\S]*?)```/g
   for (const m of text.matchAll(re)) {
     out.push({
       doc,
@@ -212,18 +213,14 @@ describe('documentation snippets are real code', () => {
      *
      * A single blanket threshold is the wrong instrument twice over: too low and a
      * comparison guide is permanently red for doing its job, too high and a reference
-     * silently goes half-unchecked. Every entry below is fragment-heavy by nature, and
+     * silently goes half-unchecked. Both entries below are fragment-heavy by nature, and
      * saying so HERE is the point — an allowance nobody can see is the same failure the
      * surrounding test exists to prevent.
      */
     const ALLOWED: Record<string, { ratio: number; why: string }> = {
       'TJS-FOR-TS.md': {
-        ratio: 0.56,
+        ratio: 0.44,
         why: 'a side-by-side migration guide: most snippets are a TS excerpt beside its TJS counterpart, neither of which is a whole program',
-      },
-      'guides/learn/a-calculator.md': {
-        ratio: 0.5,
-        why: 'a worked build: the chapter grows one program and shows each change as an excerpt of it (static fences); the whole program is a live example in the same chapter',
       },
       'guides/footguns.md': {
         ratio: 0.5,
@@ -290,7 +287,11 @@ describe('documentation snippets are real code', () => {
  */
 describe("the book's tests run and pass outright", () => {
   const BOOK = ALL.filter(
-    (s) => s.doc.startsWith('guides/learn/') && /\btest\s+'/.test(s.code)
+    // A fragment is an excerpt of a program shown elsewhere, so its tests cannot run alone.
+    (s) =>
+      s.doc.startsWith('guides/learn/') &&
+      s.mode !== 'fragment' &&
+      /\btest\s+'/.test(s.code)
   )
 
   it('finds the book chapters with tests (apparatus)', () => {
@@ -302,10 +303,14 @@ describe("the book's tests run and pass outright", () => {
       const g = globalThis as any
       const prev = g.preview
       const prevElements = g.elements
+      const prevTosi = g.tosi
       g.preview = { append() {}, replaceChildren() {}, textContent: '' }
       // The page also supplies tosijs; the build-time run strips the import, so `elements`
       // is a stand-in too: every element creator returns an inert node.
       g.elements = new Proxy({}, { get: () => () => ({ append() {} }) })
+      // `tosi(state)` makes reactive state on the page; for the logic a test checks, the plain
+      // object behaves the same.
+      g.tosi = (state: unknown) => state
       try {
         const r: any = tjs(s.code, { runTests: 'report' } as any)
         const results = (r.testResults ?? []).filter(
@@ -325,6 +330,7 @@ describe("the book's tests run and pass outright", () => {
       } finally {
         g.preview = prev
         g.elements = prevElements
+        g.tosi = prevTosi
       }
     })
 })

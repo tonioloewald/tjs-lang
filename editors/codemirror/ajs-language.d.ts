@@ -20,35 +20,82 @@
  * })
  * ```
  */
-import { LanguageSupport } from '@codemirror/language';
-import { Extension } from '@codemirror/state';
-import { CompletionContext as CMCompletionContext, CompletionResult, Completion as CMCompletion } from '@codemirror/autocomplete';
-import type { IntrospectMember } from '../introspect-value';
+import { LanguageSupport } from '@codemirror/language'
+import { Extension } from '@codemirror/state'
+import {
+  CompletionContext as CMCompletionContext,
+  CompletionResult,
+  Completion as CMCompletion,
+} from '@codemirror/autocomplete'
+import type { IntrospectMember } from '../introspect-value'
 /**
  * Forbidden keywords in AsyncJS - these will be highlighted as errors
  */
-declare const FORBIDDEN_KEYWORDS: Set<"new" | "class" | "extends" | "super" | "this" | "implements" | "interface" | "abstract" | "static" | "private" | "protected" | "public" | "async" | "await" | "yield" | "import" | "export" | "require" | "module" | "var" | "throw" | "switch" | "case" | "default" | "with" | "delete" | "void" | "typeof" | "instanceof" | "debugger" | "eval" | "type" | "enum" | "namespace" | "declare" | "readonly" | "as" | "is" | "keyof" | "infer" | "never" | "unknown">;
+declare const FORBIDDEN_KEYWORDS: Set<
+  | 'new'
+  | 'class'
+  | 'extends'
+  | 'super'
+  | 'this'
+  | 'implements'
+  | 'interface'
+  | 'abstract'
+  | 'static'
+  | 'private'
+  | 'protected'
+  | 'public'
+  | 'async'
+  | 'await'
+  | 'yield'
+  | 'import'
+  | 'export'
+  | 'require'
+  | 'module'
+  | 'var'
+  | 'throw'
+  | 'switch'
+  | 'case'
+  | 'default'
+  | 'with'
+  | 'delete'
+  | 'void'
+  | 'typeof'
+  | 'instanceof'
+  | 'debugger'
+  | 'eval'
+  | 'type'
+  | 'enum'
+  | 'namespace'
+  | 'declare'
+  | 'readonly'
+  | 'as'
+  | 'is'
+  | 'keyof'
+  | 'infer'
+  | 'never'
+  | 'unknown'
+>
 /**
  * Autocomplete configuration
  */
 export interface AutocompleteConfig {
-    /** Function to get __tjs metadata from current source */
-    getMetadata?: () => Record<string, any> | undefined;
-    /** Function to get imported module metadata */
-    getImports?: () => Record<string, Record<string, any>> | undefined;
-    /**
-     * Function to get live module exports for runtime introspection.
-     * Returns a map of import names to their actual runtime values.
-     * e.g., { elements: Proxy, div: HTMLDivElement }
-     */
-    getLiveBindings?: () => Record<string, any> | undefined;
-    /**
-     * Async member completion from the introspection bridge: given a dotted path
-     * (`todoApp.items`), returns the value's REAL runtime members from the user's
-     * executed scope in a sandbox — including proxy-generated ones nothing static
-     * can see. Used as a fallback when the path doesn't resolve in sync bindings.
-     */
-    getMembers?: (path: string) => Promise<IntrospectMember[] | undefined>;
+  /** Function to get __tjs metadata from current source */
+  getMetadata?: () => Record<string, any> | undefined
+  /** Function to get imported module metadata */
+  getImports?: () => Record<string, Record<string, any>> | undefined
+  /**
+   * Function to get live module exports for runtime introspection.
+   * Returns a map of import names to their actual runtime values.
+   * e.g., { elements: Proxy, div: HTMLDivElement }
+   */
+  getLiveBindings?: () => Record<string, any> | undefined
+  /**
+   * Async member completion from the introspection bridge: given a dotted path
+   * (`todoApp.items`), returns the value's REAL runtime members from the user's
+   * executed scope in a sandbox — including proxy-generated ones nothing static
+   * can see. Used as a fallback when the path doesn't resolve in sync bindings.
+   */
+  getMembers?: (path: string) => Promise<IntrospectMember[] | undefined>
 }
 /**
  * Every completion this module offers, flattened — for introspection and for the audit.
@@ -59,12 +106,14 @@ export interface AutocompleteConfig {
  * a deprecated `isError` with no `isMonadicError` beside it, and none of `Type`,
  * `Generic`, `Enum`, `Union`, `FunctionPredicate`, `extend` or `wasm`.
  */
-export declare const ALL_COMPLETIONS: CMCompletion[];
+export declare const ALL_COMPLETIONS: CMCompletion[]
 /**
  * Create TJS/AJS completion source.
  * Exported for headless testing — it touches only DOM-free CodeMirror APIs.
  */
-export declare function tjsCompletionSource(config?: AutocompleteConfig): (context: CMCompletionContext) => Promise<CompletionResult | null>;
+export declare function tjsCompletionSource(
+  config?: AutocompleteConfig
+): (context: CMCompletionContext) => Promise<CompletionResult | null>
 /**
  * Create AsyncJS language support for CodeMirror 6
  *
@@ -72,26 +121,26 @@ export declare function tjsCompletionSource(config?: AutocompleteConfig): (conte
  * @returns Extension array for CodeMirror
  */
 export declare function ajsEditorExtension(config?: {
-    jsx?: boolean;
-    typescript?: boolean;
-    autocomplete?: AutocompleteConfig;
-}): Extension;
-export { ajsEditorExtension as ajs };
+  jsx?: boolean
+  typescript?: boolean
+  autocomplete?: AutocompleteConfig
+}): Extension
+export { ajsEditorExtension as ajs }
 /**
  * TJS editor extension - like AJS but with fewer restrictions
  * Allows: import/export, async/await, throw
  */
 export declare function tjsEditorExtension(config?: {
-    jsx?: boolean;
-    typescript?: boolean;
-    autocomplete?: AutocompleteConfig;
-}): Extension;
+  jsx?: boolean
+  typescript?: boolean
+  autocomplete?: AutocompleteConfig
+}): Extension
 /**
  * AsyncJS language support wrapped as LanguageSupport
  * Use this if you need access to the language object
  */
 export declare function ajsLanguage(config?: {
-    jsx?: boolean;
-    typescript?: boolean;
-}): LanguageSupport;
-export { FORBIDDEN_KEYWORDS };
+  jsx?: boolean
+  typescript?: boolean
+}): LanguageSupport
+export { FORBIDDEN_KEYWORDS }

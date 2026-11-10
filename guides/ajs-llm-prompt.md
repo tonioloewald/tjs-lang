@@ -159,7 +159,7 @@ strict rules. Follow every rule below.
   always available. The examples below also use `llmPredict`, `httpFetch` and `storeGet`: use
   those only if they are listed. An atom takes ONE object of named inputs:
   - RIGHT: `llmPredict({ prompt: question })`, `httpFetch({ url })`, `storeGet({ key })`
-  - WRONG: `llmPredict(question)` — a positional call is refused
+  - WRONG: `llmPredict(question)` (refused): a positional call
 - An atom call must be the WHOLE right-hand side of `let`, `const` or an assignment, or a
   statement on its own. Store the result, then use it:
   - WRONG: `return { reply: llmPredict({ prompt }) }`
@@ -374,7 +374,7 @@ here.
 | `a.filter(…).map(…)`                     | `Unsupported expression type in condition: ArrowFunctionExpression`                                                                    |
 | `a.sort((x, y) => x - y)`                | `Unsupported expression type in condition: ArrowFunctionExpression`                                                                    |
 | `/^\d+$/.test(s)`                        | `Method 'test' is not available in AsyncJS`                                                                                            |
-| `llmPredict(question)`                   | `'llmPredict' takes named arguments: write llmPredict({ name: value, … }), not llmPredict(a, b). Positional arguments are for local functions.` |
+| `llmPredict(question)` (refused)         | `'llmPredict' takes named arguments: write llmPredict({ name: value, … }), not llmPredict(a, b). Positional arguments are for local functions.` |
 | `llmPredict({ system, user })`           | `'llmPredict' has no input 'system'. It takes llmPredict({ prompt, options }).`                                                        |
 | `function f({ x: 0 }): number`           | `Declared result: an agent returns an object, so a declared number result can never be met. Declare the object it returns, e.g. ): { value: 0 }` |
 

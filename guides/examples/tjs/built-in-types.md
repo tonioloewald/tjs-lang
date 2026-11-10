@@ -9,19 +9,37 @@ also ships two modules of functions for working with dates without a `Date` obje
 chapter covers all of them, and ends with a small date pipeline you can copy.
 
 None of them is part of the language. A `.tjs` file sees them only after it imports them,
-and they all come from the main entry, `'tjs-lang'`:
+and they all come from the package `'tjs-lang'`:
 
 | Import                                                    | What it is                                                                 |
 | --------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `TEmail`, `TUrl`, `TUuid`, `TNonEmptyString`              | types for strings                                                          |
 | `TInteger`, `TPositiveInt`                                | types for numbers                                                          |
 | `TimestampType`, `TimestampISO`, `LegalDateType`          | types for dates and times                                                  |
-| `Nullable`, `Optional`, `TPair`, `TRecord`, `TArray`, `Union` | functions that build a new type from other types                      |
+| `Nullable`, `Optional`, `TPair`, `TRecord`, `TArray`, `Union` | functions that build a new type from other types (`Union` is also a declaration form; see below) |
 | `Timestamp`, `LegalDate`                                  | modules of date functions (`Timestamp.now()`, `LegalDate.addMonths(…)`, …) |
 
-`LegacyDate(…)` is the one date name you can use without an import: it is not a library
-function but the compiler's spelling of `new Date(…)`, covered in
-[What `.tjs` Refuses](/safer-code/).
+### Reading the examples
+
+Three things hold for every example on this page.
+
+- **A bad argument is answered, not thrown.** When an argument fails its parameter type,
+  the function does not run; it returns an error value, a `MonadicError`, whose `.message`
+  says what was expected. [Error Handling](/error-handling/) covers these values.
+  `isMonadicError(x)` tells you whether `x` is one. It, `test` and `expect` are available
+  in every `.tjs` file without an import.
+- **The printed messages leave out the location.** A real message also names the file and
+  line (`'invite.tjs:3:invite.email'`); the output shown here keeps only the function and
+  parameter, because the location differs between this page and your machine.
+- **The checks are in `test` blocks, not signature examples.** When TJS transpiles a file,
+  it calls each function with the example values in its signature and compares the result
+  with the return example. It does this before the file's imports are loaded, so it cannot
+  run a function that uses an imported type or module; such a check is reported as
+  _inconclusive_ (the [Date Formatting](/date-formatting-with-import/) chapter explains
+  this). On this page the `test` blocks run with the imports loaded. From the command line,
+  `tjs check` and `tjs test` cannot load them either: most of these tests come out
+  inconclusive, and a test of a `Type` built from imported types can pass without checking
+  anything, because the unloaded types accept every value.
 
 ## A built-in type as a parameter type
 
@@ -66,23 +84,24 @@ true
 0 is not positive
 ```
 
-(The messages on this page also name the file and line, which differ between the page and
-your machine.)
-
 ### What to notice
 
 - **The check happens at the call**, as for any TJS parameter. A bad argument does not
   reach the body: `invite` returns a `MonadicError` naming the parameter instead.
+- **The error says what was expected, not why it failed.** `got string` names the kind of
+  JavaScript value that arrived: `'ada.example.com'` is a string, just not an email. To
+  find out why a value fails, call the type yourself, as the last two lines do.
 - **There is no example value.** `email: TEmail` names a type, so TJS has nothing to call
-  `invite` with when it tests signatures at transpile time. Write `test` blocks instead,
-  as above.
-- **A built-in type answers `true` or a reason string**, never `false`. `TPositiveInt(0)` is
-  `'0 is not positive'`. A non-empty string is truthy, so test the result with `=== true`;
-  `if (TPositiveInt(n))` accepts everything.
+  `invite` with when it transpiles the file. The `test` blocks do that job instead.
+- **The string and number types answer `true` or a reason string**, never `false`.
+  `TPositiveInt(0)` is `'0 is not positive'`. A non-empty string is truthy, so
+  `if (TPositiveInt(n))` accepts everything; compare the result with `=== true`. (The date
+  types, and every type the combinators below build, answer `true` or `false`. `=== true`
+  is right for all of them.)
 
 ## The string and number types
 
-Each of these is a function from a value to `true` or a reason:
+Each of these is a function from a value to `true` or a reason string:
 
 ```tjs:inline
 import { TEmail, TUrl, TUuid, TNonEmptyString, TInteger, TPositiveInt } from 'tjs-lang'
@@ -158,14 +177,20 @@ What each one accepts:
 `TString`, `TNumber` and `TBoolean` are exported too, but in a `.tjs` signature an example
 says the same thing more briefly: `name: ''`, `price: 0.0`, `active: false`. Likewise
 `count: 0` is an integer and `count: +0` a non-negative integer (see
-[the syntax reference](/TJS-SYNTAX/)); reach for `TInteger` and `TPositiveInt` when you want
-the type to have a name, or when you are checking a value outside a signature.
+[the syntax reference](/TJS-SYNTAX/)). No example value means "greater than zero", though:
+`+0` allows `0`, and `TPositiveInt` refuses it. Reach for `TPositiveInt` when zero is not
+allowed, and for `TInteger` when you want the type to have a name or are checking a value
+outside a signature.
 
 ## Building types from other types
 
-`Nullable`, `Optional`, `TPair` and `TRecord` take types and return a new type. Because they
-are function calls, you give the result a name with a `Type` declaration, whose `example`
-can be the call:
+`Nullable`, `Optional`, `TPair` and `TRecord` take types and return a new type. To use the
+result as a parameter type, give it a name with a `Type` declaration (introduced in
+[Declarations](/declarations/)), whose `example` can be the call. The declaration is not
+optional: the compiler resolves a parameter type only when it is imported or declared with
+`Type`, `Generic`, `Union` or `Enum` in the file, so `const MaybeEmail = Nullable(TEmail)`
+makes a working type, but `p: MaybeEmail` is not checked. The compiler warns that the
+annotation "could not be resolved to a runtime type".
 
 ```tjs:inline
 import { TEmail, TString, TNumber, TInteger, TPair, TRecord, Nullable, Optional } from 'tjs-lang'
@@ -217,12 +242,21 @@ no reply address | reply to alan@example.com
 alan
 ```
 
-`TArray(T)` (an array whose every item is a `T`) and `Union(A, B, …)` (any one of several
-types) work the same way. The arguments may be built-in types, types you declared, or
-example values: `TPair('', 0)` is the same type as `TPair(TString, TNumber)`.
+`Nullable` allows `null` and refuses `undefined`. The type check tells the two apart even
+though TJS's `==` treats them as equal, which is why `assign` can still test
+`manager == null`. `TRecord` checks every value of a plain object, and refuses an array.
 
-Built-in types also work inside a `Type` example's object, which is how you describe a
-record from outside your program:
+`TArray(T)` (an array whose every item is a `T`) and `Union(A, B, …)` (any one of several
+types) work the same way. (`Union` is also a declaration form,
+`Union Direction 'a direction' 'north' | 'south'`, for a named set of values; see
+[Declarations](/declarations/). The imported function combines types; the declaration lists
+values.) The arguments may be built-in types, types you declared, or example values, and an
+example value means what it always means: `TPair('', 0.0)` is the same type as
+`TPair(TString, TNumber)`, while `TPair('', 0)` accepts only an integer in its second slot.
+
+Built-in types also work inside a `Type` example's object. That is how you describe data
+that arrives from outside your program, as JSON from an API or a file, before any of your
+code touches it (the pipeline at the end of this page does this):
 
 ```tjs:inline
 import { TEmail, TUrl } from 'tjs-lang'
@@ -235,24 +269,31 @@ Type Profile {
   }
 }
 
-test 'homepage may be left out' {
-  expect(Profile({ name: 'Ada', email: 'ada@example.com' })).toBe(true)
-  expect(Profile({ name: 'Ada', email: 'ada@example.com', homepage: 'https://ada.dev' })).toBe(true)
-}
-
 console.log(Profile({ name: 'Ada', email: 'ada@example.com' }))
 console.log(Profile({ name: 'Ada', email: 'ada' }))
 console.log(Profile({ name: 'Ada', email: 'ada@example.com', homepage: 'ada.dev' }))
 ```
 
-It prints `true`, `false`, `false`: the second has no valid email, the third no valid URL. A
-type you declare answers `true` or `false`; only the built-in types answer with a reason
-string.
+It prints:
+
+```text
+true
+false
+false
+```
+
+The second has no valid email, the third no valid URL. A type you declare answers `true` or
+`false`, never a reason string. (This example has no `test` block on purpose: from the
+command line, a test of `Profile` would run before `TEmail` and `TUrl` are loaded, and pass
+or fail for reasons that have nothing to do with the data.)
 
 ## Dates: two values and three types
 
-A `.tjs` file refuses `new Date(…)` (the reasons are in [What `.tjs` Refuses](/safer-code/)).
-In its place are two plain values:
+A `.tjs` file refuses `new Date(…)`. A `Date` is a mutable object (`d.setMonth(…)` changes
+it for everyone holding it), and it mixes a moment with a calendar date and the zone of
+whatever machine runs the code; [What `.tjs` Refuses](/safer-code/) has the details.
+`Date.now()` is allowed, because it returns a plain number. In place of the object are two
+plain values:
 
 - A **Timestamp** is a moment: a number of milliseconds since 1970-01-01 UTC, the number
   `Date.now()` returns. Use it for "when did this happen".
@@ -269,7 +310,9 @@ three types to check a parameter with:
 | `LegalDateType` | a `'YYYY-MM-DD'` string                                               | `'2024-01-15'`               |
 
 Note the names. `Timestamp` and `LegalDate` are the modules; the types are `TimestampType`
-and `LegalDateType`.
+and `LegalDateType`. Mixing them up fails silently: `t: Timestamp` compiles with no warning
+and accepts any value, because the module is not a type and has nothing to check with.
+Write `t: TimestampType` and `d: LegalDateType`.
 
 ```tjs:inline
 import { Timestamp, LegalDate, TimestampType, TimestampISO, LegalDateType } from 'tjs-lang'
@@ -320,6 +363,11 @@ Expected LegalDateType for 'dueAfter.issued', got string
 
 `TimestampISO` exists for values that arrive as text (from JSON, an API, a form). Inside
 your program, turn it into a Timestamp with `Timestamp.parse` and work with the number.
+
+Two functions in the tables below throw rather than return an error: `Timestamp.parse` on
+text that is not a date, and `LegalDate.from` (and `LegalDate.parse`) on a day that does not
+exist. They are for values you have already checked, such as an argument that passed
+`TimestampISO`. For text you have not checked, use `tryParse`, which returns `null` instead.
 
 ### The `Timestamp` module
 
@@ -373,13 +421,15 @@ The first five lines print:
 The last two show the same moment as 31 January in UTC and as 1 February in Tokyo. In an
 English (US) locale they read something like `Jan 31, 2024 at 11:30:00 PM` and
 `Feb 1, 2024 at 08:30:00 AM`; the exact punctuation depends on the browser.
-The formatting functions use the locale of whatever runs the code, which is the one place
-in either module where the output can differ between machines.
+The formatting functions use the locale of whatever runs the code, so their output differs
+between machines. So does anything that reads the clock (`now()`, `today()`) and, as the
+trip-ups below explain, `parse` given a time with no zone.
 
 ### The `LegalDate` module
 
-Every function takes and returns `'YYYY-MM-DD'` strings (or numbers, for the parts). There is
-no time and no zone, so the 15th is the 15th everywhere.
+Every function takes and returns `'YYYY-MM-DD'` strings (or numbers, for the parts). A
+LegalDate has no time and no zone, so the 15th is the 15th everywhere. Only "what is the
+date today" depends on a zone, which is why there are both `today()` and `todayIn(zone)`.
 
 | Group        | Functions                                                                                                         |
 | ------------ | ----------------------------------------------------------------------------------------------------------------- |
@@ -428,12 +478,49 @@ false null
 1709164800000
 ```
 
+### When a library needs a `Date`: `LegacyDate`
+
+Some code you call wants a real `Date`: `Intl.DateTimeFormat`, a charting library, an older
+API. `LegacyDate(…)` makes one. It needs no import, because the compiler provides it in
+every `.tjs` file as a function that calls `new Date(…)`. Make the `Date` at the call, hand
+it over, and come back to a Timestamp with `.getTime()`:
+
+```tjs:inline
+import { Timestamp } from 'tjs-lang'
+
+const paid = Timestamp.parse('2024-01-15T09:30:00Z')
+
+const asDate = LegacyDate(paid)
+const label = new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeZone: 'UTC' })
+console.log(label.format(asDate))
+
+console.log(asDate.getTime() == paid)
+
+test 'a Date goes out and a Timestamp comes back' {
+  expect(LegacyDate(paid).getTime()).toBe(paid)
+}
+```
+
+It prints:
+
+```text
+15 January 2024
+true
+```
+
+Keep the `Date` at the edge, as here, rather than passing it around: the reasons `.tjs`
+refuses `new Date` apply to a `LegacyDate` just as much.
+
 ## A date pipeline
 
 Here is a small program of the kind dates usually appear in. Subscriptions arrive as JSON,
 with the email to notify, the plan, the date the subscription started and the moment of the
 last payment. For each one we want the next renewal date, how many days away it is, and
 whether the last payment is overdue.
+
+To copy it into your own project, keep the `test` blocks in mind: from the command line they
+come out inconclusive, because they need the imports (see
+[Reading the examples](#reading-the-examples)). They run here, on the page.
 
 ```tjs:inline
 import { Timestamp, LegalDate, TEmail, LegalDateType, TimestampISO, TimestampType } from 'tjs-lang'
@@ -451,7 +538,7 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 // The first renewal on or after `today`. Each candidate is counted from the start
 // date, so a subscription started on the 31st renews on the last day of short months
-// and on the 31st again when there is one.
+// and on the 31st again when there is one. `plan` must be exactly one of the two.
 function nextRenewal(started: LegalDateType, plan: 'monthly' | 'yearly', today: LegalDateType) {
   if (!LegalDate.isValid(started)) {
     return Error(`${started} is not a date`)
@@ -493,13 +580,21 @@ const now = Timestamp.parse('2024-04-10T09:00:00Z') // in a real program: Timest
 
 for (const sub of incoming) {
   const notice = renewalNotice(sub, today, now)
-  console.log(notice instanceof Error ? `skipped: ${notice.message}` : JSON.stringify(notice))
+  console.log(notice instanceof Error ? `skipped ${sub.email}` : JSON.stringify(notice))
 }
+
+// Why the last two were skipped
+console.log(TEmail(incoming[2].email))
+console.log(LegalDate.isValid(incoming[3].started))
 
 test 'a subscription started on the 31st keeps its day where it can' {
   expect(nextRenewal('2024-01-31', 'monthly', '2024-02-10')).toBe('2024-02-29')
   expect(nextRenewal('2024-01-31', 'monthly', '2024-03-01')).toBe('2024-03-31')
   expect(nextRenewal('2024-01-31', 'monthly', '2024-04-10')).toBe('2024-04-30')
+}
+
+test 'a plan is monthly or yearly, nothing else' {
+  expect(isMonadicError(nextRenewal('2024-01-31', 'quarterly', '2024-02-10'))).toBe(true)
 }
 
 test 'yearly renewals and overdue payments' {
@@ -512,7 +607,7 @@ test 'yearly renewals and overdue payments' {
 
 test 'bad records are refused, not processed' {
   expect(isMonadicError(renewalNotice(incoming[2], today, now))).toBe(true)
-  expect(renewalNotice(incoming[3], today, now).message).toBe('2024-02-30 is not a date')
+  expect(renewalNotice(incoming[3], today, now) instanceof Error).toBe(true)
 }
 ```
 
@@ -521,8 +616,10 @@ It prints:
 ```text
 {"to":"ada@example.com","renews":"Tue 2024-04-30","inDays":20,"overdue":false}
 {"to":"alan@example.com","renews":"Wed 2025-04-02","inDays":357,"overdue":true}
-skipped: Expected Subscription for 'renewalNotice.sub', got object
-skipped: 2024-02-30 is not a date
+skipped grace
+skipped kay@example.com
+"grace" is not a valid email
+false
 ```
 
 ### What to notice
@@ -530,8 +627,9 @@ skipped: 2024-02-30 is not a date
 - **Each kind of time has its own value.** `started` is a calendar date, so it is a
   `LegalDate` string and month arithmetic happens on the calendar. `lastPaid` is a moment,
   so it arrives as an ISO string, is turned into a Timestamp with `Timestamp.parse`, and
-  the gap is measured in hours. The code makes no `Date` object, and the file needs no
-  `TjsCompat`.
+  the gap is measured in hours. The code makes no `Date` object, so the file needs no
+  `TjsCompat` (the first-line marker that gives a file JavaScript's rules, `Date` included;
+  see [Date Formatting](/date-formatting-with-import/)).
 - **The clock is read in one place.** `nextRenewal` and `renewalNotice` take `today` and
   `now` as arguments, so the same input always gives the same answer, and the tests can
   name exact dates. A real program passes `LegalDate.today()` and `Timestamp.now()` at the
@@ -541,32 +639,38 @@ skipped: 2024-02-30 is not a date
   renewal instead would drift: 31 January, 29 February, 29 March, 29 April.
 - **The record is checked once, at the boundary.** `Subscription` is declared from the
   built-in types, so a record with a bad email is refused before any date arithmetic runs.
-  The message names the type, not the member; call `TEmail(sub.email)` yourself when you
-  want to tell the user which field is wrong.
-- **`LegalDateType` is not the whole check.** `'2024-02-30'` has the right shape, so it
-  passes the parameter type; `LegalDate.isValid` is what knows February has no 30th (see
-  below). `nextRenewal` returns an `Error` of its own for it, which the caller sees the same
-  way it sees a type error.
+  The error names the type, not the member (`Expected Subscription for
+  'renewalNotice.sub', got object`); call `TEmail(sub.email)` yourself, as the last lines
+  do, when you want to tell the user which field is wrong.
+- **`'monthly' | 'yearly'` is a set of two values.** A union of example strings does not
+  widen to "any string": on the parameter and inside `Subscription`, `'quarterly'` is
+  refused.
+- **`LegalDateType` is not the whole check.** Whether it accepts `'2024-02-30'` depends on
+  the browser (see below); `LegalDate.isValid` is what reliably knows February has no 30th.
+  So `nextRenewal` checks too, and returns an `Error` of its own. `Error(…)` without `new`
+  is ordinary JavaScript, and `.tjs` returns errors rather than throwing them. Either way the
+  record is skipped: a `MonadicError` is an `Error`, so `instanceof Error` catches the type
+  error and this one alike. That is why the loop prints the email rather than the message,
+  which differs between browsers for this record.
 
 ## Things that trip people up
 
-- **`t: Timestamp` checks nothing.** `Timestamp` is the module of functions, not the type,
-  so a parameter annotated with it accepts any value, silently. Write `t: TimestampType`
-  (and `d: LegalDateType`, not `d: LegalDate`).
-- **`LegalDateType` checks the shape, not the calendar.** It accepts any `'YYYY-MM-DD'` with
-  a month from 01 to 12 and a day from 01 to 31, so `'2024-02-30'` and `'2023-02-29'` pass.
-  `LegalDate.isValid` checks that the day exists, and `LegalDate.from` and
-  `LegalDate.parse` throw on one that does not.
-- **A built-in type's failure is a string, and strings are truthy.** `if (TEmail(x))` is
-  true for every `x`. Compare with `=== true`.
+- **`t: Timestamp` checks nothing, and says nothing.** `Timestamp` is the module of
+  functions, not the type, so a parameter annotated with it accepts any value, with no
+  warning. Write `t: TimestampType` (and `d: LegalDateType`, not `d: LegalDate`).
+- **`LegalDateType` checks the shape; the calendar is up to the browser.** It requires
+  `'YYYY-MM-DD'` and then asks the platform's own date parser, which in Chrome, Safari, Node
+  and Bun rolls `'2024-02-30'` and `'2023-02-29'` over to March and so accepts them. Other
+  engines may refuse them. `LegalDate.isValid` checks that the day exists, the same way
+  everywhere, and `LegalDate.from` and `LegalDate.parse` throw on one that does not.
+- **A string or number type's failure is a string, and strings are truthy.**
+  `if (TEmail(x))` is true for every `x`. Compare with `=== true`.
 - **`p: TEmail | null` on a parameter currently checks only `TEmail`**, so `null` is
   refused. Declare `Type MaybeEmail { example: Nullable(TEmail) }` and use that. Inside a
   `Type` example, `TEmail | null` works as written.
 - **A combinator needs a `Type` declaration to be a parameter type.**
-  `const MaybeEmail = Nullable(TEmail)` makes a working type, but `p: MaybeEmail` is not
-  checked: the compiler resolves a parameter type only when it is declared with `Type` (or
-  `Generic`, `Union`, `Enum`) in the file, or imported. It warns that the annotation
-  "could not be resolved to a runtime type".
+  `p: MaybeEmail` where `const MaybeEmail = Nullable(TEmail)` is not checked; the compiler
+  warns (see [Building types from other types](#building-types-from-other-types)).
 - **`Optional(T)` in an object example does not make the member optional.** It allows the
   value `undefined`, but the key must still be there. To let a caller leave a member out,
   write `T | undefined`, as `Profile` does with `homepage`.
@@ -580,9 +684,8 @@ skipped: 2024-02-30 is not a date
   `LegalDate.diffMonths('2024-03-01', '2024-02-29')` is `1`, though only a day has passed.
   For elapsed time, use `LegalDate.diff` (days). The `Timestamp.diff…` functions round down,
   so a gap of minus an hour and a half is `-2` hours.
-- **Signature examples cannot see imports.** TJS runs return examples when it transpiles a
-  file, before its imports are loaded, so a function whose body calls `Timestamp` or
-  `LegalDate` has an _inconclusive_ example (the [Date Formatting](/date-formatting-with-import/)
-  chapter explains this). Put the expectations in `test` blocks: on this page they run
-  with the imports loaded. (From the command line, `tjs test` cannot load them either, and
-  reports such tests as inconclusive.)
+- **Signature examples cannot see imports.** A function whose signature or body uses an
+  imported type or module has an _inconclusive_ signature example, and from the command
+  line its tests are inconclusive too (see [Reading the examples](#reading-the-examples)).
+  A test of a `Type` built from imported types is worse: it can pass while checking
+  nothing.

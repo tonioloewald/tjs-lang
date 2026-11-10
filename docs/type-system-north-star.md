@@ -3,10 +3,14 @@
 
 # North star: JSON-Schema + predicates as the single source of truth for types
 
-> **Status: strategic direction (2026-07-06, user-set). Possibly post-1.0. Use as
-> a decision lens NOW.** Related: `$predicate` keyword
+> **Status: strategic direction (2026-07-06, set by the language's author, Tonio Loewald).
+> Possibly post-1.0. Use as a decision lens NOW.** Related: `$predicate` keyword
 > (`src/lang/predicate-schema.ts`), `createPredicateEvaluator`, the `tjs-lang/css`
 > library, `docs/ambient-contracts.md`, PRINCIPLES.md.
+
+This is a design note about where TJS types are heading. You do not need it to write TJS.
+Read it if you want to know why types behave as they do, or if you are changing how they
+work. Dated decisions below are the author's.
 
 Each section below carries its own status, because this note mixes three kinds of material:
 
@@ -30,11 +34,29 @@ TS-derived types, `Type`/`Generic` declarations, `TypeDescriptor` — is **surfa
 syntax or an internal projection** of that one canonical form, not a competing
 source of truth.
 
+The terms: **JSON Schema** is a standard JSON format that describes the shape of data. A
+**predicate** is a function that answers yes or no about a value. **Verified-pure** means a
+verifier has checked it has no side effects; a **cluster** is a set of predicates that call
+each other. **`TypeDescriptor`** is TJS's internal in-memory type record.
+
+Two real outputs show the two halves. `Type('user', { name: '', age: 0 }).toJSONSchema()` is
+plain structure; `cssColorSchema()` from `tjs-lang/css` adds a `$predicate`, because "is this a
+CSS colour" is not something structure can say:
+
+```text
+{ "type": "object",
+  "properties": { "name": { "type": "string" }, "age": { "type": "integer" } },
+  "required": ["name", "age"], "additionalProperties": true }
+
+{ "type": "string", "title": "CSSColor", "$predicate": "var CSS_NAMED_COLORS = [ … ] …" }
+```
+
 - **Structure** (shape, required keys, enums, ranges, nesting) → JSON-Schema
   keywords, which any validator understands.
-- **Computation** (open value grammars, cross-field invariants, recursive
-  grammars — the things TS/JSON-Schema cave to `string`/`any` on) → `$predicate`,
-  which a predicate-aware validator runs.
+- **Computation** → `$predicate`, which a predicate-aware validator runs. This is the part
+  TypeScript and plain JSON Schema can only call `string` or `any`: open value grammars (a
+  CSS colour), cross-field invariants (an end date after its start date), and recursive
+  grammars (nested expressions).
 
 Together they express the full range of what TJS types mean, in a **standard,
 serializable, inspectable, cross-language** form.
@@ -56,7 +78,8 @@ Concretely, *toward* looks like:
   `TypeDescriptor` but not in JSON-Schema + `$predicate`, that's a smell.
 - `.d.ts` emission, runtime validation, inference, and autocomplete all **derive
   from** the canonical form rather than from a parallel representation.
-- The predicate subset stays **small and portable** (see below) so `$predicate`
+- The subset of JavaScript that predicates may use stays **small and portable** (see
+  below) so `$predicate`
   can run anywhere — expanding it is a cost, not a free win.
 
 *Away* looks like: a TJS-only internal type IR that accretes features that JSON-Schema
@@ -88,42 +111,48 @@ JS runtime, implementable in a few hundred lines in any language.
 
 It's tractable precisely because the predicate subset is deliberately minimal
 (the verifier enforces it): pure, synchronous, **no loops** (recursion + array
-methods only), fuel-bounded, no IO, a whitelist of pure operations (member access,
-comparisons, `&&`/`||`/ternary, `typeof`, a fixed set of string/array/Math/regex
-methods). That's a small tree-walking interpreter — no closures-over-mutable-state,
+methods only), fuel-bounded (fuel is a work budget that stops a runaway computation), no
+IO, a whitelist of pure operations (member access, comparisons, `&&`/`||`/ternary, `typeof`,
+a fixed set of string/array/Math/regex methods). Regex is on that list today and is planned
+to be replaced by Pattern (next section but one). That's a small tree-walking interpreter — no closures-over-mutable-state,
 no async, no allocation surprises, no host access.
 
 **Key architectural implication — carry the AST, not (only) the source.** Today
 `$predicate` is predicate *source* (JS/AJS text). A portable VM in Rust/Go/Python
 shouldn't have to embed a JS parser. So the canonical portable form of a predicate
-should be its **serialized AST** (JSON) — which is the original AJS thesis ("code
-travels as data") applied here. Source stays the authoring form; the serialized
+should be its **serialized AST** (JSON) — the idea behind AJS, TJS's sandboxed agent
+language, which compiles to a JSON syntax tree so that code can travel as data. Source stays the authoring form; the serialized
 AST is the wire/exec form the small VM walks. A `$predicate` could carry either,
 with the AST as the portable default.
 
-## Predicate as DATA — Pattern's sibling (Tonio, 2026-10-04)
+## Predicate as DATA — Pattern's sibling (2026-10-04)
 
 _Status: decided direction, not built. `docs/pattern.md` is itself a proposal, so `$pattern`
 below is a planned keyword, not one that exists today._
 
-The Pattern decision (`docs/pattern.md`: built as data, canonically serializable, run by a
-metered engine, never by the host's) argues for the same shape here: **`Predicate` becomes the
+Pattern (`docs/pattern.md`) is the planned replacement for regex: a grammar built as data and
+run by TJS's own engine, which charges fuel for its work ("metered"), never by JavaScript's
+`RegExp`. That decision argues for the same shape here: **`Predicate` becomes the
 first-class, serializable, safely executable representation of a predicate.**
 
 - **The serialized form is what executes, not a by-product.** Today a `$predicate` carries
-  SOURCE, which compiles to native JS, so the `$predicate` paths run only `trustPredicate`-
-  registered source: "verified" is a promise to an author, not a sandbox. A Predicate as data
-  (the predicate-subset AST, the same AST family as AJS) runs on the metered engine, so an
-  UNTRUSTED predicate is safe to evaluate: the lift CLAUDE.md lists as planned, made structural.
+  SOURCE, which compiles to native JS. Verification checks that well-meaning code is pure; it
+  cannot make hostile code safe, because native JavaScript has routes no syntactic check
+  closes. So the `$predicate` paths run only source the host has registered with
+  `trustPredicate`, and refuse the rest: "verified" is a promise to an author, not a sandbox.
+  A Predicate as data (the predicate-subset AST, the same AST family as AJS) runs on the
+  metered engine, so an UNTRUSTED predicate is safe to evaluate. Running untrusted predicates
+  is planned; this makes it structural.
 - **One engine.** It runs on the AJS VM, so on the Rust/wasm VM once that ships
   (`docs/ajs-native-vm.md`). That is the "small portable predicate VM" above, and it does not
   have to be a separate VM.
 - **It composes with Pattern.** A string predicate's matching is a Pattern (data), never a regex
-  literal, so a serialized Predicate contains no host-engine door.
+  literal, so a serialized Predicate gives untrusted input no way to reach JavaScript's regex
+  engine.
 - **Same delivery as Pattern:** a fluent builder and the TJS/AJS source forms author it; `toJSON`
   and `fromJSON` round-trip exactly; JSON Schema carries it as `$predicate`, alongside
   `$pattern`.
-- **Home: tjs-lang (Tonio, 2026-10-04).** AJS is the runtime that executes it, so Predicate lives
+- **Home: tjs-lang (2026-10-04).** AJS is the runtime that executes it, so Predicate lives
   with the VM rather than in tosijs-schema; tosijs-schema keeps its `$predicate` evaluator slot
   (`setPredicateEvaluator`), which tjs-lang fills. (Pattern is different: it has users that are
   not schemas, so it is its own leaf package.)
@@ -138,13 +167,20 @@ registry file-local (0.13.4 shipped it process-global by mistake); 0.13.6 added 
 own `asCompared()` method as the layer beneath the registries. The section below is the
 design record, kept because it explains the choices.
 
+Some TJS background the section relies on. In native TJS, `==` is not JavaScript's: it
+compiles to `Eq`, which unwraps boxed primitives and treats `null` and `undefined` as equal,
+but neither coerces types nor compares objects by structure. `Is(a, b)` is deep structural
+equality. Conditions (`if`, `?:`, `&&`) decide truthiness through `toBool`, which also unwraps
+boxed primitives. An `extend Foo { … }` block adds methods to a class locally, without editing
+its prototype. And a class is called without `new`.
+
 ### The gap
 
 A type today answers one question: **membership** — does `v` satisfy `T`? That is what
 `predicate` is. It cannot answer the other one: **equivalence** — are `a` and `b` the same,
 *as T*?
 
-Tonio's framing, which states it better than anything else here:
+The author's framing, which states it better than anything else here:
 
 > a number is a number for comparison, but `-1` is not a positive integer
 
@@ -153,11 +189,12 @@ number is equivalence. A type that can only answer the first is half a type.
 
 ### The hook that exists, and why it cannot close the gap
 
-`goIs` dispatches to `[Symbol.for('tjs.equals')]` or `.Equals` — a method **bound to the
-value**, Java-style. Three things follow, and each is fatal on its own:
+A class can define an `Equals(other)` method (or `[Symbol.for('tjs.equals')]`), and `Is`
+calls it. That is a method **bound to the value**, Java-style. Three things follow, and each
+is fatal on its own:
 
-1. **Primitives cannot participate.** `customEquals` returns `null` for anything where
-   `typeof x !== 'object'`. There is no way to say "compare these floats with tolerance".
+1. **Primitives cannot participate.** The hook is only consulted for objects. There is no way
+   to say "compare these floats with tolerance".
 2. **You must own the class.** Making a Firestore `Timestamp` compare as a timestamp would
    mean monkey-patching a prototype you do not own — prototype pollution, which this
    codebase treats as a security boundary (`FORBIDDEN_KEYS`).
@@ -176,7 +213,9 @@ if (v instanceof Number)  return Number.prototype.valueOf.call(v)
 if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
 ```
 
-`unwrapBoxed` **is** a comparator registry with exactly three entries. It is precisely
+`unwrapBoxed` **is** a comparator registry with three host entries. (It now also sees through
+tosijs proxies via `Symbol.for('xin-value')`; that came later and is a fourth, library-specific
+case.) It is precisely
 "compare this object as something else" — a `String` instance normalised to a string before
 comparison. The semantics were decided and shipped; what was missing until 0.13.4 was a way to add
 a fourth entry.
@@ -199,14 +238,16 @@ extend Timestamp {
 }
 
 const a = Timestamp(1, 500000000)
-const b = Timestamp(1, 500000000)
+const b = Timestamp(0, 1500000000)
 
 console.log(a == b)                          // true: both project to 1500
 console.log(Is({ when: a }, { when: b }))    // true: the deep walk projects nested values
 ```
 
 (`Timestamp` here is a local class standing in for one you do not own, such as Firestore's.
-In native TJS a class is called without `new`.)
+`a` and `b` are two representations of the same instant: 1 × 1000 + 500000000 / 1e6 and
+0 × 1000 + 1500000000 / 1e6 are both 1500. Their fields differ, so without the `extend` block
+both lines print `false`.)
 
 The name is deliberate: it says what the value **is, for comparison** — not how to compare
 it. That distinction carries real weight:
@@ -214,14 +255,16 @@ it. That distinction carries real weight:
 - **It composes.** A deep walk normalises each node before comparing, exactly as
   `unwrapBoxed` already does. A `Timestamp` nested three levels inside an object just works.
   An `Equals(other)` predicate only fires where something remembers to dispatch it.
-- **It generalises past equality.** Once a value can say what it is for comparison, ordering
-  and range checks follow from the same hook. `Equals` could never give that.
+- **It can generalise past equality.** Once a value can say what it is for comparison,
+  ordering and range checks could follow from the same hook, which `Equals` could never
+  give. That is a possible future use: today only `==`, `Is` and truthiness read it, and
+  `<`, `>` and sorting compare the value as JavaScript does.
 
 ### It is consumed by `Eq`, `Is` AND `toBool`
 
-This is the part that makes it more than an equality feature, and it answers the question
-that prompted the design — *why don't `Eq` and `toBool` use the computed comparator?* Because
-there isn't one, and both need it.
+This is the part that makes it more than an equality feature. The design started from a
+question: why don't `Eq` (what `==` compiles to) and `toBool` (what conditions use) use a
+type's comparator? Because there wasn't one, and both need it.
 
 `toBool` is `Boolean(unwrapBoxed(v))`. An errored service result is an object, objects are
 truthy, so `if (result)` takes the **success** branch and the type cannot say otherwise:
@@ -230,7 +273,10 @@ truthy, so `if (result)` takes the **success** branch and the type cannot say ot
 toBool({ ok: false, error: 'timeout' })   ->  true
 ```
 
-With `asCompared → false`, `if (result)` is correct:
+A plain object like that stays truthy. The fix needs the result to be a type that declares
+`asCompared`; with `asCompared → false`, `if (result)` is correct. This example declares it as
+a method on the class itself, the second of the two ways (the first is an `extend` block, as
+above; see the registry chain below):
 
 ```tjs
 class Result {
@@ -241,8 +287,9 @@ class Result {
 const failed = Result(false)
 console.log(failed ? 'success branch' : 'failure branch')  // failure branch
 ```
- The same applies to any library's own
-boolean wrapper, which `unwrapBoxed` cannot see because it only knows `Boolean`.
+
+The same applies to any library's own boolean wrapper, which `unwrapBoxed` cannot see because
+it only knows `Boolean`.
 
 ### Return type: a primitive, or nothing
 
@@ -250,7 +297,7 @@ boolean wrapper, which `unwrapBoxed` cannot see because it only knows `Boolean`.
 
 | | why |
 | --- | --- |
-| `number` | ordering falls out free (`<`, `>`, sorting) |
+| `number` | quantities and instants; would also let ordering use the same hook (not done: `<`, `>` and sorting do not read it today) |
 | `string` | identity and normalisation — `URL → href`, case-insensitive keys; and it is what the existing `String` entry already returns |
 | `boolean` | feeds `toBool`; errored results and foreign boolean wrappers |
 | `null` / `undefined` | `Option`/`Maybe` — `None` projects to `null`, and `Eq` already treats the two as equal |
@@ -260,9 +307,7 @@ boolean wrapper, which `unwrapBoxed` cannot see because it only knows `Boolean`.
 - **`bigint`** — the only case was nanosecond-exact timestamp equality. Almost nobody needs
   that precision, and anyone who does would not reach for `==`. Excluding it also removes a
   genuine trap: `1n === 1` is `false`, so two modules projecting the same type to `bigint`
-  and to `number` would silently compare unequal. (For the record, the precision is real:
-  a nanosecond epoch value overflows `MAX_SAFE_INTEGER` by ~198×, leaving a 128ns
-  resolution. The judgement is that nobody is doing that with `==`.)
+  and to `number` would silently compare unequal.
 - **`symbol`** — no case that an object reference does not serve.
 - **object references** — "compare as another object" defers the question rather than
   answering it.
@@ -281,18 +326,17 @@ The scoping question is settled, and the answer reframes what `asCompared` is.
 
 **The registry chain is TJS's view of the type environment.**
 
-```
-module registry      ← `extend` lands here; local, does not leak (SHIPPED GLOBAL in
-                       0.13.4 by mistake — fixed in 0.13.5; see the CHANGELOG)
-       ↑ inherits
-globalThis.__tjs     ← the shared view, one of them, installed before anything runs
-       ↑ inherits
-the type ITSELF      ← `class Foo { asCompared() {…} }` (0.13.6)
-       ↑ inherits
-host built-ins       ← String / Number / Boolean base entries
+```text
+1. module registry    ← `extend` lands here; local, does not leak (SHIPPED GLOBAL in
+                        0.13.4 by mistake — fixed in 0.13.5; see the CHANGELOG)
+2. globalThis.__tjs   ← the shared view, one of them, installed before anything runs
+3. the type ITSELF    ← `class Foo { asCompared() {…} }` (0.13.6)
+4. host built-ins     ← String / Number / Boolean base entries
 ```
 
-Lookup walks up; writes land locally. A module can say "a Firestore `Timestamp` compares as
+Lookup tries each layer in that order and the first match wins; writes land in the module's
+own layer. The global layer is written only by a host calling `registerProjection` (from
+`tjs-lang/runtime`) before modules run; `extend` never writes it. A module can say "a Firestore `Timestamp` compares as
 millis" without any other module seeing it, while everyone inherits the shared view of
 `String`.
 
@@ -302,17 +346,11 @@ that is a *third party* describing a type it does not own, which is why a regist
 override and is consulted first. A method is the type answering for itself, so it is the
 default everyone inherits, exactly like the host entries below it.
 
-It is also the only layer a **Proxy** can reach (#33), and that turned out to be load-bearing
-for a real consumer. tosijs 2.0's boxed scalars are proxies over `new Number(0)` serving a
-live value from the `get` trap. Neither layer above works for them:
-
-- **The slot read can't**: a Proxy has no internal slot and slots are not forwarded to the
-  target, so `Number.prototype.valueOf.call(p)` throws while `p instanceof Number` says yes.
-- **The registries can't**: the proxy reports its *target's* `constructor.name`, so the only
-  registerable key is `'Number'` — claiming it for every boxed Number in the process.
-
-A `get` trap can serve a method. That is the whole reason this layer is a method and not
-another table.
+It is also the only layer a JavaScript **Proxy** can supply: a proxy has no internal slot for
+the base layer to read, and it reports its target's `constructor.name` to the registries, but
+its `get` trap can serve a method. That is why this layer is a method and not another table.
+(The case that proved it, tosijs's boxed scalars, #33, is now also handled by the base layer's
+`Symbol.for('xin-value')` see-through; the reasoning holds for proxies in general.)
 
 **Duck-typed on the name, deliberately.** `[tjsEquals]` and `.Equals` are dispatched the same
 way, and the line this codebase draws is the right one: *a hook a type declares about itself*
@@ -322,8 +360,8 @@ to join*. Nobody writes `asCompared` by accident — unlike `valueOf`, which eve
 instead of calling it. Containment is unchanged either way: the probe and the call are both
 fail-soft, and a projection that is not a primitive is ignored rather than honoured.
 
-The emitted preamble encodes exactly this link: an installed shared runtime is used if
-there is one, and the file's own inline stubs otherwise.
+Each compiled `.js` file carries a small built-in ("inline") runtime of its own, and uses a
+shared runtime instead when one is installed. The emitted preamble encodes exactly this link:
 
 ```javascript
 const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() : undefined) ?? { …inline stubs }
@@ -333,8 +371,8 @@ The module layer is a table in that same inline runtime (`__tjs_rt.__ac`); an
 `extend Timestamp { asCompared() {…} }` block writes its entry there, so it is file-local by
 construction.
 
-**Why the chain is only two levels deep — and must be.** A module's parent is `globalThis`,
-not its importer. Modules form a flat GRAPH, not a tree: at runtime nothing knows who
+**Why a module's parent is the global layer, never its importer — and must be.** Above the
+type itself, the chain has exactly two registry levels: the module, then `globalThis`. Modules form a flat GRAPH, not a tree: at runtime nothing knows who
 imported it, and a module imported by two others would have two candidate parents. Which one
 it got would then depend on **evaluation order** — the same module producing different
 comparison semantics depending on who won the import race. `Is(a, b)` answering differently
@@ -369,7 +407,8 @@ the base is fixed.
 _Status: still true (re-measured 2026-11). It did not block `asCompared`, which reads its
 own table rather than dispatching extension methods._
 
-Measured first at 0.13.3, and unchanged since:
+`asCompared` in an `extend` block works, as the `Timestamp` example shows. Calling an
+`extend` method on a variable does not, today. Measured first at 0.13.3, and unchanged since:
 
 | receiver | emitted | works? |
 | --- | --- | --- |
@@ -382,9 +421,9 @@ emits an unrewritten call, which needs `String.prototype.cap` — deliberately a
 
 For method calls the registry is **write-only**: emitted code calls `registerExtension`, and
 the emitter never emits a `resolveExtension` call. The resolver exists, is exported, walks
-prototype chains correctly, and is never called. `TJS-SYNTAX.md` used to claim a "runtime
-fallback via `registerExtension()`/`resolveExtension()`"; it now documents the literal-only
-behaviour, which is the true one.
+prototype chains correctly, and is never called. `TJS-SYNTAX.md` documents the literal-only
+behaviour. (The docstring of `transformExtensionCalls` in `src/lang/parser-transforms.ts`
+still promises a runtime fallback and says typed variables are rewritten; neither is true.)
 
 So `extend` is local by ACCIDENT rather than design: local because the only working
 mechanism is a lexical rewrite, and the mechanism that would make it non-local is unreachable.
@@ -403,6 +442,8 @@ runtime, they should use the same module → global → type → host chain.
   table, so *you* choose how to compare, which is what "as compared" says. The alternative
   (the value's defining module) is defensible and disagrees; it is recorded here so the
   choice is explicit.
+- **The test harness ignores `asCompared`.** `expect(…).toEqual(…)` compares structurally
+  where `==` and `Is` project (see the implementation notes).
 
 ### Implementation notes
 
@@ -415,9 +456,16 @@ plan._
   fail-soft too:** a projection that throws, or returns something other than a primitive, is
   ignored and the value compares as itself (0.13.4 CHANGELOG: a hook that breaks `==` for
   every value is worse than one that does not apply).
-- Five copies of the comparator exist by design (bundle isolation): `runtime.ts`,
-  `tests.ts`'s `expectFunction`, `emitters/js-tests.ts`'s `__deepEqual`/`formatValue`, and the
-  emitted inline `Is`. **All five move together or they drift.**
+- Several copies of the comparator exist by design (bundle isolation):
+  - `runtime.ts`
+  - `tests.ts`'s `expectFunction`
+  - `emitters/js-tests.ts`'s `__deepEqual` (and `formatValue`, which prints the values)
+  - the emitted inline `Is`
+
+  **They must move together or they drift, and they already have:** the two test-harness
+  copies do not consult `asCompared`, so in an inline test
+  `expect(Ts(1, 0)).toEqual(Ts(0, 1000))` fails for a type whose `==` and `Is` call those two
+  values equal. This is open (see "Still open").
 - The hot path must stay allocation-free. `Eq` is ~29ns; a lookup on every comparison is the
   main risk to watch.
 
@@ -426,13 +474,15 @@ plan._
 _Status: the umbrella is shipped as the `Predicate` class (`src/types/predicate-brand.ts`,
 exported from `tjs-lang`); whether it gets a declaration keyword is open (end of section)._
 
-**Design position (Tonio, 2026-09-19):** *predicates stay plain functions under the hood, but
-within TJS they are instances of `Predicate`.* Everything that answers **"does `v` satisfy X"**
+**Design position (2026-09-19):** *predicates stay plain functions under the hood, but
+within TJS they are instances of `Predicate`.* "Instance" here means a plain function whose
+prototype chain includes `Predicate.prototype` (the code is further down). Everything that answers **"does `v` satisfy X"**
 is a predicate; the declaration forms differ only in how they are constructed and how much they
 can tell you about themselves.
 
 This started as an argument for renaming `FunctionPredicate` to `FunctionType`, on the grounds
-that it declares a function *type*. That argument proves too much: `Type Age 0` also produces a
+that it declares a function *type*. That argument proves too much: `Type Age 0` (the
+declaration form of `Type('Age', 0)`; the declaration syntax is in `TJS-SYNTAX.md`) also produces a
 runtime checker, so if producing a check disqualifies something from being a predicate, nothing
 in the language is one. The taxonomy was wrong at the root, and the rename was abandoned
 mid-flight.
@@ -440,16 +490,19 @@ mid-flight.
 ### The finding: the interface is already implemented
 
 In the full runtime (`src/types/`, what `import { Type } from 'tjs-lang'` gives you), every
-declaration form returns a value sharing **exactly five members**:
+declaration form returns a value sharing **six members** (besides a function's own `name`
+and `length`):
 
-    __runtimeType   check   description   strip   toJSONSchema
+    __runtimeType   check   description   strip   toJSONSchema   toJSON
 
-and each adds its own introspection on top:
+(`toJSON` is what `JSON.stringify` uses; for a `Type` it gives the description and example,
+not the JSON Schema) and each
+adds its own introspection on top:
 
 | form | adds |
 | --- | --- |
 | `Type Age 0` | `example`, `examples`, `default`, `schema`, `predicate` |
-| `Enum Colour 'a colour' { Red = 'red' … }` | `values`, `keys`, `names`, `members` |
+| `Enum Colour 'a colour' { Red = 'red' … }` | `values`, `keys`, `names`, `members`, and each member by name (`Colour.Red`) |
 | `Union Direction 'a direction' 'north' \| 'south'` | `values` |
 | `FunctionPredicate Formatter { params: … returns: … }` | `params`, `returns`, `returnContract` |
 
@@ -457,7 +510,10 @@ The inline runtime that emitted `.js` carries is smaller: its declarations have
 `__runtimeType`, `check` and `description` plus their own introspection (a `Type` has
 `default` but no `example`, `strip` or `toJSONSchema`), and `Predicate` is not in scope in
 emitted code. This is the "inline runtime is not the real runtime" rule
-(`docs/type-identity.md`): the shared five are a property of the full runtime.
+(`docs/type-identity.md`): the shared six are a property of the full runtime.
+
+One member is already odd: a `FunctionPredicate` implements `strip`, though a function has no
+shape to strip.
 
 So the common concept is not hypothetical — it is built, consistent across four constructs, and
 branded (`__runtimeType: true`). **It has no name.** That is the gap.
@@ -499,13 +555,13 @@ a subclass one.
 A **`Predicate` can decide** — `check(v) -> boolean`, and that is the entire contract. `n % 2
 === 0` has nothing else to offer; you cannot ask it for an even number.
 
-A **`Type` is built from an example**, so it carries a **witness value** — and every other
-capability it has follows from that one fact:
+A **`Type` is built from an example**, so it carries a **witness value** (a sample value known
+to pass the check) — and every other capability it has follows from that one fact:
 
     Type('age', 0).check(5)   -> true      it decides, like any predicate
     Type('age', 0).example    -> 0         it carries a witness
-    Type('age', 0).default    -> 0         ...so it can GENERATE
-                                           ...so it can STRIP (it knows the shape)
+    Type('age', 0).default    -> 0         ...so it can GENERATE a valid value
+                                           ...so it can STRIP (remove fields its shape lacks)
                                            ...so it can describe STRUCTURE in JSON Schema
 
 Generalised, the four existing forms differ only in what they carry:
@@ -515,7 +571,7 @@ Generalised, the four existing forms differ only in what they carry:
 | `Predicate` — nothing | — |
 | `Type` — one example | generate, strip, describe structure |
 | `Enum` / `Union` — the whole finite domain | generate, **enumerate → autocomplete for free** |
-| `FunctionPredicate` — a signature | describe `params`/`returns`, check arity |
+| `FunctionPredicate` — a signature | describe `params`/`returns` (its `check` only tests that the value is a function; see below) |
 
 Capabilities are **properties present or absent**, not subclasses. `instanceof Predicate`
 comes from a **real prototype chain**: `brandPredicate` (`src/types/predicate-brand.ts`) sets a
@@ -523,12 +579,9 @@ predicate's prototype to `Predicate.prototype`, which itself links to `Function.
 predicate keeps `call`/`apply`/`bind` and stays a function to everything that does not know
 better.
 
-_Superseded design, kept because the reasoning shows up elsewhere in this note:_ the first
-draft used `Symbol.hasInstance` on the brand, which spanned a plain object like the old
-`Type(…)` and an ordinary callable like `isColor` without touching prototypes. It stopped being
-necessary once runtime types became functions — there was no longer a plain-object population
-to span — and a real chain beats a stand-in for one. The class is claimed through a
-shape-versioned global slot so it is the SAME class across bundles (`docs/runtime-fusion.md`).
+The class is claimed through a shape-versioned global slot so it is the SAME class across
+bundles (`docs/runtime-fusion.md`). (A first draft used `Symbol.hasInstance` instead of a real
+prototype chain; it stopped being needed once runtime types became functions.)
 
 ### Autocomplete is NOT in the minimum, and that is load-bearing
 
@@ -550,21 +603,21 @@ cannot.
 | `strip` | identity — you cannot strip what you cannot describe |
 | `example` / `values` | **absent**; presence *is* the capability |
 
-This also resolves the `strip`-on-a-`FunctionPredicate` smell noted above: it is identity there,
-and should be **inherited by default** rather than separately implemented on each form. The five
-observed members stop being an accidental intersection and become one required member plus four
-defaults.
+This also resolves the `strip`-on-a-`FunctionPredicate` oddity noted above: it is identity
+there, and should be **inherited by default** rather than separately implemented on each form.
+The observed shared members stop being an accidental intersection and become one required
+member plus defaults (`toJSON` follows from `toJSONSchema` and `description`).
 
 ### `Type` is already a `Predicate` with more attached — so nothing needs restructuring
 
-**Settled 2026-09-20 (Tonio).** *"Can't `Type` just be a predicate with more information
+**Settled 2026-09-20.** *"Can't `Type` just be a predicate with more information
 attached?"* — it can, and it already is. The extra information is **properties on the object**,
 so there is nothing to construct *through*. The "is `Type` built on `Predicate` or does it
 merely satisfy it" question does not need an answer; it dissolves.
 
 | | |
 | --- | --- |
-| **`Predicate`** | an object with `check` — the *function* does the work under the hood |
+| **`Predicate`** | a function, with `check` pointing to itself |
 | **`Type`** | a `Predicate` with an **example** attached |
 | **`Enum` / `Union`** | a `Predicate` with a **finite domain** attached |
 | **`FunctionPredicate`** | a `Predicate` with a **signature** attached |
@@ -581,9 +634,9 @@ and was wrong on every count. The objections, and what measuring them showed:
 
 The shape, which needs no `eval` and no `new Function` (as built in `src/types/Type.ts`):
 
-    const fn = (v) => /* the test */
-    Object.setPrototypeOf(fn, Predicate.prototype) // real prototype chain
-    Object.assign(fn, { description, example, check: fn, __runtimeType: true })
+    const Age = (v) => /* the test */
+    Object.setPrototypeOf(Age, Predicate.prototype) // real prototype chain
+    Object.assign(Age, { description: 'age', example: 0, check: Age, __runtimeType: true })
 
     Age(5)                   // true   — callable, the natural JS idiom
     Age.check(5)             // true   — same function, cannot drift
@@ -615,42 +668,32 @@ and no declaration form uses `.name` today, but a property named `name` would ne
 
 - **Is there a `Predicate` declaration keyword, or is the umbrella type-level only?** A keyword
   (`Predicate isEven(n: 0) { … }`) makes the concept first-class but competes with "it is just a
-  function" — arguably a crater. The alternative is that `verifyPredicate` *lifts* a plain
+  function", which would contradict the rule that a predicate is a plain function. The alternative is that `verifyPredicate` *lifts* a plain
   function into a `Predicate` and nothing new appears in the grammar.
 - ~~**What is the minimal interface?**~~ **Answered above:** one required member (`check`) plus
-  four defaults. `strip` on a `FunctionPredicate` was indeed incidental — identity, inherited.
+  defaults. `strip` on a `FunctionPredicate` was indeed incidental — identity, inherited.
 - **Does `Type` become a constructor of `Predicate`, or stay parallel to it?** The *conceptual*
   answer is settled (a `Type` is a `Predicate` carrying a witness). The implementation question
-  is **smaller than it was recorded as being here**, and the correction is worth keeping.
+  is smaller than it looks. The type checkers (the full `Type` and the inline stub) used to
+  disagree in four measured cases (`docs/type-identity.md`); all four were closed in 2026-08,
+  and `src/lang/type-identity.test.ts` checks that they agree across its corpus.
 
-  An earlier draft of this section claimed `docs/type-identity.md` "records four measured
-  disagreements", so unification would mean picking a winner in four places. **That was a stale
-  reading.** Those four cases are *historical*: the page's live section says "Where they
-  disagree today: **Nowhere in the corpus.**" They were closed in 2026-08 — two by deriving
-  numeric narrowing from the example value the stub already holds, one by emitting a
-  source-level predicate for `+0`, and the fourth in the opposite direction by reversing the
-  policy so both checkers accept excess keys.
-
-  Confirmed by running `src/lang/type-identity.test.ts` (24 pass) rather than re-reading the
-  prose — which is precisely the failure that page warns about in its own opening line: "a page
-  like this is exactly where a stale claim survives longest."
-
-  So the mechanisms already **agree** across the corpus. Unifying them is therefore closer to a
-  refactor than to a behaviour change, and the remaining question is design (should `Type` be
-  constructed *through* `Predicate`, or merely satisfy it?) rather than "which semantics win".
-  Branding stays orthogonal either way. (Written when the brand was a `Symbol.hasInstance`
-  check; it is now a real prototype chain — see "Capabilities are properties" above.)
+  So unifying them is closer to a refactor than to a behaviour change, and the remaining
+  question is design (should `Type` be constructed *through* `Predicate`, or merely satisfy
+  it?) rather than "which semantics win". Branding stays orthogonal either way; it is a real
+  prototype chain (see "The concrete difference: a `Type` is a `Predicate` that carries a
+  WITNESS" above).
 
 ## Open questions
 
 - **`TypeDescriptor`'s fate:** keep it as a cached projection of JSON-Schema +
   `$predicate`, or eventually retire it? At minimum, guard that it can't express
   what the canonical form can't.
-- **The predicate ISA:** pin down the exact minimal node set + operation whitelist
+- **The predicate instruction set:** pin down the exact set of AST nodes and operations
   the reference VM must support (a spec), and a **conformance suite** every port
   runs — so "TJS types" means the same thing in every language.
 - **AST format:** settle the serialized predicate AST schema (it should itself be
-  describable — turtles: the AST format as a JSON-Schema).
+  describable: the AST format as a JSON Schema).
 - **Fuel across languages:** the fuel model must be spec'd (per-node cost) so a
   runaway predicate is bounded identically everywhere.
 - **Structure/predicate split:** conventions for what belongs in JSON-Schema

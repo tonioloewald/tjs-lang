@@ -49,7 +49,7 @@ own host they are the second argument of `vm.run` (see the host code at the end 
   `itunes.apple.com` and `api.open-meteo.com`) so its examples work. That list belongs to this
   page, not to the VM: **in your own host, nothing is allowed until you say so.**
 - **The atom takes named inputs.** `httpFetch({ url })` is shorthand for `httpFetch({ url: url })`;
-  `httpFetch(url)` is refused by the transpiler.
+  `httpFetch(url)` (refused) does not get past the transpiler.
 - **The response arrives as data.** The agent gets the response body, never a live `Response`,
   and never the status code or the headers. A JSON body (by its `Content-Type`) is parsed into
   plain objects and arrays; any other body arrives as a string. (A redirect is the one exception:

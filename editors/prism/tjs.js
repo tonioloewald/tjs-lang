@@ -20,7 +20,8 @@ export const tjs = {
     alias: 'keyword',
   },
   dangerous: {
-    pattern: /\b(?:unsafe|DangerousLegacyEquals|DangerousLegacyNot|LegacyExactly|LegacyNotExactly|LegacyDefault)\b/,
+    pattern:
+      /\b(?:unsafe|DangerousLegacyEquals|DangerousLegacyNot|LegacyExactly|LegacyNotExactly|LegacyDefault)\b/,
     alias: 'important',
   },
   declaration: {
@@ -28,7 +29,8 @@ export const tjs = {
     alias: 'class-name',
   },
   'example-value': {
-    pattern: /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:\s*('[^']*'|"[^"]*"|\d+|\{[^}]*\}|\[[^\]]*\]|true|false|null)/,
+    pattern:
+      /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:\s*('[^']*'|"[^"]*"|\d+|\{[^}]*\}|\[[^\]]*\]|true|false|null)/,
     inside: {
       parameter: /^[a-zA-Z_$][a-zA-Z0-9_$]*/,
       punctuation: /:/,
@@ -44,15 +46,18 @@ export const tjs = {
     },
   },
   'type-name': {
-    pattern: /\b(?:int|unsigned|uint|float|number|string|boolean|bigint|object|any|unknown|void|never|null|undefined)\b/,
+    pattern:
+      /\b(?:int|unsigned|uint|float|number|string|boolean|bigint|object|any|unknown|void|never|null|undefined)\b/,
     alias: 'builtin',
   },
   string: {
     pattern: /(["'`])(?:\\[\s\S]|(?!\1)[^\\])*\1/,
     greedy: true,
   },
-  'class-name': /\b(?:Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema|expect|assert|Timestamp|Exactly|Is|IsNot|Eq|NotEq|TypeOf)\b/,
-  keyword: /\b(?:function|return|if|else|while|for|of|in|try|catch|finally|let|const|true|false|null|undefined|Type|Generic|Enum|Union|FunctionPredicate|predicate|example|description|declaration|extend|wasm|test|mock|unsafe|given|async|await|throw|import|export|class|extends|super|this|new|static|typeof|instanceof|delete)\b/,
+  'class-name':
+    /\b(?:Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema|expect|assert|Timestamp|Exactly|Is|IsNot|Eq|NotEq|TypeOf)\b/,
+  keyword:
+    /\b(?:function|return|if|else|while|for|of|in|try|catch|finally|let|const|true|false|null|undefined|Type|Generic|Enum|Union|FunctionPredicate|predicate|example|description|declaration|extend|wasm|test|mock|unsafe|given|async|await|throw|import|export|class|extends|super|this|new|static|typeof|instanceof|delete)\b/,
   boolean: /\b(?:true|false)\b/,
   number: /\b0[xX][\da-fA-F]+\b|(?:\b\d+(?:\.\d*)?|\B\.\d+)(?:[eE][+-]?\d+)?/,
   operator: /[<>]=?|[!=]=?=?|--?|\+\+?|&&?|\|\|?|[?*/~^%]/,
