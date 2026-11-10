@@ -92,20 +92,38 @@ describe('Local helper functions', () => {
     // `secret`; under isolation it is NOT in scope. A scope leak would instead
     // expose main's 42 — so the guarantee is simply: the helper never sees the
     // caller value.
-    const result = await run(
-      `
+    // The transpiler refuses the read outright (#4002): `secret` is not declared in `leak`.
+    expect(() =>
+      transpile(`
       function leak(x) { return { x, secret } }
       function main(n) {
         const secret = 42
         const r = leak(n)
         return r
-      }`,
-      { n: 1 }
+      }`)
+    ).toThrow(/'secret' is not defined/)
+
+    // The VM keeps the guarantee for an AST the transpiler would not write (hand-edited: the
+    // helper's read of its own `y` renamed to the caller's local `secret`).
+    const { ast } = transpile(`
+      function leak(x, y) { return { x, secret: y } }
+      function main(n) {
+        const secret = 42
+        const r = leak(n, n)
+        return r
+      }`)
+    const helpers = JSON.parse(
+      JSON.stringify((ast as any).helpers).replace(
+        '"name":"y"',
+        '"name":"secret"'
+      )
     )
+    const vm = new AgentVM()
+    const result = (
+      await vm.run({ ...(ast as any), helpers }, { n: 1 }, { fuel: 1000 })
+    ).result as any
     expect(result.x).toBe(1)
     expect(result.secret).not.toBe(42) // no leak of caller's local
-    // v1 turned an unbound name into its own spelling ('secret'); v2 has no bare-string
-    // fallback, so an unbound name is simply absent (board #1860).
     expect(result.secret).toBeUndefined()
   })
 

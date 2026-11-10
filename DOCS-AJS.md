@@ -413,9 +413,9 @@ Some messages name the fix ("use for...of, or map/filter/find/reduce"); others a
 as `Unsupported statement type: BreakStatement` or `Only simple variable assignment is
 supported`. This table is the translation.
 
-One thing is not refused but does not work, so do not write it:
-
-- **A helper held as a value.** `let g = double` gives `undefined`, silently.
+A name must be declared before it is read: a parameter, a `let`/`const`/`var`, a loop or
+callback variable, or the `catch` binding. Reading anything else (a typo, a helper or atom
+used as a value, `let g = double`) is refused when the agent is transpiled, with the name.
 
 ### Differences from JavaScript
 

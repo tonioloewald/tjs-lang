@@ -128,6 +128,11 @@ export interface TranspileOptions {
    * rather than running. Core atoms are checked without this; pass it for your own atoms.
    */
   atoms?: Record<string, { op: string; inputSchema?: unknown }>
+  /**
+   * Names the HOST puts in scope without a declaration in the source, such as `Eval`'s context
+   * keys. A read of any other undeclared name is a transpile error (#4002).
+   */
+  globals?: readonly string[]
   /** Filename for error messages */
   filename?: string
   /** Whether to use strict type checking */

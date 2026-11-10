@@ -27,6 +27,7 @@
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 import { transpile } from './core'
+import { AgentVM } from '../vm/ast'
 import { createRuntime, isMonadicError } from './runtime'
 
 /** Transpile as native TJS and return the named export. */
@@ -62,15 +63,40 @@ describe('TJS accepts the type NAME, and validates against it', () => {
 describe('AJS accepts them too — the path grokkability measures', () => {
   // These are the exact two spellings the grokkability harness used to rewrite before
   // measuring. If either regresses, the harness would have quietly papered over it again.
-  const SPELLINGS = [
-    ['string', `function agent({ city: string }) { return { out: city } }`],
-    ['number', `function agent({ n: number }) { return { out: n } }`],
-    ['boolean', `function agent({ b: boolean }) { return { out: b } }`],
+  const SPELLINGS: [string, string, unknown, unknown][] = [
+    [
+      'string',
+      `function agent({ city: string }) { return { out: city } }`,
+      'Oslo',
+      4,
+    ],
+    ['number', `function agent({ n: number }) { return { out: n } }`, 2.5, 'x'],
+    [
+      'boolean',
+      `function agent({ b: boolean }) { return { out: b } }`,
+      true,
+      'yes',
+    ],
   ]
 
-  for (const [label, source] of SPELLINGS) {
+  for (const [label, source, good, bad] of SPELLINGS) {
     it(`transpiles \`: ${label}\` without repair`, () => {
-      expect(() => transpile(source!)).not.toThrow()
+      expect(() => transpile(source)).not.toThrow()
+    })
+    // It only ever TRANSPILED: the member was read as a JavaScript rename (to a variable named
+    // `string`), never imported, and read undefined (#4002 found it). It must RUN, checked.
+    it(`\`: ${label}\` is a typed input that runs`, async () => {
+      const { ast } = transpile(source)
+      const key = Object.keys(transpile(source).signature.parameters)[0]!
+      const vm = new AgentVM()
+      expect((await vm.run(ast, { [key]: good }, { fuel: 50 })).result).toEqual(
+        {
+          out: good,
+        }
+      )
+      expect(
+        (await vm.run(ast, { [key]: bad }, { fuel: 50 })).error
+      ).toBeDefined()
     })
   }
 })

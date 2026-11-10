@@ -127,6 +127,11 @@ export function typeNameExample(name: string): string | null {
   }
 }
 
+/** The type a bare type NAME means (`string`, `number`, `int`, …), or undefined. */
+export function typeForName(name: string): TypeDescriptor | undefined {
+  return Object.hasOwn(TS_TYPE_NAMES, name) ? TS_TYPE_NAMES[name] : undefined
+}
+
 export function typeArgumentSource(name: string): string | null {
   const d = TS_TYPE_NAMES[name.trim()]
   if (!d) return null

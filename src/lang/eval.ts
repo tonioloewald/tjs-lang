@@ -287,12 +287,6 @@ export async function Eval(options: EvalOptions): Promise<{
     // `transpile` rather than parsed again.
     const parsed = parseAgentSource(wrappedCode)
     const used = identifiersIn(parsed.ast)
-    const { ast } = transpile(wrappedCode, { parsed, atoms: vm.atoms as any })
-
-    // Box return values in objects for VM strict-return compliance.
-    // Walk AST and wrap each { op: 'return', value } into
-    // { op: 'return', value: { __result: originalValue } }
-    wrapReturnValues(ast)
 
     // The context reaches the code as VARIABLES, imported at the AST level — never as text.
     //
@@ -323,6 +317,18 @@ export async function Eval(options: EvalOptions): Promise<{
         !SHADOW_PROOF.has(k) &&
         !(k in builtins)
     )
+    // The context keys are declared to the transpiler, which refuses a read of an undeclared
+    // name (#4002): they are put in scope by `varsImport` below, not by the source.
+    const { ast } = transpile(wrappedCode, {
+      parsed,
+      atoms: vm.atoms as any,
+      globals: keys,
+    })
+
+    // Box return values in objects for VM strict-return compliance.
+    // Walk AST and wrap each { op: 'return', value } into
+    // { op: 'return', value: { __result: originalValue } }
+    wrapReturnValues(ast)
     if (keys.length) (ast as any).steps.unshift({ op: 'varsImport', keys })
     const args = Object.fromEntries(keys.map((key) => [key, context[key]]))
     const vmResult = await vm.run(ast, args, {

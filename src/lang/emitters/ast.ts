@@ -42,12 +42,18 @@ import type {
   TypeDescriptor,
   TranspileWarning,
 } from '../types'
-import { TranspileError, getLocation, createChildContext } from '../types'
+import {
+  TranspileError,
+  getLocation,
+  createChildContext,
+  lookupVariable,
+} from '../types'
 import { orInType, orInTypeMessage, typeText } from '../type-or'
 import {
   parseParameter,
   inferTypeFromValue,
   parseReturnType,
+  typeForName,
 } from '../inference'
 import { extractTDoc } from '../parser'
 
@@ -341,6 +347,30 @@ export function transformFunction(
         options.filename || '<source>'
       )
     const parsed = parseParameter(param, requiredHere)
+    // `{ city: string }` in an AGENT's signature is a typed member, as `city: string` is at the
+    // top level: the most common way a model writes a typed input. Read as JavaScript it renames
+    // `city` to a variable called `string`; the shared parser skips renames, so the member was
+    // never imported and `city` read undefined, silently (#4002 found it). AJS only: the TJS
+    // emitter keeps the JavaScript rename in its output, so the same reading there would check
+    // an unbound name.
+    if (param.type === 'ObjectPattern' && parsed.type.destructuredParams)
+      for (const prop of (param as any).properties)
+        if (
+          prop.type === 'Property' &&
+          !prop.shorthand &&
+          !prop.computed &&
+          prop.key.type === 'Identifier' &&
+          prop.value.type === 'Identifier' &&
+          typeForName(prop.value.name)
+        ) {
+          const type = typeForName(prop.value.name)!
+          parsed.type.destructuredParams[prop.key.name] = {
+            name: prop.key.name,
+            type,
+            required: true,
+          }
+          if (parsed.type.shape) parsed.type.shape[prop.key.name] = type
+        }
 
     // Handle destructured parameters - expand into individual params
     if (
@@ -385,6 +415,8 @@ export function transformFunction(
   }
 
   // Transform function body
+  // `var`s first: their names are in scope for the whole body (see `hoistedVars`).
+  const hoisted = hoistedVars(func.body, new Set(parameters.keys()), ctx)
   const bodySteps = transformBlock(func.body, ctx)
 
   // Handle parameters: varsImport for required, varSet with defaults for optional
@@ -439,7 +471,7 @@ export function transformFunction(
     })
   }
 
-  steps.push(...hoistedVars(func.body, new Set(parameters.keys())))
+  steps.push(...hoisted)
   steps.push(...bodySteps)
 
   // Build signature
@@ -672,7 +704,14 @@ function regexNode(lit: Literal, ctx: TransformContext): any {
  * fourth re-review M2). Parameters are already bound and are not re-declared. Nested functions
  * have their own scope and are not entered.
  */
-function hoistedVars(body: any, exclude: Set<string>): BaseNode[] {
+function hoistedVars(
+  body: any,
+  exclude: Set<string>,
+  // The function's own context: its `var` names are declared there BEFORE the body is
+  // transformed, so a read of one anywhere in the function is a read of a declared name
+  // (#4002 refuses undeclared reads). Call this before transforming the body.
+  ctx?: TransformContext
+): BaseNode[] {
   const names = new Set<string>()
   const walk = (node: any): void => {
     if (!node || typeof node !== 'object') return
@@ -691,6 +730,7 @@ function hoistedVars(body: any, exclude: Set<string>): BaseNode[] {
       if (key !== 'loc' && key !== 'range') walk(node[key])
   }
   walk(body)
+  if (ctx) for (const name of names) ctx.locals.set(name, { kind: 'any' })
   return [...names].map((key) => ({ op: 'varSet', key, value: null }))
 }
 
@@ -903,6 +943,11 @@ function transformAssignment(
   // an assignment, never via a temporary: a temporary held a SECOND copy of every value
   // assigned, so `s = s + …` in a loop counted twice against the heap ceiling.
   const { step, resultVar } = transformExpressionToStep(right, ctx, name)
+  // Assigning a name nothing declared DECLARES it in this scope (the VM's `varAssign`), so later
+  // reads of it are reads of a declared name (#4002). After the right side: `x += 1` on an
+  // undeclared `x` reads it first, and that read is refused.
+  if (lookupVariable(name, ctx) === undefined && !AJS_GLOBAL_NAMES.has(name))
+    ctx.locals.set(name, { kind: 'any' })
 
   if (step) {
     const st = step as any
@@ -1071,6 +1116,8 @@ function transformTryStatement(
         kind: 'any',
       })
     }
+    // The VM binds `errorOp` in every catch block, beside the parameter (the `try` atom).
+    catchCtx.locals.set('errorOp', { kind: 'any' })
     catchSteps = transformBlock(stmt.handler.body, catchCtx)
   }
 
@@ -1679,7 +1726,7 @@ function ensureHelperTransformed(
       helperTransforming: ctx.helperTransforming,
     }
     const bodySteps = [
-      ...hoistedVars(fn.body, new Set(paramNames)),
+      ...hoistedVars(fn.body, new Set(paramNames), helperCtx),
       ...transformBlock(fn.body, helperCtx),
     ]
     ctx.helperSteps!.set(name, { steps: bodySteps, paramNames })
@@ -1727,7 +1774,8 @@ function transformMethodCall(
                 callback.params
                   .filter((p: any) => p.type === 'Identifier')
                   .map((p: any) => p.name)
-              )
+              ),
+              childCtx
             ),
             ...transformBlock(callback.body, childCtx),
           ]
@@ -1870,7 +1918,8 @@ function transformMethodCall(
                 callback.params
                   .filter((p: any) => p.type === 'Identifier')
                   .map((p: any) => p.name)
-              )
+              ),
+              childCtx
             ),
             ...transformBlock(callback.body, childCtx),
           ]
@@ -2071,6 +2120,7 @@ function expressionToExprNode(
 
     case 'Identifier': {
       const id = expr as Identifier
+      checkNameRead(id, ctx)
       return { $expr: 'ident', name: id.name }
     }
 
@@ -2337,6 +2387,7 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       // An EXPLICIT reference (AST v2). A bare name string was a reference only if a variable
       // by that name happened to be in scope, and a literal otherwise — so the same string
       // meant two things (board #1860). In v2 a bare string is always a literal.
+      checkNameRead(expr as Identifier, ctx)
       return { $expr: 'ident', name: (expr as Identifier).name }
     }
 
@@ -2574,6 +2625,68 @@ const RESERVED_STEP_KEYS: ReadonlySet<string> = new Set([
 ])
 
 /** Builtins called positionally that the generic atom path emits (`Error('message')`). */
+/**
+ * The names a program may read without declaring them: the VM's built-ins (`builtins` in
+ * runtime.ts, which this module must not import). Kept equal by a drift test
+ * (`ajs-undeclared-names.test.ts`).
+ */
+export const AJS_GLOBAL_NAMES: ReadonlySet<string> = new Set([
+  'Array',
+  'Date',
+  'Infinity',
+  'JSON',
+  'Math',
+  'NaN',
+  'Number',
+  'Object',
+  'Schema',
+  'Set',
+  'String',
+  'console',
+  'decodeURI',
+  'decodeURIComponent',
+  'encodeURI',
+  'encodeURIComponent',
+  'filter',
+  'isFinite',
+  'isNaN',
+  'null',
+  'parseFloat',
+  'parseInt',
+  'undefined',
+])
+
+/**
+ * A READ of a name must be of something the program declared or the VM provides (#4002): an
+ * undeclared name compiled without a word and read `undefined` at run time, so a typo became a
+ * silent wrong answer. A helper or an atom read as a value is refused by name: neither is a value
+ * in AJS (`let g = double` gave `undefined`, docs-swarm digest A.29).
+ */
+function checkNameRead(id: Identifier, ctx: TransformContext): void {
+  const name = id.name
+  if (
+    lookupVariable(name, ctx) !== undefined ||
+    AJS_GLOBAL_NAMES.has(name) ||
+    // Names the HOST puts in scope without a declaration in the source (`Eval`'s context keys).
+    ctx.options.globals?.includes(name)
+  )
+    return
+  const fail = (message: string) => {
+    throw new TranspileError(message, getLocation(id), ctx.source, ctx.filename)
+  }
+  if (ctx.helpers?.has(name))
+    fail(
+      `'${name}' is a helper function, not a value. Call it (${name}(…)) and use its result.`
+    )
+  if (atomInputs(name, ctx) !== undefined)
+    fail(
+      `'${name}' is an atom, not a value. Call it (${name}({ … })) and use its result.`
+    )
+  fail(
+    `'${name}' is not defined. Declare it with let or const, or take it as a parameter.`
+  )
+}
+
 const POSITIONAL_BUILTINS: ReadonlySet<string> = new Set(['Error'])
 /** Atom names that are also legitimate CALLS inside an expression (see #3984). */
 const EXPRESSION_CALLABLE_ATOMS: ReadonlySet<string> = new Set([

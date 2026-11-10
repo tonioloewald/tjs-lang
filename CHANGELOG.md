@@ -77,6 +77,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS: reading an undeclared name is a transpile error (BREAKING, toward correctness)**
+  (#4002). `return { v: coutn }` compiled without a word and read `undefined`, so a typo became
+  a silent wrong answer. Now: "'coutn' is not defined. Declare it with let or const, or take it
+  as a parameter." A helper or an atom read as a value is refused by name too (`let g = double`
+  gave `undefined`). Assigning an undeclared name still declares it, as before. A host that
+  puts names in scope outside the source passes them as `transpile(src, { globals })`, as
+  `Eval` now does for its context keys.
+
+- **AJS: `function agent({ city: string })` declares a typed input.** A type name as a
+  destructured member was read as a JavaScript rename (to a variable called `string`), so
+  `city` was never imported or checked and read `undefined`. It now means what `city: string`
+  means at the top level: a required string. Found by the undeclared-name check.
+
 - **TJS: an object example's quoted and computed keys are read correctly** (#3990). Inference
   read a computed key by the key expression's name, so a dictionary default
   `opts = { [k]: 1, b: 2 }` gained a member `k` (`{ a: 1, b: 2, k: 1 }` for `k = 'a'`). A key
