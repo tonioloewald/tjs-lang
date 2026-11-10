@@ -152,18 +152,6 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
-## tosijs-ui — inline live-example views (tosijs-ui#252)
-
-**Virta:** #3925
-
-**Filed 2026-11-10.** Three asks from the learn-to-program book, which uses `{"view": "code"}`
-on nearly every example: (1) in an inline view the affix puts the example's widget column
-between the preview and the code panel, with a redundant "view/edit code" button; (2) a site-
-or page-level default for the inline view, instead of the option on every fence; (3) refresh as
-a button before ⋮, since editing does not re-run an example. **Not worked around:** the book
-tells readers to press ⌘S (the empty Try it examples' comment). **Delete when:** a refresh
-button ships, and the comment can drop the shortcut.
-
 ## tosijs-ui — `<tosi-lottie>` hides its placeholder as soon as it upgrades
 
 **Virta:** #3817
@@ -332,6 +320,7 @@ _Delete the workaround when:_ the match is anchored to the first non-blank line.
 
 Kept as one line each; the full write-ups are in git history.
 
+- tosijs-ui — inline live-example views: toolbar placement, a site-level `exampleView`, a refresh button (tosijs-ui#252) — ✅ RESOLVED 2026-11-11 (shipped in 1.17.4; adopted 1.17.5; the Try it comment now points at the refresh button)
 - tosijs-schema — no way to declare an OPEN object — ✅ RESOLVED 2026-09-28 (adopted `.open` with `^1.12.0`; the `s.record(s.any)` workaround is gone)
 - Bun — a directory's listing is cached on first module resolution — ✅ RESOLVED 2026-09-26 (oven-sh/bun#40105 closed; no workaround here)
 - tosijs-ui — `live-example` pins tjs-lang 0.13.4 (deprecated) — ✅ RESOLVED 2026-09-26 (tosijs-ui#135 closed)
