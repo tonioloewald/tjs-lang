@@ -93,13 +93,24 @@ function double(n: 0) {
   return n * 2
 }
 
-console.log('Try double(5), then double(2.5), then double("ten").')
+console.log("Try double(5), then double('5'), then double(2.5).")
 ```
 
-`double(5)` is 10. `double(2.5)` and `double("ten")` do not run the function at all: the
+`double(5)` is 10. `double('5')` and `double(2.5)` do not run the function at all: the
 answer is an **error** saying what was expected and what arrived, instead of a nonsense
-result that would cause trouble later. If you want a function that takes any number,
-fractions included, give it the example `0.0` instead.
+result that would cause trouble later.
+
+`'5'` in quotes is text that happens to look like a number, the way a number typed into a
+form arrives. Plain JavaScript would quietly turn it into a number and answer 10, which is
+right this time and badly wrong the time the text is `'5 apples'`.
+
+**Unlike JavaScript, TJS is fussy about numbers.** In fact it is fussier than TypeScript, which
+has one kind of number for everything. When you give a whole number as the example, you are
+saying you want a **whole** number, so `2.5` is refused too. If you want a function that takes
+any number, fractions included, give it the example `0.0` instead.
+
+You can be fussier still. Change `double(n: 0)` to `double(n: +0)` in the example above, run
+it, and try `double(-3)`: the `+` says zero or more, so a negative number is refused.
 
 <!-- TODO review -->
 The examples you will use most are these:
