@@ -57,6 +57,9 @@ describe('abolished directives are not taught anywhere', () => {
   ]
     .map((p) => p.replaceAll('\\', '/'))
     .filter((p) => !HISTORICAL[p])
+    // Review records (docs/reviews/) quote what they found, abolished names included; like
+    // the CHANGELOG they record history, and they are not published.
+    .filter((p) => !p.startsWith('docs/reviews/'))
 
   it('scans a plausible number of documents', () => {
     // An empty glob would make every assertion below vacuously true.
