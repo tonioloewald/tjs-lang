@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **AJS: `agentRun` did not hold a sub-agent to its declared inputs or result** (#3987).
+  **Affected: every published version with `agentRun`, through 0.14.0-rc.10.** `vm.run`
+  refuses arguments that do not match an agent's declared inputs, but `agentRun` ran a
+  sub-agent on the same VM (from a stored-procedure token, or an AST passed inline) without
+  that check, so one agent could hand another input its signature forbids: `double({ n: 0 })`
+  refused `{ n: 'x' }` from a host and returned `{ n: 'xx' }` from an agent. Both contracts are
+  now checked on both routes, input before the sub-agent runs and the declared result after,
+  and the checks are charged like every guest-schema validation. Sub-agents the host runs (the
+  `agent.run` capability) go through `vm.run` and were already checked.
+
 - **AJS: `timeoutMs` and the caller's `AbortSignal` did not stop a run that only computes**
   (#3986). **Affected: every published version through 0.14.0-rc.10.** The run's deadline was
   a timer raced against execution. A step that does no IO completes at once, and each `await`
@@ -66,6 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it to get the check.
 
 ### Fixed
+
+- **An AJS parameter whose example is `{}` accepts any object.** The input schema closed an
+  empty property set, so `{ writer = {} }` refused every object it was given. `{}` as an example
+  means "an object", as it already did for an agent that declares no parameters.
 
 - **An AJS input written `'' | null` admits `null`.** Inference reads it as a nullable string,
   and the schema ignored the flag, so `null` was refused. Unions are now `anyOf`, not `oneOf`

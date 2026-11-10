@@ -7622,12 +7622,19 @@ export const agentRun = defineAtom(
         // functions, so a call by name ran the caller's body, or missed its own.
         childCtx.helpers = (ast as any).helpers
         ownRoots(childCtx, childCtx.memo, childCtx.args)
+        holdToContract(ctx, (ast as any).inputSchema, resolvedInput, 'input')
         await seqAtom.exec(ast, childCtx)
 
         if (childCtx.error) {
           throw new Error(reduceThrown(childCtx.error) || 'Sub-agent failed')
         }
 
+        holdToContract(
+          ctx,
+          (ast as any).outputSchema,
+          childCtx.output,
+          'result'
+        )
         return childCtx.output
       } finally {
         releaseScope(childCtx)
@@ -7665,12 +7672,24 @@ export const agentRun = defineAtom(
         childCtx.astVersion = astVersionOf(resolvedId) ?? AST_VERSION_LEGACY
         childCtx.helpers = (resolvedId as any).helpers // its own (see above)
         ownRoots(childCtx, childCtx.memo, childCtx.args)
+        holdToContract(
+          ctx,
+          (resolvedId as any).inputSchema,
+          resolvedInput,
+          'input'
+        )
         await seqAtom.exec(resolvedId, childCtx)
 
         if (childCtx.error) {
           throw new Error(reduceThrown(childCtx.error) || 'Sub-agent failed')
         }
 
+        holdToContract(
+          ctx,
+          (resolvedId as any).outputSchema,
+          childCtx.output,
+          'result'
+        )
         return childCtx.output
       } finally {
         releaseScope(childCtx)
@@ -8322,6 +8341,32 @@ export const consoleError = defineAtom(
 )
 
 // --- Stored Procedures ---
+
+/**
+ * A sub-agent's declared contracts hold whichever way it is called (#3987). `vm.run` checks an
+ * AST's `inputSchema` against its arguments and its `outputSchema` (#3834) against its result;
+ * `agentRun`'s in-VM routes ran the sub-agent with neither, so `double({ n: 0 })` refused
+ * `{ n: 'x' }` from a host and accepted it from another agent. Charged like every guest-schema
+ * check (`chargeValidation`), and the schema is admitted first: it arrived with the AST, so it is
+ * guest data. The host route needs nothing here: the host runs the sub-agent through `vm.run`.
+ */
+function holdToContract(
+  ctx: RuntimeContext,
+  schema: unknown,
+  value: unknown,
+  which: 'input' | 'result'
+): void {
+  if (schema === undefined) return
+  const nodes = admitGuestSchema(schema, 'agentRun')
+  chargeValidation(ctx, nodes, value, 'agentRun')
+  if (!validate(value, schema as any))
+    throw new AgentError(
+      which === 'input'
+        ? "Input validation failed: the sub-agent's arguments do not match its declared inputs"
+        : "Result does not match the sub-agent's declared result type",
+      'agentRun'
+    )
+}
 
 export const storeProcedure = defineAtom(
   'storeProcedure',

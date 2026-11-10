@@ -48,7 +48,9 @@ const COMPILE_SITES: Record<string, { args: number; why: string }> = {
  * schema's `pattern` on the host's engine, so a guest schema must pass `admitGuestSchema` first. */
 const SCHEMA_SITES: Record<string, string> = {
   'vm/vm.ts › run › validate':
-    "the AST's inputSchema: admitGuestSchema at admission, before validate",
+    "the AST's inputSchema and outputSchema (#3834): each through admitGuestSchema before validate",
+  'vm/runtime.ts › holdToContract › validate':
+    "a sub-agent's inputSchema and outputSchema under agentRun (#3987): admitGuestSchema, then validation charged, then validate",
   'vm/runtime.ts › filter › schemaFilter':
     "the `filter` builtin: its schema argument is typed 'schema', admitted by checkArgs",
   'vm/runtime.ts › vmSchemaMethod › validate':

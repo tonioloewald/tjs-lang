@@ -105,7 +105,10 @@ function kindToJsonSchema(
         items: type.items ? typeToJsonSchema(type.items, refuse) : {},
       }
     case 'object':
-      if (type.shape) {
+      // `{}` as an example says "an object", not "an object with no keys": closing an empty
+      // property set refused every object (`{ writer = {} }`, docs-swarm digest A.30). Same rule
+      // as an agent with no declared parameters (`parametersToJsonSchema`).
+      if (type.shape && Object.keys(type.shape).length > 0) {
         const properties: Record<string, any> = {}
         for (const [key, propType] of Object.entries(type.shape)) {
           properties[key] = typeToJsonSchema(propType, refuse)
