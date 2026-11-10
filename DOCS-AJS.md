@@ -308,7 +308,7 @@ passes them in; a call to a name that is not an atom at all fails at run time wi
 safe whatever AST it is given.
 
 Like a helper call, an atom call stands on its own: `let id = uuid()`, then use `id`. An atom call
-inside a larger expression (`return { id: uuid() }`) fails when it runs. See
+inside a larger expression (`return { id: uuid() }`) is refused when the agent is transpiled. See
 [Where calls may appear](/patterns/#where-calls-may-appear).
 
 Your own functions (helpers, below) and builtins (`Math.max(a, b)`, `encodeURIComponent(s)`) take

@@ -2222,6 +2222,23 @@ function expressionToExprNode(
           )
         }
 
+        // Neither can an atom (#3984): the expression sandbox stays call-free, and the VM
+        // refused it only at run time, after the program had started. `Error` and `filter` share
+        // an atom's name and are legitimate here.
+        if (
+          !EXPRESSION_CALLABLE_ATOMS.has(funcName) &&
+          atomInputs(funcName, ctx) !== undefined
+        ) {
+          throw new TranspileError(
+            `Atom '${funcName}' cannot be called inside an expression. ` +
+              `Assign its result to a variable first: ` +
+              `const result = ${funcName}({ … }); then use result.`,
+            getLocation(expr),
+            ctx.source,
+            ctx.filename
+          )
+        }
+
         return {
           $expr: 'call',
           callee: funcName,
@@ -2547,6 +2564,11 @@ const RESERVED_STEP_KEYS: ReadonlySet<string> = new Set([
 
 /** Builtins called positionally that the generic atom path emits (`Error('message')`). */
 const POSITIONAL_BUILTINS: ReadonlySet<string> = new Set(['Error'])
+/** Atom names that are also legitimate CALLS inside an expression (see #3984). */
+const EXPRESSION_CALLABLE_ATOMS: ReadonlySet<string> = new Set([
+  'Error',
+  'filter',
+])
 
 function extractCallArguments(
   expr: CallExpression,

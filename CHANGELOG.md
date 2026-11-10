@@ -77,6 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS: an atom called inside an expression is refused at transpile time** (#3984).
+  `return { id: uuid() }` transpiled and failed only when it ran; a local helper in the same
+  position was already refused with the remedy. Now atoms are too: "Atom 'uuid' cannot be
+  called inside an expression. Assign its result to a variable first." Host atoms are covered
+  when they are passed to `transpile(src, { atoms })`.
+
 - **AJS: `try … finally` runs the `finally` block** (#3983). The transpiler dropped it without a
   word, so cleanup a program relied on never ran. The `try` node now carries a `finally` block
   (an AST format addition: a VM older than this release ignores it, as before), run with

@@ -382,7 +382,7 @@ here.
 
 | The model wrote                   | Start of the error                                           |
 | --------------------------------- | ------------------------------------------------------------ |
-| `return { v: llmPredict({ … }) }` | `Atom calls in expressions not yet supported: llmPredict`    |
+| `return { v: llmPredict({ … }) }` | `Atom 'llmPredict' cannot be called inside an expression`    |
 | `search({ query })` (not an atom) | `Unknown Atom: search`                                       |
 | `return total`                    | `Agent must return an object, got number`                    |
 | `function f({ n: 'number' })`     | `Input validation failed: args do not match expected schema` |

@@ -355,10 +355,10 @@ expression it is refused:
 
 - `{ v: double(n) + 1 }`, a helper call inside an expression, fails to transpile, because the
   transpiler sees every helper in the file.
-- `1 + storeGet({ key })` and `results.push(httpFetch({ url }))` transpile, and fail the first
-  time the line runs (`Atom calls in expressions not yet supported`). The transpiler does not yet
-  refuse an atom call inside an expression, even when you pass it the VM's atoms, so test the
-  code path before you deploy it.
+- `1 + storeGet({ key })` and `results.push(httpFetch({ url }))`, an atom call inside an
+  expression, fail to transpile too (`Atom 'storeGet' cannot be called inside an expression`).
+  For a host's own atoms, pass them to the transpiler (`transpile(src, { atoms })`) so it knows
+  their names.
 
 Lift the call to a variable first:
 

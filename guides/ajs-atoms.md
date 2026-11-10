@@ -103,10 +103,10 @@ These rules apply to every call:
   spread or a missing required input is refused the same way.
 - **An atom call is a statement, and so is a callback method.** Write `let x = atom({ … })`,
   `x = atom({ … })`, or a bare `atom({ … })`, and bind `let ys = xs.filter((x) => …)` before
-  using `ys`. Both mistakes are caught, but at different times, and that is a gap rather than a
-  design: a callback method inside a larger expression (`xs.filter(…).length`) is a transpile
-  error, while an atom call inside one (`return { id: uuid() }`, `if (regexMatch({ … }))`)
-  transpiles and then fails when it runs, with `Atom calls in expressions not yet supported`.
+  using `ys`. Both mistakes are refused when the agent is transpiled: a callback method inside a
+  larger expression (`xs.filter(…).length`), and an atom call inside one
+  (`return { id: uuid() }`, `if (regexMatch({ … }))`), which says
+  `Atom 'uuid' cannot be called inside an expression`.
 - **There is no `await`.** Every atom call is awaited for you.
 - **`console.log`, `console.warn` and `console.error` do nothing.** They are accepted and record
   nothing, and `console.error` does not stop the run. Use the `consoleLog`, `consoleWarn` and
