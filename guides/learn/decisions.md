@@ -284,7 +284,13 @@ test 'days of the week' {
 ```
 
 Exactly one block runs: the one whose value matches, or the `else` block when none does.
-(Other languages have `switch` for this. It is easy to get wrong, so TJS gives you `given`.)
+
+`given` is how TJS does what JavaScript and TypeScript do with `switch` and `case`. `switch`
+still works in TJS, exactly as it does in JavaScript, but it has a trap: unless you end each
+case with `break`, the program carries on into the next case. `given` does what you almost
+always want instead. Why TJS added a new word rather than quietly changing what `switch` does
+is a story of its own: testing showed that a new keyword, carefully explained, surprised people
+less. See [Case study: fixing switch](/case-study-switch/).
 
 ## Try it
 
