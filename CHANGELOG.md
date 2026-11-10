@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **AJS: `timeoutMs` and the caller's `AbortSignal` did not stop a run that only computes**
+  (#3986). **Affected: every published version through 0.14.0-rc.10.** The run's deadline was
+  a timer raced against execution. A step that does no IO completes at once, and each `await`
+  resumes as a microtask, which the event loop runs before any timer. So a compute-only run
+  never let the deadline fire: a 3-million-step loop with `timeoutMs: 200` ran 3.6 s and
+  completed. The same starvation meant the caller's signal could not interrupt it, and the
+  host's event loop was frozen for the whole run, stalling every other agent and request in the
+  process. Fuel still bounded the work, so a host with a tight fuel budget was protected; one
+  that set generous fuel and relied on `timeoutMs` as the hard wall-clock limit was not.
+  Now the step boundary, which every step and loop iteration passes, reads the clock every 64
+  steps and aborts past the deadline, and every 10 ms of computing it yields one macrotask, so
+  timers, the caller's signal and the host's other work all run. **What to do:** upgrade.
+  Until then, size `fuel` as the limit you rely on.
+
 - **AJS: declared input contracts did not check every kind of input (fail-open)** (#3835).
   **Affected: every published version from 0.2.0 through 0.14.0-rc.10.** `vm.run` validates
   an agent's arguments against the input schema the transpiler derives from its signature,

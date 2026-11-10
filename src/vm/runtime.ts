@@ -251,6 +251,41 @@ export interface HeapEntry {
   witness: number
 }
 
+/**
+ * How long a run computes before the step boundary yields to the host (#3986). Long enough
+ * that the yield costs nothing measurable, short enough that a busy agent does not stall the
+ * host's other work, its timers or the caller's AbortSignal.
+ */
+export const CLOCK_SLICE_MS = 10
+
+/** The step boundary reads the clock every this many steps (a power of two; see 1c). */
+export const CLOCK_EVERY_STEPS = 64
+
+/**
+ * One MACROTASK turn of the event loop: what an `await` of a settled promise is not. Node and
+ * Bun have setImmediate; a browser gets a MessageChannel tick (setTimeout(0) is clamped to
+ * ~4ms after nesting there, which would cost 40% of a 10ms slice).
+ */
+let channelYield: (() => Promise<void>) | undefined
+export function yieldToHost(): Promise<void> {
+  if (typeof setImmediate === 'function')
+    return new Promise((resolve) => setImmediate(resolve))
+  if (typeof MessageChannel === 'function') {
+    if (!channelYield) {
+      const channel = new MessageChannel()
+      const waiting: (() => void)[] = []
+      channel.port1.onmessage = () => waiting.shift()?.()
+      channelYield = () =>
+        new Promise<void>((resolve) => {
+          waiting.push(resolve)
+          channel.port2.postMessage(0)
+        })
+    }
+    return channelYield()
+  }
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
 export interface RuntimeContext {
   fuel: { current: number }
   args: Record<string, any>
@@ -336,6 +371,22 @@ export interface RuntimeContext {
    * amplifier. A refusal that ends the run can cost at most one bounded walk.
    */
   halt: { error?: AgentError }
+  /**
+   * The run's WALL CLOCK (#3986), created by `vm.run` and shared, like `halt`, by every derived
+   * context. The deadline was only a `setTimeout`, which a compute-only run never lets fire: each
+   * step's `await` resumes as a microtask, and microtasks all run before any timer. So the step
+   * boundary reads the clock instead. Past `deadline` it calls `expire` (which aborts the run the
+   * way the timer would); past `sliceEnd` it yields one macrotask, so timers, the caller's
+   * AbortSignal and the host's other work get their turn. Absent on a hand-built context, where
+   * the step boundary behaves as it always did.
+   */
+  clock?: {
+    deadline: number
+    sliceEnd: number
+    expire: () => void
+    /** Steps taken, so the clock is read every CLOCK_EVERY_STEPS (a power of two). */
+    steps: number
+  }
   /** The allocation frame of the innermost step executing on this context (see `allocate`). */
   allocFrame?: { bytes: number }
   /**
@@ -5498,6 +5549,33 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         if (ctx.signal?.aborted) {
           ctx.error = new AgentError('Execution aborted', op)
           return
+        }
+
+        // 1c. The run's wall clock (#3986). A step that does no IO never yields to the event
+        // loop, so the deadline timer and the caller's signal could not fire during compute:
+        // read the clock here, where every step and every loop iteration passes.
+        // Read every CLOCK_EVERY_STEPS steps, not every step: a clock read on every step cost
+        // 24% of a tight loop; at 64 the overshoot is 64 steps (microseconds).
+        const clock = ctx.clock
+        if (clock && (++clock.steps & (CLOCK_EVERY_STEPS - 1)) === 0) {
+          const now = performance.now()
+          if (now >= clock.deadline) {
+            clock.expire()
+            ctx.error = new AgentError('Execution aborted', op)
+            return
+          }
+          if (now >= clock.sliceEnd) {
+            await yieldToHost()
+            clock.sliceEnd = performance.now() + CLOCK_SLICE_MS
+            if (ctx.halt.error) {
+              ctx.error = ctx.halt.error
+              return
+            }
+            if (ctx.signal?.aborted) {
+              ctx.error = new AgentError('Execution aborted', op)
+              return
+            }
+          }
         }
 
         // 2. Deduct Fuel (check for cost overrides first)

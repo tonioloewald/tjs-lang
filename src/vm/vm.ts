@@ -11,6 +11,7 @@ import {
   newScopeState,
   admitGuestSchema,
   VALIDATION_FUEL_PER_STEP,
+  CLOCK_SLICE_MS,
   type Capabilities,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
@@ -561,6 +562,20 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       heapAccount: { bytes: 0, transient: 0 },
       // Created WITH the run: a refusal at the capability boundary ends it (see runtime.ts).
       halt: {},
+      // The run's wall clock, read at every step (#3986): the timer above cannot fire while
+      // the run computes without yielding, so the step boundary enforces the same deadline.
+      clock: {
+        deadline:
+          armed === undefined
+            ? Infinity
+            : performance.now() + Math.max(0, armed),
+        sliceEnd: performance.now() + CLOCK_SLICE_MS,
+        steps: 0,
+        expire: () => {
+          timedOut = true
+          controller.abort()
+        },
+      },
       heapPerKey: new Map(),
       capabilities,
       defaultStore,
