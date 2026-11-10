@@ -325,7 +325,7 @@ const r = 10 // each hexagon's radius
 const across = 1.5 * r // how far apart the columns are
 const down = Math.sqrt(3) * r // how far apart the rows are
 
-const board = svg({ viewBox: '0 0 130 122', width: 260, height: 244 })
+const board = svg({ viewBox: '0 0 130 122', width: 220, height: 206 })
 for (let column = 0; column < 8; column++) {
   for (let row = 0; row < 6; row++) {
     const cx = r + column * across
