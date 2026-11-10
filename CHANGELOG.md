@@ -83,6 +83,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Native TJS refuses `new String`, `new Number` and `new Boolean` (BREAKING, toward
+  correctness)** (#4012). They build an object wrapper, which is truthy even when it holds
+  `false` or `0`, and are almost always a slip for `String(x)` and friends. The deliberate uses
+  (a primitive by reference, a tagged value) keep a spelling that says what it means:
+  `Object(x)`. `==` and truthiness still unwrap boxed values, which arrive from JavaScript
+  libraries, converted code and `Object(x)`. Plain JavaScript and converted TypeScript keep the
+  constructors; conversion now writes them as `Object(…)` (`new String(x)` as
+  ``Object(`${x}`)``, which still throws on a Symbol as the constructor does), so graduation
+  keeps working.
+
 - **A typed AJS agent's declared result is enforced (BREAKING, toward correctness)** (#3834).
   `function f(n: 0): { x: 0 }` recorded its return type in the signature and nowhere else, so
   `return { x: 'str', extra: 1 }` ran clean. A typed function now emits what it declares or
@@ -97,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it to get the check.
 
 ### Fixed
+
+- **`fromTS` reads `/* @tjs TjsStrict */` only from a real block comment.** The scan matched
+  raw source, so a file whose test fixtures held that text in a template string converted as a
+  TjsStrict file (TJS semantics throughout, no conversion rewrites); a comments-kept view would
+  still have matched it quoted inside a line comment. Each block comment is now matched whole.
 
 - **AJS: reading an undeclared name is a transpile error (BREAKING, toward correctness)**
   (#4002). `return { v: coutn }` compiled without a word and read `undefined`, so a typo became

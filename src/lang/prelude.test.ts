@@ -102,7 +102,7 @@ export function probe() { return [P.toJSONSchema(), P.strip({ x: 1, y: 2, z: 3 }
     'equality and truthiness',
     `export function probe() {
   return [1 == 1, null == undefined, '5' == 5, Is({ a: 1 }, { a: 1 }), IsNot([1], [2]),
-    new Boolean(false) ? 1 : 0, typeof null]
+    Object(false) ? 1 : 0, typeof null]
 }`,
   ],
   [

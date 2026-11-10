@@ -8,25 +8,27 @@
 // Footgun 1: Boxed primitives are truthy in boolean coercion
 // ============================================================
 //
-// In raw JS, `new Boolean(false)` is an Object — therefore truthy.
-// `Boolean(new Boolean(false))` returns `true`, even though the value
+// In raw JS, a boxed primitive (`new Boolean(false)`, or `Object(false)`) is an
+// Object — therefore truthy. TJS refuses `new Boolean(…)`; `Object(false)` is
+// how you make one deliberately, and boxed values also arrive from JS code.
+// `Boolean(Object(false))` returns `true`, even though the value
 // inside the wrapper is `false`. Same trap for `if`, `!`, `&&`, `||`,
 // `?:`, `while`, and `for`.
 //
 // Native TJS rewrites every truthiness context to unwrap boxed primitives
 // first (via `__tjs.toBool`). Always-on under TjsStandard.
 
-const boxedFalse = new Boolean(false)
+const boxedFalse = Object(false)
 
-console.log('Boolean(new Boolean(false)) →', Boolean(boxedFalse))
+console.log('Boolean(Object(false)) →', Boolean(boxedFalse))
 //   raw JS: true
 //   TJS:    false  ✓
 
-console.log('!new Boolean(false)         →', !boxedFalse)
+console.log('!Object(false)         →', !boxedFalse)
 //   raw JS: false
 //   TJS:    true   ✓
 
-console.log('if (new Boolean(false))     →',
+console.log('if (Object(false))     →',
   (boxedFalse ? 'truthy branch' : 'falsy branch')
 )
 //   raw JS: 'truthy branch'

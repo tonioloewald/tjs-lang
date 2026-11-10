@@ -1,7 +1,7 @@
 /**
  * Boolean coercion rewriter tests.
  *
- * Verifies that `Boolean(new Boolean(false)) === true` and friends are
+ * Verifies that `Boolean(Object(false)) === true` and friends are
  * fixed under TjsStandard mode.
  */
 
@@ -31,77 +31,77 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
   })
 
   describe('truthiness contexts unwrap boxed primitives', () => {
-    it('fixes `if (new Boolean(false))`', () => {
+    it('fixes `if (Object(false))`', () => {
       const out = run(
-        `function f(){ if (new Boolean(false)) return 'truthy'; return 'falsy' }`
+        `function f(){ if (Object(false)) return 'truthy'; return 'falsy' }`
       )
       expect(out).toBe('falsy')
     })
 
-    it('fixes `while (new Boolean(false))`', () => {
+    it('fixes `while (Object(false))`', () => {
       const out = run(
-        `function f(){ let n = 0; const g = new Boolean(false); while (g) { n++; if (n>2) break }; return n }`
+        `function f(){ let n = 0; const g = Object(false); while (g) { n++; if (n>2) break }; return n }`
       )
       expect(out).toBe(0)
     })
 
-    it('fixes `do {} while (new Boolean(false))`', () => {
+    it('fixes `do {} while (Object(false))`', () => {
       const out = run(
-        `function f(){ let n = 0; const g = new Boolean(false); do { n++ } while (g && n < 3); return n }`
+        `function f(){ let n = 0; const g = Object(false); do { n++ } while (g && n < 3); return n }`
       )
       expect(out).toBe(1) // body runs once, then condition is checked & is false
     })
 
-    it('fixes `for (_; new Boolean(false); _)`', () => {
+    it('fixes `for (_; Object(false); _)`', () => {
       const out = run(
-        `function f(){ let n = 0; const g = new Boolean(false); for (let i = 0; g; i++) { n++; if (n>2) break }; return n }`
+        `function f(){ let n = 0; const g = Object(false); for (let i = 0; g; i++) { n++; if (n>2) break }; return n }`
       )
       expect(out).toBe(0)
     })
 
-    it('fixes `!new Boolean(false)`', () => {
-      const out = run(`function f(){ return !new Boolean(false) }`)
+    it('fixes `!Object(false)`', () => {
+      const out = run(`function f(){ return !Object(false) }`)
       expect(out).toBe(true)
     })
 
-    it('fixes `new Boolean(false) ? a : b`', () => {
-      const out = run(`function f(){ return new Boolean(false) ? 'a' : 'b' }`)
+    it('fixes `Object(false) ? a : b`', () => {
+      const out = run(`function f(){ return Object(false) ? 'a' : 'b' }`)
       expect(out).toBe('b')
     })
 
-    it('fixes `Boolean(new Boolean(false))`', () => {
-      const out = run(`function f(){ return Boolean(new Boolean(false)) }`)
+    it('fixes `Boolean(Object(false))`', () => {
+      const out = run(`function f(){ return Boolean(Object(false)) }`)
       expect(out).toBe(false)
     })
   })
 
   describe('logical operators preserve value-returning semantics', () => {
-    it('`new Boolean(false) || x` returns x', () => {
-      const out = run(`function f(){ return (new Boolean(false)) || 'right' }`)
+    it('`Object(false) || x` returns x', () => {
+      const out = run(`function f(){ return (Object(false)) || 'right' }`)
       expect(out).toBe('right')
     })
 
-    it('`new Boolean(true) || x` returns the wrapper (truthy LHS wins)', () => {
-      const out = run(`function f(){ return (new Boolean(true)) || 'right' }`)
+    it('`Object(true) || x` returns the wrapper (truthy LHS wins)', () => {
+      const out = run(`function f(){ return (Object(true)) || 'right' }`)
       // LHS is truthy after unwrap, so JS-style && returns the original LHS
       expect(typeof out).toBe('object')
       expect(out.valueOf()).toBe(true)
     })
 
-    it('`new Boolean(false) && x` returns the wrapper (falsy LHS short-circuits)', () => {
-      const out = run(`function f(){ return (new Boolean(false)) && 'right' }`)
+    it('`Object(false) && x` returns the wrapper (falsy LHS short-circuits)', () => {
+      const out = run(`function f(){ return (Object(false)) && 'right' }`)
       expect(typeof out).toBe('object')
       expect(out.valueOf()).toBe(false)
     })
 
-    it('`new Boolean(true) && x` returns x', () => {
-      const out = run(`function f(){ return (new Boolean(true)) && 'right' }`)
+    it('`Object(true) && x` returns x', () => {
+      const out = run(`function f(){ return (Object(true)) && 'right' }`)
       expect(out).toBe('right')
     })
 
     it("`a || b` doesn't double-evaluate side effects", () => {
       const out = run(
-        `function f(){ let n = 0; const inc = () => { n++; return new Boolean(false) }; const r = inc() || inc(); return n }`
+        `function f(){ let n = 0; const inc = () => { n++; return Object(false) }; const r = inc() || inc(); return n }`
       )
       expect(out).toBe(2) // both inc() called once each
     })
@@ -110,21 +110,21 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
   describe('nested coercion contexts', () => {
     it('handles `if (a && b)`', () => {
       const out = run(
-        `function f(){ const a = new Boolean(false); const b = true; if (a && b) return 'in'; return 'out' }`
+        `function f(){ const a = Object(false); const b = true; if (a && b) return 'in'; return 'out' }`
       )
       expect(out).toBe('out')
     })
 
     it('handles `if (!(a && b))`', () => {
       const out = run(
-        `function f(){ const a = new Boolean(false); const b = true; if (!(a && b)) return 'not'; return 'is' }`
+        `function f(){ const a = Object(false); const b = true; if (!(a && b)) return 'not'; return 'is' }`
       )
       expect(out).toBe('not')
     })
 
     it('handles `f(a && b)` (LogicalExpression inside CallExpression)', () => {
       const out = run(
-        `function f(){ const a = new Boolean(false); const id = (x) => x; const r = id(a && true); return Boolean(r) }`
+        `function f(){ const a = Object(false); const id = (x) => x; const r = id(a && true); return Boolean(r) }`
       )
       expect(out).toBe(false)
     })
@@ -156,8 +156,8 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
       expect(out).toBe('fallback')
     })
 
-    it('`new Boolean(false) ?? x` returns the wrapper (it is not null/undef)', () => {
-      const out = run(`function f(){ return (new Boolean(false)) ?? 'x' }`)
+    it('`Object(false) ?? x` returns the wrapper (it is not null/undef)', () => {
+      const out = run(`function f(){ return (Object(false)) ?? 'x' }`)
       expect(typeof out).toBe('object')
     })
 
@@ -170,7 +170,7 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
   describe('mode gating', () => {
     it('TjsCompat disables the rewrite (preserves JS footgun)', () => {
       const r = transpileToJS(
-        `TjsCompat\nfunction f(){ if (new Boolean(false)) return 'truthy'; return 'falsy' }`
+        `TjsCompat\nfunction f(){ if (Object(false)) return 'truthy'; return 'falsy' }`
       )
       ;(globalThis as any).__tjs = createRuntime()
       try {
@@ -209,7 +209,7 @@ describe('test bodies that await get the rewrites', () => {
   // here too) would have been JavaScript's.
   it('truthiness and == are TJS inside an async test body', () => {
     const out = rewriteBoolCoercionInSource(
-      `const v = await Promise.resolve(new Boolean(false))\nexpect(!v).toBe(true) // trailing comment`,
+      `const v = await Promise.resolve(Object(false))\nexpect(!v).toBe(true) // trailing comment`,
       { bool: true, equality: { eq: 'Eq', notEq: 'NotEq' } }
     )
     expect(out).toContain('!__tjs.toBool(v)')

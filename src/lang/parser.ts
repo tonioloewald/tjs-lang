@@ -68,6 +68,7 @@ import {
   transformBareAssignments,
   extractAndRunTests,
   validateNoDate,
+  validateNoBoxedConstructors,
   validateNoEval,
   validateNoNew,
   validateNoVar,
@@ -654,6 +655,8 @@ export function preprocess(
     // The other validators survive on `ruleSource` only because `var`/`eval`/`Date`
     // happen not to appear in anything we generate; that is luck, not design.
     validateNoNew(maskUnsafe(originalSource))
+    // RAW source: `Object(x)` is the escape for a deliberate boxed value, so `unsafe` is not.
+    validateNoBoxedConstructors(originalSource)
   }
 
   // Validate TjsNoeval mode - check for eval/Function usage

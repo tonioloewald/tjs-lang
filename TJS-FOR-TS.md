@@ -969,7 +969,7 @@ TypeScript keeps JavaScript's behaviour until you graduate it or mark it `TjsStr
 ```tjs:inline
 // == is honest: no coercion, boxed primitives unwrapped
 console.log(0 == '')                     // false (JavaScript: true)
-console.log(new String('foo') == 'foo')  // true
+console.log(Object('foo') == 'foo')      // true
 console.log(null == undefined)           // true (kept: it is useful)
 console.log(typeof null)                 // 'null' (JavaScript: 'object')
 
@@ -985,7 +985,7 @@ console.log(Is(new Set([1, 2]), new Set([2, 1])))  // true (sets ignore order)
 // === is JavaScript's, unchanged
 const n = NaN
 console.log(a === a, n === n)                       // true false
-console.log(new String('foo') === 'foo')            // false
+console.log(Object('foo') === 'foo')                // false
 ```
 
 `==` drops coercion without the cost of a deep comparison. `===` keeps exactly JavaScript's
@@ -1086,7 +1086,8 @@ old behaviour, so it keeps running as before.
   line still continues after a trailing operator, opening bracket or comma, and a line
   starting with `.` continues the one before, so chained calls formatted the Prettier way
   are unaffected.
-- A boxed `new Boolean(false)` is falsy.
+- A boxed `false` (`Object(false)`) is falsy, and `new Boolean(…)`, `new String(…)` and
+  `new Number(…)` are refused: use `Boolean(x)` and friends, or `Object(x)` for a deliberate wrapper.
 
 [TJS Syntax](TJS-SYNTAX.md#the-rules-of-tjs) lists every rule and its named escape.
 

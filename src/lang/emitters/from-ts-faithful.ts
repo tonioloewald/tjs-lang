@@ -15,6 +15,7 @@
  *   a != b                  →  DangerousLegacyNot(a, b)
  *   typeof x                →  LegacyTypeOf(x)                 (kept where the answer cannot be 'object')
  *   new Date(…)             →  LegacyDate(…)
+ *   new String(x)           →  Object(`${x}`)   (and Number/Boolean: Object(Number(x)) …)
  *   f(n = 5)                →  f(n = 5.0)                      (a float example: `number`, as TS meant)
  *   f(o = { x: 0 })         →  f(o = LegacyDefault({ x: 0 }))  (atomic, as JavaScript meant)
  *   var x = 1 (anywhere)    →  let x  at the top of its function, and  x = 1  where it was
@@ -119,6 +120,9 @@ export interface FaithfulResult {
   rewrites: Record<string, number>
 }
 
+/** Refused in native TJS (#4012), rewritten to `Object(…)` by conversion. */
+const BOXED_CONSTRUCTORS = new Set(['String', 'Number', 'Boolean'])
+
 export function faithfulForGraduation(
   source: string,
   filename = 'input.ts'
@@ -182,6 +186,31 @@ export function faithfulForGraduation(
       count('new Date')
       const args = node.arguments?.map(emit).join(', ') ?? ''
       return `LegacyDate(${args})`
+    }
+    // The boxed-primitive constructors are refused in native TJS (#4012); `Object(…)` builds
+    // the same wrapper and means the same under both semantics. EXACT, not close: `new
+    // String(sym)` throws where `String(sym)` does not, and a template literal throws as the
+    // constructor does. With more than one argument the extras are still evaluated, so no
+    // one-argument rewrite preserves it; that rare form is left for graduation to refuse.
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      BOXED_CONSTRUCTORS.has(node.expression.text) &&
+      (node.arguments?.length ?? 0) <= 1
+    ) {
+      const ctor = node.expression.text
+      count(`new ${ctor}`)
+      const arg = node.arguments?.[0]
+      if (!arg)
+        return ctor === 'String'
+          ? "Object('')"
+          : ctor === 'Number'
+          ? 'Object(0)'
+          : 'Object(false)'
+      const a = emit(arg)
+      return ctor === 'String'
+        ? `Object(\`\${${a}}\`)`
+        : `Object(${ctor}(${a}))`
     }
     // Parameter defaults: an integer literal narrows in TJS; an object literal merges.
     if (ts.isParameter(node) && node.initializer) {

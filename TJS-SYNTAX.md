@@ -166,7 +166,7 @@ function either(x: 0 | '') { return x }
 
 console.log(setMode('on'))                         // on
 console.log(isMonadicError(setMode('maybe')))      // true
-console.log(setMode(new String('on')) == 'on')     // true: membership is ==
+console.log(setMode(Object('on')) == 'on')         // true: membership is ==
 console.log(either(1), either('s'))                // 1 s
 console.log(isMonadicError(either(true)))          // true
 ```
@@ -269,7 +269,7 @@ accepted as JavaScript. A `.tjs` file opts into the stricter rules below, uncond
 | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | equality                                           | `==`/`!=` do not coerce, unwrap boxed primitives, and keep `null == undefined`          |
 | `typeof`                                           | `typeof null` is `'null'`                                                              |
-| truthiness                                         | a boxed `new Boolean(false)` is falsy                                                  |
+| truthiness                                         | a boxed `false` (`Object(false)`) is falsy                                             |
 | statements                                         | a line starting with `(`, `[` or `` ` `` begins a new statement (see below)            |
 | classes                                            | called without `new`; `new` on a class declared in the file is an error                |
 | `Date`                                             | `new Date` is not allowed; use `LegacyDate(x)`, or `Timestamp` from `tjs-lang`          |
@@ -475,7 +475,7 @@ the details.
 
 | operator      | meaning                                         | example                            |
 | ------------- | ----------------------------------------------- | ---------------------------------- |
-| `==`          | equality: no coercion, unwraps boxed primitives | `new String('x') == 'x'` is `true` |
+| `==`          | equality: no coercion, unwraps boxed primitives | `Object('x') == 'x'` is `true` |
 | `!=`          | its negation                                    | `0 != ''` is `true`                |
 | `===`         | identity, unchanged from JavaScript             | `obj === obj` is `true`            |
 | `!==`         | not identical                                   | `{a:1} !== {a:1}` is `true`        |
@@ -483,8 +483,8 @@ the details.
 | `IsNot(a, b)` | its negation                                    | `IsNot([1,2], [2,1])` is `true`    |
 
 ```tjs:inline
-console.log(new String('foo') == 'foo')   // true: unwraps
-console.log(new Boolean(false) == false)  // true
+console.log(Object('foo') == 'foo')       // true: unwraps
+console.log(Object(false) == false)       // true
 console.log(null == undefined)            // true: kept from JavaScript
 console.log(0 == '', false == [])         // false false: no coercion
 console.log(NaN == NaN, NaN === NaN)      // true false: === is JavaScript's
@@ -497,8 +497,8 @@ console.log(Is(new Set([1, 2]), new Set([2, 1])))  // true: Sets ignore order
 console.log(IsNot([1, 2], [2, 1]))        // true
 
 console.log(typeof null)                  // null
-console.log(!!new Boolean(false))         // false
-console.log(new Boolean(false) ? 'a' : 'b')  // b
+console.log(!!Object(false))              // false
+console.log(Object(false) ? 'a' : 'b')    // b
 ```
 
 `==` stays fast because it is not structural; deep comparison is O(n), so you ask for it
@@ -713,8 +713,10 @@ console.log(buf.length, new Set([1, 2]).size)     // 4 2
 
 **`new` on a class declared in the same file is an error.** `Box(2)` and `new Box(2)` build
 the same object, so the keyword adds nothing. Built-in constructors are untouched, because
-for them `new` matters: `new Float32Array(4)` is required, and `Boolean(0)` and
-`new Boolean(0)` are different things. Old-style `function` constructors are untouched too.
+for them `new` matters: `new Float32Array(4)` is required. The exceptions are `new String`,
+`new Number` and `new Boolean`, which are refused: they build an object wrapper, almost
+always by mistake for `String(x)` and friends. `Object(x)` makes one deliberately.
+Old-style `function` constructors are untouched too.
 
 <!-- tjs-doc: expect-error -->
 

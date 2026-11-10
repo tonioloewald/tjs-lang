@@ -3403,15 +3403,19 @@ const VALID_TJS_MODES = new Set([
  */
 function extractTjsModes(source: string): string[] {
   const modes: string[] = []
-  const re = /\/\*\s*@tjs\s+((?:Tjs\w+\s*)+)\*\//g
-  let m
-  while ((m = re.exec(source)) !== null) {
-    const words = m[1].trim().split(/\s+/)
-    for (const word of words) {
-      if (VALID_TJS_MODES.has(word) && !modes.includes(word)) {
-        modes.push(word)
-      }
-    }
+  // Only a REAL block comment is an annotation: each block-comment region the literal scanner
+  // finds, matched whole. Matching the pattern over raw source read a `/* @tjs TjsStrict */`
+  // inside a string (a test fixture) as the file's mode, and over a comments-kept view it still
+  // read one quoted inside a LINE comment (which is how this very explanation first broke the
+  // converter's own conversion).
+  for (const region of scanLiterals(source)) {
+    if (region.kind !== 'block-comment') continue
+    const m = /^\/\*\s*@tjs\s+((?:Tjs\w+\s*)+)\*\/$/.exec(
+      source.slice(region.start, region.end)
+    )
+    if (!m) continue
+    for (const word of m[1].trim().split(/\s+/))
+      if (VALID_TJS_MODES.has(word) && !modes.includes(word)) modes.push(word)
   }
   return modes
 }

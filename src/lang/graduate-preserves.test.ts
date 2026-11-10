@@ -111,6 +111,15 @@ const ROWS: [string, string, unknown[][]][] = [
     [[]],
   ],
   [
+    'boxed-primitive constructors (#4012)',
+    `export function f(x: any): any {
+  const s = new String(x)
+  const n = new Number(x)
+  return [typeof s, s.length, s.valueOf(), typeof n, n.valueOf(), new Boolean(x).valueOf(), new String().valueOf()]
+}`,
+    [['ab'], [3], [0], [null]],
+  ],
+  [
     'a static self-instance (#3841)',
     `export class Money { static zero = new Money(0); constructor(public v: number) {} }
 export function f(): number { return Money.zero.v }`,

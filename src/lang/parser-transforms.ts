@@ -5152,6 +5152,27 @@ export function warnOnUnsafeMarker(
   return source
 }
 
+/**
+ * The boxed-primitive CONSTRUCTORS are refused in native TJS (#4012). `new String(x)` is almost
+ * always a mistake for `String(x)`, and builds an object that is truthy even when it holds
+ * `false`. The deliberate uses keep a spelling that says what it means, `Object(x)`, so there is
+ * no `unsafe`-style escape: callers pass the RAW source. `==` and truthiness still unwrap boxed
+ * values, which arrive from JavaScript libraries, converted code and `Object(x)`.
+ */
+export function validateNoBoxedConstructors(source: string): string {
+  const scan = maskLiterals(source)
+  for (const ctor of ['String', 'Number', 'Boolean'])
+    rejectAll(
+      source,
+      scan,
+      new RegExp(`\\bnew\\s+${ctor}\\b`),
+      `\`new ${ctor}(x)\` is not allowed in TJS: it builds an object wrapper, which is ` +
+        `truthy even when it holds false or 0. Use \`${ctor}(x)\` for the value, or ` +
+        `\`Object(x)\` when you deliberately want the object.`
+    )
+  return source
+}
+
 export function validateNoDate(source: string, warnings?: string[]): string {
   // The footgun is the Date OBJECT — mutable, timezone-dependent, and the source of most
   // date bugs. The numeric statics are not: `Date.now()`, `Date.parse()` and `Date.UTC()`

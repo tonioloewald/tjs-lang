@@ -63,10 +63,12 @@ returns the wrapper, which is what you'd want).
 `===` / `!==` (identity) are also not touched — that's a different
 footgun, handled by the `Is` operator (see below).
 
-> **Why fix instead of ban?** Boxed primitives have legitimate uses
-> (passing primitives by reference, attaching properties for tagging).
-> Banning them with a parse error would be paternalistic. TJS lets you
-> use them — and makes them work the way the name implies.
+> **Why fix, and ban only the constructors?** Boxed primitives have legitimate
+> uses (passing primitives by reference, attaching properties for tagging), so
+> TJS lets you use them and makes them work the way the name implies. What it
+> refuses is `new Boolean(x)`, `new String(x)` and `new Number(x)`: almost
+> always a slip for `Boolean(x)` and friends. A deliberate wrapper has a
+> spelling that says so, `Object(x)`.
 
 ## 2. `==` is a coercion lottery; `NaN !== NaN`
 

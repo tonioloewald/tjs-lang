@@ -17,7 +17,7 @@ A `.tjs` file is always an ES module, so it runs in strict mode, as any module d
 | --- | --- | --- | --- |
 | `a == b`, `a != b` | converts types: `'5' == 5` is `true` | no conversion, so `'5' == 5` is `false`; boxed values unwrap; `null == undefined` is `true`, and so is `NaN == NaN`, so `x == x` always holds | [Honest Equality](/honest-equality/) |
 | `typeof null` | `'object'` | `'null'` | this chapter |
-| `if (new Boolean(false))` and every other truthiness test | truthy | falsy | this chapter |
+| `if (Object(false))` and every other truthiness test | truthy | falsy | this chapter |
 | `function f(x = 0)` | any value is accepted; the default is used only for `undefined` | the default is also the parameter's type example, so `f(1.5)` returns a type error (`0` is an integer) | [Required vs Optional](/required-vs-optional/) |
 | `function f(opts = { a: 1, b: 2 })` | the default is replaced whole by any argument | each member has its own default, merged into a partial argument | [Dictionary Defaults](/dictionary-defaults-example/) |
 | a line starting with `(`, `[` or `` ` `` | may join the line above | starts a new statement (with a warning) | this chapter, below |
@@ -42,7 +42,9 @@ run when the example runs, with their results shown under its output.
 
 A boxed primitive is the object that `new Boolean(…)`, `new String(…)` or `new Number(…)`
 makes, or that `Object(x)` makes from a primitive. Modern code rarely creates one on
-purpose; they turn up in older code and occasionally from a library. JavaScript calls every
+purpose; they turn up in older code and occasionally from a library. A `.tjs` file refuses
+the three constructors (almost always a slip for `Boolean(x)` and friends); `Object(x)` is
+how you make one deliberately. JavaScript calls every
 object truthy, so a boxed `false` is true. TJS fixes it so the truthiness rule has no
 holes.
 
@@ -50,14 +52,14 @@ holes.
 /#
 ## Boxed false is false
 
-`new Boolean(false)` is an object, so in a `.js` file `if (new Boolean(false))`
+A boxed `false` is an object, so in a `.js` file `if (new Boolean(false))`
 runs its body. In a `.tjs` file every truthiness test unwraps a boxed primitive
 first.
 #/
 
-const no = new Boolean(false)
-const empty = new String('')
-const zero = new Number(0)
+const no = Object(false)
+const empty = Object('')
+const zero = Object(0)
 
 console.log(no ? 'truthy' : 'falsy')          // falsy   (JS: truthy)
 console.log(Boolean(no), !no)                 // false true   (JS: true false)
@@ -117,8 +119,7 @@ test 'typeof null is null' {
 The truthiness rule covers every place JavaScript asks "is this true?": `if`, `while`,
 `for` and `do` conditions, `!`, `&&`, `||`, `? :`, and a direct call to `Boolean(x)`. The
 transpiler rewrites each of those sites, so there is nothing to call and nothing to
-remember. `new Boolean(true)`, `new String('x')` and `new Number(1)` are still truthy, as
-their values are.
+remember. A boxed `true`, `'x'` or `1` (`Object(true)` and so on) is still truthy, as its value is.
 
 `&&` and `||` keep JavaScript's value-returning behaviour. `no && 'never'` returns the boxed
 `false` itself, because that operand decided the answer; it is not converted to a plain
@@ -187,7 +188,7 @@ lines work as they do in JavaScript.
 ## Gotchas
 
 - **`Boolean` passed as a function is not rewritten.** The rewrite applies to a call written
-  as `Boolean(x)`. `[new Boolean(false)].filter(Boolean)` hands the built-in `Boolean` to
+  as `Boolean(x)`. `[Object(false)].filter(Boolean)` hands the built-in `Boolean` to
   `filter`, and the built-in says a boxed `false` is truthy, so it is kept. Write
   `.filter(x => !!x)` instead; the `!!` is a truthiness test in your file, so it is
   rewritten.
