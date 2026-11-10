@@ -83,10 +83,35 @@ export function parseExample(content: string, filePath = ''): ExampleFile {
       .join(' ')
   }
 
-  // Extract first fenced code block (supports ``` or ```` fences)
-  const codeMatch = content.match(/^(`{3,})(\w*)(?::[a-z]+)?\n([\s\S]*?)^\1/m)
-  const language = codeMatch?.[2] || ''
-  const code = codeMatch?.[3]?.trimEnd() || ''
+  const block = exampleCodeBlock(content, metadata.section)
+  const language = block?.language ?? ''
+  const code = block?.code ?? ''
 
   return { path: filePath, title, description, code, language, metadata }
+}
+
+const SECTION_LANGUAGES: Record<string, string[]> = {
+  tjs: ['tjs'],
+  ajs: ['ajs'],
+  ts: ['ts', 'typescript'],
+}
+
+/**
+ * An example's code: the first LIVE fence in the example's own language (`section`: tjs, ajs
+ * or ts), else the first fence of any kind. The one rule for the playground corpus
+ * (`bin/site.ts`) and these tests. Taking the first fence regardless let a short `text` or
+ * `javascript` aside, or a `:static` excerpt, placed above the example become its code.
+ */
+export function exampleCodeBlock(
+  text: string,
+  section?: string
+): { language: string; code: string } | null {
+  const fences = [
+    ...text.matchAll(/^(`{3,})(\w*)(?::([a-z]+))?[^\n]*\n([\s\S]*?)^\1\s*$/gm),
+  ]
+  const wanted = (section && SECTION_LANGUAGES[section]) || []
+  const m =
+    fences.find((f) => wanted.includes(f[2] ?? '') && f[3] !== 'static') ??
+    fences[0]
+  return m ? { language: m[2] || '', code: m[4].trimEnd() } : null
 }

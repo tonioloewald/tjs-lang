@@ -88,7 +88,7 @@ An example object cannot say "one of these five", so this version spells the sch
 list; `Schema.boolean` and `Schema.string` are ready-made schemas, used without parentheses. The
 reply is then checked against the schema before the agent acts on it:
 
-```ajs
+```ajs:inline
 function screenImage({ imageUrl = '/photo-1.jpg' }) {
   let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })
   let schema = Schema.response(

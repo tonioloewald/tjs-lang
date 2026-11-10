@@ -16,6 +16,8 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Eval, SafeFunction } from './lang/eval'
+import { transpile } from './lang/core'
+import { AgentVM } from './vm/ast'
 
 const CHAPTER = join(import.meta.dir, '..', 'guides', 'safe-eval.md')
 const text = readFileSync(CHAPTER, 'utf8')
@@ -49,16 +51,25 @@ describe('the Safe Eval chapter is executable', () => {
     const printed: string[] = []
     const console = {
       log: (v: unknown) =>
-        printed.push(typeof v === 'string' ? v : JSON.stringify(v)),
+        printed.push(
+          typeof v === 'string'
+            ? v
+            : v === undefined
+            ? 'undefined'
+            : JSON.stringify(v)
+        ),
     }
     const body = fences.join('\n').replace(/^import .*$/gm, '') // the injected parameters stand in for the import
     const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
-    await new AsyncFunction('Eval', 'SafeFunction', 'fetch', 'console', body)(
-      Eval,
-      SafeFunction,
-      stubFetch,
-      console
-    )
+    await new AsyncFunction(
+      'Eval',
+      'SafeFunction',
+      'transpile',
+      'AgentVM',
+      'fetch',
+      'console',
+      body
+    )(Eval, SafeFunction, transpile, AgentVM, stubFetch, console)
     expect(printed).toEqual(expected)
   })
 

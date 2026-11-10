@@ -93,8 +93,8 @@ const tagged = await Eval({
   code: "tags.push('clearance')\nreturn tags",
   context: { tags },
 })
-console.log(tagged.result) // → [ 'sale', 'clearance' ]
-console.log(tags) // → [ 'sale' ]
+console.log(tagged.result) // → ["sale","clearance"]
+console.log(tags) // → ["sale"]
 ```
 
 Two details about context keys. A key never replaces a builtin: an entry called `Math` or `NaN`
@@ -409,9 +409,8 @@ const leaky = await Eval({
   code: "try {\n  let r = httpFetch({ url: 'https://api.example.com/products' })\n  return 'got it'\n} catch (e) {\n  return 'caught'\n}",
   capabilities: { fetch: async () => new Response('[]') }, // returns the Response: a host bug
 })
-console.log(leaky.error.message.startsWith(
-  "Capability boundary rejected the return of 'httpFetch': capability return contains an instance of Response"
-)) // → true
+const refusal = "Capability boundary rejected the return of 'httpFetch': capability return contains an instance of Response"
+console.log(leaky.error.message.startsWith(refusal)) // → true
 ```
 
 Neither `'got it'` nor `'caught'` comes back: the run stopped at the `httpFetch`.

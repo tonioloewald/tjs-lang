@@ -14,16 +14,8 @@
  * The framework-specific integrations remain at `tjs-lang/editors/codemirror`,
  * `/monaco`, `/ace`.
  */
-export {
-  collectScopeSymbols,
-  type ScopeSymbol,
-  type SymbolOrigin,
-} from './scope-symbols'
-export {
-  introspectValue,
-  type IntrospectMember,
-  INTROSPECT_VALUE_SOURCE,
-} from './introspect-value'
+export { collectScopeSymbols, type ScopeSymbol, type SymbolOrigin, } from './scope-symbols';
+export { introspectValue, type IntrospectMember, INTROSPECT_VALUE_SOURCE, } from './introspect-value';
 /**
  * Build an epilogue that hands a run's top-level bindings to a callback.
  *
@@ -46,7 +38,4 @@ export {
  * @param source     the example's source (pre- or post-transform; we only read names)
  * @param captureVar the identifier of the callback in scope at the epilogue
  */
-export declare function scopeCaptureEpilogue(
-  source: string,
-  captureVar: string
-): string
+export declare function scopeCaptureEpilogue(source: string, captureVar: string): string;

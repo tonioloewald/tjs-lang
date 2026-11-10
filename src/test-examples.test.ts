@@ -31,7 +31,7 @@ describe('loadExample helper', () => {
 
   test('extracts description', () => {
     const ex = loadExample(join(ROOT, 'guides/examples/ajs/hello-world.md'))
-    expect(ex.description).toContain('greeting')
+    expect(ex.description).toContain('smallest complete one')
   })
 })
 
@@ -67,12 +67,11 @@ describe('TJS examples with inline tests', () => {
   // writing. If you add one, confirm the reason applies — or say what the real reason is.
   const skipTests = new Set([
     'Date Formatting (with import)',
-    'Local Module Imports',
     'Lodash Utilities (with import)',
     'tosijs Todo App',
-    'Full-Stack Demo: Client App',
     'The Universal Endpoint',
     'Predicate Types',
+    'Built-in Types and Dates',
   ])
 
   // The skip list must match its own stated reason.

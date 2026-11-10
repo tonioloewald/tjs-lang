@@ -124,7 +124,7 @@ reply with an added `notes` field passes `isValid`. To refuse extra fields, buil
 `Schema.object`, which takes the same kind of example and adds `additionalProperties: false`,
 and pass the result to `Schema.response`:
 
-```ajs
+```ajs:inline
 function strictPerson({}) {
   let schema = Schema.response(
     'person',
@@ -196,7 +196,7 @@ means "an integer", because the transpiler reads the example from the source tex
 are written differently. `Schema.response` runs inside the VM and receives a value, not source
 text, and `0.0` and `0` are the same number, so both mean integer there.
 
-```ajs
+```ajs:inline
 // An agent always takes one object of named inputs; this one needs none.
 function priceSchemas({}) {
   let fromExample = Schema.response('item', { name: '', price: 0.0 })

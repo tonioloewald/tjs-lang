@@ -9,88 +9,11 @@
 /**
  * TJS-specific keywords (in addition to AJS)
  */
-export declare const TJS_KEYWORDS: readonly [
-  'Type',
-  'Generic',
-  'Enum',
-  'Union',
-  'FunctionPredicate',
-  'predicate',
-  'example',
-  'description',
-  'declaration',
-  'extend',
-  'wasm',
-  'test',
-  'mock',
-  'unsafe',
-  'given',
-  'async',
-  'await',
-  'throw',
-  'import',
-  'export',
-  'class',
-  'extends',
-  'super',
-  'this',
-  'new',
-  'static',
-  'typeof',
-  'instanceof',
-  'delete'
-]
+export declare const TJS_KEYWORDS: readonly ["Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "given", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
 /**
  * All TJS keywords
  */
-export declare const KEYWORDS: readonly [
-  'function',
-  'return',
-  'if',
-  'else',
-  'while',
-  'for',
-  'of',
-  'in',
-  'try',
-  'catch',
-  'finally',
-  'let',
-  'const',
-  'true',
-  'false',
-  'null',
-  'undefined',
-  'Type',
-  'Generic',
-  'Enum',
-  'Union',
-  'FunctionPredicate',
-  'predicate',
-  'example',
-  'description',
-  'declaration',
-  'extend',
-  'wasm',
-  'test',
-  'mock',
-  'unsafe',
-  'given',
-  'async',
-  'await',
-  'throw',
-  'import',
-  'export',
-  'class',
-  'extends',
-  'super',
-  'this',
-  'new',
-  'static',
-  'typeof',
-  'instanceof',
-  'delete'
-]
+export declare const KEYWORDS: readonly ["function", "return", "if", "else", "while", "for", "of", "in", "try", "catch", "finally", "let", "const", "true", "false", "null", "undefined", "Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "given", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
 /**
  * Constructs a `.tjs` file actually REJECTS.
  *
@@ -110,34 +33,11 @@ export declare const KEYWORDS: readonly [
  *
  * AJS keeps its own, much longer list: it is a sandbox, and its restrictions are real.
  */
-export declare const FORBIDDEN_KEYWORDS: readonly ['var', 'eval']
+export declare const FORBIDDEN_KEYWORDS: readonly ["var", "eval"];
 /**
  * Type constructors (same as AJS plus TJS-specific)
  */
-export declare const TYPE_CONSTRUCTORS: readonly [
-  'Date',
-  'Set',
-  'Map',
-  'Array',
-  'Object',
-  'String',
-  'Number',
-  'Boolean',
-  'RegExp',
-  'Error',
-  'JSON',
-  'Math',
-  'Schema',
-  'expect',
-  'assert',
-  'Timestamp',
-  'Exactly',
-  'Is',
-  'IsNot',
-  'Eq',
-  'NotEq',
-  'TypeOf'
-]
+export declare const TYPE_CONSTRUCTORS: readonly ["Date", "Set", "Map", "Array", "Object", "String", "Number", "Boolean", "RegExp", "Error", "JSON", "Math", "Schema", "expect", "assert", "Timestamp", "Exactly", "Is", "IsNot", "Eq", "NotEq", "TypeOf"];
 /**
  * Type NAMES usable in an annotation (`n: int`).
  *
@@ -149,23 +49,7 @@ export declare const TYPE_CONSTRUCTORS: readonly [
  * bundles must not drag in the parser. `editors/vocabulary.test.ts` drives every entry
  * through the real compiler, so the duplication cannot drift silently.
  */
-export declare const TYPE_NAMES: readonly [
-  'int',
-  'unsigned',
-  'uint',
-  'float',
-  'number',
-  'string',
-  'boolean',
-  'bigint',
-  'object',
-  'any',
-  'unknown',
-  'void',
-  'never',
-  'null',
-  'undefined'
-]
+export declare const TYPE_NAMES: readonly ["int", "unsigned", "uint", "float", "number", "string", "boolean", "bigint", "object", "any", "unknown", "void", "never", "null", "undefined"];
 /**
  * TJS operators.
  *
@@ -181,69 +65,30 @@ export declare const TYPE_NAMES: readonly [
  *
  * Guarded by `editors/grammars.test.ts`.
  */
-export declare const OPERATORS: readonly [
-  '=',
-  '+=',
-  '-=',
-  '*=',
-  '/=',
-  '%=',
-  '==',
-  '===',
-  '!=',
-  '!==',
-  '<',
-  '>',
-  '<=',
-  '>=',
-  '+',
-  '-',
-  '*',
-  '/',
-  '%',
-  '**',
-  '&&',
-  '||',
-  '??',
-  '!',
-  '&',
-  '|',
-  '^',
-  '~',
-  '<<',
-  '>>',
-  '>>>',
-  '?',
-  ':',
-  '.',
-  '?.',
-  '?.(',
-  '?.[',
-  '...'
-]
+export declare const OPERATORS: readonly ["=", "+=", "-=", "*=", "/=", "%=", "==", "===", "!=", "!==", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", "**", "&&", "||", "??", "!", "&", "|", "^", "~", "<<", ">>", ">>>", "?", ":", ".", "?.", "?.(", "?.[", "..."];
 /**
  * TJS-specific syntax patterns
  */
 export declare const TJS_PATTERNS: {
-  returnType: RegExp
-  unsafeFunction: RegExp
-  testBlock: RegExp
-  mockBlock: RegExp
-  unsafeExpression: RegExp
-  colonType: RegExp
-}
+    returnType: RegExp;
+    unsafeFunction: RegExp;
+    testBlock: RegExp;
+    mockBlock: RegExp;
+    unsafeExpression: RegExp;
+    colonType: RegExp;
+};
 /**
  * Markdown elements to highlight in comments
  * (for non-JSDoc block comments)
  */
 export declare const MARKDOWN_PATTERNS: {
-  header: RegExp
-  bold: RegExp
-  italic: RegExp
-  inlineCode: RegExp
-  link: RegExp
-  listItem: RegExp
-}
+    header: RegExp;
+    bold: RegExp;
+    italic: RegExp;
+    inlineCode: RegExp;
+    link: RegExp;
+    listItem: RegExp;
+};
 /**
  * Questions/Notes:
  *

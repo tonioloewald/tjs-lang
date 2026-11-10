@@ -181,7 +181,7 @@ and both read like TypeScript but are not:
 Put `!` before a parameter to turn off the check on that one function. The usual case is
 an inner function whose callers have already checked the data:
 
-```tjs
+```tjs:static
 // Checked: called with data from outside
 function average(numbers: [0.0]): 0.0 {
   if (numbers.length === 0) return 0

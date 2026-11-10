@@ -12,7 +12,7 @@ without running. After that comes the recipe for running both on your own machin
 
 ## The module: `mymath.tjs`
 
-```tjs
+```tjs:inline
 export function add(a: 2, b: 3): 5 {
   return a + b
 }

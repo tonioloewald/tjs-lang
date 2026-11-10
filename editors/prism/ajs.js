@@ -7,23 +7,19 @@ export const ajs = {
     greedy: true,
   },
   forbidden: {
-    pattern:
-      /\b(?:new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|async|await|yield|import|export|require|module|var|throw|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\b/,
+    pattern: /\b(?:new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|async|await|yield|import|export|require|module|var|throw|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\b/,
     alias: 'important',
   },
   atom: {
-    pattern:
-      /\b(?:httpFetch|llmPredict|storeGet|storeSet|storeQuery|storeVectorSearch|console)\b/,
+    pattern: /\b(?:httpFetch|llmPredict|storeGet|storeSet|storeQuery|storeVectorSearch|console)\b/,
     alias: 'function',
   },
   string: {
     pattern: /(["'`])(?:\\[\s\S]|(?!\1)[^\\])*\1/,
     greedy: true,
   },
-  'class-name':
-    /\b(?:Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema)\b/,
-  keyword:
-    /\b(?:function|return|if|else|while|for|of|in|try|catch|finally|let|const|true|false|null|undefined)\b/,
+  'class-name': /\b(?:Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema)\b/,
+  keyword: /\b(?:function|return|if|else|while|for|of|in|try|catch|finally|let|const|true|false|null|undefined)\b/,
   boolean: /\b(?:true|false)\b/,
   number: /\b0[xX][\da-fA-F]+\b|(?:\b\d+(?:\.\d*)?|\B\.\d+)(?:[eE][+-]?\d+)?/,
   operator: /[<>]=?|[!=]=?=?|--?|\+\+?|&&?|\|\|?|[?*/~^%]/,

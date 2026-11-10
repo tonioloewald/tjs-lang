@@ -129,7 +129,7 @@ with `Capability 'llm.predict' missing`. This agent catches neither, so both arr
 Long documents cost tokens and can exceed a model's context. Cut the text before you send it,
 and tell the model what you did:
 
-```ajs
+```ajs:inline
 function summarizeUrl({
   url = 'https://tjs.tosijs.net/texts/renewable-energy.txt',
   maxChars = 600,
@@ -163,7 +163,7 @@ A fetch can be refused or fail, and a model can be down. Both are failures of th
 run with `run.error`. The rule for `httpFetch`: a refused domain, a network failure or a body
 over the size cap throws; an HTTP error status does not, and returns the body.
 
-```ajs
+```ajs:inline
 function summarizeSafely({ url = 'https://tjs.tosijs.net/texts/ai-history.txt' }) {
   let text = ''
   try {

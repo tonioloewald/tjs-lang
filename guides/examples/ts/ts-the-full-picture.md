@@ -183,7 +183,7 @@ TJS a type is written as an example value, and TJS tells integers from other num
 is an integer example, so a `price` must be an integer, while `9.99` would mean any number.
 The [syntax reference](TJS-SYNTAX.md) has the full rules.
 
-```tjs
+```tjs:static
 Type Product {
   example: { id: 1, name: 'Widget', price: 999 }
 }

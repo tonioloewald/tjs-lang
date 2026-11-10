@@ -11,12 +11,12 @@
  * these descriptors back into completions on the parent side.
  */
 export interface IntrospectMember {
-  label: string
-  /** 'method' for callables, else 'property'. */
-  type: 'method' | 'property'
-  /** typeof for properties, an arg hint for methods. */
-  detail: string
+    label: string;
+    /** 'method' for callables, else 'property'. */
+    type: 'method' | 'property';
+    /** typeof for properties, an arg hint for methods. */
+    detail: string;
 }
-export declare function introspectValue(value: unknown): IntrospectMember[]
+export declare function introspectValue(value: unknown): IntrospectMember[];
 /** The function source, for injection into the sandbox iframe. */
-export declare const INTROSPECT_VALUE_SOURCE: string
+export declare const INTROSPECT_VALUE_SOURCE: string;
