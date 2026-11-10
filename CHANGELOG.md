@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **AJS: an allowlist entry alone no longer opens the private network (BREAKING)** (#3991).
+  `allowedFetchDomains` was the whole destination policy: naming a loopback, private or
+  link-local address (a typo, a config copied from a dev setup) let agents reach the internal
+  network, and the private-range block applied only when no allowlist was set, when nothing
+  was fetchable anyway. Those destinations are now refused even when allowlisted, on the
+  built-in client, a host's own fetch and the vision battery, unless the host opts in with
+  `allowPrivateNetwork: true` in the run context (`fetchPolicy.privateNetwork` for `Eval` and
+  `SafeFunction`). **What to do:** a host that deliberately fetches a local service adds the
+  opt-in. Resolving hostnames to catch one that points inside the network is a planned opt-in
+  (#4006).
+
 - **AJS: `agentRun` did not hold a sub-agent to its declared inputs or result** (#3987).
   **Affected: every published version with `agentRun`, through 0.14.0-rc.10.** `vm.run`
   refuses arguments that do not match an agent's declared inputs, but `agentRun` ran a

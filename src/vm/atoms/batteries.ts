@@ -263,7 +263,8 @@ function admitImageUrls(images: unknown, ctx: any, op: string): string[] {
         admitFetchUrl(
           img,
           policyList(ctx.context?.allowedFetchDomains, 'allowedFetchDomains'),
-          true
+          true,
+          ctx.context?.allowPrivateNetwork === true
         )
       )
     } catch (e: any) {

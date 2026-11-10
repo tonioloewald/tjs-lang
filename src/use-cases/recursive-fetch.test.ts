@@ -80,6 +80,8 @@ function createAgentServer(): Server {
                 `127.0.0.1:${TEST_PORT}`,
               ],
               allowedFetchMethods: ['POST'],
+              // the test agents run on loopback, which needs its own opt-in (#3991)
+              allowPrivateNetwork: true,
             },
             capabilities: {
               // Use default fetch which has depth protection
@@ -348,6 +350,7 @@ describe('Fetch Domain Allowlist', () => {
         context: {
           // an entry admits only the default port unless it names one
           allowedFetchDomains: [`localhost:${TEST_PORT}`],
+          allowPrivateNetwork: true, // loopback needs its own opt-in (#3991)
         },
       }
     )
@@ -373,6 +376,7 @@ describe('Fetch Domain Allowlist', () => {
         fuel: 100,
         context: {
           allowedFetchDomains: ['*.example.com', 'localhost'],
+          allowPrivateNetwork: true, // loopback needs its own opt-in (#3991)
         },
       }
     )

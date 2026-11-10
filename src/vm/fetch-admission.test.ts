@@ -62,6 +62,8 @@ const allow = {
   context: {
     allowedFetchDomains: [`127.0.0.1:${server.port}`, 'api.github.com'],
     allowedFetchMethods: ['POST', 'PUT', 'PATCH'],
+    // the fixture servers are on loopback, which an allowlist entry alone no longer opens (#3991)
+    allowPrivateNetwork: true,
   },
 }
 

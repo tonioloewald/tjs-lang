@@ -102,6 +102,8 @@ export interface FetchPolicy {
   domains?: string[]
   methods?: string[]
   headers?: string[]
+  /** Allow loopback/private destinations an allowlist names (#3991). Off unless `true`. */
+  privateNetwork?: boolean
 }
 
 /** The run context a FetchPolicy becomes. */
@@ -113,6 +115,7 @@ function fetchContext(
     ...(policy.domains && { allowedFetchDomains: policy.domains }),
     ...(policy.methods && { allowedFetchMethods: policy.methods }),
     ...(policy.headers && { allowedRequestHeaders: policy.headers }),
+    ...(policy.privateNetwork === true && { allowPrivateNetwork: true }),
   }
 }
 

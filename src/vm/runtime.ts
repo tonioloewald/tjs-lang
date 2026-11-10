@@ -7150,7 +7150,10 @@ export function policyList(value: unknown, name: string): string[] | undefined {
 export function admitFetchUrl(
   url: string,
   allowedDomains: string[] | undefined,
-  destinationRequired = true
+  destinationRequired = true,
+  // The host's explicit opt-in to loopback/private/link-local destinations (#3991). An
+  // allowlist entry alone does not open the private network.
+  allowPrivateNetwork = false
 ): string {
   // Returns the URL that was ADMITTED, and that is the URL the caller sends. Admission and
   // forwarding used to act on different strings: a relative URL was checked after resolving it
@@ -7193,6 +7196,15 @@ export function admitFetchUrl(
         `Fetch blocked: domain not in allowlist. Allowed: ${allowedDomains.join(
           ', '
         )}`
+      )
+    // An allowlist was the WHOLE policy, so naming a loopback or private address (a typo, a
+    // config copied from a dev setup) opened the internal network (#3991). That takes its own
+    // opt-in now, on every path an allowlist governs.
+    if (!allowPrivateNetwork && isBlockedUrl(parsed.href))
+      throw new Error(
+        `Fetch blocked: '${parsed.host}' is a loopback or private address. An allowlist entry ` +
+          `alone does not open the private network; the host can allow it with ` +
+          `allowPrivateNetwork: true in the run context (fetchPolicy.privateNetwork for Eval).`
       )
     return parsed.href
   }
@@ -7304,7 +7316,13 @@ export const fetch = defineAtom(
       'allowedRequestHeaders'
     )
     // the ADMITTED url is the one sent, on both paths
-    const target = admitFetchUrl(url, allowedDomains, !ctx.capabilities.fetch)
+    const target = admitFetchUrl(
+      url,
+      allowedDomains,
+      !ctx.capabilities.fetch,
+      // only a literal true: the host's deliberate choice, never a truthy accident
+      ctx.context?.allowPrivateNetwork === true
+    )
     admitHeaders(headers as Record<string, string>, allowedHeaders)
     const verb = method === undefined ? undefined : String(method).toUpperCase()
     if (verb !== undefined && !admitsMethod(verb, allowedMethods))
