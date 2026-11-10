@@ -194,23 +194,23 @@ the multi-file examples that need it.
 
 ## Bundle Size
 
-The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.14.0**; each row is
+The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.14.0-rc.10 (main, 2026-11-11)**; each row is
 a standalone entry point, not an increment (import only what you need):
 
 | Entry point                   | Bundle           | Size   | Gzipped   |
 | ----------------------------- | ---------------- | ------ | --------- |
-| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 129 KB | **41 KB** |
-| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 305 KB | 93 KB |
-| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 185 KB | 58 KB |
+| `tjs-lang/vm-ast` (VM, no parser — recommended) | tjs-vm-ast.js | 137 KB | **43 KB** |
+| `tjs-lang/vm` (VM + transpiler) | tjs-vm.js      | 321 KB | 99 KB |
+| `tjs-lang/eval` (safe eval)   | tjs-eval.js      | 201 KB | 64 KB |
 | `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
-| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 403 KB | 128 KB    |
-| `tjs-lang` (full, TS support) | index.js         | 508 KB | 164 KB    |
-| `tjs-lang/runtime` (runtime for emitted code) | tjs-runtime.js | 44 KB | 15 KB |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 411 KB | 132 KB    |
+| `tjs-lang` (full, TS support) | index.js         | 558 KB | 181 KB    |
+| `tjs-lang/runtime` (runtime for emitted code) | tjs-runtime.js | 45 KB | 15 KB |
 | `tjs-lang/schema` (tosijs-schema + `$predicate`) | tjs-schema.js | 41 KB | 12 KB |
 | `tjs-lang/lang/from-ts` (TS converter; needs `typescript`) | tjs-from-ts.js | 49 KB | 16 KB |
-| `tjs-lang/browser` (self-contained, any CDN) | tjs-browser.js | 657 KB | 199 KB |
+| `tjs-lang/browser` (self-contained, any CDN) | tjs-browser.js | 664 KB | 205 KB |
 | `tjs-lang/browser/from-ts` (lazy-loads `typescript`) | tjs-browser-from-ts.js | 51 KB | 16 KB |
-| `tjs-lang/css` (CSS validators) | tjs-css.js | 54 KB | 16 KB |
+| `tjs-lang/css` (CSS validators) | tjs-css.js | 54 KB | 17 KB |
 | `tjs-lang/linalg` (SIMD kernels) | tjs-linalg.js | 14 KB | 4 KB |
 | `tjs-lang/import-resolver` (bare imports, no bundler) | tjs-import-resolver.js | 7 KB | 3 KB |
 | `tjs-lang/rbac` (rule primitives) | tjs-rbac.js | 5 KB | 2 KB |
