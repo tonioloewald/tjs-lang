@@ -840,9 +840,10 @@ function safeDivide({ a = 10, b = 0 }) {
 Returns `{ error: 'Division by zero' }`.
 
 - **`err` is a string**, the error's message. `err.message` is `undefined`.
-- **Give `Error` a literal message.** For now a computed message, `Error('bad: ' + x)` or
-  `Error(m)`, arrives as `'[object Object]'`. To report data with a failure, return it from the
-  `catch` (as `parseAll` below does) rather than building it into the message.
+- **The message is a string.** It can be computed: `Error('bad: ' + x)`, `Error(msg)` or a
+  template. A number or boolean becomes its text; an object or array is refused by name, so
+  build the text you want (`JSON.stringify(data)`), or return the data from the `catch` (as
+  `parseAll` below does).
 - **Re-raising** is calling `Error(…)` again inside the `catch`; that error goes to the next
   `try` out, or ends the run.
 - **There is no working `finally`** (see [What's Forbidden](#whats-forbidden)).

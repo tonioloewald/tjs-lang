@@ -77,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS: `Error()` keeps a computed message** (#3982). `Error('bad ' + x)`, `Error(msg)` and a
+  template reached the error as `'[object Object]'`; only a literal survived. The message is now
+  evaluated; a number or boolean becomes its text, and an object is refused by name rather than
+  coerced.
+
 - **An AJS parameter whose example is `{}` accepts any object.** The input schema closed an
   empty property set, so `{ writer = {} }` refused every object it was given. `{}` as an example
   means "an object", as it already did for an agent that declares no parameters.

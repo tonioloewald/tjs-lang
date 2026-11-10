@@ -6051,10 +6051,23 @@ export const errorAtom = defineAtom(
   s.object({ args: s.array(s.any).optional }),
   undefined,
   async (step, ctx) => {
-    const message = step.args?.[0] ?? 'Error'
-    ctx.error = new AgentError(String(message), 'Error')
+    // RESOLVED (#3982): a computed message arrives as an expression node, and String(node) was
+    // '[object Object]'. A primitive is the message; anything else is refused by name, because
+    // ToString on a guest object is an unbudgeted allocation the VM refuses everywhere else.
+    const raw = step.args?.length ? resolveValue(step.args[0], ctx) : 'Error'
+    const message =
+      typeof raw === 'string'
+        ? raw
+        : typeof raw === 'number' || typeof raw === 'boolean'
+        ? String(raw)
+        : raw === undefined || raw === null
+        ? 'Error'
+        : `Error() takes a string message, not ${
+            Array.isArray(raw) ? 'an array' : 'an object'
+          }`
+    ctx.error = new AgentError(message, 'Error')
   },
-  { docs: 'Trigger error flow', cost: 0.1 }
+  { docs: 'Trigger error flow', cost: 0.1, resolveInputs: false }
 )
 
 /**
