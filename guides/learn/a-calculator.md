@@ -247,8 +247,7 @@ Now give it a face. The calculator becomes a tosijs model, as in Responding to t
 object the page watches, so whatever shows it updates when it changes. The display shows
 `calculator.x`, and every button calls `press`.
 
-This example is your workbench for the exercises: add a key here, test first, and press it
-when the tests pass. Compared with the brain above, what is new is:
+Compared with the brain above, what is new is:
 
 - the `√` and `±` cases in `press` (marked `// new`),
 - `: 15` on the first line of `run`,
@@ -408,11 +407,23 @@ as a test, then make the program agree. The last exercise below does that for `1
 
 ## Try it
 
-Pick a key and add it at the workbench, test first each time, and add a button for it to
-`keys`. Make each key a single character, because `run` types its keys one character at a time:
+The workbench at the end of this section is the calculator again, cut down to digits, the four
+operations, `=` and `C`. Add keys to it, test first each time, and add a button for each to
+`keys`. Make each key a single character, because `run` types its keys one character at a time.
+
+Start with the two keys it is missing:
+
+- **√** (square root): `run('16√')` is 4. Write the test, add the case to `press`, add the
+  button. Then compare yours with the `√` case in "The finished calculator" above. Did you
+  remember `fresh`? (What happens if you type a digit straight after `√` without it?)
+- **±** (change sign): `run('5±')` is -5, and `run('5±±')` is 5. Again, compare when it works.
+
+Then try these:
 
 - **n!** (factorial) multiplies X by every whole number below it: `run('5!')` is 120. You wrote
-  this kind of loop in Repetition.
+  this kind of loop in Repetition. There is another way to write it, a function that calls
+  itself, and it is where the next chapter, [Recursion](/recursion/), begins: it might be
+  interesting to read before you write the loop, or after.
 - **Power**: the key is `'^'`, and `run('2^10=')` is 1024, the first number raised to the
   power of the second (calculators often label it xʸ). It is an operator like `+`, so it
   belongs in `calculate` (`**` is the power operator) and in the operator arm of `press`.
@@ -448,9 +459,92 @@ And a larger one: make `1 ÷ 0 =` show an error, in steps.
 5. **The decisions.** Decide what every other key should do while the error is showing, and
    test those decisions too.
 
-Work them here:
+Work them here. This is the workbench: the finished calculator without `√` and `±`.
 
 ```tjs:inline {"view": "code"}
-// Your code here. Show results with preview.append(…), check them with a
-// test block, then press the refresh button (or ⌘S / Ctrl+S) to run it.
+import { elements, tosi } from 'tosijs'
+
+function calculate(op: '+', y: 0.0, x: 0.0) {
+  given op {
+    '+' { return y + x }
+    '-' { return y - x }
+    '×' { return y * x }
+    '÷' { return y / x }
+  } else {
+    return x
+  }
+}
+
+function press(calculator: { x: 0.0, y: 0.0, op: '', fresh: true }, key: '7') {
+  given key {
+    'C' {
+      calculator.x = 0
+      calculator.y = 0
+      calculator.op = ''
+      calculator.fresh = true
+    }
+    '+', '-', '×', '÷' {
+      if (calculator.op && !calculator.fresh) {
+        calculator.x = calculate(calculator.op, calculator.y, calculator.x)
+      }
+      calculator.y = calculator.x
+      calculator.op = key
+      calculator.fresh = true
+    }
+    '=' {
+      if (calculator.op) {
+        calculator.x = calculate(calculator.op, calculator.y, calculator.x)
+        calculator.op = ''
+        calculator.fresh = true
+      }
+    }
+  } else {
+    const digit = Number(key)
+    if (calculator.fresh) {
+      calculator.x = digit
+      calculator.fresh = false
+    } else {
+      calculator.x = calculator.x * 10 + digit
+    }
+  }
+}
+
+function run(keys: '12+3='): 15 {
+  const calculator = { x: 0, y: 0, op: '', fresh: true }
+  for (const key of keys) {
+    press(calculator, key)
+  }
+  return calculator.x
+}
+
+const { calculator } = tosi({
+  calculator: { x: 0, y: 0, op: '', fresh: true },
+})
+
+const { div, button } = elements
+
+const keys = [
+  '7', '8', '9', '÷',
+  '4', '5', '6', '×',
+  '1', '2', '3', '-',
+  '0', 'C', '=', '+',
+]
+
+preview.append(
+  div(
+    { style: { fontSize: '2em', textAlign: 'right', padding: '0.25em', background: '#eee' } },
+    calculator.x
+  ),
+  div(
+    { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 3em)', gap: '4px' } },
+    ...keys.map((key) => button({ onClick: () => press(calculator, key) }, key))
+  )
+)
+
+test 'the four operations' {
+  expect(run('123')).toBe(123)
+  expect(run('1÷4=')).toBe(0.25)
+  expect(run('2+3×4=')).toBe(20)
+  expect(run('12+3C5=')).toBe(5)
+}
 ```

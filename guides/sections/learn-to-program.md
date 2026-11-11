@@ -1,4 +1,4 @@
-<!--{"pin": "top", "order": 5, "book": ["default", "language"]}-->
+<!--{"pin": "top", "order": 5, "book": ["default", "language"], "continue": true}-->
 <!-- TODO review -->
 
 # Learn to Program
@@ -29,7 +29,7 @@ before you need it, and Checking Your Work teaches you to write tests of your ow
 
 ## What you will learn
 
-There are thirteen chapters, starting with How This Book Works. After it, you learn to:
+There are sixteen chapters, starting with How This Book Works. After it, you learn to:
 
 - put words, headings and paragraphs on a page (Hello, Screen)
 - work with numbers and text, and give them names so you can use them again (Values and
@@ -46,7 +46,12 @@ There are thirteen chapters, starting with How This Book Works. After it, you le
 - wait for something slow, such as a timer or information fetched from another computer
   (Things That Take Time)
 
-The closing project, A Calculator, puts all of it together into a working pocket calculator.
+A Calculator puts all of that together into a working pocket calculator. Three chapters
+follow it:
+
+- write a function that calls itself, and draw with it (Recursion)
+- make a program that runs on a clock and is steered by the keyboard (Time and Events)
+- build a game of Tetris, step by step, from everything before it (Tetris)
 
 That is not a watered-down version of programming. Every program you will ever write is made
 of the same few ideas: values (pieces of information, like numbers and words), names for
@@ -56,7 +61,7 @@ of them, in bigger combinations, but nothing fundamentally different.
 Some things this part leaves out. Classes (templates for making many similar things) and
 modules (splitting a program across files) are covered later in this book. Servers (programs
 that run on another computer, not in the page) are not in this book; the tjs-lang website has
-a [Full Stack](/tjs-fullstack/) section about them. When you finish the calculator, go on to
+a [Full Stack](/tjs-fullstack/) section about them. When you finish Tetris, go on to
 [Basics](/tjs-basics/), whose first chapter is Hello TJS. Those chapters are written for people
 who already program, so they move faster, but by then that is you.
 

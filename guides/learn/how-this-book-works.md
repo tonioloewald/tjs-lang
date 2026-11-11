@@ -135,6 +135,15 @@ to the console itself, while it runs. That is where the line already in the cons
 You do not need `console.log` at the prompt; you will use it later to look inside programs
 that are doing something you did not expect.
 
+The console in these examples is a simplified version of one every modern desktop browser has
+built in, for any page you visit. On a PC or Mac you can open the browser's own console:
+in Chrome or Edge with Ctrl+Shift+J (⌘⌥J on a Mac), in Firefox with Ctrl+Shift+K (⌘⌥K), and in
+Safari after turning on "Show features for web developers" in Settings › Advanced, with ⌘⌥C.
+It works the same way: type at the prompt, press Enter, see the answer. One difference: the
+browser's console speaks plain JavaScript, not TJS, so the few places where TJS is stricter
+(you will meet them, starting with numbers in Functions) behave the JavaScript way there.
+Phones and tablets have no console of their own; the ones in this book work everywhere.
+
 ## Checking your answers
 
 Most examples end with a **test**: a few lines that check the program did what it should.

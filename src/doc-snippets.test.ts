@@ -30,9 +30,10 @@
  * code" and every exemption is visible in the source.
  */
 import { describe, it, expect } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { tjs } from './lang'
+import { testUtils } from './lang/tests'
 
 const REPO = resolve(import.meta.dir, '..')
 
@@ -76,19 +77,13 @@ const DOCS = [
   // Every example asserts its result: the page shipped two that returned `undefined`.
   'docs/WASM-QUICKSTART.md',
   // The book's Part I (#3128): every example is a whole program, and its tests are the
-  // reader's feedback, so they must pass as written.
-  'guides/learn/how-this-book-works.md',
-  'guides/learn/hello-screen.md',
-  'guides/learn/values-and-names.md',
-  'guides/learn/functions.md',
-  'guides/learn/checking-your-work.md',
-  'guides/learn/decisions.md',
-  'guides/learn/repetition.md',
-  'guides/learn/lists.md',
-  'guides/learn/things-with-parts.md',
-  'guides/learn/responding-to-the-reader.md',
-  'guides/learn/a-calculator.md',
-  'guides/learn/when-things-go-wrong.md',
+  // reader's feedback, so they must pass as written. EVERY chapter in the directory, not a
+  // list: a hand-kept list silently skipped Things That Take Time from the day it was written,
+  // and would have skipped the next three chapters too.
+  ...readdirSync(resolve(import.meta.dir, '..', 'guides/learn'))
+    .filter((f) => f.endsWith('.md'))
+    .sort()
+    .map((f) => `guides/learn/${f}`),
 ]
 
 /*
@@ -299,7 +294,7 @@ describe("the book's tests run and pass outright", () => {
   })
 
   for (const s of BOOK)
-    it(`${s.doc}:${s.line}`, () => {
+    it(`${s.doc}:${s.line}`, async () => {
       const g = globalThis as any
       const prev = g.preview
       const prevElements = g.elements
@@ -315,9 +310,32 @@ describe("the book's tests run and pass outright", () => {
       g.tosi = (state: unknown) => state
       try {
         const r: any = tjs(s.code, { runTests: 'report' } as any)
-        const results = (r.testResults ?? []).filter(
+        let results = (r.testResults ?? []).filter(
           (t: any) => !t.isSignatureTest
         )
+        // Build-time testing runs the module SYNCHRONOUSLY (`tjs()` is synchronous), so an
+        // example with top-level `await` cannot run there and every result is inconclusive
+        // (Things That Take Time). The page runs examples as async code followed by the async
+        // `testRunner`; do the same here, so those tests are held to passing too. A module that
+        // is genuinely broken fails this run as well.
+        if (
+          results.length > 0 &&
+          results.every((t: any) =>
+            /^Module could not be executed for testing/.test(t.error ?? '')
+          )
+        ) {
+          const emitted: any = tjs(s.code, { runTests: false })
+          const AsyncFunction = Object.getPrototypeOf(
+            async () => {}
+          ).constructor
+          const body = emitted.code
+            .replace(/^import .*$/gm, '')
+            .replace(/^export /gm, '')
+          const run = await new AsyncFunction(
+            `${testUtils}\n${body}\nreturn await ${emitted.testRunner}`
+          )()
+          results = run.results
+        }
         expect(results.length).toBeGreaterThan(0)
         expect(
           results
