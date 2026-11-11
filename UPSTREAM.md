@@ -152,15 +152,15 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
-## tosijs-ui — visible Previous / Next links, scoped to a section (tosijs-ui#255)
+## tosijs-ui — a "Continue" link at the bottom of each page in a section (tosijs-ui#255)
 
 **Virta:** #4025
 
-**Filed 2026-11-11.** The books (Learn to Program above all) are read in order, and a reader at
-the end of a chapter has no way on but the sidebar. tosijs-ui's `kind: 'book'` computes the
-reading order but only emits head `<link rel>` tags, site-wide. Asked for visible links at the
-foot of a page, scoped by a section page's metadata. **Not worked around.** **When it ships:**
-mark the book section pages and check the chains in the preview.
+**Filed 2026-11-11.** A reader who finishes a Learn to Program chapter has nothing at the end of
+the page to carry on with. Asked for one link at the bottom of each page in an opted-in section,
+to the next page in nav order ("Continue: Functions →"). Not navigation in general and not head
+`<link rel>` tags. **Not worked around.** **When it ships:** opt the book sections in and check
+the chains in the preview.
 
 ## tosijs-ui — `<tosi-lottie>` hides its placeholder as soon as it upgrades
 
