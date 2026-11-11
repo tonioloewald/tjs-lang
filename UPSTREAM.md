@@ -162,6 +162,15 @@ to the next page in nav order ("Continue: Functions →"). Not navigation in gen
 `<link rel>` tags. **Not worked around.** **When it ships:** opt the book sections in and check
 the chains in the preview.
 
+## tosijs-ui — a page opens at the previous page's scroll position (tosijs-ui#256)
+
+**Virta:** #4026
+
+**Filed 2026-11-11.** Long-standing. The doc browser swaps pages inside one scrolling pane and
+never resets it: reproduced with Repetition scrolled to 2500px, then a click on Lists, which
+opened at 2500px, mid-page. Asked for: top of the page on navigation, the heading for a
+`#fragment`, the previous position on Back/Forward. **Not worked around.**
+
 ## tosijs-ui — `<tosi-lottie>` hides its placeholder as soon as it upgrades
 
 **Virta:** #3817
