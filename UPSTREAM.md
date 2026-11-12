@@ -152,25 +152,6 @@ in the same place the other two write their preset files.
 
 **When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
 
-## tosijs-ui — a "Continue" link at the bottom of each page in a section (tosijs-ui#255)
-
-**Virta:** #4025
-
-**Filed 2026-11-11.** A reader who finishes a Learn to Program chapter has nothing at the end of
-the page to carry on with. Asked for one link at the bottom of each page in an opted-in section,
-to the next page in nav order ("Continue: Functions →"). Not navigation in general and not head
-`<link rel>` tags. **Not worked around.** **When it ships:** opt the book sections in and check
-the chains in the preview.
-
-## tosijs-ui — a page opens at the previous page's scroll position (tosijs-ui#256)
-
-**Virta:** #4026
-
-**Filed 2026-11-11.** Long-standing. The doc browser swaps pages inside one scrolling pane and
-never resets it: reproduced with Repetition scrolled to 2500px, then a click on Lists, which
-opened at 2500px, mid-page. Asked for: top of the page on navigation, the heading for a
-`#fragment`, the previous position on Back/Forward. **Not worked around.**
-
 ## tosijs-ui — `<tosi-lottie>` hides its placeholder as soon as it upgrades
 
 **Virta:** #3817
@@ -339,6 +320,8 @@ _Delete the workaround when:_ the match is anchored to the first non-blank line.
 
 Kept as one line each; the full write-ups are in git history.
 
+- tosijs-ui — a "Continue" link at the bottom of each page in a section (tosijs-ui#255) — ✅ RESOLVED 2026-11-12 (shipped in 1.17.8; adopted e50200f3; Learn to Program opts in with `"continue": true`)
+- tosijs-ui — a page opened at the previous page's scroll position (tosijs-ui#256) — ✅ RESOLVED 2026-11-12 (shipped in 1.17.8; verified: a new page opens at the top, Back restores the position)
 - tosijs-ui — inline live-example views: toolbar placement, a site-level `exampleView`, a refresh button (tosijs-ui#252) — ✅ RESOLVED 2026-11-11 (shipped in 1.17.4; adopted 1.17.5; the Try it comment now points at the refresh button)
 - tosijs-schema — no way to declare an OPEN object — ✅ RESOLVED 2026-09-28 (adopted `.open` with `^1.12.0`; the `s.record(s.any)` workaround is gone)
 - Bun — a directory's listing is cached on first module resolution — ✅ RESOLVED 2026-09-26 (oven-sh/bun#40105 closed; no workaround here)
