@@ -108,6 +108,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A member expression in a `Type` example is checked** (#4052). `cells: [Cell.example]`
+  validated nothing: a Type has no `.example` property, so the example was `undefined` and the
+  field accepted any value, silently. `X.example` now means the type `X`; any other dotted
+  member (`shapes.Cell`) is a reference read when the value is checked, as a bare name already
+  was, so it also works when declared later; and a reference that reads `undefined` is recorded
+  as unchecked in the flight recorder, as an undeclared name is. A computed member (`xs[0]`) or
+  a call still computes an example value.
+
 - **`fromTS` reads `/* @tjs TjsStrict */` only from a real block comment.** The scan matched
   raw source, so a file whose test fixtures held that text in a template string converted as a
   TjsStrict file (TJS semantics throughout, no conversion rewrites); a comments-kept view would

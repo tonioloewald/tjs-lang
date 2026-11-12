@@ -2076,6 +2076,18 @@ function aliasTargets(example: string): string[] | null {
   return walk(ast.body[0]?.expression) && names.length ? names : null
 }
 
+/** `a.b.c`: dotted names only — no computed key, no optional chaining, no call. */
+function isMemberChain(n: any): boolean {
+  if (n.type === 'Identifier') return true
+  return (
+    n.type === 'MemberExpression' &&
+    !n.computed &&
+    !n.optional &&
+    n.property.type === 'Identifier' &&
+    isMemberChain(n.object)
+  )
+}
+
 export function markExampleKinds(example: string): string {
   let ast: any
   try {
@@ -2128,6 +2140,21 @@ export function markExampleKinds(example: string): string {
         return pred === '(() => true)' ? k('any') : k('pred', 'undefined', pred)
       // The name is passed as the value so a `ref` that cannot be read can SAY which one.
       return k('ref', JSON.stringify(name), `() => ${name}`)
+    }
+    // A member chain (`shapes.Cell`) is a reference too, read when CHECKED, for the same
+    // reasons a name is (#4052). As a plain value it was worse than wrong: a Type has no
+    // `.example`, so `cells: [Cell.example]` evaluated to `[undefined]` and accepted
+    // anything, silently. `X.example` means the type `X`, which is what a reader means by
+    // it. A computed member (`xs[0]`) or a call stays a value: those compute an example.
+    if (n.type === 'MemberExpression') {
+      if (!isMemberChain(n)) return null
+      if (
+        n.object.type === 'Identifier' &&
+        n.property.name === 'example' &&
+        n.object.name !== 'undefined'
+      )
+        return mark(n.object)
+      return k('ref', JSON.stringify(text(n)), `() => ${text(n)}`)
     }
     if (n.type === 'BinaryExpression' && n.operator === '|') {
       const members = unionMembers(n)
