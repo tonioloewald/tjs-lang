@@ -7,6 +7,8 @@ import { findFiles } from '../walk'
 import { tjs, dialectForFilename } from '../../lang'
 import { enforceMaxWarnings, reportWarnings } from '../warnings'
 import { tallyTestResults, testLabel } from '../test-report'
+import { lint } from '../../lang/linter'
+import { preprocess } from '../../lang/parser'
 
 /**
  * Source files under `dir`.
@@ -94,12 +96,32 @@ async function checkOne(file: string, verbose = true): Promise<number | null> {
     // they look alike). It is not a failure, but `check` reporting ✓ said nothing at all (#4120),
     // so each is a warning, counted by `--max-warnings`.
     const inconclusive = tallyTestResults(result.testResults ?? []).inconclusive
+    // The linter (unused variables, unreachable code, safe-assign, misspelled dictionary keys)
+    // runs on native .tjs files: it existed and nothing in the CLI called it (2026-11-14).
+    // Plain .js keeps JavaScript's rules. Under `TjsStrict` safe-assign and excess dictionary
+    // keys are ERRORS, which fail the check.
+    const lintDiagnostics =
+      dialectForFilename(file) === 'tjs'
+        ? lint(source, {
+            filename: file,
+            strict: !!preprocess(source).tjsModes?.tjsStrict,
+          }).diagnostics
+        : []
+    const lintErrors = lintDiagnostics.filter((d) => d.severity === 'error')
+    const lintText = (d: (typeof lintDiagnostics)[number]) =>
+      `${d.line ? `line ${d.line}: ` : ''}${d.message} (${d.rule})`
     const warningCount = reportWarnings(file, [
       ...(result.warnings ?? []),
       ...inconclusive.map(
         (r) => `${testLabel(r)} could not run: ${r.error ?? 'inconclusive'}`
       ),
+      ...lintDiagnostics.filter((d) => d.severity === 'warning').map(lintText),
     ])
+    if (lintErrors.length) {
+      console.error(`✗ ${file}`)
+      for (const d of lintErrors) console.error(`  ${lintText(d)}`)
+      return null
+    }
 
     // Report function info from types
     if (verbose && result.types && Object.keys(result.types).length > 0) {

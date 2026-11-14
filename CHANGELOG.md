@@ -109,6 +109,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`tjs check` runs the linter on `.tjs` files, and `TjsStrict` makes two rules errors**
+  (decided 2026-11-14). The linter (unused variables, unreachable code, safe-assign, misspelled
+  dictionary-default keys) existed and nothing in the CLI called it. Its findings are warnings,
+  counted by `--max-warnings`; under `TjsStrict`, safe-assign and excess dictionary keys are errors
+  that fail the check. Plain `.js` files are not linted.
+
 - **An AJS input-validation refusal names the field that failed**: `Input validation failed:
   args do not match expected schema (qty: Expected integer)`. The prefix is unchanged, so hosts
   that match on it are unaffected.
@@ -147,6 +153,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it to get the check.
 
 ### Fixed
+
+- **Line numbers after a directive are right.** Removing a `TjsStrict`, `TjsCompat` or `safety …`
+  line also removed the newlines after it, so every later line number (error paths such as
+  `file.tjs:3:f.x`, warnings, lint diagnostics) was off by the lines removed.
 
 - **`callStacks` no longer lists calls that already returned** (#4118, #3994 A5.3). The emitter put
   `popStack()` after each function's `return`, where it never ran, so the ring kept every finished

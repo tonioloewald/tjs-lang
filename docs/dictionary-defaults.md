@@ -185,7 +185,8 @@ for (const d of lint(source).diagnostics) console.log(d.rule, d.message)
 ```
 
 A payload built elsewhere and passed in a variable, or one containing a spread, is not
-checked. `tjs check` does not run lint rules, so call `lint` from `tjs-lang/lang` yourself.
+checked. `tjs check` runs the rule (a warning, an error under `TjsStrict`); from code, call
+`lint` from `tjs-lang/lang`.
 
 > **Where TJS diverges from WebIDL**
 >

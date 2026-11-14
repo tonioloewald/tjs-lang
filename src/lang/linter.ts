@@ -360,7 +360,13 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
           node.arguments.forEach((arg: any, i: number) => {
             const shape = shapes[i]
             if (shape && arg.type === 'ObjectExpression') {
-              checkExcessKeys(arg, shape, node.callee.name, diagnostics)
+              checkExcessKeys(
+                arg,
+                shape,
+                node.callee.name,
+                diagnostics,
+                opts.strict ? 'error' : 'warning'
+              )
             }
           })
         },
@@ -463,7 +469,8 @@ function checkExcessKeys(
   argObj: any,
   shape: DictShape,
   path: string,
-  diagnostics: LintDiagnostic[]
+  diagnostics: LintDiagnostic[],
+  severity: LintDiagnostic['severity'] = 'warning'
 ): void {
   for (const p of argObj.properties) {
     // A spread may legitimately contribute declared keys; skip the whole object
@@ -477,7 +484,8 @@ function checkExcessKeys(
     if (FORBIDDEN_KEYS_SET.has(key)) continue // rejected at runtime; a different concern
     if (!shape.keys.has(key)) {
       diagnostics.push({
-        severity: 'warning',
+        // An error under TjsStrict (2026-11-14), as safe-assign is: a misspelled option is a bug.
+        severity,
         // The CONSEQUENCE changed in 0.13.0 — excess keys pass through now rather than
         // being stripped (see docs/dictionary-defaults.md → "Where we diverge from
         // WebIDL"). The WARNING survives the change because its real value was never the
@@ -493,7 +501,8 @@ function checkExcessKeys(
         p.value,
         shape.nested.get(key)!,
         `${path}.${key}`,
-        diagnostics
+        diagnostics,
+        severity
       )
     }
   }

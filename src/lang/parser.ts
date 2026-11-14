@@ -261,10 +261,14 @@ export function preprocess(
   // Masking preserves offsets, so the match indexes straight into the real source for the
   // splice, and everything before the directive — comments included — is kept verbatim,
   // exactly as the old `$1` replacement did.
+  // The directive and the whitespace after it go, but the NEWLINES stay: removing them moved
+  // every later line up, so each line number reported for a file with a directive (TjsStrict,
+  // TjsCompat, safety …) was off by the lines removed (2026-11-14).
   const spliceDirective = (start: number, length: number): void => {
     let end = start + length
     while (end < source.length && /\s/.test(source[end])) end++
-    source = source.slice(0, start) + source.slice(end)
+    const newlines = source.slice(start, end).replace(/[^\n]/g, '')
+    source = source.slice(0, start) + newlines + source.slice(end)
   }
   const safetyMatch = maskLiterals(source).match(
     /^(\s*)safety\s+(none|inputs|all)\b/

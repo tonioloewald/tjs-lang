@@ -152,8 +152,8 @@ let name = 'world'
 name = undefined          // ⚠ Cannot assign undefined to typed let 'name'
 ```
 
-These are lint warnings, reported by `lint()` from `tjs-lang/lang`; `tjs check` does not run
-the linter yet.
+These are lint warnings: `tjs check` reports them, and under `TjsStrict` they are errors that
+fail the check. From code, call `lint()` from `tjs-lang/lang`.
 
 ## 5. Classes that require `new`
 

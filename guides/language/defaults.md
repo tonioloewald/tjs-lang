@@ -256,8 +256,8 @@ function declared in the same source, and only literal payloads: an object built
 and passed in a variable, or one containing a spread (`{ ...base, retryz: 9 }`), is not
 checked.
 
-`tjs check` does not run lint rules, and the live examples on this site do not show lint
-warnings, so run it with the `lint` function from `tjs-lang/lang`:
+`tjs check` reports it as a warning (an error under `TjsStrict`). The live examples on this site
+do not show lint warnings; from code, call the `lint` function from `tjs-lang/lang`:
 
 ```javascript
 import { lint } from 'tjs-lang/lang'
