@@ -234,9 +234,11 @@ fetched at runtime.
 
 ### Enabling composition
 
-The composition pass is opt-in: pass a `ModuleLoader` to `tjs()` or
-`transpileToJS()`. Without one, imports are preserved verbatim and the
-runtime resolves them as before.
+The CLI (`tjs run`, `emit`, `check`, `test`) and both Bun plugins pass a
+filesystem `ModuleLoader` for any file that mentions `wasm`, so composition
+happens there without configuration. From the API it is opt-in: pass a
+`ModuleLoader` to `tjs()` or `transpileToJS()`. Without one, imports are
+preserved verbatim and the runtime resolves them as before.
 
 ```typescript
 import { tjs, ModuleLoader } from 'tjs-lang'

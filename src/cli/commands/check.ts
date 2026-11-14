@@ -10,6 +10,8 @@ import { tallyTestResults, testLabel } from '../test-report'
 import { needsAsyncRun, runTestsAsync } from '../async-tests'
 import { lint } from '../../lang/linter'
 import { preprocess } from '../../lang/parser'
+import { moduleLoaderFor } from '../../lang/module-loader'
+import { basename } from 'node:path'
 
 /**
  * Source files under `dir`.
@@ -87,7 +89,11 @@ async function checkOne(file: string, verbose = true): Promise<number | null> {
 
   try {
     // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
-    const result = tjs(source, { dialect: dialectForSource(file, source) })
+    const result = tjs(source, {
+      filename: basename(file),
+      dialect: dialectForSource(file, source),
+      moduleLoader: moduleLoaderFor(file, source, basename(file)),
+    })
 
     // Warnings FIRST, and to stderr. This is the primary type-checking command — the one
     // CI and agents run — and it used to hide the degradation diagnostic entirely,

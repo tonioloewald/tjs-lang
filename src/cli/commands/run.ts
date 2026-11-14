@@ -11,6 +11,7 @@ import { pathToFileURL } from 'url'
 import { transpileToJS } from '../../lang/emitters/js'
 import { dialectForSource } from '../../lang/dialect'
 import * as runtime from '../../lang/runtime'
+import { moduleLoaderFor } from '../../lang/module-loader'
 
 export async function run(file: string): Promise<void> {
   const absolutePath = resolve(file)
@@ -39,6 +40,7 @@ export async function run(file: string): Promise<void> {
     const result = transpileToJS(source, {
       dialect,
       filename: basename(file),
+      moduleLoader: moduleLoaderFor(file, source, basename(file)),
       runTests: false,
     })
 

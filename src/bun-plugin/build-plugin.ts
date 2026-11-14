@@ -59,8 +59,12 @@ export function tjsPlugin(options: TjsPluginOptions = {}): BunPlugin {
         // the transpiler (it cost ~22ms per `bun` launch when it was a top-level import).
         const { tjs } = await import('../lang')
         const source = await Bun.file(args.path).text()
+        // A loader only for a file that mentions `wasm`, so cross-file `wasm function`
+        // composition works here as it does in the API (#4125).
+        const { moduleLoaderFor } = await import('../lang/module-loader')
         const result = tjs(source, {
           filename: basename(args.path),
+          moduleLoader: moduleLoaderFor(args.path, source, basename(args.path)),
           runTests,
           ...(prelude ? { prelude } : {}),
         })

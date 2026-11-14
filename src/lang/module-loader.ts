@@ -416,3 +416,35 @@ export function inMemoryFileSystem(
     exists: (p) => lookup(p) !== null,
   }
 }
+
+/**
+ * A filesystem loader for ONE file, as the CLI and the Bun plugins hand the transpiler (#4125).
+ *
+ * Cross-file `wasm function` composition (a `wasm function` calling one imported from another
+ * `.tjs` file) needs a loader to read the imported file. Only the API passed one, so `tjs emit`,
+ * `run`, `check`, `test` and the plugins failed on such a file with "Unsupported function call".
+ * A loader parses every locally imported file, so none is made for a source that does not
+ * mention `wasm`.
+ *
+ * The transpiler passes its `filename` as the importer, and a tool's `filename` is a label for
+ * diagnostics (`app.tjs:3:f`), not a path to resolve from. So the loader maps that label to the
+ * file's absolute path; every other importer (a module the loader itself read) is absolute.
+ */
+export function moduleLoaderFor(
+  file: string,
+  source: string,
+  label: string
+): ModuleLoader | undefined {
+  if (!/\bwasm\b/.test(source)) return undefined
+  const absolute = pathResolve(file)
+  return new (class extends ModuleLoader {
+    resolve(specifier: string, importerPath?: string): string | null {
+      return super.resolve(
+        specifier,
+        importerPath === undefined || importerPath === label
+          ? absolute
+          : importerPath
+      )
+    }
+  })()
+}

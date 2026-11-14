@@ -130,6 +130,7 @@ export {
 } from './docs'
 export {
   ModuleLoader,
+  moduleLoaderFor,
   inMemoryFileSystem,
   type ModuleLoaderOptions,
   type FileSystem,

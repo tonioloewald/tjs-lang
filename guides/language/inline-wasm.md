@@ -760,8 +760,15 @@ disappears from the output, the consumer ships one module with one memory, and `
 to `vecDot` is a WASM-to-WASM call.
 
 Composition needs a `ModuleLoader`: an object that tells the transpiler where imported files
-live, so that it can read their source at transpile time. Only the caller knows that, so
-composition is opt-in. A build script that composes `app.tjs` into `app.js`:
+live, so that it can read their source at transpile time. `tjs run`, `tjs emit`, `tjs check`,
+`tjs test`, the Bun plugin and the Bun.build plugin pass one for any file that mentions
+`wasm`, so with those it simply works:
+
+```bash
+tjs emit app.tjs -o app.js   # one file, vecDot compiled in, no import left
+```
+
+From the API, pass the loader yourself:
 
 ```javascript
 // build.js
@@ -777,10 +784,9 @@ const result = tjs(readFileSync(appPath, 'utf8'), {
 writeFileSync(`${dir}/app.js`, result.code)   // one file, no imports left
 ```
 
-`app.js` then runs on its own in Node, Bun or a browser. This API is the only way to compose
-today. `tjs run`, `tjs emit`, the Bun plugin and the Bun.build plugin do not pass a
-`ModuleLoader`, so if you build with those, you get the boundary form, and a `wasm function`
-that calls an imported kernel does not compile.
+`app.js` then runs on its own in Node, Bun or a browser. Without a loader (the API with none
+passed) you get the boundary form, and a `wasm function` that calls an imported kernel does
+not compile.
 
 ### Shipping a library
 

@@ -21,6 +21,7 @@ import { generateDocs } from '../../lang/docs'
 import { reportWarnings } from '../warnings'
 import { tallyTestResults, testLabel } from '../test-report'
 import { generateDTS } from '../../lang/emitters/dts'
+import { moduleLoaderFor } from '../../lang/module-loader'
 
 export interface EmitOptions {
   /** Include source locations in __tjs metadata */
@@ -119,6 +120,7 @@ async function emitFile(
     const result = tjs(source, {
       filename,
       dialect: dialectForSource(inputPath, source),
+      moduleLoader: moduleLoaderFor(inputPath, source, filename),
       debug: options.debug,
       runTests: 'report',
     })

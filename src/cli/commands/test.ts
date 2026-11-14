@@ -18,6 +18,7 @@ import { join, dirname, resolve, relative } from 'path'
 import { spawn } from 'bun'
 import { tallyTestResults, testLabel } from '../test-report'
 import { needsAsyncRun, runTestsAsync } from '../async-tests'
+import { moduleLoaderFor } from '../../lang/module-loader'
 
 export interface TestOptions {
   pattern?: string // -t, --test-name-pattern
@@ -119,6 +120,7 @@ async function runInlineTests(file: string): Promise<void> {
     const result = tjs(source, {
       filename: file,
       dialect: dialectForSource(file, source),
+      moduleLoader: moduleLoaderFor(file, source, file),
       runTests: 'report',
     })
     results = result.testResults ?? []

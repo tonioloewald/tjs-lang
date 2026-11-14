@@ -169,6 +169,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cross-file `wasm function` composition works in the CLI and the Bun plugins** (#4125). Only
+  the API passed a `ModuleLoader`, so a `wasm function` calling one imported from another `.tjs`
+  file failed in `tjs run`, `emit`, `check` and `test` and in both plugins with "Unsupported
+  function call". They now pass a filesystem loader for any file that mentions `wasm`, resolving
+  imports from the file's own directory. `moduleLoaderFor(file, source, label)`, exported from
+  `tjs-lang` beside `ModuleLoader`, builds the same loader for other tools.
+
 - **A polymorphic function's declarations and return checks follow each variant** (#4123). Return
   annotations were looked up by function name, so each variant found none and the dispatcher took
   the first variant's: with `f(s: 'a'):? 'A'` beside `f(n: 2):? 4`, `f(2)` was checked against a
