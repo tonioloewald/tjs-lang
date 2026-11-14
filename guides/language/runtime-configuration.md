@@ -325,12 +325,11 @@ The settings type lists a few more, none of which you need for compiled `.tjs` c
 
 - `maxStackSize` is the size of the call-stack ring (default 64). A module's instance reads
   it when the module loads.
-- `debug` is an older name with the same effect as `callStacks`.
+- `debug` is an older name with the same effect as `callStacks`, and is deprecated.
 - `safety` applies only to functions wrapped at runtime with the library's `wrap(fn, meta)`,
   which adds checks to an ordinary function from its signature metadata. Compiled `.tjs`
   code has its checks written into the output when it is compiled; see
   [Safety and Validation](/safety-markers/) for how to control those.
-- `requireReturnTypes` is declared but currently has no effect.
 
 ### When settings reach a module
 

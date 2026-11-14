@@ -109,6 +109,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`TJSConfig.requireReturnTypes` is removed**, and `debug` is marked deprecated. Nothing read
+  `requireReturnTypes`; `debug` is an alias for `callStacks`, which it still sets.
+
 - **`MonadicError` is public in a `.tjs` file, and callable without `new`** (decided 2026-11-14).
   It was reachable only beside a checked function, and only with `new`: `MonadicError('boom')`
   threw "cannot call a class constructor without new", backwards from every other TJS class. The

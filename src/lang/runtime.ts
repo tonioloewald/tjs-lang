@@ -598,12 +598,12 @@ export type SafetyLevel = 'none' | 'inputs' | 'all'
  * Runtime configuration
  */
 export interface TJSConfig {
-  /** Enable debug mode - captures call stacks in errors */
+  /**
+   * @deprecated Use `callStacks`, which this is an alias for (it captures call stacks in errors).
+   */
   debug?: boolean
   /** Safety level for validation (default: 'inputs') */
   safety?: SafetyLevel
-  /** Require explicit return types (error if -> not specified) */
-  requireReturnTypes?: boolean
   /** Track call stacks for error diagnostics (default: false).
    *  Useful for server-side logging and agent debugging without devtools.
    *  Uses a fixed ring buffer — no allocation pressure. */
@@ -627,7 +627,6 @@ export interface TJSConfig {
 const DEFAULT_CONFIG: TJSConfig = {
   debug: false,
   safety: 'inputs',
-  requireReturnTypes: false,
   callStacks: false,
   maxStackSize: 64,
   trackErrors: true,

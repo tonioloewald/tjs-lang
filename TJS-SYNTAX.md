@@ -809,8 +809,10 @@ console.log(typeof String.prototype.shout)         // undefined: nothing was pat
 
 A call is rewritten during transpilation to an ordinary call with the receiver as `this`.
 The receivers that are rewritten are a string or template literal, an array literal, and a
-number literal with a decimal point (`7.5`). A call on anything else, a variable or an
-integer such as `(7)`, is left as written and fails when it runs (`xs.last is not a
+number literal. Write a number with its decimal point, `7.0.double()`: that is also valid
+JavaScript, where `7.double()` is not. (`7.double()` works in TJS too, but do not rely on it in
+code that may leave for JavaScript.) A call on anything else, a variable or a parenthesised
+number such as `(7)`, is left as written and fails when it runs (`xs.last is not a
 function`), because no prototype was changed. Use an ordinary function for values you pass
 around. The full receiver table is in [Local Class Extensions](/local-extensions/).
 
