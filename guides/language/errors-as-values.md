@@ -343,11 +343,35 @@ or an error reporter legitimately takes one as an argument, and declares a param
 accepts it. If every `Error` propagated, that logger would hand each error back unlogged
 instead of running. So propagation is reserved for errors the runtime made.
 
-There is one sanctioned way to turn a failure of your own into a propagating error: throw
-it inside a `try` with no `catch`, [described below](#try-without-catch). Beyond that, the
-class is reachable (`MonadicError` is in scope in a `.tjs` file with a checked function, and
-`isMonadicError` checks by shape, so a hand-built look-alike passes too), but neither is a
-documented API. The constructor's arguments may change between releases. Return an `Error`.
+When you do want your failure to propagate like the runtime's own, return a `MonadicError`.
+`MonadicError(message)` builds one; like every TJS class it is called without `new` (with `new`
+works too), and it is in scope in every `.tjs` file:
+
+```tjs:inline
+function ageIn(year: 2026, born: 1990): 36 {
+  if (born > year) {
+    return MonadicError(`born ${born} is after ${year}`)
+  }
+  return year - born
+}
+
+function describe(age: 36): '36 years' {
+  return `${age} years`
+}
+
+const failed = describe(ageIn(2026, 2030))
+console.log(failed.message)   // born 2030 is after 2026: it travelled through describe
+
+test 'your MonadicError propagates unchanged' {
+  const own = ageIn(2026, 2030)
+  expect(isMonadicError(own)).toBe(true)
+  expect(describe(own)).toBe(own)
+}
+```
+
+Pass only the message: the constructor's other arguments (path, expected, actual) are filled in
+by the runtime for its own errors. A `try` with no `catch`, [described below](#try-without-catch),
+turns a thrown failure into one too.
 
 So where you handle errors, check with `instanceof Error`: it catches the runtime's errors
 and yours in one test. Use `isMonadicError` when you specifically want the errors TJS made.

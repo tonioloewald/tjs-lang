@@ -74,7 +74,12 @@ import * as walk from 'acorn-walk'
  * are NOT identical to their canonical versions, and fusing them would change behaviour.
  * See `docs/runtime-fusion.md`.
  */
-const INLINE_MONADIC_ERROR = `const MonadicError=(globalThis.__tjs_MonadicError_1??=class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}})`
+// The NAME a .tjs file sees is callable without `new`, like every other TJS class (Tonio
+// 2026-11-14: `MonadicError('boom')` threw "cannot call a class constructor without new").
+// The CLASS in the shared slot is unchanged (it is fused across modules by shape,
+// docs/runtime-fusion.md); only this binding is a Proxy, as wrapClass makes for user classes.
+// `new` and `instanceof` pass straight through (same prototype).
+const INLINE_MONADIC_ERROR = `const MonadicError=new Proxy((globalThis.__tjs_MonadicError_1??=class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}),{apply:(t,_,a)=>Reflect.construct(t,a)})`
 
 /**
  * The inline typeError also reports to the flight recorder when a shared
@@ -2548,7 +2553,11 @@ export function transpileToJS(
     FULL_PRELUDE ||
     needsTypeError ||
     code.includes('__tjs.checkFnShape(') ||
-    code.includes('__tjs.bang(')
+    code.includes('__tjs.bang(') ||
+    // `MonadicError` and `isMonadicError` are public names in a .tjs file (Tonio 2026-11-14),
+    // so they exist wherever they are written, not only beside a checked function. A mention
+    // in a string or comment also includes them: harmless, a few hundred bytes.
+    /\b(?:is)?MonadicError\b/.test(helperUse)
   const needsToBool = FULL_PRELUDE || helperUse.includes('__tjs.toBool(')
   /** `switch` in native .tjs keys its discriminant — see swKey / switch-transform.ts. */
   const needsSwKey = FULL_PRELUDE || code.includes('__tjs.swKey(')
@@ -2617,7 +2626,8 @@ export function transpileToJS(
     // (0.14.0), and `area(s: any) { switch … }` threw `__tjs is not defined` standalone.
     needsSwKey ||
     needsOneOf ||
-    needsTv
+    needsTv ||
+    needsMonadicCore
 
   let runtimePrelude = ''
   /** `prelude: 'import'`: [the import block, the inline block it stands for], for tests. */

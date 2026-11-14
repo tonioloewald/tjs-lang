@@ -109,6 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`MonadicError` is public in a `.tjs` file, and callable without `new`** (decided 2026-11-14).
+  It was reachable only beside a checked function, and only with `new`: `MonadicError('boom')`
+  threw "cannot call a class constructor without new", backwards from every other TJS class. The
+  name a file sees is now callable either way, exists wherever it is written, and a user-made one
+  propagates through checked functions as the runtime's own do. The class in the shared slot is
+  unchanged, so modules still share one `MonadicError` (`docs/runtime-fusion.md`).
+
 - **Native TJS refuses `new String`, `new Number` and `new Boolean` (BREAKING, toward
   correctness)** (#4012). They build an object wrapper, which is truthy even when it holds
   `false` or `0`, and are almost always a slip for `String(x)` and friends. The deliberate uses

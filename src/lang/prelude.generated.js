@@ -6,7 +6,7 @@
 // (the projection table `extend` writes, the call-stack ring) stays per module.
 /* eslint-disable */
 // @ts-nocheck
-export const PRELUDE_HASH = '3d173a14852f9275'
+export const PRELUDE_HASH = '5a06dfb78f68211c'
 
 export function createPrelude(hash) {
   if (hash !== PRELUDE_HASH)
@@ -15,7 +15,7 @@ export function createPrelude(hash) {
         ', but the installed tjs-lang provides ' + PRELUDE_HASH +
         '. Rebuild it with the installed tjs-lang, or emit it with prelude: "inline".'
     )
-const MonadicError=(globalThis.__tjs_MonadicError_1??=class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}});
+const MonadicError=new Proxy((globalThis.__tjs_MonadicError_1??=class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}),{apply:(t,_,a)=>Reflect.construct(t,a)});
 function __arrKinds(v){if(!v.length)return'empty array';const k=[],n=Math.min(v.length,64);for(let i=0;i<n;i++){const x=v[i],t=x===null?'null':Array.isArray(x)?'array':typeof x;if(!k.includes(t))k.push(t);if(k.length===4)return'array of '+k.join(' | ')+(i+1<v.length?' …':'')}return'array of '+k.join(' | ')+(v.length>64?' …':'')}
 function __carried(v){if(!v||typeof v!=='object')return;const s=new Set(),q=[v];let b=4096;for(let i=0;i<q.length&&b>0;i++){const o=q[i],pr=Object.getPrototypeOf(o);if(!Array.isArray(o)&&pr!==Object.prototype&&pr!==null)continue;const a=Array.isArray(o),ks=a?null:Object.keys(o),n=a?Math.min(o.length,b+1):ks.length;for(let j=0;j<n;j++){if(--b<0)return;const d=Object.getOwnPropertyDescriptor(o,a?j:ks[j]);if(!d||!('value' in d))continue;const x=d.value;if(isMonadicError(x))return x;if(x&&typeof x==='object'&&!s.has(x)){s.add(x);q.push(x)}}}}function typeError(p,e,v,r,o){if(o!==undefined&&isMonadicError(o))return o;if(isMonadicError(v))return v;const cr=__carried(o!==undefined?o:v);if(cr)return cr;const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);Object.defineProperty(err,'received',{value:o!==undefined?o:v,configurable:true});const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err};
 function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v};
