@@ -498,12 +498,11 @@ console.log(warnings[0].message)
 It is a warning, not an error, so nothing fails loudly. Check the recorder (or your tests)
 when a type seems to accept too much.
 
-`tjs check` does not report this misspelling, though it does warn about an unresolved name in
-a parameter. The difference is when the name is read. A parameter's type is resolved while
-the file transpiles, so the checker knows at once that `Foo` means nothing. A reference in a
-`Type` example is read only when a value is checked, after the program has run; `Celll`
-could be defined by then, by code later in the file or by another module, so the checker
-cannot know in advance that it will be missing.
+`tjs check` reports it too: a name that the file never declares or imports, and that is not a
+global, gets a warning when the file transpiles. That check cannot see everything. A
+reference in a `Type` example is read only when a value is checked, so a name the file
+declares but that is still `undefined` by then (assigned later, or conditionally) passes the
+check and shows up only in the recorder.
 
 ### Recursive types
 

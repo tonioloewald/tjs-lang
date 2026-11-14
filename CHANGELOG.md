@@ -169,6 +169,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A misspelt name in a Type example is reported** (#4115). `Type V { example: { w: Widgit } }`
+  passed `tjs check`, and `V.check({ w: 'anything' })` was true. The transpiler (and so `tjs
+  check`) now warns when a Type example names something the file never declares or imports and
+  that is not a global, as it already did for a parameter. The runtime warning, recorded when such
+  a member is checked, now lands on the module's own recorder (`__tjs.records()` inside the
+  module) as well as the global one; it reached only `globalThis.__tjs`.
+
 - **A call or dotted path as a parameter example is reported** (#4114). `function k(n:
   Math.round(1.0))` and `function f(n: k.n)` left `n` unchecked with no word: examples are not
   evaluated at transpile time, so the expression said nothing about the type. The parameter is

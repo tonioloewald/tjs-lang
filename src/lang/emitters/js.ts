@@ -1435,6 +1435,84 @@ export function fullPrelude(): {
 
 const preludeHash = () => fullPrelude().hash
 
+/**
+ * A Type example that names something this file never declares (#4115). The reference is
+ * read when a value is CHECKED, so a misspelt `{ w: Widgit }` passed `tjs check` and accepted
+ * anything, with one runtime warning as the only signal. A parameter `x: Widgit` already got a
+ * transpile-time warning; this is the same for a Type example. A name bound anywhere in the
+ * file (any scope, imports included) or present on the transpiling host's `globalThis` is not
+ * reported, so a browser-only global may be: the message says so.
+ */
+function undeclaredExampleRefs(program: any): string[] {
+  const bound = new Set<string>()
+  const refs = new Map<string, string>()
+  const bind = (p: any): void => {
+    if (!p) return
+    if (p.type === 'Identifier') bound.add(p.name)
+    else if (p.type === 'ObjectPattern')
+      for (const q of p.properties)
+        bind(q.type === 'RestElement' ? q.argument : q.value)
+    else if (p.type === 'ArrayPattern') p.elements.forEach(bind)
+    else if (p.type === 'AssignmentPattern') bind(p.left)
+    else if (p.type === 'RestElement') bind(p.argument)
+  }
+  const root = (n: any): any =>
+    n?.type === 'MemberExpression' ? root(n.object) : n
+  walk.full(program, (n: any) => {
+    switch (n.type) {
+      case 'VariableDeclarator':
+        bind(n.id)
+        break
+      case 'FunctionDeclaration':
+      case 'FunctionExpression':
+      case 'ArrowFunctionExpression':
+        if (n.id) bind(n.id)
+        n.params.forEach(bind)
+        break
+      case 'ClassDeclaration':
+      case 'ClassExpression':
+        if (n.id) bind(n.id)
+        break
+      case 'ImportSpecifier':
+      case 'ImportDefaultSpecifier':
+      case 'ImportNamespaceSpecifier':
+        bind(n.local)
+        break
+      case 'CatchClause':
+        bind(n.param)
+        break
+      case 'CallExpression': {
+        // `__tjs_rt.__k('ref', "label", () => path)`, as markExampleKinds writes it.
+        const c = n.callee
+        const [kind, label, thunk] = n.arguments
+        if (
+          c?.type === 'MemberExpression' &&
+          c.object?.type === 'Identifier' &&
+          c.object.name === RT_NS &&
+          c.property?.name === '__k' &&
+          kind?.value === 'ref' &&
+          thunk?.type === 'ArrowFunctionExpression'
+        ) {
+          const r = root(thunk.body)
+          if (r?.type === 'Identifier' && !refs.has(r.name))
+            refs.set(r.name, String(label?.value ?? r.name))
+        }
+        break
+      }
+    }
+  })
+  const out: string[] = []
+  for (const [name, label] of refs) {
+    if (bound.has(name) || name in globalThis) continue
+    out.push(
+      `A Type example names '${label}', which this file does not declare or import, so ` +
+        `unless it is a global where the code runs, that member is unchecked. Declare it ` +
+        `(Type ${name} = …) or import it.`
+    )
+  }
+  return out
+}
+
 export function transpileToJS(
   source: string,
   options: TJSTranspileOptions = {}
@@ -1502,6 +1580,7 @@ export function transpileToJS(
   // numeric Date statics). They reach the caller as warnings so tooling and the converter
   // can surface them at the site — "turn all doubt into guidance".
   warnings.push(...preprocessed.modeWarnings)
+  warnings.push(...undeclaredExampleRefs(program))
 
   // Mirror unverifiable Type/Generic predicates into `warnings` (they still
   // compile — as plain functions — but aren't fuel-bounded / safe on untrusted
@@ -3032,7 +3111,7 @@ export function transpileToJS(
           // budget, far above any linear cost, fails CLOSED and is recorded. A user predicate
           // that NEGATES another type's check is non-monotone and can over-reject here.
           // Only a ReferenceError (TDZ, or a name nothing declares) degrades open, recorded.
-          `const __kUnset={},__kWF=new WeakMap();function __kWarn(h,f,msg){let o=__kWF.get(h);if(!o)__kWF.set(h,o={});if(o[f])return;o[f]=1;try{globalThis.__tjs?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kOpt(e,d){d=d|0;if(!e||!e.__k||d>32)return false;if(e.__k==='union')return e.arg.some(x=>__kOpt(x,d+1));if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,d+1)}`,
+          `const __kUnset={},__kWF=new WeakMap();function __kWarn(h,f,msg){let o=__kWF.get(h);if(!o)__kWF.set(h,o={});if(o[f])return;o[f]=1;try{const R=typeof __tjs!=='undefined'&&__tjs&&__tjs.record?__tjs:globalThis.__tjs;R?.record?.({source:'type',severity:'warning',message:msg})}catch(e){}}function __kOpt(e,d){d=d|0;if(!e||!e.__k||d>32)return false;if(e.__k==='union')return e.arg.some(x=>__kOpt(x,d+1));if(e.__k!=='ref')return!!e.opt;const r=e.peek();return r!==__kUnset&&!!r&&!!r.__ex&&__kOpt(r.__ex,d+1)}`,
           ...(needsSolver
             ? [
                 `let __kS=null,__kRu=0;const __kBudget=4e6,__kRc=new WeakMap(),__kKc=new WeakMap(),__kIP=new WeakMap();function __kObj(x){return x!==null&&(typeof x==='object'||typeof x==='function')}function __kRec(ex){if(!__kObj(ex))return false;const c=__kRc.get(ex);if(c!==undefined)return c;__kRc.set(ex,true);const u0=__kRu;let r;if(ex.__k==='ref'){const t=ex.peek();if(t===__kUnset){__kRu++;r=false}else r=__kRec(t)}else if(ex.__k==='union')r=ex.arg.some(__kRec);else if(ex.__k)r=false;else if(ex.__runtimeType)r=ex.__ex!==undefined&&__kRec(ex.__ex);else if(Array.isArray(ex))r=ex.some(__kRec);else r=Object.keys(ex).some(k=>__kRec(ex[k]));if(__kRu!==u0)__kRc.delete(ex);else __kRc.set(ex,r);return r}function __kKeys(ex){let k=__kKc.get(ex);if(!k){const a=Object.keys(ex);k=a.filter(x=>!__kRec(ex[x])).concat(a.filter(x=>__kRec(ex[x])));__kKc.set(ex,k)}return k}function __kNorm(t){for(let i=0;i<64&&__kObj(t);i++){if(t.__k==='ref'){const r=t.peek();if(r===__kUnset){__kWarn(t,'wu','A Type example names \\''+t.name+'\\', which is not defined (or is undefined) where the type is checked, so that member is UNCHECKED.');return __kUnset}t=r}else if(t.__runtimeType&&!t.__k&&t.__ex!==undefined&&!t.__pred)t=t.__ex;else break}return t}function __kExact(key,v,run){if(__kObj(v)){const s=__kIP.get(v);if(s&&s.has(key))return true}const S=__kS;let s;if(__kObj(v)){s=__kIP.get(v);if(!s)__kIP.set(v,s=new Set());s.add(key)}__kS=null;try{return run()===true}catch(e){if(e instanceof RangeError){__kWarn(key,'wr','A type check ran out of stack inside a nested runtime check, and the value was REJECTED.');return false}throw e}finally{__kS=S;if(s)s.delete(key)}}function __kNode(S,x,t){let e=S.m.get(t);if(!e)S.m.set(t,e={o:new WeakMap(),p:new Map()});const tb=__kObj(x)?e.o:e.p;let n=tb.get(x);if(!n){S.w++;n={x,t,ok:true,p:null,ps:null,dirty:false,pv:undefined,pq:false};tb.set(x,n);S.f.push(n)}return n}function __kPar(n,c){if(!c||c===n||n.p===c)return;if(!n.p){n.p=c;return}(n.ps||(n.ps=new Set())).add(c)}function __kFlip(S,n){n.ok=false;const q=p=>{if(p.ok&&!p.dirty){p.dirty=true;S.d.push(p)}};if(n.p)q(n.p);if(n.ps)for(const p of n.ps)q(p)}function __kLeaf(e){e=__kNorm(e);return !(__kObj(e)&&(Array.isArray(e)||e.__k==='union'))}function __kNA(e){e=__kNorm(e);if(!__kObj(e)||Array.isArray(e))return !Array.isArray(e);return e.__k==='union'?e.arg.every(__kNA):true}function __kLook(x,t){t=__kNorm(t);if(t===__kUnset)return true;if(!__kObj(t)||!__kRec(t))return __m0(x,t);if(Array.isArray(t)&&t.length&&__kNA(t[0]))return Array.isArray(x)&&x.every(e=>__match(e,t[0]));if(t.__k==='union'&&t.arg.every(__kLeaf))return t.arg.some(e=>__match(x,e));if(!t.__k&&!t.__runtimeType&&!Array.isArray(t)){if(!x||typeof x!=='object'||Array.isArray(x)||(x instanceof Error&&x.name==='MonadicError'))return false;for(const k of __kKeys(t)){if(__kRec(t[k]))break;if(!(k in x)||!__m0(x[k],t[k]))return false}}const S=__kS,n=__kNode(S,x,t);__kPar(n,S.cur);return n.ok}function __kEval(S,n){const t=n.t;if(t.__pred){const ok=__kLook(n.x,t.__ex);if(ok&&n.pv===undefined&&!n.pq){n.pq=true;S.pend.push(n)}return ok&&n.pv!==false}if(t.__k==='union')return t.arg.some(e=>__match(n.x,e));return __m0(n.x,t)}function __kSolve(v,ex){const t=__kNorm(ex);if(t===__kUnset)return true;const S=__kS={m:new Map(),f:[],d:[],pend:[],cur:null,w:0};try{const root=__kNode(S,v,t);for(;;){while((S.f.length||S.d.length)&&root.ok){const n=S.f.length?S.f.pop():S.d.pop();n.dirty=false;if(!n.ok)continue;if(++S.w>__kBudget){__kWarn(t,'wb','A value too large to check against a recursive Type was REJECTED.');return false}S.cur=n;let ok;try{ok=__kEval(S,n)}finally{S.cur=null}if(!ok)__kFlip(S,n)}if(!root.ok)return false;let ran=false;while(S.pend.length){const n=S.pend.pop();n.pq=false;if(!n.ok||n.pv!==undefined)continue;n.pv=__kExact(n.t,n.x,()=>!!n.t.__pred(n.x));ran=true;if(!n.pv){__kFlip(S,n);break}}if(!ran&&!S.f.length&&!S.d.length)return root.ok}}finally{__kS=null}}`,
