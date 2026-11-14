@@ -24,7 +24,7 @@ file calls it, and it carries its signature as data on its `__tjs` property.
 
 This module runs by itself, so it runs here:
 
-```tjs
+```tjs:inline
 export function add(a: 0, b: 0): 0 {
   return a + b
 }

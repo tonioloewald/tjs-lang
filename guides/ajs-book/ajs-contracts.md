@@ -25,7 +25,7 @@ arguments given in the text beside it, and an example with no arguments listed r
 How a program passes arguments to an agent is covered in
 [Embedding the VM](/embedding-the-vm/).
 
-```ajs {"args": {"item": "mug", "price": 8.5, "qty": 2}}
+```ajs:inline {"args": {"item": "mug", "price": 8.5, "qty": 2}}
 function quote({ item: 'kettle', price: 40.0, qty = 1 }) {
   return { line: item + ' x' + qty, total: price * qty }
 }
@@ -35,7 +35,7 @@ With `{ item: 'mug', price: 8.5, qty: 2 }` this returns `{ line: 'mug x2', total
 
 Now call the same agent with a price that is not a number, `{ item: 'mug', price: 'cheap' }`:
 
-```ajs {"args": {"item": "mug", "price": "cheap"}}
+```ajs:inline {"args": {"item": "mug", "price": "cheap"}}
 function quote({ item: 'kettle', price: 40.0, qty = 1 }) {
   return { line: item + ' x' + qty, total: price * qty }
 }
@@ -88,7 +88,7 @@ catch people out.
 
 **A whole number is an integer.** `40` declares an integer, so a fraction is refused:
 
-```ajs {"args": {"hours": 8.5, "rate": 20}}
+```ajs:inline {"args": {"hours": 8.5, "rate": 20}}
 function pay({ hours: 40, rate: 25.0 }) {
   return { wage: hours * rate }
 }
@@ -100,7 +100,7 @@ any number, whole or not, so `20` was never the problem.
 
 **`+0` is a non-negative integer**, and **a union of string literals is an exact list**:
 
-```ajs {"args": {"attempts": 3, "level": "high"}}
+```ajs:inline {"args": {"attempts": 3, "level": "high"}}
 function retry({ attempts: +0, level: 'low' | 'high' }) {
   return { attempts, level }
 }
@@ -121,7 +121,7 @@ are `string`, `number` (any number, like `0.0`), `boolean`, `object`, `any`, and
 names TypeScript lacks: `int` (an integer, like `0`), `unsigned` or `uint` (a non-negative
 integer, like `+0`) and `float` (the same as `number`):
 
-```ajs {"args": {"n": 2.5}}
+```ajs:inline {"args": {"n": 2.5}}
 function half({ n: number }) {
   return { half: n / 2 }
 }
@@ -141,7 +141,7 @@ When an agent declares any parameter, an argument it does not declare is refused
 `{ item: 'mug', price: 3, colour: 'red' }` does not reach `quote`. An agent with no parameters
 at all accepts any arguments and ignores them:
 
-```ajs {"args": {"anything": 1, "at": "all"}}
+```ajs:inline {"args": {"anything": 1, "at": "all"}}
 function hello() {
   return { message: 'hello' }
 }
@@ -154,7 +154,7 @@ Called with `{ anything: 1, at: 'all' }`, this returns `{ message: 'hello' }`.
 An agent's result is one object, so a host can always read fields from it and one agent's
 output can be the next one's input. Returning anything else ends the run:
 
-```ajs
+```ajs:inline
 function five() {
   return 5
 }
@@ -172,7 +172,7 @@ has the declared members.
 
 Write the shape of the result after the parameters, the way you write a parameter's example:
 
-```ajs
+```ajs:inline
 function score({ n = 12 }): { score: 0, label: 'low' | 'high' } {
   return { score: n, label: n > 10 ? 'high' : 'low' }
 }
@@ -181,7 +181,7 @@ function score({ n = 12 }): { score: 0, label: 'low' | 'high' } {
 This returns `{ score: 12, label: 'high' }`. Each member reads like a parameter: `score: 0` is
 any integer, and `label` is one of two strings. Now make a mistake in the agent:
 
-```ajs {"args": {"n": 4}}
+```ajs:inline {"args": {"n": 4}}
 function score({ n = 12 }): { score: 0, label: 'low' | 'high' } {
   return { score: n, label: n > 10 ? 'high' : 'medium' }
 }
@@ -210,7 +210,7 @@ The rules:
 
 Here `note` is declared as `'' | undefined`, so the agent may leave it out:
 
-```ajs {"args": {"text": "hi"}}
+```ajs:inline {"args": {"text": "hi"}}
 function check({ text = 'hello' }): { ok: true, note: '' | undefined } {
   if (text.length > 3) {
     return { ok: true }
@@ -232,7 +232,7 @@ and the key is missing from the result. Members of other types are caught.
 
 A helper function may declare a return too, but it is **not enforced yet**:
 
-```ajs
+```ajs:inline
 function shout(text): '' {
   return 5
 }
@@ -305,7 +305,7 @@ The parameters check what arrives at the start of a run. Data that arrives durin
 `httpFetch` or a model, needs checking too. `Schema` builds JSON schemas for that, and in an
 agent a schema is plain data you can pass around, return and inspect:
 
-```ajs {"args": {"input": {"email": "ada@example.com", "age": 36, "role": "admin"}}}
+```ajs:inline {"args": {"input": {"email": "ada@example.com", "age": 36, "role": "admin"}}}
 function checkUser({ input }) {
   let user = Schema.object({
     email: Schema.email,
@@ -343,7 +343,7 @@ one exception for numbers.
 
 `Schema.fromExample` shows the schema an example stands for:
 
-```ajs {"args": {"input": {"name": "Ada", "age": 36}}}
+```ajs:inline {"args": {"input": {"name": "Ada", "age": 36}}}
 function checkPerson({ input }) {
   return {
     ok: Schema.isValid(input, { name: '', age: 0 }),
@@ -371,7 +371,7 @@ fuel. Instead, validate the structure first, then match the field with the atom 
 (called with named inputs, as in [Calling Atoms](/ajs-calling-atoms/)), which runs on the VM's
 own regex engine and is metered:
 
-```ajs {"args": {"input": {"code": "AB-12"}}}
+```ajs:inline {"args": {"input": {"code": "AB-12"}}}
 function checkCode({ input }) {
   let ok = Schema.isValid(input, { code: '' })
   if (!ok) return { ok: false }
@@ -392,7 +392,7 @@ An API or a model often returns more than you asked for. The builtin `filter`, c
 arguments, keeps only the keys of an example and checks their types as it goes. (This is not the
 array method `items.filter((x) => …)`, which takes one callback.)
 
-```ajs {"args": {"reply": {"name": "Ada", "age": 36, "debug": true, "_raw": "x"}}}
+```ajs:inline {"args": {"reply": {"name": "Ada", "age": 36, "debug": true, "_raw": "x"}}}
 function clean({ reply }) {
   let person = filter(reply, { name: '', age: 0 })
   return { person }
@@ -408,7 +408,7 @@ field. Each message starts with the path to the object or field that has the pro
 (For an example `{ p: { age: 0 } }`, a missing `age` is reported as `p: Missing age`.) That
 failure can be caught, which suits data from outside:
 
-```ajs {"args": {"reply": {"name": "Ada"}}}
+```ajs:inline {"args": {"reply": {"name": "Ada"}}}
 function clean({ reply }) {
   try {
     let person = filter(reply, { name: '', age: 0 })
@@ -429,7 +429,7 @@ catching.
 `Schema.response(name, shape)` wraps a schema in the format a model's `responseFormat` option
 takes:
 
-```ajs
+```ajs:inline
 function format() {
   return { format: Schema.response('person', { name: '', age: 0 }) }
 }
@@ -448,7 +448,7 @@ Inside an agent, member access is null-safe: a typo such as `forecast.sumary` re
 `undefined` instead of failing ([Values and Expressions](/ajs-values/#member-access-is-null-safe)).
 A declared result notices what that hides:
 
-```ajs
+```ajs:inline
 function report({ city = 'Oslo' }): { city: '', summary: '' } {
   let forecast = { city, summary: 'Cold and clear' }
   return { city, summary: forecast.sumary }

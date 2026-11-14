@@ -36,7 +36,7 @@ the parameter takes. A return example goes further: it is **the answer the funct
 for the parameter examples**. During transpilation TJS makes that call and compares the
 result with the annotation.
 
-```tjs
+```tjs:inline
 function add(a: 2, b: 3): 5 {
   return a + b
 }
@@ -108,7 +108,7 @@ A signature test is only as good as the example. Pick inputs whose answer you ca
 in your head, so the annotation is obviously right to a reader. The edge case is often the
 easiest:
 
-```tjs
+```tjs:inline
 // The empty string never enters the loop, so the hash stays 0.
 function hashPassword(password: ''): 'hashed_0' {
   let hash = 0
@@ -151,7 +151,7 @@ and `isMonadicError(value)` tells you whether you got one. `isMonadicError` is a
 every TJS file without an import; [Errors as Values](/errors-as-values/) covers what the
 error carries.
 
-```tjs
+```tjs:inline
 // `:` tested once, at transpile time: celsius(212) must be 100
 function celsius(f: 212): 100 {
   return (f - 32) * 5 / 9
@@ -187,7 +187,7 @@ What the runtime check costs belongs to [Safety and Validation](/safety-markers/
 
 **A default is the example.** A parameter with a default is called with that default:
 
-```tjs
+```tjs:inline
 function greet(name: 'Alice', times = 2): 'Hi Alice! Hi Alice!' {
   return Array(times).fill(`Hi ${name}!`).join(' ')
 }
@@ -199,7 +199,7 @@ The test calls `greet('Alice', 2)`, which is why the expected answer greets Alic
 
 **A literal union uses its first member.** The test calls `toggle('on')`:
 
-```tjs
+```tjs:inline
 function toggle(state: 'on' | 'off'): 'off' {
   return state == 'on' ? 'off' : 'on'
 }
@@ -215,7 +215,7 @@ literal, and TJS does not look up the example inside the `Type` declaration, so 
 with a `Type`-named parameter gets no signature test at all. This is a current limitation,
 not a rule you can rely on staying:
 
-```tjs
+```tjs:inline
 Type Point = { x: 0, y: 0 }
 
 function manhattan(p: Point):! 0 {
@@ -239,7 +239,7 @@ and `tjs test` reports "no inline tests". Test such a function with a `test` blo
 - A class method is tested only when the class declares a constructor. TJS builds an
   instance by calling the constructor with its own examples, then calls the method.
 
-```tjs
+```tjs:inline
 async function double(n: 2): 4 {
   return n * 2
 }
@@ -267,7 +267,7 @@ For any of these, put the cases you care about in a `test` block.
 
 A `test` block holds checks that run against the module, next to the code they check:
 
-```tjs
+```tjs:inline
 function parseQuery(query: 'a=1&b=2'): { a: '1', b: '2' } {
   const result = {}
   for (const pair of query.split('&')) {
@@ -355,7 +355,7 @@ Four differences from Jest catch people:
   needle has the wrong type.
 - **`toThrow` needs a function.** Pass `() => code`, not the result of calling it.
 
-```tjs
+```tjs:inline
 function divide(a: 6, b: 3): 2 {
   if (b === 0) throw new Error('division by zero')
   return a / b
@@ -401,7 +401,7 @@ throws nothing.
 A `mock { … }` block holds setup code. What it declares is visible in every test, and like a
 test it is removed from the output:
 
-```tjs
+```tjs:inline
 function total(items: [{ price: 0, qty: 1 }]): 0 {
   return items.reduce((sum, item) => sum + item.price * item.qty, 0)
 }
@@ -481,7 +481,7 @@ file.)
 A `test` block runs inside the module it is written in, so it can call anything the module
 declares, exported or not:
 
-```tjs
+```tjs:inline
 function normalize(email: ' Ada@Example.COM '): 'ada@example.com' {
   return email.trim().toLowerCase()
 }

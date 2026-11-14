@@ -59,7 +59,7 @@ rule off for `.tjs` files; it guards against a conversion TJS no longer does.
 The first difference you will notice is that nothing is converted. Two values of different
 types are not equal:
 
-```tjs
+```tjs:inline
 console.log('5' == 5)       // false   (JS: true)
 console.log(0 == '')        // false   (JS: true)
 console.log(false == [])    // false   (JS: true)
@@ -78,7 +78,7 @@ never `===` to `'x'`. TJS's `==` looks inside. (TJS refuses `new String`, `new N
 `new Boolean`, as covered later in this
 chapter; `Object(x)` is how you make a box on purpose.)
 
-```tjs
+```tjs:inline
 const boxed = Object('x')
 
 console.log(boxed == 'x')                 // true
@@ -93,7 +93,7 @@ console.log(boxed === 'x')                // false: === still compares the box
 JavaScript's `==` does one conversion that people rely on: `null == undefined` is `true`, so
 `x == null` checks for "no value" in one test. TJS keeps it. Neither equals anything else:
 
-```tjs
+```tjs:inline
 console.log(null == undefined)   // true
 console.log(null == 0)           // false
 console.log(undefined == '')     // false
@@ -113,7 +113,7 @@ find its own element with a comparison. In TJS, `NaN == NaN` is `true`, so `x ==
 holds. `===` keeps JavaScript's answer. Zero is not affected: `0 == -0` is `true`, as it is
 in JavaScript.
 
-```tjs
+```tjs:inline
 const bad = Number('oops')
 
 console.log(bad == NaN)          // true
@@ -127,7 +127,7 @@ console.log(0 == -0)             // true: only NaN changes
 For any object that is not a box, `==` asks whether the two sides are the very same object. It
 does not look inside:
 
-```tjs
+```tjs:inline
 const point = { x: 1 }
 
 console.log(point == point)            // true: the same object
@@ -153,7 +153,7 @@ When you do want to compare contents, ask for it by name. `Is(a, b)` walks both 
 compares them deeply; `IsNot(a, b)` is its negation. Both are built in; a `.tjs` file needs no
 import to use them.
 
-```tjs
+```tjs:inline
 const people = [{ name: 'Ada' }, { name: 'Alan' }]
 const wanted = { name: 'Ada' }
 
@@ -202,7 +202,7 @@ example_: `n` is a number, for example `0`, and calls are checked against that
 ([Types by Example](/types-by-example/)). And `Mod10(1)` has no `new`, because a `.tjs` file
 constructs its own classes by calling them ([Classes and Dispatch](/classes-and-dispatch/)).
 
-```tjs
+```tjs:inline
 class Mod10 {
   constructor(n: 0) {
     this.n = n
@@ -236,7 +236,7 @@ such as a record whose fields come from outside your code. `tjsEquals` is
 that one line. JavaScript code can also import it with
 `import { tjsEquals } from 'tjs-lang/runtime'`.
 
-```tjs
+```tjs:inline
 const tjsEquals = Symbol.for('tjs.equals')
 
 const canonical = { x: 1, y: 2 }
@@ -257,7 +257,7 @@ console.log(view == canonical)          // false: == runs none of it
 
 You can also write `a Is b` and `a IsNot b`, and the transpiler turns them into the calls:
 
-```tjs
+```tjs:inline
 const a = [1, 2]
 const box = { items: [1, 2] }
 
@@ -286,7 +286,7 @@ existing behaviour exactly, such as legacy code ported line for line, whose call
 `0` matching `''` in ways nobody has mapped. For those comparisons, write
 `DangerousLegacyEquals(a, b)`, or `DangerousLegacyNot(a, b)` for `!=`:
 
-```tjs
+```tjs:inline
 console.log(DangerousLegacyEquals('5', 5))    // true: conversion and all
 console.log(DangerousLegacyEquals(0, ''))     // true
 console.log(DangerousLegacyNot(0, ''))        // false
@@ -325,7 +325,7 @@ compatibility. It is why `typeof x === 'object'` so often lets `null` through, a
 line crashes reading a property of `null`. In TJS the answer is `'null'`, and every other
 answer is unchanged. `LegacyTypeOf(x)` is JavaScript's `typeof`:
 
-```tjs
+```tjs:inline
 function nameOf(x) {
   if (typeof x === 'object') return x.name    // JS: crashes when x is null
   return 'no name'
@@ -345,7 +345,7 @@ JavaScript says every object is truthy, including a boxed `false`, a boxed `0` a
 boxed primitive first: `if`, `while`, `for` and `do` conditions, `!`, `&&`, `||`, `? :`, and a
 call written `Boolean(x)`.
 
-```tjs
+```tjs:inline
 const no = Object(false)
 
 console.log(no ? 'truthy' : 'falsy')    // falsy   (JS: truthy)
@@ -419,7 +419,7 @@ For moments in time, use `Timestamp` (a number of milliseconds) or, for calendar
 returns a number, so it is allowed, with a warning that suggests `Timestamp.now()` or, for
 elapsed time, `performance.now()`.
 
-```tjs
+```tjs:inline
 const d = LegacyDate('2024-01-15T00:00:00Z')
 console.log(d instanceof Date, d.getUTCFullYear())   // true 2024
 console.log(typeof Date.now())                       // number
@@ -481,7 +481,7 @@ const first = items[0]
 In a `.tjs` file, such a line starts a new statement, and the compiler warns, because this is
 exactly where TJS and JavaScript disagree about what the code means:
 
-```tjs
+```tjs:inline
 const items = ['a', 'b']
 const first = items[0]
 [1, 2].forEach(n => console.log('line', n))
@@ -520,7 +520,7 @@ first assignment to an undeclared name that starts with a capital letter declare
 `const`. It saves the keyword on the most common declaration there is, a named constant,
 using the capital as the signal that it is meant to stay put:
 
-```tjs
+```tjs:inline
 MaxRetries = 3                       // becomes: const MaxRetries = 3
 console.log('retries:', MaxRetries)  // retries: 3
 ```
@@ -546,7 +546,7 @@ want it to be `undefined`. The linter's `safe-assign-let-needs-type` rule asks f
 initializer or a colon example, which says what kind of value the variable will hold
 ([Types by Example](/types-by-example/)):
 
-```tjs
+```tjs:inline
 let count = 0             // fine: the initializer says it is a number
 let result: ''            // fine: the example says it is a string
 result = 'done'
@@ -571,7 +571,7 @@ TJS rewrites the operators written in your file. Built-in methods are JavaScript
 `includes`, `indexOf`, `Set`, `Map` and the rest compare the way JavaScript does, and not even
 consistently with each other. When the difference matters, compare with `==` or `Is` yourself:
 
-```tjs
+```tjs:inline
 const list = [1, 2, 3]
 const boxed = Object(1)
 
@@ -601,7 +601,7 @@ arms with it.
 a `.tjs` file and suggests `given`, TJS's statement for choosing code by value. It compares
 with `==`, and its arms never fall through:
 
-```tjs
+```tjs:inline
 function sound(animal) {
   given animal {
     'cat' { return 'meow' }

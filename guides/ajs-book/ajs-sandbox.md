@@ -139,7 +139,7 @@ that fetches nothing unless the host sets an allowlist, passed as `context.allow
 in the run options, and that never reaches a loopback or private address, allowlisted or not,
 unless the host also sets `allowPrivateNetwork`. Here an agent tries the cloud metadata address:
 
-```ajs
+```ajs:inline
 function reach({ url = 'http://169.254.169.254/latest/meta-data/' }) {
   try {
     let page = httpFetch({ url })
@@ -356,7 +356,7 @@ and halts both. See
 
 Out of fuel is the simplest case. This agent wraps an endless loop in `try`:
 
-```ajs
+```ajs:inline
 function stubborn() {
   try {
     let i = 0
@@ -440,7 +440,7 @@ Implicit coercion is refused, not charged. JavaScript turns an array into a stri
 operator asks, and that conversion is an allocation no table entry can see, so the VM refuses
 it and asks for the conversion by name:
 
-```ajs
+```ajs:inline
 function glue({ items = [1, 2, 3] }) {
   try {
     return { text: 'items: ' + items }
@@ -476,7 +476,7 @@ copy and compiled instruction is charged as fuel. The pattern below is the textb
 case: a backtracking engine's time roughly doubles with each extra `a`, and forty of them is far
 beyond what it can finish:
 
-```ajs
+```ajs:inline
 function evil({ n = 40 }) {
   let input = 'a'.repeat(n) + 'b'
   let found = input.search(/^(a+)+$/)
@@ -489,7 +489,7 @@ function evil({ n = 40 }) {
 A JSON-Schema `pattern` would be compiled by the host's engine when the schema validates, so a
 guest schema may not carry one:
 
-```ajs
+```ajs:inline
 function shaped({ code = 'AB-12' }) {
   try {
     let ok = Schema.isValid(code, { type: 'string', pattern: '^[A-Z]' })
@@ -518,7 +518,7 @@ the host engine).
 **How it holds today.** `__proto__`, `constructor` and `prototype` are refused in member reads,
 in scope writes (a variable named `__proto__`) and in every computed-key write inside the VM:
 
-```ajs
+```ajs:inline
 function poke({ key = '__proto__' }) {
   let target = { name: 'guest' }
   try {

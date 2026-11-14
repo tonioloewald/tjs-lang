@@ -29,7 +29,7 @@ This agent counts to whatever `limit` it is given. You may have met it in the
 run: `fuel` is its budget and `args` are the arguments it is called with. Here it is asked to
 count to 1,000 on a budget of 100:
 
-```ajs {"fuel": 100, "args": {"limit": 1000}}
+```ajs:inline {"fuel": 100, "args": {"limit": 1000}}
 function countTo({ limit = 1000000 }) {
   let counter = 0
   let i = 0
@@ -91,7 +91,7 @@ nothing left over for anything else.
 Running out of fuel **ends the run**, even inside a `try`. Nothing after it runs: no `catch`,
 no later step.
 
-```ajs {"fuel": 1000}
+```ajs:inline {"fuel": 1000}
 function stubborn({ limit = 1000000 }) {
   let i = 0
   try {
@@ -184,7 +184,7 @@ about 67 MiB.
 The VM works out the size of a large value before building it. Ask for a string of a hundred
 million characters and it is refused before the string exists:
 
-```ajs {"fuel": 1000}
+```ajs:inline {"fuel": 1000}
 function huge({ size = 100000000 }) {
   try {
     const s = 'x'.repeat(size)
@@ -213,7 +213,7 @@ The ceiling counts what is **live**, not what was ever allocated. This agent bui
 5-million-character string (10 million bytes) ten times, 100 million bytes in all, but holds
 only one at a time, because each new string replaces the last:
 
-```ajs {"fuel": 10000}
+```ajs:inline {"fuel": 10000}
 function churn({ rounds = 10 }) {
   let s = ''
   let i = 0
@@ -229,7 +229,7 @@ It returns `{ rounds: 10, length: 5000000 }`. The memory is not free in fuel: al
 million bytes costs about 5,000 units, which is why this example sets 10,000. Now keep every
 string instead:
 
-```ajs {"fuel": 10000}
+```ajs:inline {"fuel": 10000}
 function hoard({ rounds = 10 }) {
   let kept = []
   let i = 0
@@ -253,7 +253,7 @@ one pointer per slot. Printing it (with `join` or `JSON.stringify`) writes out e
 is charged for every copy. This agent nests one ten-character string ten ways, `depth` times
 over:
 
-```ajs {"fuel": 1000, "args": {"depth": 4}}
+```ajs:inline {"fuel": 1000, "args": {"depth": 4}}
 function wide({ depth = 4 }) {
   let t = ['xxxxxxxxxx']
   let i = 0
@@ -332,7 +332,7 @@ agent may catch it. If not, it is a bug, and the run ends.
 
 This agent tries to store a 3-million-character string, about 6 MB:
 
-```ajs {"fuel": 1000}
+```ajs:inline {"fuel": 1000}
 function save({ length = 3000000 }) {
   const big = 'x'.repeat(length)
   try {
@@ -407,7 +407,7 @@ argument first, `const n = Math.min(limit, 10000)`.
 **Cap lists before you loop over them.** A list that arrives as an argument or from an API can be
 any length. Take a slice first, and say how much was left out:
 
-```ajs {"fuel": 1000}
+```ajs:inline {"fuel": 1000}
 function totalPrice({ items = [{ price: 3 }, { price: 4 }, { price: 5 }], max = 2 }) {
   const MAX = 100
   const batch = items.slice(0, Math.min(max, MAX))

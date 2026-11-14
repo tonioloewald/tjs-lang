@@ -35,7 +35,7 @@ string, for instance `' Ada '`", and makes `name` a **checked parameter**.
 checked parameter does not accept, the function skips its body and returns a
 `MonadicError`:
 
-```tjs
+```tjs:inline
 function clean(name: ' Ada '): 'ada' {
   return name.trim().toLowerCase()
 }
@@ -86,7 +86,7 @@ instead of `:`. Then the worked example is still tested at transpile time, and e
 is checked at runtime as well; a wrong one comes back as a `MonadicError` whose `path` ends
 in `:return`:
 
-```tjs
+```tjs:inline
 function half(n: 4):? 2 {
   return n / 2
 }
@@ -109,7 +109,7 @@ test ':? checks every result' {
 An `async` function with a checked parameter refuses a bad argument the same way. The
 promise it returns **resolves** to the `MonadicError`; it does not reject:
 
-```tjs
+```tjs:inline
 async function loadUser(id: 1) {
   return { id, name: 'Ada' }
 }
@@ -148,7 +148,7 @@ A checked parameter that receives a `MonadicError` does not report a second erro
 the first. It returns the error it was given, unchanged, without running its body. So a
 chain of checked calls needs no checks in the middle:
 
-```tjs
+```tjs:inline
 function clean(name: ' Ada '): 'ada' {
   return name.trim().toLowerCase()
 }
@@ -182,7 +182,7 @@ An error can also arrive inside an argument, for instance as one element of an a
 the argument fails its check, the runtime looks inside it before making a new error, and if
 it finds a `MonadicError` it returns that one:
 
-```tjs
+```tjs:inline
 function clean(name: ' Ada '): 'ada' {
   return name.trim().toLowerCase()
 }
@@ -214,7 +214,7 @@ Propagation happens at checked parameters, and nowhere else. A parameter with no
 (so not checked), a parameter declared `any`, and every ordinary expression treat the error
 as an ordinary object:
 
-```tjs
+```tjs:inline
 function clean(name: ' Ada '): 'ada' {
   return name.trim().toLowerCase()
 }
@@ -254,7 +254,7 @@ Because typed functions pass errors along, most of them never look at one. Somew
 error has to become a message, a status code or a retry, and that decision belongs in one
 place: the edge, where the program meets its caller or its user.
 
-```tjs
+```tjs:inline
 function clean(name: ' Ada '): 'ada' {
   return name.trim().toLowerCase()
 }
@@ -292,7 +292,7 @@ The runtime catches values of the wrong type. It cannot know that a well-typed v
 wrong: a birth year in the future, an empty cart, a division by zero. Reporting those is
 your job, and the TJS way is to return an `Error` with a message the caller can act on:
 
-```tjs
+```tjs:inline
 function ageIn(year: 2026, born: 1990): 36 {
   if (born > year) {
     return Error(`born ${born} is after ${year}`)
@@ -356,7 +356,7 @@ and yours in one test. Use `isMonadicError` when you specifically want the error
 
 Code ported from Go or Rust often reports failure in a field of an ordinary object:
 
-```tjs
+```tjs:inline
 function divide(a: 10.0, b: 2.0): { value: 5 } {
   if (b == 0) {
     return { value: NaN, error: 'division by zero' }
@@ -395,7 +395,7 @@ return type without a worked example to test. With a plain `: {}`, TJS would cal
 `parse('{"port":8080}')` at transpile time, get `{ port: 8080 }`, compare it by value with
 `{}`, and fail the file.
 
-```tjs
+```tjs:inline
 function parse(json: '{"port":8080}'):! {} {
   try {
     return JSON.parse(json)
@@ -439,7 +439,7 @@ explains the two runtimes.
 Inside an `async` function the same form catches a rejected `await`, so the function
 resolves to the error instead of rejecting:
 
-```tjs
+```tjs:inline
 async function fetchJson(url: 'https://example.com/data.json') {
   try {
     const res = await Promise.reject(new Error('network down'))
@@ -468,7 +468,7 @@ failed request. Throw when nobody should carry on:
 
 At a framework boundary that looks like this:
 
-```tjs
+```tjs:inline
 function clean(name: ' Ada '): 'ada' {
   return name.trim().toLowerCase()
 }
@@ -516,7 +516,7 @@ Read a file's `__tjs` when you care about that file, as in a test block. Read
 
 ### `errors()`: type errors only
 
-```tjs
+```tjs:inline
 function shout(text: 'ada'): 'ADA' {
   return text.toUpperCase()
 }
@@ -557,7 +557,7 @@ fail on an event that is not a failure. Asserting on errors in tests is covered 
 
 `__tjs.records()` returns every entry, and `__tjs.record(entry)` adds one of your own:
 
-```tjs
+```tjs:inline
 function shout(text: 'ada'): 'ADA' {
   return text.toUpperCase()
 }
@@ -617,7 +617,7 @@ channel.
 The ring holds 64 entries by default and overwrites the oldest. The counts keep going past that, and
 the loss is reported rather than hidden:
 
-```tjs
+```tjs:inline
 function shout(text: 'ada'): 'ADA' {
   return text.toUpperCase()
 }
@@ -646,7 +646,7 @@ full of slow WebAssembly calls does not fill the ring with copies of one warning
 The recorder is useful outside tests. Note the count, run a job, then look at what the job
 added, including errors it produced and dropped:
 
-```tjs
+```tjs:inline
 function parsePort(text: '8080'): 8080 {
   return Number(text)
 }
@@ -697,7 +697,7 @@ expression, fails without a sound. The recorder is the only place it shows up.
 **Callbacks drop returned errors.** `forEach`, an event listener, a timer and any other
 caller that ignores its callback's result also ignores an error the callback returns:
 
-```tjs
+```tjs:inline
 const saved = []
 
 function save(name: 'Ada') {

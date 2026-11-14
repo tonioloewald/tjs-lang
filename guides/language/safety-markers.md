@@ -28,7 +28,7 @@ Two things in the next example look odd to a JavaScript eye. TJS classes are cal
 typo. And an example's spelling sets its type: `0` means an integer and `0.0` a number that
 may have a fraction, which is why `double(1.5)` is refused.
 
-```tjs
+```tjs:inline
 function area(width: 2.0, height: 3.0): 6.0 {
   return width * height
 }
@@ -74,7 +74,7 @@ runtime is what the return markers in the next section are for.
 A check happens when a value passes through a call. It does not keep watching the value
 afterwards:
 
-```tjs
+```tjs:inline
 function makePoint(x: 0, y: 0) {
   return { x, y }
 }
@@ -119,7 +119,7 @@ character after the return colon (nothing, `!` or `?`) says how much checking a 
 Here is the bug `:?` exists for, a function that returns the wrong kind of value on a path
 the signature test does not reach:
 
-```tjs
+```tjs:inline
 // `:` the result is tested once, at transpile time, and never again
 function averageOf(xs: [2.0, 4.0]): 3.0 {
   if (xs.length == 0) return 'no data' // a bug: a string where a number belongs
@@ -166,7 +166,7 @@ function label(n: 0): '' {
 
 `:!` declares the type without the test. Here `''` means only "a string":
 
-```tjs
+```tjs:inline
 function label(n: 0):! '' {
   return n > 0 ? 'positive' : 'not positive'
 }
@@ -230,7 +230,7 @@ By default every typed parameter is checked. From the narrowest tool to the wide
 To relax a single parameter, give it a type that accepts everything. The other parameters
 are still checked:
 
-```tjs
+```tjs:inline
 function log(level: 'info', detail: any) {
   return `[${level}] ${JSON.stringify(detail)}`
 }
@@ -253,7 +253,7 @@ function f(a: 0, b!: 0) { return a + b }   // Unexpected token
 A `!` as the first thing inside the parentheses turns off **every** check in that function,
 not only the one next to it. It works on arrow functions too:
 
-```tjs
+```tjs:inline
 function fastAdd(! a: 0, b: 0): 0 {
   return a + b
 }
@@ -287,7 +287,7 @@ nothing. Older documentation used it to force validation, which is now the defau
 directive: two bare words, no quotes, no semicolon needed. Comments and blank lines may come
 before it, but no code; a `safety` line after code is a syntax error.
 
-```tjs
+```tjs:inline
 safety none
 
 function greet(name: 'World') {
@@ -356,7 +356,7 @@ That last list goes by method *name*, whatever the value's type. So `set` catche
 
 Reading is unrestricted, and so are methods that return a new value:
 
-```tjs
+```tjs:inline
 const! config = { port: 8080, db: { host: 'localhost' } }
 const! retries = [100, 200, 400]
 
@@ -415,7 +415,7 @@ you were doing. In TJS, put `!` before the dot and the read checks first: if the
 left is `null` or `undefined`, the expression is a `MonadicError`; otherwise it is exactly
 `x.foo`, with no wrapper and no copy.
 
-```tjs
+```tjs:inline
 const USERS = { 1: { name: 'Ada' }, 2: { name: 'Grace' } }
 
 function findUser(id: 1) {
@@ -451,7 +451,7 @@ Each `!.` checks only the value immediately to its left. Chains short-circuit: o
 produces a `MonadicError`, every later `!.` passes that error through unchanged, so the
 first missing link is the one reported:
 
-```tjs
+```tjs:inline
 const order = { customer: null }
 
 // customer is null, so reading .address fails; the later `!.city` passes the error on
@@ -465,7 +465,7 @@ The path names the member being read when the missing value was found: `bang.add
 A plain `.` after a bang is the trap. It reads a member *of the error object*, and gives the
 same silent `undefined` that `!.` exists to prevent:
 
-```tjs
+```tjs:inline
 const nobody = null
 console.log(nobody!.name.length)                  // undefined: read off the error object
 console.log(isMonadicError(nobody!.name!.length)) // true
@@ -481,7 +481,7 @@ So put `!.` on every hop that might be missing, and test the result once at the 
 Calling a method through bang access currently checks the object but calls the method
 without its `this`:
 
-```tjs
+```tjs:inline
 const counter = { n: 7, get() { return this?.n } }
 
 console.log(counter!.get())   // undefined: `this` was lost

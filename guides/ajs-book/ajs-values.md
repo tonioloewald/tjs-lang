@@ -33,7 +33,7 @@ at that line, as an ordinary error a `try` can catch ([When Things Fail](/ajs-er
 A value in AJS is data: a number, a string, a boolean, `null` or `undefined`, an array, or a
 plain object. Sets and dates are data too.
 
-```ajs
+```ajs:inline
 function values() {
   const count = 3
   const price = 2.5
@@ -105,7 +105,7 @@ than guess, AJS refuses, and you write the conversion yourself, where it is visi
 
 The fix is to say which string you mean:
 
-```ajs
+```ajs:inline
 function explicit({ tags = ['a', 'b'], scores = [3, 9, 4], order = { id: 7, total: 12 } }) {
   return {
     joined: 'tags: ' + tags.join(','), // 'tags: a,b'
@@ -135,7 +135,7 @@ Two things to know about the error when you hit it:
 Declare a variable with `let` (it may be reassigned) or `const` (it may not). A name must be
 declared before it is read, and variables are block-scoped, as in modern JavaScript:
 
-```ajs
+```ajs:inline
 function counters() {
   let total = 10
   total += 5
@@ -195,7 +195,7 @@ transpile time with `Only simple variable assignment is supported`. Build a new 
 spread for an object, `with` to replace one item of an array, or a method that changes the array
 in place, such as `push`:
 
-```ajs
+```ajs:inline
 function update() {
   let user = { name: 'Ada', role: 'user' }
   const promoted = { ...user, role: 'admin' }
@@ -225,7 +225,7 @@ JavaScript" is `Object.assign`.
 
 Arithmetic and comparison work as in JavaScript on numbers, strings and booleans:
 
-```ajs
+```ajs:inline
 function arithmetic({ a = 7, b = 2 }) {
   return {
     sum: a + b, // 9
@@ -246,7 +246,7 @@ and `!==` are JavaScript's own, with no exceptions: `null === undefined` and `Na
 both false. Neither operator ever coerces (`'1' == 1` is false), and objects and arrays compare
 by identity, not by contents:
 
-```ajs
+```ajs:inline
 function equality() {
   const a = { id: 1 }
   const b = a
@@ -270,7 +270,7 @@ tell `null` from `undefined`.
 `&&`, `||`, `??` and `cond ? x : y` behave as in JavaScript. Notice the difference between `||`
 and `??` on an empty string:
 
-```ajs
+```ajs:inline
 function logic({ name = '', count = 0 }) {
   return {
     orFallback: name || 'anonymous', // 'anonymous': '' is falsy
@@ -292,7 +292,7 @@ missing, and a crash on the first absent one would turn every agent into a pile 
 every member read behaves like optional chaining: reading a property of `null` or `undefined`
 gives `undefined` instead of throwing.
 
-```ajs
+```ajs:inline
 function lookup({ user = { name: 'Ada', address: null }, key = 'name' }) {
   const city = user.address.city // user.address is null: city is undefined
   const value = user[key] // computed access with a variable
@@ -316,7 +316,7 @@ accepted, but adds nothing: every read is already null-safe.
 
 Template strings work as in JavaScript, as long as every interpolated value is a primitive:
 
-```ajs
+```ajs:inline
 function templates({ name = 'Ada', count = 3, done = false }) {
   const line = `${name} has ${count} items`
   const flag = `done: ${done}`
@@ -333,7 +333,7 @@ Strings, numbers, arrays and objects have a **closed** list of methods: the ones
 [Methods table](/DOCS-AJS/#methods). Anything not on the list is refused, and the error names the
 method. `text.matchAll(/a/g)` is refused because `matchAll` is not on the list.
 
-```ajs
+```ajs:inline
 function methods({ text = '  Hello World  ', nums = [3, 1, 2] }) {
   const clean = text.trim()
   const words = clean.split(' ')
@@ -388,7 +388,7 @@ Expressions have a fixed set of builtins. Like methods, they are called, never h
 
 ### Math, JSON and the statics
 
-```ajs
+```ajs:inline
 function builtins() {
   return {
     floor: Math.floor(3.7), // 3
@@ -430,7 +430,7 @@ covers them), and atoms take named arguments. Read it as "`String` is not availa
 `Set(items)` makes a set of unique items. Write it without `new`; AJS has no `new`, and
 `new Set(xs)` is refused at transpile time.
 
-```ajs
+```ajs:inline
 function sets() {
   const tags = Set(['a', 'b', 'b']) // ['a', 'b']
   tags.add('c') // in place
@@ -481,7 +481,7 @@ A date is made by calling `Date` without `new` (`new Date(s)` is refused at tran
 - `Date()` with no argument: now, read from the clock the host grants. `Date.now()` is now as a
   number of milliseconds. See [time and randomness](#time-and-randomness).
 
-```ajs
+```ajs:inline
 function dates() {
   const d = Date('2024-01-15T10:00:00Z')
   const later = d.add({ days: 10 }) // a new date; d is unchanged

@@ -11,10 +11,24 @@ import { describe, it, expect } from 'bun:test'
 import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 
-const ROOT = join(import.meta.dir, '..', 'guides', 'examples')
+const GUIDES = join(import.meta.dir, '..', 'guides')
+const ROOT = join(GUIDES, 'examples')
 const files = readdirSync(ROOT, { recursive: true })
   .map(String)
   .filter((f) => f.endsWith('.md'))
+
+/**
+ * The books' tutorial chapters, whose examples are meant to run like the playground's. The book
+ * swarm of 2026-11-14 wrote 174 bare ```tjs / ```ajs fences into them, all verified and all
+ * rendered as plain code, because this guard covered only guides/examples (and the swarm was
+ * told, wrongly, that bare fences run).
+ */
+const BOOK_DIRS = ['learn', 'language', 'ajs-book']
+const bookFiles = BOOK_DIRS.flatMap((d) =>
+  readdirSync(join(GUIDES, d))
+    .filter((f) => f.endsWith('.md'))
+    .map((f) => join(d, f))
+)
 
 /** Executable fences (the languages the site runs) and their `:mode`, if any. */
 function fences(text: string) {
@@ -44,6 +58,16 @@ describe('playground examples run on the doc site (opt-in policy)', () => {
   it('every executable fence in an example names a mode', () => {
     const bare = files.flatMap((f) =>
       fences(readFileSync(join(ROOT, f), 'utf8'))
+        .filter((x) => x.lang !== 'js' && x.mode === undefined)
+        .map((x) => `${f}: \`\`\`${x.lang}`)
+    )
+    expect(bare).toEqual([])
+  })
+
+  it('every executable fence in a book tutorial chapter names a mode', () => {
+    expect(bookFiles.length).toBeGreaterThan(30) // apparatus: the chapters are found
+    const bare = bookFiles.flatMap((f) =>
+      fences(readFileSync(join(GUIDES, f), 'utf8'))
         .filter((x) => x.lang !== 'js' && x.mode === undefined)
         .map((x) => `${f}: \`\`\`${x.lang}`)
     )

@@ -15,7 +15,7 @@ You need to know some JavaScript. You do not need to know anything about AJS.
 An **agent** is a function that takes one object of named inputs, destructured in its
 parameter list, and returns one plain object. Here is the smallest useful one:
 
-```ajs
+```ajs:inline
 function greet({ name = 'World' }) {
   let message = `Hello, ${name}!`
   return { message }
@@ -73,7 +73,7 @@ value.
 Here is an agent with more in it: a list of products, a price limit, and three steps over the
 list.
 
-```ajs
+```ajs:inline
 function shortlist({ items = [
   { name: 'kettle', price: 40 },
   { name: 'toaster', price: 25 },
@@ -103,7 +103,7 @@ Neither agent so far touches the outside world. An agent that fetches a URL, ask
 reads a store does it by calling an **atom**, a built-in operation the VM provides. Atoms are
 the only way an agent acts on anything outside itself, and they take named inputs:
 
-```ajs
+```ajs:inline
 function stars({}) {
   let repo = httpFetch({ url: 'https://api.github.com/repos/tonioloewald/tjs-lang' })
   return { stars: repo.stargazers_count }

@@ -24,7 +24,7 @@ reach the host's code, so raising one is a call: `Error('message')`, without `ne
 point the program is in its **error state**: every step after it is skipped until a `catch`
 takes the error. If nothing does, the run ends, and the error is what the run produces.
 
-```ajs
+```ajs:inline
 function safeDivide({ a = 10, b = 0 }) {
   try {
     if (b == 0) {
@@ -58,7 +58,7 @@ characters keeps its first 8,192, followed by `…`.
 
 The message can be computed, with `+` or a template:
 
-```ajs
+```ajs:inline
 function checkAge({ age = -3 }) {
   try {
     if (age < 0) {
@@ -82,7 +82,7 @@ instead of packing it into a message.
 Write `catch (err)` when you want the message. When you only need to know that something failed,
 leave the binding out:
 
-```ajs
+```ajs:inline
 function isJson({ text = '{"a": 1' }) {
   try {
     JSON.parse(text)
@@ -101,7 +101,7 @@ Calling `Error(...)` inside a `catch` raises a new error, which goes to the near
 `try`, or ends the run. Use it to give a low-level message context, keeping the original text if
 it helps:
 
-```ajs
+```ajs:inline
 function loadConfig({ text = '{"retries": 3' }) {
   let config = null
   try {
@@ -128,7 +128,7 @@ host read the field.
 A `finally` block runs after the `try` and after any `catch`, whatever happened in them, unless
 the run itself ends (see [Refusals that end the run](#refusals-that-end-the-run-a-bugs) below).
 
-```ajs
+```ajs:inline
 function withCleanup({ text = 'not json' }) {
   let log = []
   let value = null
@@ -150,7 +150,7 @@ Change `text` to `'[1, 2]'` and the log reads `['parsed', 'cleanup']`.
 A `return` or an error from the `try` or `catch` waits until the `finally` has finished. A
 `return` or an error *inside* the `finally` replaces the one that was waiting, as in JavaScript:
 
-```ajs
+```ajs:inline
 function overruled() {
   try {
     return { from: 'try' }
@@ -169,7 +169,7 @@ An error raised in a helper stops the helper and reaches the caller's `try`, the
 exception does in JavaScript. Put the `try` inside the loop and one bad item does not stop the
 rest:
 
-```ajs
+```ajs:inline
 function double(n) {
   if (n < 0) {
     Error('negative input: ' + n)
@@ -224,7 +224,7 @@ them.
 
 This agent asks for a page:
 
-```ajs
+```ajs:inline
 function tryFetch({ url = 'https://example.com/' }) {
   try {
     const page = httpFetch({ url })
@@ -244,7 +244,7 @@ returns the page. Each message names the rule that refused the call.
 And this one makes an in-program mistake, adding a number to an array, which AJS refuses rather
 than quietly turning the array into text:
 
-```ajs
+```ajs:inline
 function addToList({ items = [1, 2] }) {
   try {
     const label = items + 1
@@ -267,7 +267,7 @@ The per-failure reference, with the message each one produces, is the table in
 both. The language reference has the canonical version,
 [`parseAll`](/DOCS-AJS/#raising-and-catching):
 
-```ajs
+```ajs:inline
 function parseAll({ items = ['1', 'x', '3', '{"a":4}'] }) {
   let results = []
   let errors = []
@@ -289,7 +289,7 @@ on the fact that an item failed, not on the parser's wording.
 **Retry with a stop condition.** Put the `try` in a `while` loop whose condition says when to
 give up: after so many attempts, or once there is a result.
 
-```ajs
+```ajs:inline
 function fetchWithRetry({ url = 'https://example.com/', maxAttempts = 3 }) {
   let attempts = 0
   let page = null
@@ -328,7 +328,7 @@ them runs: not the `catch` block, not a `finally`, not any later step, and not a
 agent that called this one (except when the host runs the sub-agent separately; see
 [below](#the-one-exception-a-sub-agent-the-host-runs)).
 
-```ajs
+```ajs:inline
 function badCall({ port = 8080 }) {
   try {
     const page = httpFetch({ url: port })

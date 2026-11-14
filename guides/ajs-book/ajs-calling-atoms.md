@@ -25,7 +25,7 @@ any other value as its JSON), and needs nothing from the host. `uuid()` makes a 
 random source the host grants ([time and randomness](/ajs-values/#time-and-randomness)); the
 examples on this site run with one:
 
-```ajs
+```ajs:inline
 function stamp({ name = 'Ada' }) {
   let id = uuid()
   let digest = hash({ value: name })
@@ -42,7 +42,7 @@ The store atoms work with no setup either. A host can give a run a store of its 
 [Atoms that need the host](#atoms-that-need-the-host)); a run without one gets a small in-memory
 store that lasts for that run:
 
-```ajs
+```ajs:inline
 function remember() {
   storeSet({ key: 'user:1', value: { name: 'Ann' } })
   let user = storeGet({ key: 'user:1' })
@@ -156,7 +156,7 @@ when `a` is truthy; moved in front of the expression, it would run every time. Y
 it goes. [Where Calls May Appear](/patterns/#where-calls-may-appear) has the full rule, which
 also covers helper calls and callbacks. Lifting the call out is always the fix:
 
-```ajs
+```ajs:inline
 function pick({ s = 'abc123' }) {
   let hasDigits = regexMatch({ pattern: /\d/, value: s })
   let id = uuid()
@@ -197,7 +197,7 @@ details.
 `httpFetch({ url })` makes an HTTP request and returns the response body. GitHub is one of the
 domains this page's host allows, so this runs here:
 
-```ajs
+```ajs:inline
 function repo({ owner = 'tonioloewald', name = 'tjs-lang' }) {
   let r = httpFetch({ url: `https://api.github.com/repos/${owner}/${name}` })
   if (r.full_name == null) {
@@ -236,7 +236,7 @@ browser does not let a page see where an unfollowed redirect points. GitHub redi
 for a renamed repository (`xinjs` was renamed `tosijs`, and at the time of writing the old name
 answers with a 301), so this agent shows both cases:
 
-```ajs
+```ajs:inline
 function follow({ owner = 'tonioloewald', name = 'xinjs' }) {
   let r = httpFetch({ url: `https://api.github.com/repos/${owner}/${name}` })
   if (r.redirect != true) {
@@ -333,7 +333,7 @@ Capability 'llm.predict' missing
 The built-in fetch client refuses a domain the host did not allow. This page allows three, so
 this agent's call is refused, and since nothing catches the error, it ends the run:
 
-```ajs
+```ajs:inline
 function elsewhere() {
   let page = httpFetch({ url: 'https://example.com/' })
   return { page }
@@ -390,7 +390,7 @@ surprise people:
 no effect: they print nothing and add nothing to the result or the warnings. To see something
 during a run, call the console atoms:
 
-```ajs
+```ajs:inline
 function steps({ n = 41 }) {
   let x = n + 1
   consoleLog({ message: `x is ${x}` })

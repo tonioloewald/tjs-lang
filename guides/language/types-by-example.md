@@ -23,7 +23,7 @@ then keep the two in step by hand.
 
 TJS writes the shape once, as an example, and keeps it:
 
-```tjs
+```tjs:inline
 function createUser(name: 'anonymous', age: +0) {
   return { name, age }
 }
@@ -76,7 +76,7 @@ each row.
 
 A string or boolean example stands for its whole type. `null` stands only for itself:
 
-```tjs
+```tjs:inline
 function greet(name: 'Alice') { return `Hello, ${name}` }
 function flag(on: true) { return on }
 function nothing(x: null) { return x }
@@ -92,7 +92,7 @@ console.log(isMonadicError(nothing(undefined))) // true: null is not undefined
 
 JavaScript has one number type. TJS reads three from how the example is written:
 
-```tjs
+```tjs:inline
 function repeat(count: 3) { return 'x'.repeat(count) }   // an integer
 function scale(rate: 1.5) { return rate * 2 }            // any number
 function at(index: +0) { return ['a', 'b', 'c'][index] } // a non-negative integer
@@ -129,7 +129,7 @@ a type. During transpilation (by `tjs check`, a build, or the playground), TJS c
 function with its parameter examples and compares the result with the return example, by
 value. That built-in test is the function's **signature test**:
 
-```tjs
+```tjs:inline
 function add(a: 2, b: 3): 5 { return a + b }   // add(2, 3) runs, and must be 5
 
 function makeUser(name: 'Ada'):! { name: '', age: 0 } {
@@ -163,7 +163,7 @@ suits functions with side effects and results that would be awkward to write out
 Sometimes there is no natural example, or you would rather say the type outright. Each
 numeric example has a name, and TypeScript's own names work as runtime checks too:
 
-```tjs
+```tjs:inline
 function mix(count: int, rate: float, index: unsigned) {
   return count * rate + index
 }
@@ -204,7 +204,7 @@ that is the subject of [Naming a shape](#naming-a-shape) below.
 An object example is a shape. Every member it shows is required and checked by its own
 example, and a value may carry members the example does not mention:
 
-```tjs
+```tjs:inline
 function label(item: { name: 'box', size: { w: 0, h: 0 } }) {
   return `${item.name} ${item.size.w}x${item.size.h}`
 }
@@ -228,7 +228,7 @@ must not; TJS does not invent exact object types that TypeScript does not have. 
 An array example gives the element type, and every element is checked. One sample element
 is enough:
 
-```tjs
+```tjs:inline
 function total(prices: [0.0]) { return prices.reduce((a, b) => a + b, 0) }
 function count(xs: number[]) { return xs.length }   // rewritten to [0.0]
 function tags(xs: ['', 0]) { return xs.length }      // each element: a string or an integer
@@ -266,7 +266,7 @@ require one, declare a `Type` with a predicate that checks the length and each p
   a set needs every member to be the same type;
 - `| undefined` makes a member **optional**, and `| null` makes it **nullable**.
 
-```tjs
+```tjs:inline
 function order(item: {
   size: 'S' | 'M' | 'L',
   qty: 0 | '',
@@ -295,7 +295,7 @@ example. To accept exactly one value, write a `Type` with a predicate
 To combine a closed set with another type, name the set first. `Size | 0` accepts `'S'`,
 `'M'`, `'L'` or any integer:
 
-```tjs
+```tjs:inline
 Type Size = 'S' | 'M' | 'L'
 
 function pick(x: Size | 0) { return x }
@@ -319,7 +319,7 @@ defaults it to the example, so `name?: ''` means the same as `name = ''`.
 Writing `{ x: 0.0, y: 0.0 }` in five signatures works until one copy changes. A `Type` gives
 the example a name, and a declared name can stand wherever an example can:
 
-```tjs
+```tjs:inline
 Type Point {
   description: 'a point on the plane'
   example: { x: 0.0, y: 0.0 }
@@ -341,7 +341,7 @@ the argument fails, as `dist` does.
 [Declarations](/declarations/) teaches the block form, predicates and the other declarations.
 What it leaves out is the one-line alias, for when a type is only an example:
 
-```tjs
+```tjs:inline
 Type Price = 0.0
 Type Quantity 'how many, never negative' = +0
 Type Nickname = '' | undefined
@@ -364,7 +364,7 @@ the `=`, a string after the name is the example, not a description; the
 A shape is often made of other shapes. A falling piece in a game is a list of cells, and a
 cell is a row and a column. Write the inner type's name inside the outer type's example:
 
-```tjs
+```tjs:inline
 Type Piece {
   description: 'a falling piece: the cells it covers'
   example: { colour: 'purple', cells: [Cell] }
@@ -392,7 +392,7 @@ declared, so declaration order does not matter.
 
 A reference works inside a parameter's example too:
 
-```tjs
+```tjs:inline
 Type Cell { example: { row: 0, column: 0 } }
 
 function place(p: { at: Cell }) { return p.at.row }
@@ -415,7 +415,7 @@ an example it describes the same shape, but it carries only the shape. Anything 
 type knows, such as a predicate, is lost. Here `Cell` also requires the cell to be on a
 10-by-20 board:
 
-```tjs
+```tjs:inline
 Type Cell {
   example: { row: 0, column: 0 }
   predicate(c) { return c.row < 20 && c.column < 10 }
@@ -448,7 +448,7 @@ longer apply, because there is no source left to read. `Math.PI` is a fractional
 it means "any number". `Math.round(1.0)` returns `1`, so it means "integer", whatever the
 `.0` inside the call suggests:
 
-```tjs
+```tjs:inline
 Type Cell { example: { row: 0, column: 0 } }
 const shapes = { Cell }
 
@@ -482,7 +482,7 @@ recorder: a list of everything the runtime noticed while the page ran, such as t
 and warnings ([Runtime Configuration](/runtime-configuration/) covers it). Filter it for the
 warning about this type:
 
-```tjs
+```tjs:inline
 Type Board { example: { cells: [Celll] } }   // a typo: there is no Celll
 
 console.log(Board({ cells: ['anything'] }))  // true: the elements are unchecked
@@ -510,7 +510,7 @@ cannot know in advance that it will be missing.
 Because references are lazy, a type can mention itself. A tree is a value and a list of
 trees:
 
-```tjs
+```tjs:inline
 Type Tree {
   example: { value: 0, kids: [Tree] }
 }
@@ -532,7 +532,7 @@ in Part I, whose pieces, cells and board are a small family of shapes.
 
 A declared type is a value, and the facts in its declaration are properties you can read.
 
-```tjs
+```tjs:inline
 Type Order {
   description: 'one line of an order'
   example: {
@@ -565,7 +565,7 @@ Tools that have never heard of TJS (an API gateway, a form library, a model's st
 output) understand JSON Schema. Every type writes itself out as one, and the source rules
 survive into it:
 
-```tjs
+```tjs:inline
 Type Order {
   example: {
     sku: 'A-1',
@@ -605,7 +605,7 @@ The output, abridged:
 `strip` returns a copy without the **top-level** keys the example does not name. It does not
 reach into nested objects, and it does not validate:
 
-```tjs
+```tjs:inline
 Type Account {
   example: { name: '', profile: { bio: '' } }
 }
@@ -624,7 +624,7 @@ console.log(partial, Account(partial))  // {} false
 Because `strip` is shallow, it is not on its own a way to keep secrets out of a response. To
 strip a nested object, give it a type of its own and strip each level:
 
-```tjs
+```tjs:inline
 Type Profile { example: { bio: '' } }
 Type Account { example: { name: '', profile: Profile } }
 
@@ -641,7 +641,7 @@ Functions keep their signatures too. Every TJS function carries a `__tjs` proper
 description of its parameters and return type built from the same examples. (This is the
 function's own metadata, unrelated to the runtime at `globalThis.__tjs` used above.)
 
-```tjs
+```tjs:inline
 Type Point { example: { x: 0.0, y: 0.0 } }
 
 function moveBy(p: Point, dx: 0.0, dy = 0.0) {

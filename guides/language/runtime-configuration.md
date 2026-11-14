@@ -30,7 +30,7 @@ is a different thing entirely and has nothing to do with this chapter; see the
 
 Save one small function as `greet.tjs`:
 
-```tjs
+```tjs:inline
 export function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
@@ -106,7 +106,7 @@ shipped behaviour of every declaration.
 You can see which code answers by asking a type for its example. The library's `Type` keeps
 it as `.example`; the inline one keeps it under another name:
 
-```tjs
+```tjs:inline
 Type Age 30
 
 console.log(Age.check(30), Age.check('thirty'))   // true false
@@ -156,7 +156,7 @@ the whole program one recorder.
 
 This book's pages install it, so this example runs here as written:
 
-```tjs
+```tjs:inline
 const shared = globalThis.__tjs
 console.log('shared runtime installed:', shared !== undefined)
 
@@ -186,7 +186,7 @@ means a number that is not an integer.)
 
 The examples in the rest of this chapter use one small module, `price.tjs`:
 
-```tjs
+```tjs:inline
 Type Price 9.99
 
 export function total(price: Price, qty: 0):! 0.0 {
@@ -289,7 +289,7 @@ in production.
 **`callStacks: true`** adds a `callStack` to every error, listing the TJS functions entered
 before it, ending with the one whose check failed. With this `app.tjs`:
 
-```tjs
+```tjs:inline
 export function inner(n: 0):! 0 {
   return n
 }

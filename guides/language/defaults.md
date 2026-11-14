@@ -24,7 +24,7 @@ where the signature can no longer tell a reader which options exist.
 Put exactly the same function in a `.tjs` file and the partial argument is completed from
 the default:
 
-```tjs
+```tjs:inline
 function connect(opts = { host: 'localhost', port: 80 }) {
   return opts
 }
@@ -49,7 +49,7 @@ Function declarations, function expressions, arrow functions, and class construc
 methods (static ones included) all get dictionary defaults, and a function can have more
 than one dictionary parameter:
 
-```tjs
+```tjs:inline
 const viaArrow = (opts = { a: 1, b: 2 }) => opts
 
 class Box {
@@ -79,7 +79,7 @@ Declare the function separately, or use a class, until that is fixed.
 The idiom JavaScript developers already reach for is destructuring with per-name defaults.
 It works in TJS too, and the names are checked against their defaults:
 
-```tjs
+```tjs:inline
 function point({ x = 0, y = 0 } = {}) {
   return JSON.stringify({ x, y })
 }
@@ -98,7 +98,7 @@ every depth.
 Destructuring with an object default, `({ a, b } = { a: 1, b: 2 })`, is neither. It keeps
 JavaScript's all-or-nothing default, and its names are not checked at all:
 
-```tjs
+```tjs:inline
 function d({ a, b } = { a: 1, b: 2 }) {
   return JSON.stringify({ a, b })
 }
@@ -117,7 +117,7 @@ For per-member defaults, write `opts = { a: 1, b: 2 }` and destructure in the bo
 A member the caller leaves out, or passes as `undefined`, gets its default. Calling with no
 argument at all, or with `undefined`, gives you the whole default:
 
-```tjs
+```tjs:inline
 function place(args = { x: 0, y: 0 }) {
   return args
 }
@@ -136,7 +136,7 @@ match its type. Only `undefined` means "not given".
 An object inside the default is a dictionary in its own right, so a caller who passes part
 of it, or an empty one, gets the rest filled in:
 
-```tjs
+```tjs:inline
 function render(opts = { inner: { b: '' }, margin: { top: 0, left: 0 } }) {
   return opts
 }
@@ -160,7 +160,7 @@ A refused call does not throw, and it does not run the body: it returns an error
 `isMonadicError(x)` tells you whether you got one; in a `.tjs` file it is available
 everywhere without an import.
 
-```tjs
+```tjs:inline
 function place(args = { x: 0, y: 0 }) {
   return args
 }
@@ -187,7 +187,7 @@ backtick string with no substitutions.
 To compute a value on each call, give the member the default `undefined` and fill it in the
 body:
 
-```tjs
+```tjs:inline
 function roll(opts = { seed: undefined, sides: 6 }) {
   const seed = opts.seed ?? Math.random()
   return typeof seed
@@ -206,7 +206,7 @@ Check it yourself in the body if it matters.
 A key the default does not mention is kept, unchecked, in the object your function
 receives:
 
-```tjs
+```tjs:inline
 function sized(opts = { w: 100, h: 100 }) {
   return opts
 }
@@ -230,7 +230,7 @@ function receives **that object**. Extra keys do not change this. If any member 
 at any depth, the function receives a new, merged object and the caller's object is left
 alone:
 
-```tjs
+```tjs:inline
 function sized(opts = { w: 100, h: 100 }) {
   return opts
 }
@@ -297,7 +297,7 @@ A typed default (`name: Type = value`) is an optional parameter of that type, an
 default is used only when the argument is absent. `Type` gives a shape a name; it is taught
 in [Types by Example](/types-by-example/#naming-a-shape).
 
-```tjs
+```tjs:inline
 // `=` with an object literal: a dictionary
 function merged(opts = { a: 0, b: '' }) {
   return JSON.stringify(opts)
@@ -330,7 +330,7 @@ There is no marker for "a required member inside a dictionary": if the caller mu
 it, it is not a default. Put the required values in their own parameters, ahead of the
 options, the way `addEventListener(type, listener, options)` does:
 
-```tjs
+```tjs:inline
 function fetchUser(id: 0, opts = { verbose: false, retries: 3 }) {
   return `user ${id}, verbose=${opts.verbose}, retries=${opts.retries}`
 }
@@ -352,7 +352,7 @@ that the argument, if passed, is an object. A `!` at the start of the parameter 
 keeps the atomic default, but it turns off every check in the function, for every parameter
 (see [Safety and Validation](/safety-markers/)):
 
-```tjs
+```tjs:inline
 function legacy(range = LegacyDefault({ from: 0, to: 10 })) {
   return JSON.stringify(range)
 }
@@ -402,7 +402,7 @@ extension keeps its JavaScript meaning. The invariant and its exceptions are in
 A member whose default is `null` (or `undefined`) has no example to check against, so it
 accepts any value. That is how you declare an option with no natural default:
 
-```tjs
+```tjs:inline
 function open(opts = { parent: null, retries: 3 }) {
   return opts
 }
@@ -424,7 +424,7 @@ A merge is exactly where prototype pollution happens, so `__proto__`, `construct
 walks into. `JSON.parse` creates `__proto__` as an ordinary own key, which is what an
 attacker sends:
 
-```tjs
+```tjs:inline
 function place(args = { x: 0, y: 0 }) {
   return args
 }
@@ -451,7 +451,7 @@ Treat such values as untrusted, the same as in plain JavaScript.
 An array in a default is a single value. A caller's array replaces it whole, never index
 by index, and an empty array is a perfectly good value:
 
-```tjs
+```tjs:inline
 function tag(opts = { tags: ['draft', 'new'], n: 0 }) {
   return opts
 }

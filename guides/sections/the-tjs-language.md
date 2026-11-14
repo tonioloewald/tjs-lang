@@ -22,7 +22,7 @@ Where to start depends on you:
 The goal of this part is that you can read a signature like this one and say exactly what it
 accepts, what it returns, and what it checks at runtime:
 
-```tjs
+```tjs:inline
 function greet(name: 'Alice', times = 1): 'Hello, Alice!' {
   return `Hello, ${name}${'!'.repeat(times)}`
 }

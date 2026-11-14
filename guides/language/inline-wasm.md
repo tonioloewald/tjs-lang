@@ -34,7 +34,7 @@ WASM-against-JavaScript comparison on your own machine.
 
 Here is a function that doubles every element of a `Float32Array` in place:
 
-```tjs
+```tjs:inline
 function double(arr: Float32Array, len: 0) {
   wasm {
     for (let i = 0; i < len; i++) {
@@ -96,7 +96,7 @@ Without that check, pass a real typed array; what happens otherwise is under
 A block can produce a value: write `return` inside it, and `return wasm { … }` in the
 function. It can also carry a `fallback { }`, a JavaScript version of the same computation:
 
-```tjs
+```tjs:inline
 function mean(! xs: Float32Array, len: 0):! 0.0 {
   return wasm {
     let sum = 0.0
@@ -169,7 +169,7 @@ for a runtime that cannot run WASM, not for code the compiler cannot compile.
 A block belongs to one function. When you want a kernel you can call from anywhere in the
 file, or export to other files, declare a `wasm function` at module scope:
 
-```tjs
+```tjs:inline
 wasm function sq(x: f64): f64 {
   return x * x
 }
@@ -281,7 +281,7 @@ kernel is handed a typed array outside WASM memory, it records a `notice` with
 and inside a `.tjs` file, a bare `__tjs` is that file's own runtime, which keeps only the
 file's own records.
 
-```tjs
+```tjs:inline
 // Writes input[i] * factor into output[i]. It allocates nothing:
 // the caller owns both arrays.
 wasm function scaleInto(input: Float32Array, output: Float32Array, n: i32, factor: f64) {
@@ -335,7 +335,7 @@ This example times one read-only kernel over 100,000 floats, once with an ordina
 `Float32Array` and once with a `wasmBuffer` array. The kernel does the same work both times, so
 the difference is the copy:
 
-```tjs
+```tjs:inline
 function sum(! arr: Float32Array, len: 0):! 0.0 {
   return wasm {
     let total = 0.0
@@ -462,7 +462,7 @@ that yours agree, run both paths with `globalThis.__tjs_wasm_enabled = false`
 For integer algorithms (hashes, checksums, random-number generators, packed pixels), use a
 `wasm function` with `i32` parameters. Its arithmetic is WebAssembly's, which is the point:
 
-```tjs
+```tjs:inline
 // An inline block: captured numbers are f64, so it agrees with JavaScript.
 function factorial(! n: 0):! 0 {
   return wasm {
@@ -519,7 +519,7 @@ A dot product is the classic example. It multiplies four pairs at a time into fo
 sums, then adds the four sums together. (The kernel is called `simdDot` rather than `dot` for a
 reason given under [Libraries and composition](#libraries-and-composition).)
 
-```tjs
+```tjs:inline
 wasm function simdDot(a: Float32Array, b: Float32Array, n: i32): f64 {
   // Four lanes of partial sums, all starting at 0.0
   let acc = f32x4_splat(0.0)
@@ -644,7 +644,7 @@ If your code must run everywhere, give the kernel a fallback by calling it from 
 block. The block calls the `wasm function` inside WASM, and when WASM is not available the
 block's `fallback` runs instead:
 
-```tjs
+```tjs:inline
 wasm function sq(x: f64): f64 {
   return x * x
 }
@@ -667,7 +667,7 @@ WASM is loaded. Use it to check that the two paths agree, or to benchmark one ag
 other. Delete it, or set it back to `true`, to switch WASM on again. It affects only blocks; a
 `wasm function` has no other path to switch to.
 
-```tjs
+```tjs:inline
 function mean(! xs: Float32Array, len: 0):! 0.0 {
   return wasm {
     let sum = 0.0

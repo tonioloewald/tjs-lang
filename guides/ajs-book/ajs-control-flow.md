@@ -17,7 +17,7 @@ with what to write instead.
 Here is an agent that quotes a shipping price. It uses an `if`/`else if`/`else` chain, the
 ternary, and the three logical operators:
 
-```ajs
+```ajs:inline
 function quote({ weightKg = 3.5, country = 'DE', member = false, coupon = '' }) {
   let rate = 0
   if (country == 'DE') {
@@ -65,7 +65,7 @@ One care is needed when the key comes from outside. Reading a method name such a
 off an object fails, because a method is not a value in AJS. So check that the key is one of the
 table's own before reading it:
 
-```ajs
+```ajs:inline
 function rateFor({ country = 'FR' }) {
   const rates = { DE: 4.9, FR: 7.5, NL: 7.5 }
   let rate = 15
@@ -94,7 +94,7 @@ When each case does different work, call a helper per case; there is an example 
 
 AJS has two loops: `for...of` over an array, and `while`.
 
-```ajs
+```ajs:inline
 function cartTotal({ prices = [4, 10, 6] }) {
   let total = 0
   for (const price of prices) {
@@ -109,7 +109,7 @@ variable in an enclosing scope can be assigned this way, and `total += price` wo
 
 To walk an object, loop over its keys (`for...in` is refused; see the table below):
 
-```ajs
+```ajs:inline
 function stockValue({ stock = { apple: 3, pear: 0, plum: 5 }, price = 2 }) {
   let value = 0
   const empty = []
@@ -131,7 +131,7 @@ destructured loop variable (`for (const [k, v] of …)`) is refused.
 `while` takes a condition, as in JavaScript. Use it when you need the position, not only the
 item:
 
-```ajs
+```ajs:inline
 function numbered({ lines = ['buy milk', 'call Ada', 'ship it'] }) {
   let i = 0
   const out = []
@@ -172,7 +172,7 @@ Four shapes cover what `break` and `continue` did.
 **Stop early: put the stop condition in the `while`.** This finds the first order over a limit
 and looks no further:
 
-```ajs
+```ajs:inline
 function firstLarge({ orders = [12, 40, 7, 95], limit = 30 }) {
   let at = -1
   let i = 0
@@ -192,7 +192,7 @@ the last two orders.
 **Skip an item: wrap the work in an `if`.** Where JavaScript would `continue`, the body only acts
 when the condition holds:
 
-```ajs
+```ajs:inline
 function paidTotal({
   invoices = [
     { amount: 50, paid: true },
@@ -218,7 +218,7 @@ It returns `{ total: 80 }`. Filtering first, then looping over what is left, say
 **Leave the loop and the function: `return`.** A `return` inside a loop ends both, which is
 often exactly what a search wants:
 
-```ajs
+```ajs:inline
 function routeRequest({
   path = '/api/users/42',
   rules = [
@@ -242,7 +242,7 @@ It returns `{ backend: 'api-pool' }`; `{ path: '/about' }` falls through to `'we
 Four array methods take a function: `map`, `filter` and `find` take `(item) => …`, and `reduce`
 takes `(acc, item) => …` and an initial value. They do most of the work of shaping a list:
 
-```ajs
+```ajs:inline
 function invoice({
   lines = [
     { sku: 'pen', qty: 3, unit: 2 },
@@ -316,7 +316,7 @@ name and reuse, write a helper function (next section).
 make one atom call per item, and each call costs fuel like any other. The core
 [`hash`](/ajs-atoms/#utilities) atom takes its text as the named input `value`:
 
-```ajs
+```ajs:inline
 function nameDigests({ names = ['report.pdf', 'notes.txt'] }) {
   const digests = names.map((name) => hash({ value: name }))
   return { digests }
@@ -329,7 +329,7 @@ one URL per item; see [Callbacks](/patterns/#callbacks) in Patterns.
 **Only these four take a callback.** `some`, `every`, `findIndex` and `flatMap` are refused with
 a message pointing at `for...of` and these four. `find` and `filter` cover the first two:
 
-```ajs
+```ajs:inline
 function checks({ scores = [72, 88, 95] }) {
   const high = scores.find((s) => s > 90)
   const anyHigh = high != null
@@ -357,7 +357,7 @@ result object. The ones before it are helpers, which the entry and other helpers
 Put a helper after the entry and that helper becomes the agent; the transpiler does not
 complain, and the run is usually refused because its inputs do not match.
 
-```ajs
+```ajs:inline
 function applyTransform(item, transform) {
   if (transform == 'double') {
     return item * 2
@@ -410,7 +410,7 @@ Helpers are ordinary functions, with a few rules:
 
 When each case of a decision does different work, a helper per case keeps the entry readable:
 
-```ajs
+```ajs:inline
 function refund(order) {
   return { action: 'refund', amount: order.total }
 }
@@ -437,7 +437,7 @@ It returns `{ action: 'reship', items: 2 }`; `{ kind: 'lost' }` returns
 
 A helper may call itself:
 
-```ajs
+```ajs:inline
 function fact(n) {
   if (n <= 1) {
     return 1

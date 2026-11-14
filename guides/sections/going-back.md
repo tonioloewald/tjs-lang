@@ -94,7 +94,7 @@ Here is a small native project. `cart.tjs` has a declared `Type`, a function wit
 null check and a `//` comment, a function whose return annotation is a tested signature
 example, and a `test` block:
 
-```tjs
+```tjs:inline
 /*#
 Cart arithmetic: totals with tax.
 */
@@ -349,7 +349,7 @@ In the emitted files:
 
 `shapes.tjs` uses the four constructs:
 
-```tjs
+```tjs:inline
 export function area(radius: 3.14) { return Math.PI * radius * radius }
 export function area(w: 0.0, h: 0.0) { return w * h }
 
@@ -441,7 +441,7 @@ you leave, the fallback is the only version of that loop you can read or edit. K
 
 A **predicate** is a function that a `Type` runs on top of its example check:
 
-```tjs
+```tjs:inline
 export Type Even {
   example: 2
   predicate(x) { return x % 2 === 0 }
