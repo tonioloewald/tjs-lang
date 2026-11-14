@@ -13,7 +13,11 @@
 import { parseExpressionAt } from 'acorn'
 import type { Expression, Pattern } from 'acorn'
 import type { TypeDescriptor, ParameterDescriptor } from './types'
-import { getLocation, TranspileError } from './types'
+import {
+  getLocation,
+  TranspileError,
+  SyntaxError as TJSSyntaxError,
+} from './types'
 
 /**
  * Infer type from a value expression (example value)
@@ -482,6 +486,7 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       if (op === '+' && arg.type === 'Literal') {
         const value = arg.value
         if (typeof value === 'number') {
+          refuseNonNegativeDecimal(arg.raw, (node as any).loc?.start)
           return { kind: 'non-negative-integer' }
         }
       }
@@ -854,4 +859,23 @@ export function checkType(value: any, type: TypeDescriptor): boolean {
     default:
       return true
   }
+}
+
+/**
+ * `+N` marks a non-negative INTEGER, and there is no non-negative float, so `+1.5` read as an
+ * integer and the function refused its own example (#4113). Refused here, with the remedy,
+ * rather than silently dropping either the sign or the fraction.
+ */
+export function refuseNonNegativeDecimal(
+  raw: string | undefined,
+  loc?: { line: number; column: number }
+): void {
+  if (raw && /[.eE]/.test(raw) && !/^0x/i.test(raw))
+    throw new TJSSyntaxError(
+      `+${raw}: a leading + marks a non-negative INTEGER, and ${raw} is not one. ` +
+        `Write ${raw} for any number, or +${Math.round(
+          Number(raw)
+        )} for a non-negative integer.`,
+      loc ?? { line: 1, column: 0 }
+    )
 }

@@ -26,6 +26,7 @@ import { stripParamMarkers } from './parser-params'
 import { rt, RT_NS, WASM_JS_MARKER } from './rt-namespace'
 import {
   literalUnionValues,
+  refuseNonNegativeDecimal,
   typeArgumentSource,
   typeNameExample,
 } from './inference'
@@ -2123,7 +2124,10 @@ export function markExampleKinds(example: string): string {
   const mark = (n: any): string | null => {
     if (!n) return null
     if (n.type === 'UnaryExpression' && isNum(n.argument)) {
-      if (n.operator === '+') return k('nonneg', text(n))
+      if (n.operator === '+') {
+        refuseNonNegativeDecimal(n.argument.raw) // `+1.5` in a Type example too (#4113)
+        return k('nonneg', text(n))
+      }
       if (n.operator === '-' && lossyFloat(n.argument))
         return k('float', text(n))
       return null

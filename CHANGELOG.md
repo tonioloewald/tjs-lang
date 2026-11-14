@@ -169,6 +169,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`+1.5` as an example is refused** (#4113). A leading `+` marks a non-negative integer, so
+  `function f(x: +1.5)` refused its own example; there is no non-negative float, so the example is
+  refused with the remedy (in a parameter and in a `Type` example) instead.
+
 - **An `Enum` line that is not a member is refused** (#4130). `Enum E 'd' { A: 'a' }` (written
   with colons, the object-literal habit) produced an empty enum with no error, because each line
   not matching `Name` or `Name = value` was dropped. The colon form is refused with the corrected
