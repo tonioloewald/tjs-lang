@@ -44,10 +44,11 @@ boxed primitives before applying `ToBoolean`:
 <!-- tjs-doc: fragment -->
 
 ```tjs
-Boolean(new Boolean(false))    // false  ✓
-if (new Boolean(false)) ...    // does not enter  ✓
-!new Boolean(false)            // true   ✓
-new Boolean(false) || 'x'      // 'x'    ✓
+const b = Object(false)
+Boolean(b)                     // false  ✓
+if (b) ...                     // does not enter  ✓
+!b                             // true   ✓
+b || 'x'                       // 'x'    ✓
 ```
 
 The `&&` / `||` rewrites preserve JS's value-returning semantics: `a && b`
@@ -133,7 +134,7 @@ Raw JS: `let x` declares a variable bound to `undefined`. There's no
 indication whether you forgot to initialize it, intend to assign it
 later, or intend it to actually be undefined.
 
-Native TJS warns under the `safe-assign-let-needs-type` linter rule:
+The linter's `safe-assign-let-needs-type` rule warns:
 
 ```tjs
 let x                     // ⚠ let needs initializer or type annotation
@@ -151,12 +152,13 @@ let name = 'world'
 name = undefined          // ⚠ Cannot assign undefined to typed let 'name'
 ```
 
-Severity is warning by default, error under `TjsStrict`.
+These are lint warnings, reported by `lint()` from `tjs-lang/lang`; `tjs check` does not run
+the linter yet.
 
 ## 5. Classes that require `new`
 
-Calling a class without `new` is a `TypeError` in strict mode and silently
-leaks to the global object in sloppy mode. TJS wraps user classes (always, in
+Calling a class without `new` throws a `TypeError`. (The sloppy-mode leak to
+the global object is the older `function` constructor's footgun.) TJS wraps user classes (always, in
 `.tjs`) so they are CALLED — and because the two forms then produce identical
 objects, `new` on a class declared in the file is an error rather than a synonym:
 
@@ -187,12 +189,8 @@ class of "wait, that's hoisted?" bugs.
 If you have a specific file where you need raw JS semantics:
 
 ```tjs
-TjsCompat
-// All TJS modes off; behaves like plain JS.
+TjsCompat // read this file as JavaScript: the .tjs rules are off
 ```
 
-For ts-originated code (`fromTS`), all modes default off. Add `TjsStrict`
-if you want to opt back in.
-
-For specific mode toggles, see [DOCS-TJS.md](../DOCS-TJS.md) and the
-mode list in [TJS-SYNTAX.md](../TJS-SYNTAX.md).
+Code converted from TypeScript (`fromTS`) is read as JavaScript by default;
+add `TjsStrict` to opt it into the `.tjs` rules, including input validation.

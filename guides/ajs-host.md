@@ -354,7 +354,8 @@ handed cannot be a program to run, before anything runs:
 
 Inside an agent, `try`/`catch` catches **failures of the world**: a fetch that fails or is
 blocked, a store that throws, a model that times out, a quota spent, an answer too large to
-copy in. A program might reasonably retry or work around any of them. The agent's `catch`
+copy in. It also catches the live-heap ceiling (`Heap limit exceeded`): the program can drop
+what it holds and go on. A program might reasonably retry or work around any of them. The agent's `catch`
 receives the error's message, a capped string, not an `Error` object.
 
 Some failures **end the run**, even inside a `try`. No `catch` block runs, and no later step.

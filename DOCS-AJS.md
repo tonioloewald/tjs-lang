@@ -246,9 +246,8 @@ It returns:
 Also allowed: every compound assignment (`+=`, `-=`, `*=`, …), `++` and `--` as statements,
 assignment to an outer variable from inside a loop body, `typeof`, `%` and `**`.
 
-`console.log`, `console.warn` and `console.error` are for debugging: each call, with its
-arguments, shows up in the run's trace when the host turns tracing on. They print nothing by
-themselves (see [Tracing for audit](/ajs-host/#tracing-for-audit)).
+`console.log`, `console.warn` and `console.error` are accepted and do nothing: no output, and
+nothing in the trace. To see a value, return it.
 
 ### Loop idioms
 
@@ -362,8 +361,9 @@ Returns `{ a: 6, b: 7 }`. Helpers behave like ordinary functions, with a few del
 - **Top-level siblings, not closures.** A helper sees only its own parameters, never the
   caller's locals. (An arrow function passed to `map` and friends is different: it is part of the
   caller's body, so it may read the caller's variables.)
-- **Nothing else at top level.** A top-level `const` or `let` outside the functions is ignored,
-  so the entry reads it as `undefined`; put constants inside the entry or pass them as arguments.
+- **Nothing else at top level.** A top-level `const` or `let` outside the functions is accepted,
+  but reading it from a function is a transpile error (`'RATE' is not defined`); put constants
+  inside the entry or pass them as arguments.
   Functions cannot nest: a function declared inside another is a transpile error.
 - **They may return any value** (number, string, array, object). Only the entry function must
   return an object (see [Input/Output Contract](#inputoutput-contract)).
@@ -401,6 +401,7 @@ and fail when they run.
 | a computed object key, `{ [k]: v }`                | `Object.fromEntries([[k, v]])` (a literal key, `['a b']`, works) |
 | Writing a member or index (`o.a = 1`, `xs[0] = v`) | build a new value, `o = { ...o, a: 1 }`, or `xs.push(v)` |
 | Destructuring declarations (`let { a } = o`)       | `const a = o.a`; destructured **parameters** are fine    |
+| Destructuring a loop variable (`for (const [k, v] of …)`) | `for (const e of …)`, then `e[0]`, `e[1]`         |
 | `class`, `new`, `this`                             | plain objects; `Date()` and `Set()` without `new`        |
 | A builtin or method as a value (_run time_)        | call it; see [below](#functions-and-namespaces-are-not-values) |
 | `await`                                            | nothing: the VM awaits every atom call                   |
@@ -416,6 +417,8 @@ supported`. This table is the translation.
 A name must be declared before it is read: a parameter, a `let`/`const`/`var`, a loop or
 callback variable, or the `catch` binding. Reading anything else (a typo, a helper or atom
 used as a value, `let g = double`) is refused when the agent is transpiled, with the name.
+Assigning to an undeclared name is not, yet: `y = 2` currently creates `y` silently (card
+#4103), so a misspelt assignment target fails silently.
 
 ### Differences from JavaScript
 
@@ -510,9 +513,9 @@ under [Expression Builtins](#expression-builtins). Three rules apply to every ca
   `arr.includes(obj)`, `arr.concat(other)` and `Object.keys(obj)` take objects;
   `'s'.includes(arr)` and `Math.max(arr)` do not.
 - **Callbacks on four methods only.** `map`, `filter` and `find` take `(item) => …`; `reduce`
-  takes `(acc, item) => …` and an initial value. There is no index argument (`(x, i) => i` gives
-  `undefined` for `i`), and a destructured callback parameter does not work either; use
-  `for...of` with a counter. `some`, `every`, `findIndex`, `flatMap` and a `sort` comparator are
+  takes `(acc, item) => …` and an initial value. There is no index argument (`(x, i) => i` is a
+  transpile error, `'i' is not defined`), and a destructured callback parameter is refused the
+  same way (`({ qty }) => qty`); use `for...of` with a counter. `some`, `every`, `findIndex`, `flatMap` and a `sort` comparator are
   not available; use `for...of`, or `filter(...).length`. `sort()` with no comparator works.
 
 Why the list is closed (every method has a declared bound on what it may allocate):
@@ -567,7 +570,8 @@ function add({ a = 2, b = 3 }) {
 
 - **The entry function must return a plain object:** `return { sum }`. A non-object return
   (`return a + b`) ends the run with `Agent must return an object, got number`.
-- **A bare `return`** is allowed, and the result is `{}`.
+- **A bare `return`** is allowed, and the result is `{}`. With no `return` at all, the run
+  currently succeeds with `result` undefined (card #4102).
 - **Entry parameters are always named arguments.** Write them destructured,
   `function add({ a, b })`, which reads as what the caller actually passes. Positional
   parameters on the entry, `function add(a: 2, b: 3)`, compile to the same contract and still
@@ -689,8 +693,9 @@ function statics() {
 
 `parseInt`, `parseFloat` and `encodeURIComponent` are available as plain functions too. To turn a
 number into a string, use a template: `` `${n}` ``. `String(n)` and `Number(s)` are not functions
-in AJS. Because of how the transpiler reads calls, the error says something unhelpful,
-`'String' takes named arguments`; it means `String` is not available.
+in AJS. As a statement (`let s = String(5)`) the transpiler says `'String' takes named
+arguments`; inside an expression the run fails with `Unknown function: String`. Both mean
+`String` is not available.
 
 ### Set
 
@@ -699,7 +704,8 @@ store or a capability sees a plain array. The VM remembers which arrays are sets
 of the run and supplies their methods to those, and only those.
 
 - **Unlike JavaScript:** `remove`, not `delete`; `diff`, not `difference`; `size` is the length.
-- Change a set with its own methods: `push` is refused on a set.
+- Change a set with its own methods: `push` is refused on a set (`'push' is not a function`);
+  use `add`.
 - A set that comes back from a store, `JSON.parse` or a capability is a plain array again. Call
   `Set(x)` on it to get set methods back.
 
@@ -778,7 +784,9 @@ check plain JSON. There is no builder chaining (`.min()`, `.optional`): write th
 Wherever a schema is expected, you may pass an **example** instead, and it is read the way a
 parameter example is: `{ name: '', age: 0 }` means an object with a string `name` and an integer
 `age`. An object whose `type` is a JSON type name (`'string'`, `'object'`, …) or a list of them is
-read as a schema, not an example, so an example cannot have a field called `type`.
+read as a schema, not an example, so an example cannot have a field called `type`. One
+exception: `0.0` in an agent body is read as an integer, because the float spelling does not
+survive into the AST. Write `Schema.number` for a float field.
 
 ```ajs
 function validate({ input = { email: 'a@b.co', age: 30, role: 'user' } }) {
@@ -826,6 +834,9 @@ function checkCode({ input = { code: 'AB-12' } }) {
 
 Returns `{ ok: true }`. Validation costs fuel in proportion to schema size times data size.
 
+`filter(data, schemaOrExample)` returns `data` with only the fields the schema names:
+`filter({ a: 1, b: 2 }, { a: 0 })` gives `{ a: 1 }`.
+
 ---
 
 ## Errors
@@ -852,8 +863,9 @@ Returns `{ error: 'Division by zero' }`.
 
 - **`err` is a string**, the error's message. `err.message` is `undefined`.
 - **The message is a string.** It can be computed: `Error('bad: ' + x)`, `Error(msg)` or a
-  template. A number or boolean becomes its text; an object or array is refused by name, so
-  build the text you want (`JSON.stringify(data)`), or return the data from the `catch` (as
+  template. A number or boolean becomes its text; an object or array in a variable is refused
+  by name (an object literal, `Error({ a: 1 })`, currently arrives as just `'Error'`; #4098),
+  so build the text you want (`JSON.stringify(data)`), or return the data from the `catch` (as
   `parseAll` below does).
 - **Re-raising** is calling `Error(…)` again inside the `catch`; that error goes to the next
   `try` out, or ends the run.
@@ -895,7 +907,8 @@ the run ends.**
 
 `try`/`catch` catches **failures of the world**: a fetch that fails or is not allowed, a model
 that is down, bad JSON, a store that throws, a capability's answer that is too large or does not
-have the shape the atom declares. It also catches ordinary mistakes inside the program, such as an
+have the shape the atom declares. It also catches the live-heap ceiling (`Heap limit exceeded`):
+the program can drop what it holds and go on. It also catches ordinary mistakes inside the program, such as an
 operator given an array. Every one of these is something a program might reasonably retry or work
 around.
 
@@ -954,7 +967,7 @@ The base costs:
 | Operation                                    | Fuel |
 | -------------------------------------------- | ---- |
 | Expression node                              | 0.01 |
-| Variable set/get                             | 0.1  |
+| Variable set (`let`, `const`, assignment)    | 0.1  |
 | Control flow (if, while, a block of steps)   | 0.1  |
 | `httpFetch`                                  | 5    |
 | `llmPredict`                                 | 100  |

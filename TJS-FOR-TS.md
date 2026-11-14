@@ -1210,8 +1210,9 @@ number`, which names the file, line, function and parameter without a source map
 
 That covers type errors, which are the ones a runtime-checked language adds. It does not
 replace source maps for everything: a stack trace from a thrown exception, or a breakpoint
-in a debugger, points at the emitted JavaScript. That JavaScript keeps your function bodies
-as written, so it is readable, but a bundler will still move it around.
+in a debugger, points at the emitted JavaScript. That JavaScript keeps your code's shape,
+but `==`, truthiness tests and a few other constructs become runtime calls (`Eq`, `toBool`), so
+it is readable but not identical to what you wrote. A bundler will still move it around.
 
 ## FAQ
 

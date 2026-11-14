@@ -264,14 +264,14 @@ function double(x: 0): 0 {
 }
 
 double(5) // 10
-double('oops') // { $error: true, message: "Expected number for 'double.x', got string" }
+double('oops') // MonadicError: "Expected integer for 'double.x', got string"
 ```
 
 No `try`/`catch`. No crashes. The caller gets a clear error value they can inspect:
 
 ```javascript
 const result = double(input)
-if (result?.$error) {
+if (isMonadicError(result)) {
   console.log(result.message) // handle gracefully
 } else {
   useResult(result)
@@ -286,9 +286,9 @@ const b = step2(a) // skips execution, returns the same error
 const c = step3(b) // skips again -- error flows to the surface
 ```
 
-This is sometimes called "railway-oriented programming." A function that declares it takes an
-error (`e: Error`, `x: any`, `x: unknown`) receives it and runs — that is how a handler works —
-and a plain `Error` passed where something else is expected is an ordinary type error.
+This is sometimes called "railway-oriented programming." A function that declares it takes
+anything (`x: any`, `x: unknown`) receives the error and runs; that is how a handler works. A
+plain `Error` passed where something else is expected is an ordinary type error.
 
 ### 6. Classes Without `new`
 
@@ -473,11 +473,10 @@ You control how much validation TJS applies:
 // Per-module (top of file)
 safety none     // Metadata only -- no runtime checks (fastest)
 safety inputs   // Validate inputs only (default)
-safety all      // Validate everything (debug mode)
+safety all      // accepted; same as safety inputs
 
 // Per-function
 function fastPath(! x: 0) { /* ... */ }   // Skip validation
-function safePath(? x: 0) { /* ... */ }   // Force validation
 ```
 
 Use `!` (skip validation) only in hot loops where every microsecond counts
@@ -486,8 +485,8 @@ overhead of `safety inputs` is negligible compared to the bugs it catches.
 
 ### There Is No `unsafe { }` Block
 
-`unsafe` is an expression PREFIX, not a block. To skip validation for a hot path, mark
-the FUNCTION with `!`:
+There is no `unsafe` block, and the old `unsafe <expr>` prefix is deprecated. To skip
+validation for a hot path, mark the FUNCTION with `!`:
 
 ```javascript
 function hotLoop(! data: [0]) {

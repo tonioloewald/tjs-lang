@@ -930,8 +930,9 @@ Adding a subsystem that can silently degrade or swallow a failure? Route it into
 #### Standalone JS Output
 
 Emitted `.js` files work without any runtime setup. Each file includes an inline
-minimal runtime as fallback — only the functions actually used are included (~500
-bytes for a basic validated function). If `globalThis.__tjs` exists (shared runtime),
+minimal runtime as fallback — only the functions actually used are included (about 3KB;
+a file with one basic validated function is about 3.7KB, 1.5KB gzipped, of which the function
+itself is about 500 bytes; measured 2026-11-14). If `globalThis.__tjs` exists (shared runtime),
 it's used instead.
 
 ## Dependencies

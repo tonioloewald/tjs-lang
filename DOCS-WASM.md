@@ -67,7 +67,7 @@ retries asynchronously and the `fallback{}` runs until it is ready.
 
 ### Top-level declarations
 
-The Phase 1+ form. Declared with explicit parameters and return type, at module
+Declared with explicit parameters and return type, at module
 scope. The function name is what consumers (in this file or other files) call.
 No `fallback {}` block — these are pure wasm kernels.
 
@@ -95,13 +95,13 @@ to the wasm export. Callers see a normal JavaScript function.
 ## Parameter types
 
 `wasm function` parameters use wasm type names, **not** TJS example-based
-syntax. (Inside a `wasm function`, `name: 'hello'` would be a type error, not
-an example value.)
+syntax. Write a wasm type name. Anything else, such as `name: 'hello'`, is
+currently accepted without a warning and treated as f64.
 
 | Annotation           | WASM type       | Notes                                 |
 | -------------------- | --------------- | ------------------------------------- |
 | `name: i32`          | `i32`           | 32-bit signed integer                 |
-| `name: i64`          | `i64`           | 64-bit signed integer                 |
+| `name: i64`          | `i64`           | 64-bit signed integer; not working yet: produces invalid WebAssembly |
 | `name: f32`          | `f32`           | 32-bit float                          |
 | `name: f64`          | `f64`           | 64-bit float                          |
 | `name: number`       | `f64`           | Alias                                 |
@@ -123,7 +123,7 @@ and skips the copy (zero-copy fast path).
 `: f64` and omitted-return both work today. Other return types (`: i32`,
 `: f32`, `: v128`) are parsed but not yet driving the emitted bytecode; the
 backend always emits f64. This is a known limitation tracked in
-`wasm-library-plan.md` as "Phase 1.5 work."
+`wasm-library-plan.md`.
 
 Practically: if your function would naturally return f32 (e.g., a SIMD reduce),
 return f64 and let the caller downcast. If you need integer results, return
@@ -186,7 +186,7 @@ program lifetime. This is deliberate: it eliminates lifetime/ownership
 questions across library boundaries. The cost: long-running programs that
 allocate per-call would leak.
 
-The stdlib API shape (Phase 5+) follows from this: every function that would
+The stdlib API shape follows from this: every function that would
 produce a buffer takes an `out` parameter instead, so the caller allocates
 once and reuses. Functions returning scalars (`dot`, `norm_sq`) are fine
 as-is.
@@ -200,7 +200,7 @@ as-is.
 
 ---
 
-## Cross-file composition (Phase 3)
+## Cross-file composition
 
 A file can declare `wasm function`s; another file can import and use them.
 The import is resolved **at transpile time** and the imported function's body
@@ -239,7 +239,7 @@ The composition pass is opt-in: pass a `ModuleLoader` to `tjs()` or
 runtime resolves them as before.
 
 ```typescript
-import { tjs, ModuleLoader } from 'tjs-lang/lang'
+import { tjs, ModuleLoader } from 'tjs-lang'
 
 const loader = new ModuleLoader({ baseDir: '/path/to/project' })
 const result = tjs(appSource, {
@@ -341,8 +341,9 @@ stops the transpile (since 0.14). `fallback{}` is only for a runtime that cannot
 
 - **Numeric locals:** `let x = <expr>` (i32 or f64, inferred from the initializer).
 - **`for` loops** with numeric bounds — `for (let i = 0; i < n; i += k) { … }` —
-  including **nested** loops. `break` / `continue` work.
-- **`if` / `else`** and the logical operators `&&` / `||`.
+  including nested loops (no `break` or `continue`; put the condition in the loop test).
+- **`if` / `else`**. There is no `&&` or `||`: nest the `if`s, or combine comparisons
+  arithmetically.
 - **Arithmetic / comparison** on i32 and f64 (see the coercion gotcha below).
 - **Typed-array element access** — `arr[i]` reads/writes, where `arr` is a typed-
   array **parameter** (annotated `Float32Array` / `Float64Array` / `Int32Array` /
@@ -404,8 +405,7 @@ from the wasm-library plan.
 - **SIMD lengths:** SIMD kernels assume `n % 4 == 0`. No tail-loop yet.
 - **Bump allocator:** `wasmBuffer` allocations persist forever. Use `out`
   parameters for repeated allocations; design APIs around buffer reuse.
-- **Unsafe marker reserved:** `(!)` syntax is parsed but rejected pending the
-  unsafe variant implementation (Phase 7).
+- **Unsafe marker reserved:** `(!)` is parsed but rejected in a `wasm function`.
 - **One file = one module:** the consumer's transpiled output has exactly one
   `WebAssembly.Module`, period. Cross-module wasm-to-wasm calls aren't a thing
   — they're composed at the source level into the same module.

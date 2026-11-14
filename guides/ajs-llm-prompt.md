@@ -110,11 +110,11 @@ strict rules. Follow every rule below.
 - An agent is one function with ONE destructured object parameter. Give each input an EXAMPLE
   value after a colon:
   - `function greet({ name: 'World' })` — `name` is a required string
-  - `function factorial({ n: 5 })` — `n` is a required number
+  - `function factorial({ n: 5 })` — `n` is a required integer (write `5.0` for any number)
   - `function search({ query: 'cats', limit = 10 })` — `limit` is optional, default 10
 - The example value sets the type. Use the real value, never a type written as a string:
   - WRONG: `{ count: 'number' }` or `{ count: '5' }` — those are STRINGS
-  - RIGHT: `{ count: 5 }` — a bare number
+  - RIGHT: `{ count: 5 }` — a bare number (integer; `5.0` allows decimals)
 - The agent MUST return a plain object:
   - WRONG: `return 42`, `return 'hello'`, `return [1, 2]`
   - RIGHT: `return { result: 42 }`, `return { message: 'hello' }`, `return { items: [1, 2] }`

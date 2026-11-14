@@ -144,7 +144,7 @@ How the import is resolved decides what each call costs, never what it returns.
 Composition is opt-in, because only the caller knows where files live:
 
 ```typescript
-import { tjs, ModuleLoader } from 'tjs-lang/lang'
+import { tjs, ModuleLoader } from 'tjs-lang'
 
 const loader = new ModuleLoader({ baseDir: '/path/to/project' })
 const result = tjs(appSource, {

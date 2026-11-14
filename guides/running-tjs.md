@@ -462,8 +462,9 @@ const __tjs = (globalThis.__tjs?.abi >= 2 ? globalThis.__tjs.createRuntime?.() :
 
 When the module loads, it uses the installed shared runtime if there is one, and the inline
 helpers otherwise. Your code calls `__tjs.…` either way, so the file never needs a global.
-Because this line runs once, as the module is evaluated, a runtime installed later is not
-seen (see [The shared runtime](#the-shared-runtime)).
+A module loaded before the runtime is installed still records its type errors there and obeys
+`logTypeErrors`/`throwTypeErrors`, but not `callStacks`. Install first to get everything (see
+[The shared runtime](#the-shared-runtime)).
 
 **Your code, with its checks.** Each typed function starts by checking its arguments and
 returning an error if one is wrong:
@@ -619,7 +620,8 @@ A URL with no version loads whatever release is tagged `latest`; pin one
 (`…/npm/tjs-lang@<version>/dist/tjs-browser.js`) in anything you ship.
 
 For production, compile ahead of time with `tjs emit` and serve the `.js`; the page then
-needs nothing from tjs-lang at all. Compiling in the page is for editors, playgrounds and
+needs nothing from tjs-lang, unless your own source imports it (for example
+`tjs-lang/runtime`). Compiling in the page is for editors, playgrounds and
 pages like this one. For TypeScript in the browser (`tjs-lang/browser/from-ts`), see
 [Build, CI and Editors](/ts-build-and-tooling/).
 

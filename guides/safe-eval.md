@@ -286,8 +286,7 @@ JavaScript: `e.message` is `undefined`. Use `e` itself.
 
 The sandbox has no network, no file system and no host globals. What it does have is a small
 set of builtins: `Math`, `JSON`, and the usual methods on strings, arrays and objects. `console`
-calls are accepted, but their output goes to the VM's trace, which `Eval` and `SafeFunction` do
-not return; to see a value, return it. There is no atom for reading files at all.
+calls are accepted and do nothing; to see a value, return it. There is no atom for reading files at all.
 
 There are **two ways to grant network access**, and the code uses `httpFetch` in both:
 
@@ -485,7 +484,7 @@ out. Use `AgentVM` directly (see [the AJS guide](/DOCS-AJS/)) when you need more
 - **Separate compile and run.** Transpile on a trusted machine (or the client's), store the JSON
   AST, and run it later with `tjs-lang/vm-ast`, a VM with no parser in it. A sandbox that cannot
   parse has no parser bug to reach.
-- **Tracing** (`trace: true`), to see every step and what it cost, including `console` output.
+- **Tracing** (`trace: true`), to see every step and what it cost.
 - **Your own atoms**: operations you define, registered with the VM and checked by the
   transpiler.
 - **Agent depth** for an endpoint that other agents call (see the

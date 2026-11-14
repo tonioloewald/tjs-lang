@@ -269,13 +269,13 @@ const result = processData(maybeError)
 // If maybeError is a MonadicError, result is that same error (the body does not run)
 
 // Check for errors
-if (isError(result)) {
+if (isMonadicError(result)) {
   console.log(result.message)
 }
 ```
 
-The rule is decided at the type check, so a function that DECLARES it takes an error gets
-one: `describe(e: Error)`, `log(detail: any)` and `isErr(x: unknown)` run their bodies. A
+The rule is decided at the type check. A function that declares it takes anything
+(`x: any`, `x: unknown`) receives the error and runs; that is how a handler works. A
 plain `Error` (from `new Error()` or a `catch`) where something else is expected is an
 ordinary type error, not a pass-through.
 
@@ -350,56 +350,19 @@ add(null, 2) // Error: expected number, got null
 
 This provides excellent error messages and catches type mismatches at runtime.
 
-### Safety Markers: `(?)` and `(!)`
+### Safety Markers
 
-Control input validation with markers after the opening paren:
+`(! a: 0)` turns off validation for the function. `: 2` is a worked example, tested at
+transpile time. `:! 0` declares the return type only. `:? 2` tests the example and checks
+every result at run time.
 
-```javascript
-// (?) - Safe function: force input validation
-function safeAdd(? a: 0, b: 0): 0 {
-  return a + b
-}
-
-// (!) - Unsafe function: skip input validation
-function fastAdd(! a: 0, b: 0): 0 {
-  return a + b
-}
-
-fastAdd(1, 2)      // 3 (fast path, no validation)
-fastAdd('1', 2)    // NaN (no validation, garbage in = garbage out)
-```
-
-The `!` is borrowed from TypeScript's non-null assertion operator - it means "I know what I'm doing, trust me."
-
-### Return Type Safety: `:`, `:?`, `:!`
-
-Control output validation with different colon styles:
-
-```javascript
-// : normal return type (validation depends on module settings)
-function add(a: 0, b: 0): 0 { return a + b }
-
-// :? force output validation (safe return)
-function critical(a: 0, b: 0):? 0 { return a + b }
-
-// :! skip output validation (unsafe return)
-function fast(a: 0, b: 0):! 0 { return a + b }
-```
-
-Combine input and output markers for full control:
-
-```javascript
-// Fully safe: validate inputs AND outputs
-function critical(? x: 0):? 0 { return x * 2 }
-
-// Fully unsafe: skip all validation
-function blazingFast(! x: 0):! 0 { return x * 2 }
-```
+See the [TJS Syntax Reference](/TJS-SYNTAX/) and [Safety and Validation](/safety-markers/).
 
 ### There Is No `unsafe { }` Block
 
-`unsafe` is an expression PREFIX, not a block. The wrapper decision is made at transpile
-time, so a block could not skip anything a marker does not already skip.
+There is no `unsafe` block, and the old `unsafe <expr>` prefix is deprecated. The wrapper
+decision is made at transpile time, so a block could not skip anything a marker does not
+already skip.
 
 Mark the whole function `!` when it is a hot path over trusted data:
 
@@ -469,40 +432,9 @@ function sendEmail(to) { ... }
 
 The test code **evaporates** - it verified correctness at build time.
 
-### Implicit Type Tests
+### Emitting When Tests Fail
 
-Types with `example` have implicit tests - the example must pass the type check:
-
-```javascript
-Type PositiveInt {
-  example: 42
-  predicate(x) { return Number.isInteger(x) && x > 0 }
-}
-// Implicit test: PositiveInt.check(42) must be true
-```
-
-If the example fails the predicate, transpilation fails.
-
-### Skip Tests Flag
-
-For debugging or speed, skip test execution:
-
-```bash
-tjs emit file.tjs --dangerously-skip-tests
-```
-
-Tests are still stripped from output, but not executed.
-
-### Legacy Inline Tests
-
-For runtime tests (e.g., integration tests), use standard test frameworks:
-
-```javascript
-test('async operations work') {
-  const data = await fetchData()
-  expect(data).toBeDefined()
-}
-```
+`tjs emit --jfdi file.tjs` emits even when tests fail.
 
 ## Differences from JavaScript
 
@@ -522,11 +454,10 @@ test('async operations work') {
 | ----------------- | -------------------------------------------------------------- |
 | `: example`       | Required parameter with type                                   |
 | `= example`       | Optional parameter with default                                |
-| `-> Type`         | Return type annotation                                         |
-| `-? Type`         | Return type with forced output validation                      |
-| `-! Type`         | Return type with skipped output validation                     |
-| `(?)`             | Mark function as safe (force validation)                       |
-| `(!)`             | Mark function as unsafe (skip validation)                      |
+| `: example`       | Return worked example, tested at transpile time                |
+| `:? example`      | Return worked example, plus a runtime check                    |
+| `:! example`      | Return type only                                               |
+| `(!)`             | Skip input validation for the function                         |
 | `test 'name' {}`  | Compile-time test block (evaporates)                           |
 | `mock {}`         | Test setup block                                               |
 | `\|` in types    | Union types                                                    |

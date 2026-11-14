@@ -46,13 +46,7 @@ run it again to get `{ quotient: 5 }`.
   the wrong shape, ends the run even inside a `try`. Read
   [the gotcha](#the-gotcha-some-errors-cannot-be-caught) before relying on `try` to keep a batch
   going.
-
-### Current limitation: the message must be a string literal
-
-`Error('Division by zero!')` works. A message built at run time does not: `Error('bad: ' + n)`,
-`` Error(`bad: ${n}`) `` and `Error(msg)` all arrive as `"[object Object]"`. This is a bug,
-tracked as card #3836 on the project board, and there is no workaround yet: write a fixed message
-for each case, and return any variable detail in the agent's result instead.
+- **The message can be computed:** `Error('bad: ' + n)`, a template, or a variable.
 
 ## Keep going after a failure
 
@@ -141,13 +135,13 @@ The JSON is missing its closing brace, so the run ends with the error
 `config is not valid JSON` (the host reads it as `run.error.message`; see below). Nothing caught
 the second error, so `return { config }` never runs.
 
-Because of the [string-literal limitation](#current-limitation-the-message-must-be-a-string-literal),
-the new message cannot include the original `err` text yet.
+To keep the original text, bind it with `catch (err)` and include it:
+`Error('config is not valid JSON: ' + err)`.
 
-## Cleanup without `finally`
+## Cleanup with `finally`
 
-AJS has no `finally` block. Put cleanup after the whole `try`/`catch` statement instead. When
-the `try` finishes, or the `catch` handles the error, the program carries on from there:
+`finally` always runs, after the `try` and any `catch`. A `return` or error inside it replaces
+the pending one, as in JavaScript. It does not run after a failure that ends the run.
 
 ```ajs:inline
 function cleanup({ text = 'not json' }) {
@@ -158,21 +152,12 @@ function cleanup({ text = 'not json' }) {
     log.push('parsed')
   } catch (err) {
     log.push('parse failed')
+  } finally {
+    log.push('cleanup runs either way')
   }
-  log.push('cleanup runs either way')
   return { value, log }
 }
 ```
-
-This substitute is weaker than `finally`. The code after the `try`/`catch` does **not** run when:
-
-- the `try` or the `catch` executes a `return`;
-- the `catch` raises a new error with `Error(...)`, as in the re-raise example above;
-- the failure is one that cannot be caught (see the end of this page).
-
-Do not write `finally` anyway. The transpiler currently accepts a `finally` block and discards
-it without a warning, so its code never runs. That is a bug, not the intended design; until it
-is fixed, nothing tells you the block was dropped.
 
 ## What the host sees
 
