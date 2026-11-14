@@ -694,6 +694,19 @@ export function extractWasmFunctions(source: string): {
     // Parse params into the existing `captures` shape used by the wasm
     // compiler: each entry is either `name` or `name: type`.
     const captures = parseWasmFunctionParams(paramsSource)
+    // An i64 parameter cannot be called: a JavaScript number does not convert to one (the
+    // call threw `Invalid argument type in ToBigInt`), and a body that used it emitted invalid
+    // WebAssembly. Refused here, by name, until i64 is supported end to end (#4117).
+    const i64Param = captures.find((c) => /:\s*i64\s*$/.test(c))
+    if (i64Param) {
+      throw new SyntaxError(
+        `\`wasm function ${name}\` parameter \`${i64Param
+          .split(':')[0]
+          .trim()}\` is i64, which is not supported yet: a JavaScript number cannot be ` +
+          `passed as one. Use i32 for a 32-bit integer or f64 for a number.`,
+        locAt(source, matchStart)
+      )
+    }
 
     // Salted with the module's tag, as inline blocks are: a bare `__tjs_wasm_<name>` let two
     // modules declaring `wasm function f` bind the same global, so loading the second rebound

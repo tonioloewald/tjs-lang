@@ -101,7 +101,7 @@ currently accepted without a warning and treated as f64.
 | Annotation           | WASM type       | Notes                                 |
 | -------------------- | --------------- | ------------------------------------- |
 | `name: i32`          | `i32`           | 32-bit signed integer                 |
-| `name: i64`          | `i64`           | 64-bit signed integer; not working yet: produces invalid WebAssembly |
+| `name: i64`          | `i64`           | Not supported yet: refused at transpile time (a JavaScript number cannot be passed as one) |
 | `name: f32`          | `f32`           | 32-bit float                          |
 | `name: f64`          | `f64`           | 64-bit float                          |
 | `name: number`       | `f64`           | Alias                                 |
@@ -366,6 +366,9 @@ annotation (`0`, `0.0`, `int`): `f64` holds every integer JavaScript represents 
 has JavaScript's arithmetic, so the block and its `fallback {}` give the same answer. A `0`
 annotation is checked at the call boundary (unless `!`); nothing converts or rounds the value.
 Inside a block, `let i = 0` is an `i32`, which is what loop counters and offsets want.
+Assigning an `f64` to such a variable truncates toward zero, and a value an `i32` cannot hold
+(`NaN`, or beyond 32 bits) traps: the call throws a `WebAssembly.RuntimeError`, as `% 0` does.
+Start a variable at `0.0` when it may hold any number.
 
 **`==` and `!=` are JavaScript's inside a block**, not TJS's: `x != x` is true for NaN, as
 WebAssembly's `f64.ne` says, and the block's implicit fallback compares the same way. An

@@ -86,7 +86,17 @@ export function generateWasmBootstrap(blocks: WasmBlock[]): {
     .join(',')
 
   const moduleBase64 = btoa(String.fromCharCode(...compiled.bytes))
-  const anyNeedsMemory = compiled.needsMemory
+  // A typed-array parameter is passed through wasm memory even when the body never reads it,
+  // so the binding needs the memory either way: keyed on the module alone, a function that
+  // took an array and ignored it threw `__wasmMem is not defined` (#4117). The module need not
+  // import the memory for this; an unused import entry is ignored.
+  const TYPED_ARRAY_PARAM =
+    /^\w+\s*:\s*(?:Float32Array|Float64Array|Int32Array|Uint8Array)$/
+  const anyNeedsMemory =
+    compiled.needsMemory ||
+    compiled.exports.some(
+      (e) => !e.failed && e.captures.some((c) => TYPED_ARRAY_PARAM.test(c))
+    )
 
   const imports = anyNeedsMemory ? '{env:{memory:__wasmMem}}' : '{}'
 

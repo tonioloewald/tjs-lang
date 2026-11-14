@@ -169,6 +169,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three `wasm` code-generation defects** (#4117). A `wasm function` with a typed-array
+  parameter whose body never touched memory threw `ReferenceError: __wasmMem is not defined`
+  (the memory was declared only when the module used it). Storing an `i32` into a
+  `Float32Array` element, or an `f32` into an `Int32Array`, emitted invalid WebAssembly: the
+  plain store converted only three type pairs, and now converts all of them, as compound
+  stores did. An `i64` parameter could not be called (`Invalid argument type in ToBigInt`) and
+  is now refused at transpile time, naming the parameter, until i64 is supported.
+
 - **A misspelt name in a Type example is reported** (#4115). `Type V { example: { w: Widgit } }`
   passed `tjs check`, and `V.check({ w: 'anything' })` was true. The transpiler (and so `tjs
   check`) now warns when a Type example names something the file never declares or imports and

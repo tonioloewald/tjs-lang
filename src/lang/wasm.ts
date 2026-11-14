@@ -1556,19 +1556,8 @@ function compileArrayStore(
     // Compile right side and convert to match array element type
     code.push(...compileExpression(value, ctx))
     const rhsType = inferExprType(value, ctx)
-    if (arrayInfo.elementType === 'f32' && rhsType === 'f64') {
-      code.push(Op.f32_demote_f64)
-    } else if (arrayInfo.elementType === 'f64' && rhsType === 'f32') {
-      code.push(Op.f64_promote_f32)
-    } else if (arrayInfo.elementType === 'f32' && rhsType === 'i32') {
-      code.push(Op.f32_convert_i32_s)
-    } else if (arrayInfo.elementType === 'f64' && rhsType === 'i32') {
-      code.push(Op.f64_convert_i32_s)
-    } else if (arrayInfo.elementType === 'i32' && rhsType === 'f64') {
-      code.push(Op.i32_trunc_f64_s)
-    } else if (arrayInfo.elementType === 'i32' && rhsType === 'f32') {
-      code.push(Op.i32_trunc_f32_s)
-    }
+    const rhsConv = convertOp(rhsType, arrayInfo.elementType)
+    if (rhsConv) code.push(rhsConv)
 
     const op = operator.slice(0, -1)
     const opMap: Record<string, number> = {
@@ -1611,14 +1600,11 @@ function compileArrayStore(
   }
 
   // Convert value type if needed
+  // Every scalar pair, as the compound path does: an i32 into a Float32Array had no
+  // conversion here and emitted invalid WebAssembly (#4117).
   const valType = inferExprType(value, ctx)
-  if (arrayInfo.elementType === 'f32' && valType === 'f64') {
-    code.push(Op.f32_demote_f64)
-  } else if (arrayInfo.elementType === 'f64' && valType === 'f32') {
-    code.push(Op.f64_promote_f32)
-  } else if (arrayInfo.elementType === 'i32' && valType === 'f64') {
-    code.push(Op.i32_trunc_f64_s)
-  }
+  const valConv = convertOp(valType, arrayInfo.elementType)
+  if (valConv) code.push(valConv)
 
   // Store needs address then value - we have value on top
   // Swap using temp local
