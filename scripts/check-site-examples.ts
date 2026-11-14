@@ -60,7 +60,7 @@ const DEMONSTRATES: Record<string, RegExp> = {
   'ajs-errors':
     /Division by zero|is not valid JSON|Fetch blocked: domain not in allowlist|its input does not have the shape the atom declares/,
   'ajs-contracts':
-    /Input validation failed|Agent must return an object|Result does not match the declared result type/,
+    /Input validation failed|Agent must return an object|Result does not match the declared result type|does not match its declared result/,
   'ajs-limits':
     /Out of Fuel|Heap limit exceeded|exceeds the \d+-byte membrane budget/,
   'ajs-sandbox': /Out of Fuel|Access to '__proto__' is forbidden/,

@@ -74,7 +74,8 @@ export function transpile(
     options,
     requiredParams,
     helpers.size > 0 ? helpers : undefined,
-    requiredValueOffsets
+    requiredValueOffsets,
+    returnTypes ?? undefined
   )
 
   return {

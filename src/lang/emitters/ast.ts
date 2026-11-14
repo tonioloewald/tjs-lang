@@ -29,6 +29,7 @@ import type {
   ArrayExpression,
   ObjectExpression,
 } from 'acorn'
+import { parse as parseJS } from 'acorn'
 import { AST_VERSION, AST_VERSION_KEY } from '../../vm/ast-version'
 import { GUEST_METHODS } from '../../vm/guest-methods'
 import { RegexCompiler, RegexError } from '../../vm/regex'
@@ -271,7 +272,8 @@ export function transformFunction(
   options: TranspileOptions = {},
   requiredParamsFromPreprocess?: Set<string>,
   helpers?: Map<string, FunctionDeclaration>,
-  requiredValueOffsets?: Set<number>
+  requiredValueOffsets?: Set<number>,
+  helperReturnTypes?: Record<string, string>
 ): {
   ast: BaseNode
   signature: FunctionSignature
@@ -429,6 +431,7 @@ export function transformFunction(
     options,
     helpers,
     helperSteps: helpers ? new Map() : undefined,
+    helperReturnTypes,
     helperTransforming: helpers ? new Set() : undefined,
     regexCompiler: new RegexCompiler(source.length),
   }
@@ -1211,6 +1214,7 @@ function transformReturnStatement(
   stmt: ReturnStatement,
   ctx: TransformContext
 ): BaseNode | BaseNode[] {
+  if (ctx.returnCheck) return checkedHelperReturn(stmt, ctx, ctx.returnCheck)
   if (!stmt.argument) {
     return { op: 'return', value: {} }
   }
@@ -1241,6 +1245,75 @@ function transformReturnStatement(
   // Otherwise, convert expression directly to a value for return
   const value = expressionToValue(stmt.argument, ctx)
   return { op: 'return', value }
+}
+
+/**
+ * A helper's declared result is ENFORCED, as the entry's is (decided 2026-11-14: "if you define
+ * your function to emit X we should verify we do or emit an error"). It was accepted and
+ * ignored. No AST format change: the transpiler binds the value, checks it with the guest's own
+ * `Schema.isValid`, raises an `Error` naming the helper if it does not match, and returns it.
+ */
+function helperReturnCheck(
+  name: string,
+  fn: FunctionDeclaration,
+  ctx: TransformContext
+): { name: string; schema: unknown } | undefined {
+  const annotation = ctx.helperReturnTypes?.[name]
+  if (!annotation) return undefined
+  const type = parseReturnType(annotation)
+  if (!type || type.kind === 'any') return undefined
+  const schema = typeToJsonSchema(type, (why) => {
+    throw new TranspileError(
+      `Helper ${name}'s declared result: ${why}`,
+      getLocation(fn),
+      ctx.source,
+      ctx.filename
+    )
+  })
+  return { name, schema }
+}
+
+function checkedHelperReturn(
+  stmt: ReturnStatement,
+  ctx: TransformContext,
+  check: { name: string; schema: unknown }
+): BaseNode[] {
+  const RESULT = '__helperResult__'
+  const steps: BaseNode[] = []
+  if (stmt.argument) {
+    const { step, resultVar } = transformExpressionToStep(
+      stmt.argument,
+      ctx,
+      RESULT
+    )
+    if (step) steps.push(step)
+    else
+      steps.push({
+        op: 'varSet',
+        key: RESULT,
+        value: resultVar ?? expressionToValue(stmt.argument, ctx),
+      } as BaseNode)
+  } else steps.push({ op: 'varSet', key: RESULT, value: {} } as BaseNode)
+  ctx.locals.set(RESULT, { kind: 'any' })
+  // The check is compiled from generated source: only the schema (JSON) and the helper's name
+  // (an identifier) are spliced in, never user text.
+  const guard = parseJS(
+    `if (!Schema.isValid(${RESULT}, ${JSON.stringify(
+      check.schema
+    )})) { Error(${JSON.stringify(
+      `helper ${check.name} returned a value that does not match its declared result`
+    )}) }`,
+    { ecmaVersion: 'latest' }
+  ) as any
+  const inner = { ...ctx, returnCheck: undefined }
+  const guardSteps = transformStatement(guard.body[0], inner)
+  if (guardSteps)
+    steps.push(...(Array.isArray(guardSteps) ? guardSteps : [guardSteps]))
+  steps.push({
+    op: 'return',
+    value: { $expr: 'ident', name: RESULT },
+  } as BaseNode)
+  return steps
 }
 
 // Known builtins that should be evaluated as expressions, not atom calls
@@ -1760,6 +1833,8 @@ function ensureHelperTransformed(
       helpers: ctx.helpers,
       helperSteps: ctx.helperSteps,
       helperTransforming: ctx.helperTransforming,
+      helperReturnTypes: ctx.helperReturnTypes,
+      returnCheck: helperReturnCheck(name, fn, ctx),
     }
     const bodySteps = [
       ...hoistedVars(fn.body, new Set(paramNames), helperCtx),
@@ -1797,6 +1872,7 @@ function transformMethodCall(
         const paramName = param?.type === 'Identifier' ? param.name : 'item'
 
         const childCtx = createChildContext(ctx)
+        childCtx.returnCheck = undefined // a callback's return is its own
         childCtx.locals.set(paramName, { kind: 'any' })
 
         let steps: BaseNode[]
@@ -1853,6 +1929,7 @@ function transformMethodCall(
         const paramName = param?.type === 'Identifier' ? param.name : 'item'
 
         const childCtx = createChildContext(ctx)
+        childCtx.returnCheck = undefined // a callback's return is its own
         childCtx.locals.set(paramName, { kind: 'any' })
 
         // For filter, the callback should return a boolean expression
@@ -1897,6 +1974,7 @@ function transformMethodCall(
         const paramName = param?.type === 'Identifier' ? param.name : 'item'
 
         const childCtx = createChildContext(ctx)
+        childCtx.returnCheck = undefined // a callback's return is its own
         childCtx.locals.set(paramName, { kind: 'any' })
 
         let condition: any
@@ -1940,6 +2018,7 @@ function transformMethodCall(
           itemParam?.type === 'Identifier' ? itemParam.name : 'item'
 
         const childCtx = createChildContext(ctx)
+        childCtx.returnCheck = undefined // a callback's return is its own
         childCtx.locals.set(accName, { kind: 'any' })
         childCtx.locals.set(itemName, { kind: 'any' })
 

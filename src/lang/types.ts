@@ -325,6 +325,14 @@ export interface TransformContext {
    * transitive recursion.
    */
   helperTransforming?: Set<string>
+  /** Every function's declared return annotation (source), by name: helpers' are enforced. */
+  helperReturnTypes?: Record<string, string>
+  /**
+   * Inside a helper with a declared result, its name and the result's JSON Schema: each
+   * `return` checks its value against it (2026-11-14). Cleared in callback bodies, whose
+   * `return` is the callback's, not the helper's.
+   */
+  returnCheck?: { name: string; schema: unknown }
 }
 
 /** Create a child context for nested scopes */
@@ -343,6 +351,8 @@ export function createChildContext(parent: TransformContext): TransformContext {
     helperSteps: parent.helperSteps,
     helperTransforming: parent.helperTransforming,
     regexCompiler: parent.regexCompiler,
+    helperReturnTypes: parent.helperReturnTypes,
+    returnCheck: parent.returnCheck,
   }
 }
 

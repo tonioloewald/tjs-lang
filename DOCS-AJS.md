@@ -640,8 +640,8 @@ A lone example widens to its type (`score: 0` means any integer). A union of str
 - No declared result, no check.
 
 Both contracts travel in the AST, as `inputSchema` and `outputSchema`, so any VM that runs the
-AST enforces them. Only the entry function's result is checked; a helper's declared return is
-not yet enforced.
+AST enforces them. A helper's declared return is enforced too: a value that does not match
+raises an error naming the helper.
 
 ---
 

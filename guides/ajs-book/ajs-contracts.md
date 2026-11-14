@@ -226,13 +226,13 @@ returns `{ ok: true }`. Both meet the contract.
 
 `ok: true` is any boolean, so `ok: false` meets it too.
 
-One gap in the "every declared member must be present" rule today: a member declared as a union
-of strings (`label: 'low' | 'high'` above) that the agent sets to `undefined` passes the check,
-and the key is missing from the result. Members of other types are caught.
+Every declared member must be present and match, a union of strings included: setting
+`label: 'low' | 'high'` to `undefined` fails the check, as it would for `label: ''`.
 
-### Only the entry is checked
+### Helpers are checked too
 
-A helper function may declare a return too, but it is **not enforced yet**:
+A helper function may declare a return, and it is enforced like the entry's: a value that does
+not match raises an error naming the helper, which a `try` can catch.
 
 ```ajs:inline
 function shout(text): '' {
@@ -245,10 +245,10 @@ function main() {
 }
 ```
 
-This returns `{ got: 5 }`, although `shout` says it returns a string. Do not rely on a helper's
-declared return; check the value yourself, or let the entry's declared result catch it on the
-way out. (In TJS a return annotation is a tested example. AJS reads it and does nothing with it
-for now.)
+The run ends with `helper shout returned a value that does not match its declared result`. A
+`return` inside a callback in the helper (`xs.map((x) => { return … })`) is the callback's own
+and is not checked against the helper's declared result. A helper with no declared return
+returns anything.
 
 ## How a host reads the contract
 

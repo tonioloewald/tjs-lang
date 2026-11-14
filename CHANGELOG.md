@@ -148,6 +148,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS: a helper's declared return is enforced**, as the entry's is (decided 2026-11-14).
+  `function h(x): '' { return 5 }` was accepted and ignored. A mismatch now raises an error naming
+  the helper (catchable); a callback's own `return` inside the helper is not checked against it,
+  and a helper with no annotation is unchanged. No AST format change: the transpiler checks with
+  the guest's `Schema.isValid`.
+
 - **`Union` and `Enum` accept a boxed member, as a literal-union parameter does.** A parameter
   `d: 'n' | 's'` accepted `Object('s')`, but a declared `Union` or `Enum` refused it, so one value
   got two answers. All three use one membership rule now, in the inline runtime and the shared one.
