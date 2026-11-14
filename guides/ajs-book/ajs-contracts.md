@@ -41,7 +41,9 @@ function quote({ item: 'kettle', price: 40.0, qty = 1 }) {
 }
 ```
 
-The page shows the run's error, `Input validation failed: args do not match expected schema`.
+The page shows the run's error, `Input validation failed: args do not match expected schema`,
+followed by the first argument that failed and why, in parentheses (for example
+`(price: Expected number)`).
 The VM compared the arguments with the parameters **before** the agent ran, and the agent's
 first line never executed, and no fuel was spent, because no step ran. The same refusal comes back for a missing `item`, for no arguments at all, and for
 an argument the agent does not declare.

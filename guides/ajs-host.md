@@ -434,7 +434,8 @@ The arguments cross the same membrane as a capability's return, before the agent
   cannot pay to admit end the run as `Out of Fuel` before the first step.
 - **They are checked against the parameters.** The agent's parameter examples travel in the
   AST as `inputSchema`, and arguments that do not match are refused with
-  `Input validation failed: args do not match expected schema`, from `vm.run`, before the
+  `Input validation failed: args do not match expected schema (field: reason)`, from `vm.run`,
+  naming the first argument that failed, before the
   agent runs. An example's kind is what it says: `40` declares an integer, so `8.5` is
   refused; write `40.0` for a number that may have a fraction.
 - **A declared result is checked after.** `function forecast(…): { city: '', summary: '' }`

@@ -159,7 +159,8 @@ What to notice:
 - **`inputSchema`** is the input contract, derived from the parameter list: `name` is a string,
   and no other key is accepted. The VM checks the arguments against it before the first step
   runs. A mismatch comes back as an error value like any other failure, with the message
-  `Input validation failed: args do not match expected schema`.
+  `Input validation failed: args do not match expected schema`, followed by the first argument
+  that failed and why.
 
 ### Why code travels as data
 

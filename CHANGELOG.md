@@ -109,6 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **An AJS input-validation refusal names the field that failed**: `Input validation failed:
+  args do not match expected schema (qty: Expected integer)`. The prefix is unchanged, so hosts
+  that match on it are unaffected.
+
 - **`TJSConfig.requireReturnTypes` is removed**, and `debug` is marked deprecated. Nothing read
   `requireReturnTypes`; `debug` is an alias for `callStacks`, which it still sets.
 

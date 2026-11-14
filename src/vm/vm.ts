@@ -481,11 +481,27 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // paid BEFORE the validation runs: a run that cannot afford it is refused without it
     if (!refused && admissionFuel + validationFuel >= startFuel)
       refused = new AgentError('Out of Fuel', 'vm.run')
-    if (inputSchema && (refused || !validate(args, inputSchema))) {
+    // The first failure's path and reason, so a host can tell WHICH argument was wrong
+    // (2026-11-14: the message named no field). The run fails before any guest step, so this
+    // reaches only the host; capped, since a path is built from the arguments' keys.
+    let firstFailure = ''
+    if (
+      inputSchema &&
+      (refused ||
+        !validate(args, inputSchema, (path, msg) => {
+          if (!firstFailure) firstFailure = `${path || '(arguments)'}: ${msg}`
+        }))
+    ) {
+      const detail =
+        firstFailure.length > 200
+          ? firstFailure.slice(0, 200) + '…'
+          : firstFailure
       const error =
         refused ??
         new AgentError(
-          `Input validation failed: args do not match expected schema`,
+          `Input validation failed: args do not match expected schema${
+            detail ? ` (${detail})` : ''
+          }`,
           'vm.run'
         )
       return {
