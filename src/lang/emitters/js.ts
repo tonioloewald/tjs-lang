@@ -1265,6 +1265,19 @@ function findSignatureReturn(
     }
     return { type: null, safety: undefined }
   }
+  // A polymorphic VARIANT, `name$N`, exists only after preprocessing renamed the N-th
+  // `function name(` declaration (variants are numbered from 1 in source order). Looked up by
+  // its own name it found nothing, so every variant lost its return type, and the `.d.ts`
+  // overloads built from the variants returned `any` (#4123).
+  const variant = /^(.+)\$(\d+)$/.exec(funcName)
+  if (variant) {
+    const base = variant[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const decls = [
+      ...masked.matchAll(new RegExp(`function\\s+${base}\\s*\\(`, 'g')),
+    ]
+    const m = decls[Number(variant[2]) - 1]
+    if (m) return readSignatureAt(source, masked, m.index! + m[0].length)
+  }
   const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // `function NAME(` or `const/let/var NAME = (` — the second covers arrows and function
   // expressions alike, since both put the parameter list right after the `=`.
@@ -1716,8 +1729,14 @@ export function transpileToJS(
     }
     const funcName = func.id?.name || 'anonymous'
 
-    // Extract return type for this specific function from original source
-    const returnTypeStr = extractFunctionReturnType(cleanSource, funcName)
+    // Extract return type for this specific function from original source. A polymorphic
+    // DISPATCHER has none of its own: looked up by name it took the FIRST variant's, so
+    // `f(s: 'a'):? 'A'` beside `f(n: 2):? 4` checked `f(2)` against a string and refused it.
+    // Each variant carries and checks its own (#4123).
+    const isDispatcher = preprocessed.polymorphicNames.has(funcName)
+    const returnTypeStr = isDispatcher
+      ? null
+      : extractFunctionReturnType(cleanSource, funcName)
 
     // Extract default values from return type (e.g. { value: 0, error = '' })
     let returnDefaults: Record<string, unknown> | undefined
@@ -1956,7 +1975,9 @@ export function transpileToJS(
 
     const isSafe = preprocessed.safeFunctions.has(funcName)
     // Extract return safety per-function from original source
-    const returnSafety = extractFunctionReturnSafety(cleanSource, funcName)
+    const returnSafety = isDispatcher
+      ? undefined
+      : extractFunctionReturnSafety(cleanSource, funcName)
 
     // Get source location - prefer line annotation from TS transpilation
     const annotatedLine = extractLineAnnotation(source, funcName)

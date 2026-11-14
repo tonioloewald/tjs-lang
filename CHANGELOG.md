@@ -169,6 +169,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A polymorphic function's declarations and return checks follow each variant** (#4123). Return
+  annotations were looked up by function name, so each variant found none and the dispatcher took
+  the first variant's: with `f(s: 'a'):? 'A'` beside `f(n: 2):? 4`, `f(2)` was checked against a
+  string and refused. The `.d.ts` declared the dispatcher, `area(__args: any[]): number`, so under
+  `tsc --strict` `area(1)` and `area(3, 4)` were both errors. Each variant now carries its own
+  return type and check, the dispatcher has none, and the `.d.ts` declares one overload per
+  variant.
+
 - **BREAKING (runtime): configuration is live and layered, so load order no longer decides
   whether `configure()` reaches a module** (#4118; #23). Each runtime instance took a snapshot of
   the settings when it was created. So `globalThis.__tjs = createRuntime(); __tjs.configure(…)`

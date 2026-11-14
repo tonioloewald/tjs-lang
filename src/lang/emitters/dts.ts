@@ -1049,15 +1049,30 @@ export function generateDTS(
         lines.push(`/** ${info.description} */`)
       }
 
-      lines.push(
-        functionDeclToTS(
-          name,
-          info,
-          true,
-          isDefault,
-          !!result.tjsModes?.tjsDictDefaults
+      // A polymorphic function's own metadata describes its dispatcher, `(...__args)`, which
+      // no caller writes: declare one overload per variant instead (`name$1`, `name$2`, …), so
+      // `area(1)` and `area(3, 4)` both type-check (#4123).
+      const variants = Object.keys(result.types)
+        .filter(
+          (k) =>
+            k.startsWith(`${name}$`) && /^\d+$/.test(k.slice(name.length + 1))
         )
-      )
+        .sort(
+          (a, b) =>
+            Number(a.slice(name.length + 1)) - Number(b.slice(name.length + 1))
+        )
+      for (const sig of variants.length
+        ? variants.map((k) => result.types[k])
+        : [info])
+        lines.push(
+          functionDeclToTS(
+            name,
+            sig,
+            true,
+            isDefault,
+            !!result.tjsModes?.tjsDictDefaults
+          )
+        )
       emitted.add(name)
     }
 

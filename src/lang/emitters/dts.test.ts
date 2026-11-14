@@ -265,7 +265,7 @@ export function find(id: 0 | null): '' {
     expect(dts).toContain('id: number | null')
   })
 
-  it('should skip polymorphic variant functions', () => {
+  it('declares a polymorphic function as one overload per variant, never by its variant names (#4123)', () => {
     const source = `
 export function area(radius: 3.14) {
   return Math.PI * radius * radius
@@ -277,9 +277,10 @@ export function area(w: 0.0, h: 0.0) {
     const result = transpileToJS(source, { runTests: false })
     const dts = generateDTS(result, source)
 
-    const areaCount = (dts.match(/function area/g) || []).length
-    expect(areaCount).toBe(1)
+    const areaCount = (dts.match(/function area\(/g) || []).length
+    expect(areaCount).toBe(2)
     expect(dts).not.toContain('area$')
+    expect(dts).not.toContain('__args')
   })
 
   it('should include JSDoc from TDoc comments', () => {

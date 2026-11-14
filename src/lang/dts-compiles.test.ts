@@ -496,3 +496,35 @@ const d: string = new Box(1).label()
     expect(diagnose(`${dts}\nnew Box(1).scale('x')\n`).join()).toMatch(/TS2345/)
   })
 })
+
+describe('a polymorphic function (#4123)', () => {
+  // Its metadata described the dispatcher, `area(__args: any[])`, which no caller writes:
+  // under tsc --strict, area(1) was TS2345 and area(3, 4) TS2554. It is one overload per
+  // variant now, each with the variant's own return type.
+  const src = `
+export function area(r: 1.0): 0.0 { return 3.14159 * r * r }
+export function area(w: 1.0, h: 2.0): 0.0 { return w * h }
+export function label(s: 'a'): 'A' { return s.toUpperCase() }
+export function label(n: 2): 4 { return n * 2 }`
+  it('declares one overload per variant', () => {
+    const dts = dtsFor(src)
+    expect(dts).toContain('export declare function area(r: number): number;')
+    expect(dts).toContain(
+      'export declare function area(w: number, h: number): number;'
+    )
+    expect(dts).not.toContain('__args')
+  })
+  it('a TypeScript consumer can call every variant, typed by its own return', () => {
+    const dts = dtsFor(src)
+    expect(
+      diagnose(`${dts}
+const a: number = area(1)
+const b: number = area(3, 4)
+const c: string = label('x')
+const d: number = label(2)
+`)
+    ).toEqual([])
+    // ...and a call no variant accepts is still an error
+    expect(diagnose(`${dts}\narea('x')\n`).join()).toMatch(/TS2769|TS2345/)
+  })
+})
