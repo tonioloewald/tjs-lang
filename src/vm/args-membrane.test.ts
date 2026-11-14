@@ -120,12 +120,26 @@ describe('admission is budgeted and metered (0.14.0 final re-review 2, B-1)', ()
   ).ast
 
   it('a 10MB argument over the budget is refused CHEAPLY, not walked', async () => {
-    const items = new Array(5_000_000).fill(1)
-    const t = performance.now()
-    const r = await new AgentVM().run(ast, { items }, { fuel: 100 })
+    // Measured as a RATIO, not against a fixed 100ms (#4009: that flaked on loaded CI runners,
+    // and failed the dogfood ratchet). Under the same fuel, a 5M-element argument is refused
+    // once its walk reaches the budget, so it costs about what a 50K-element one costs to walk
+    // whole; walking all 5M elements would take ~100x as long. Best of 3 (#3538).
+    const time = async (n: number) => {
+      const items = new Array(n).fill(1)
+      let best = Infinity
+      let r: any
+      for (let i = 0; i < 3; i++) {
+        const t = performance.now()
+        r = await new AgentVM().run(ast, { items }, { fuel: 100 })
+        best = Math.min(best, performance.now() - t)
+      }
+      return { best, r }
+    }
+    const big = await time(5_000_000)
+    const small = await time(50_000)
     // Fuel was the binding limit, so this IS fuel exhaustion — the message hosts detect.
-    expect(r.error?.message).toBe('Out of Fuel')
-    expect(performance.now() - t).toBeLessThan(100)
+    expect(big.r.error?.message).toBe('Out of Fuel')
+    expect(big.best).toBeLessThan(small.best * 10 + 5)
   })
 
   it('what crosses is charged to fuel', async () => {
