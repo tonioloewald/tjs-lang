@@ -554,9 +554,10 @@ console.log(Order.default)
   name, or code written against the `Type` objects that the `tjs-lang` library builds.
 - **`.description`** is the description you wrote, or the type's name if you wrote none.
 - **`.default`** is the example as a value. A union contributes its first member, so `size`
-  is `'S'`. One caution: for a type whose example refers to other types, `.default` is wrong
-  at the moment. It holds the referenced type object instead of that type's default value,
-  so do not rely on `.default` for such types yet.
+  is `'S'`. A member that names another type takes that type's default, and each read
+  returns a fresh value. A type that refers to itself stops at the cycle: the reference is
+  dropped from a list and skipped in a union, so `Node { kids: [Node], next: Node | null }`
+  defaults to `{ kids: [], next: null }`.
 
 ### `toJSONSchema()`
 

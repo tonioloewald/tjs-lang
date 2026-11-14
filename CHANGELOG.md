@@ -169,6 +169,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Type's `.default` resolves the Types its example names** (#4097). With
+  `Type Piece { example: { cells: [Cell] } }`, `Piece.default.cells[0]` was the `Cell` Type object
+  itself, so `JSON.stringify(Piece.default)` printed it (or `null`). A reference now resolves to
+  the referenced Type's default, read when `.default` is asked for, so a Type declared later in the
+  file is found, and each read returns a fresh value. A recursive reference is a cycle: dropped
+  from an array, omitted from an object and skipped in a union, so
+  `Node { kids: [Node], next: Node | null }` defaults to `{ kids: [], next: null }`.
+
 - **Cross-file `wasm function` composition works in the CLI and the Bun plugins** (#4125). Only
   the API passed a `ModuleLoader`, so a `wasm function` calling one imported from another `.tjs`
   file failed in `tjs run`, `emit`, `check` and `test` and in both plugins with "Unsupported

@@ -2716,6 +2716,9 @@ export function transpileToJS(
   // TS `number` field — 4.4x a two-field interface (0.14.0 final review, M-3).
   const needsSolver =
     FULL_PRELUDE || (needsKind && code.includes(`${RT_NS}.__k('ref'`))
+  // Resolving a reference in `.default` (#4097) has the same condition: only an example that
+  // names a Type needs the lazy default and its cycle rule.
+  const needsRefDefaults = needsSolver
   // `.toJSONSchema()` / `.strip()` on a runtime type — only inline the
   // example→schema helper for files that call them, or that EXPORT a type: an exported Type
   // is asked for its schema by the module that imports it, and without the helper that was
@@ -3150,20 +3153,34 @@ export function transpileToJS(
                 `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return typeof m.arg[0]==='bigint'?{type:'integer'}:{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){const ref={$ref:'#/$defs/'+m.name};if(m.__busy){if(!__jsDefs)return{};__jsDefs.rec.add(m.name);return ref}m.__busy=true;try{const r=m.peek();if(r===__kUnset)return{};const s=r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r);if(__jsDefs&&__jsDefs.rec.has(m.name)){__jsDefs.defs[m.name]=s;return ref}return s}finally{m.__busy=false}}return{}}`,
               ]
             : []),
-          `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='union')return __unk(v.arg[0]);if(v.__k!=='ref')return v.value;const r=v.peek();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`
+          needsRefDefaults
+            ? `const __kCycle={},__kDB=new Set();function __kDefault(T,x){if(__kDB.has(T))return __kCycle;__kDB.add(T);try{return __unk(x)}finally{__kDB.delete(T)}}function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='union'){for(const m of v.arg){const y=__unk(m);if(y!==__kCycle)return y}return __kCycle}if(v.__k!=='ref')return v.value;const r=v.peek();if(r===__kUnset)return __kCycle;return r&&r.__runtimeType?('default' in r?r.default:__kCycle):__unk(r)}if(Array.isArray(v)){let c=false;const a=[];for(const x of v){const y=__unk(x);if(y!==x)c=true;if(y!==__kCycle)a.push(y)}return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;if(y!==__kCycle)o[k]=y}return c?o:v}`
+            : `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='union')return __unk(v.arg[0]);if(v.__k!=='ref')return v.value;const r=v.peek();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`
         )
       }
-      const dflt = (x: string) => (needsKind ? `__unk(${x})` : x)
+      // With markers, `.default` is a GETTER (#4097): a reference resolves to the referenced
+      // Type's default, read when asked for, so a Type declared later is found; a cycle (a
+      // Type whose default is being computed) is dropped from an array, omitted from an
+      // object and skipped in a union, so `Node { kids: [Node], next: Node | null }` defaults
+      // to `{ kids: [], next: null }`. It held the referenced Type object itself.
+      const defaultOf = (x: string) =>
+        needsRefDefaults ? '' : `t.default=${needsKind ? `__unk(${x})` : x};`
+      const lazyDefault = (x: string) =>
+        needsRefDefaults
+          ? `Object.defineProperty(f,'default',{get(){const y=__kDefault(f,${x});return y===__kCycle&&!__kDB.size?undefined:y},enumerable:true,configurable:true});`
+          : ''
       inlineParts.push(
-        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=${dflt(
-          'e??null'
+        `function Type(d,p,e){const t={description:d,__runtimeType:true};let dx;if(typeof p==='function'){t.check=p;dx=e??null;${defaultOf(
+          'dx'
         )}${
           needsSolver
-            ? ';if(p.__g&&p.__ex!==undefined){t.__pred=p.__g;t.__ex=p.__ex}'
+            ? 'if(p.__g&&p.__ex!==undefined){t.__pred=p.__g;t.__ex=p.__ex}'
             : ''
-        }}else{const ex=e??p;t.default=${dflt(
+        }}else{const ex=e??p;dx=ex;${defaultOf(
           'ex'
-        )};t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}return __pred(t,d)}`
+        )}t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}const f=__pred(t,d);${lazyDefault(
+          'dx'
+        )}return f}`
       )
     }
     if (needsGeneric) {

@@ -231,9 +231,9 @@ describe('references to other types', () => {
       ['Node'],
       false
     )
-    // The union's first member is `Node` itself, which does not exist yet when its default
-    // is taken — so that member's default is honestly `undefined`, not a crash.
-    expect(Node.default).toEqual({ value: 0, next: undefined })
+    // The union's first member is `Node` itself, a cycle while Node's default is being
+    // computed, so the union falls through to its next member (#4097): `null`, not a crash.
+    expect(Node.default).toEqual({ value: 0, next: null })
   })
 })
 
