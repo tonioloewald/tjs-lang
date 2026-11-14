@@ -440,23 +440,24 @@ before the first test. Its state is shared, so a change one test makes is seen b
 
 ### Async code in a test
 
-`await` in a `test` block is not supported by the command-line tools yet, and the failure is
-worse than it looks: **one `await` in any test body stops the whole file's tests from
-running.** Every `test` block and every signature test in that file comes back inconclusive
-(see [below](#inconclusive-tests)), a test that really fails is hidden with the rest, and
-`tjs check` still prints ✓ and exits 0.
+A `test` block may `await`. Transpiling cannot wait (it is synchronous), so a file whose tests
+await runs them afterwards, the way the page runs them: `tjs test` and `tjs check` do it for you,
+and a test that fails there fails the command.
 
 ```tjs:static
-// Do not do this in a file whose inline tests you rely on.
+async function loadUser(id: 1):! { name: '' } {
+  return { name: 'Ada' }
+}
+
 test 'loads a user' {
   const user = await loadUser(1)
   expect(user.name).toBe('Ada')
 }
 ```
 
-Keep `await` out of `test` blocks. Test async code in a `*.test.tjs` file (see
-[Running tests](#running-tests)), and keep the logic you test inline in plain synchronous
-functions that the async code calls.
+One limit: a file with `import` statements cannot be run that way from the command line (there is
+no module loader), so its tests are reported inconclusive there. Test that code in a `*.test.tjs`
+file (see [Running tests](#running-tests)).
 
 ### In a TypeScript file
 
@@ -748,9 +749,8 @@ anything that needs a browser or an import; treat any other `?` as a bug to look
 These are gaps in today's tools, not the design. Each is described above where it matters;
 this is the list in one place.
 
-- **`await` in a `test` block** makes every test in the file inconclusive under the
-  command-line tools. `tjs check` warns about each one (and `--max-warnings 0` fails), but they
-  do not run. Put async tests in `*.test.tjs`.
+- **`await` in a `test` block** runs after transpiling, as on the page; in a file with `import`
+  statements the command line cannot run it and reports it inconclusive (`tjs check` warns).
 - **`async` functions** get no signature test at transpile time: `tjs()` reports the example as
   inconclusive, and `tjs check` warns that it could not run.
 - **Arrow functions and function expressions** assigned to a `const` get no signature test,

@@ -260,8 +260,11 @@ const report = (label: string, st: Stage, total: number) => {
  * Raised to 129 on 2026-10-10 — the corpus grew (`type-or.ts` and the new test files from the
  * 0.14.0-rc.6 equality and annotation work) and every addition graduates. Promoted because
  * the ratchet asked.
+ *
+ * Raised to 135 on 2026-11-14: two more files graduate (the corpus grew with that day's new
+ * modules, async-tests.ts and run-options.ts among them). Promoted because the ratchet asked.
  */
-const GRADUATION_FLOOR = 133
+const GRADUATION_FLOOR = 135
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

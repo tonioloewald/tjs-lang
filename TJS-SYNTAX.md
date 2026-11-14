@@ -587,8 +587,8 @@ signature tests (every `:` return annotation) and throws if one fails, so the `t
 `check` and `test` commands and a build all stop on a failing test. Tests are removed from
 the emitted JavaScript. Pass `runTests: false` to skip them, or `runTests: 'report'` to
 collect the results in `testResults` without throwing. The Bun plugin does not run them on
-import unless `TJS_RUN_TESTS=1` is set. A test body may use `await` on the doc site; on the
-command line such a test is reported inconclusive (card #3828).
+import unless `TJS_RUN_TESTS=1` is set. A test body may use `await`; the command line runs
+such tests after transpiling, as the page does.
 
 **Matchers.** `expect(actual)` supports `toBe`, `toEqual`, `toContain` (substring for
 strings, membership for arrays), `toThrow(message?)` (on a function),

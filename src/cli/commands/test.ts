@@ -17,6 +17,7 @@ import { readdirSync, statSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname, resolve, relative } from 'path'
 import { spawn } from 'bun'
 import { tallyTestResults, testLabel } from '../test-report'
+import { needsAsyncRun, runTestsAsync } from '../async-tests'
 
 export interface TestOptions {
   pattern?: string // -t, --test-name-pattern
@@ -115,12 +116,16 @@ async function runInlineTests(file: string): Promise<void> {
   let results
   try {
     const source = readFileSync(file, 'utf-8')
-    results =
-      tjs(source, {
-        filename: file,
-        dialect: dialectForSource(file, source),
-        runTests: 'report',
-      }).testResults ?? []
+    const result = tjs(source, {
+      filename: file,
+      dialect: dialectForSource(file, source),
+      runTests: 'report',
+    })
+    results = result.testResults ?? []
+    // The build-time run is synchronous; a module it could not execute (an `await`) runs the
+    // way the page runs it (#3828).
+    if (needsAsyncRun(results))
+      results = (await runTestsAsync(result)) ?? results
   } catch (e: any) {
     console.error(`✗ ${file}: ${e.message}`)
     process.exit(1)

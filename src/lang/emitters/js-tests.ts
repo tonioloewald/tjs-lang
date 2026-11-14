@@ -858,6 +858,7 @@ export function runAllTests(
     // Test ${i}: ${t.description}
     try {
       ${testRuntimeImports}
+      ${mockSetup}
       ${body}
       __testResults.push({ idx: ${i}, passed: true });
     } catch (e) {
@@ -949,9 +950,10 @@ export function runAllTests(
       // Inject resolved imports first (they may be dependencies)
       ${importedCode}
 
-      // Execute the module code ONCE
+      // Execute the module code ONCE. Each test runs its own copy of the mock blocks, so no
+      // test sees state another left behind, as on the page (tests.ts) (2026-11-14: the two
+      // runners disagreed, and per test was the decision).
       ${executableCode}
-      ${mockSetup}
 
       // Run explicit test blocks
       ${testBodies}

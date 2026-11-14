@@ -158,6 +158,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The command line runs tests that `await`, and rebuilds `mock` blocks per test** (#3828).
+  `tjs()` is synchronous, so one `await` in a test body made every test in the file inconclusive,
+  hiding a genuinely failing one, and `tjs check` passed the file. `tjs test` and `tjs check` now
+  run such a module with the page's async runner, and a failure there fails the command. `mock { }`
+  state was shared across tests on the command line and rebuilt per test on the page; it is
+  rebuilt per test everywhere now.
+
 - **The CLI honours the conversion marker, as the Bun plugin does** (#3842). A converted file
   (`/* tjs <- x.ts */`) means JavaScript semantics, but `tjs emit`, `check`, `run`, `types` and
   `test` passed the `.tjs` extension's dialect, which overrode it: `a == b` became TJS's `==` and

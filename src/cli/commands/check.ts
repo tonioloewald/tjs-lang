@@ -7,6 +7,7 @@ import { findFiles } from '../walk'
 import { tjs, dialectForSource } from '../../lang'
 import { enforceMaxWarnings, reportWarnings } from '../warnings'
 import { tallyTestResults, testLabel } from '../test-report'
+import { needsAsyncRun, runTestsAsync } from '../async-tests'
 import { lint } from '../../lang/linter'
 import { preprocess } from '../../lang/parser'
 
@@ -95,7 +96,19 @@ async function checkOne(file: string, verbose = true): Promise<number | null> {
     // something only the page or the host provides, such as `document`, or a typo: at build time
     // they look alike). It is not a failure, but `check` reporting ✓ said nothing at all (#4120),
     // so each is a warning, counted by `--max-warnings`.
-    const inconclusive = tallyTestResults(result.testResults ?? []).inconclusive
+    // A module the synchronous build-time run could not execute (an `await`) runs the way the
+    // page runs it (#3828); a test that FAILS there fails the check.
+    let testResults: any[] = result.testResults ?? []
+    if (needsAsyncRun(testResults))
+      testResults = (await runTestsAsync(result)) ?? testResults
+    const tally = tallyTestResults(testResults)
+    if (tally.failed.length) {
+      console.error(`✗ ${file}`)
+      for (const r of tally.failed)
+        console.error(`  ✗ ${testLabel(r)}: ${r.error ?? ''}`)
+      return null
+    }
+    const inconclusive = tally.inconclusive
     // The linter (unused variables, unreachable code, safe-assign, misspelled dictionary keys)
     // runs on native .tjs files: it existed and nothing in the CLI called it (2026-11-14).
     // Plain .js keeps JavaScript's rules. Under `TjsStrict` safe-assign and excess dictionary
