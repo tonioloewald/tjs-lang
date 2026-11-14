@@ -109,6 +109,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`tjsPlugin({ convertTs: true })` loads `.ts` files through `fromTS`** (opt-in; `TJS_CONVERT_TS=1`
+  for the `tjs-lang/bun-plugin` preload). Without it Bun strips a `.ts` file's types and checks
+  nothing; with it the file goes TypeScript to TJS to JavaScript, and one marked
+  `/* @tjs TjsStrict */` gets its inputs checked. Off by default, because it loads the TypeScript
+  compiler, which you must install.
+
 - **Doc site: live AJS examples can set `timeoutMs`, `quotas`, `maxHeapBytes` and
   `membraneMaxBytes`**, each capped for a reader's browser (10 seconds, 64MB, 4MB); `fuel`, which
   was uncapped, is capped at 100,000 (`site/run-options.ts`).

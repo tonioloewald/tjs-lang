@@ -26,6 +26,12 @@ installRuntime()
 // `TJS_RUN_TESTS=1` opts in to running each file's signature examples and `test` blocks as it
 // is imported (#3599), so a wrong return example fails under `bun test` too; a preload takes
 // no options, so it is an environment variable. Off by default.
-await plugin(tjsPlugin({ runTests: process.env.TJS_RUN_TESTS === '1' }))
+// `TJS_CONVERT_TS=1` opts in to loading `.ts` files through `fromTS` (needs `typescript`).
+await plugin(
+  tjsPlugin({
+    runTests: process.env.TJS_RUN_TESTS === '1',
+    convertTs: process.env.TJS_CONVERT_TS === '1',
+  })
+)
 
 export {}

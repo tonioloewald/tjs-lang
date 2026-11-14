@@ -17,6 +17,8 @@
  *
  * `sharedPrelude` (#3594, opt-in): every module imports one prelude from `tjs-lang/prelude`
  * instead of carrying its own. See docs/runtime-fusion.md §8.
+ *
+ * `convertTs` (opt-in): `.ts` files load through `fromTS`; see the option below.
  */
 import type { BunPlugin } from 'bun'
 import { basename, join } from 'path'
@@ -29,6 +31,14 @@ export interface TjsPluginOptions {
    * so a bundle carries one copy rather than one per module. Off by default.
    */
   sharedPrelude?: boolean
+  /**
+   * Load `.ts` files through `fromTS` (TypeScript -> TJS -> JavaScript) instead of letting Bun
+   * strip their types unchecked (decided 2026-11-14: an OPT-IN). Off by default: it loads the
+   * TypeScript compiler (a peer you must install), and converted TypeScript keeps JavaScript's
+   * semantics, so it checks inputs only where a file opts in with `/* @tjs TjsStrict *\/`.
+   * `.d.ts` files and anything under `node_modules` are left to Bun.
+   */
+  convertTs?: boolean
 }
 
 export function tjsPlugin(options: TjsPluginOptions = {}): BunPlugin {
@@ -56,6 +66,29 @@ export function tjsPlugin(options: TjsPluginOptions = {}): BunPlugin {
         })
         return { contents: result.code, loader: 'js' }
       })
+      if (options.convertTs)
+        build.onLoad({ filter: /\.[mc]?ts$/ }, async (args) => {
+          if (
+            /\.d\.[mc]?ts$/.test(args.path) ||
+            /[\\/]node_modules[\\/]/.test(args.path)
+          )
+            return undefined
+          // Lazy, and only when opted in: this is the one route that loads the TypeScript
+          // compiler (src/index-tsfree.test.ts keeps it out of every other path).
+          const { fromTS } = await import('../lang/emitters/from-ts')
+          const { tjs } = await import('../lang')
+          const source = await Bun.file(args.path).text()
+          const converted = fromTS(source, {
+            emitTJS: true,
+            filename: basename(args.path),
+          })
+          const result = tjs(converted.code, {
+            filename: basename(args.path),
+            runTests,
+            ...(prelude ? { prelude } : {}),
+          })
+          return { contents: result.code, loader: 'js' }
+        })
     },
   }
 }

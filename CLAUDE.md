@@ -393,7 +393,8 @@ import { createPrelude } from 'tjs-lang/prelude'
 import 'tjs-lang/bun-plugin' // registers the .tjs onLoad plugin + installs __tjs (bun-only)
 //   TJS_RUN_TESTS=1 runs each file's signature examples + test blocks on import (opt-in, #3599)
 // Bun.build: the preload is a runtime registration Bun.build ignores, so bundles use this:
-import { tjsPlugin } from 'tjs-lang/bun-build-plugin' // Bun.build({ plugins: [tjsPlugin({ runTests? })] })
+import { tjsPlugin } from 'tjs-lang/bun-build-plugin' // Bun.build({ plugins: [tjsPlugin({ runTests?, convertTs? })] })
+//   convertTs (opt-in; TJS_CONVERT_TS=1 for the preload): .ts loads through fromTS — needs `typescript`
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
 // Prism language definitions (GENERATED from editors/tjs-syntax.ts by
 // `bun run build:grammars`): 'tjs-lang/editors/prism/tjs', '/prism/ajs'. These render
