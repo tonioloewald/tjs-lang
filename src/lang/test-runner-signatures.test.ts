@@ -154,7 +154,9 @@ describe('signature examples: page and build agree across the docs', () => {
     }
     expect(compared).toBeGreaterThan(20) // apparatus: the corpus has signature examples
     expect(disagree).toEqual([])
-  })
+    // It runs every signature example in the docs, so its time grows with them: ~2s locally
+    // and over 5s on CI once the book chapters added ~200 examples (2026-11-14).
+  }, 30_000)
 })
 
 /**
