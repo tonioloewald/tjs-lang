@@ -392,7 +392,9 @@ Returns `{ name: 'tonioloewald/tjs-lang', language: 'TypeScript' }`.
 `responseType` is `'json'`, a string otherwise, or a `data:` URL with `responseType: 'dataUrl'`.
 The built-in client returns the body of a 404 or a 500 the same way, without the status, so check
 the body. It does not follow redirects: a 3xx comes back as `{ redirect: true, status, location }`,
-and fetching `location` is a new request. A network failure is an error the agent can catch, with
+and fetching `location` is a new request. `status` and `location` are server-side facts: in a
+browser the redirect still comes back, but as `{ redirect: true, status: 0, location: null }`,
+because the browser hides where it pointed. A network failure is an error the agent can catch, with
 the failure's message as `e`. A host's own `fetch` capability decides these things itself, and must
 return plain data, not a `Response`.
 

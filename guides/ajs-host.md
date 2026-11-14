@@ -292,7 +292,8 @@ included.
 **Without a `fetch` capability**, `httpFetch` uses a built-in client meant for demonstrations.
 It fetches nothing unless `allowedFetchDomains` is set, follows no redirects (a redirect comes
 back to the agent as `{ redirect: true, status, location }`, and fetching `location` is a new
-request, admitted again), sends no cookies or HTTP authentication, and reads the body under
+request, admitted again; in a browser `status` is 0 and `location` null, because the browser
+hides them), sends no cookies or HTTP authentication, and reads the body under
 `membraneMaxBytes`.
 
 **With your own `fetch` capability**, the VM still admits the scheme, method and headers (and
