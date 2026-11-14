@@ -296,6 +296,8 @@ export interface TransformContext {
   depth: number
   /** Variables declared in current scope with their types */
   locals: Map<string, TypeDescriptor>
+  /** Which of this scope's `locals` are `const`: assigning one is refused (#4107) */
+  consts?: Set<string>
   /** Parent scope's context (for scope chain) */
   parent?: TransformContext
   /** Function parameters */

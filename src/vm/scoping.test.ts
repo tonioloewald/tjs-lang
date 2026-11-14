@@ -7,6 +7,34 @@ import { AgentVM } from './vm'
 import { transpile } from '../lang/index'
 
 const vm = new AgentVM()
+/**
+ * `src` compiled with `let NAME`, then that binding's declaration made a `constSet`: the AST the
+ * transpiler emitted before it refused assigning a const at transpile time (#4107). Hand-shaped
+ * because the transpiler can no longer produce it; the VM's own const rule must still hold for an
+ * AST built by hand or persisted.
+ */
+function constifiedAst(src: string, name: string): any {
+  const ast: any = transpile(
+    src.replace(new RegExp(`\\bconst ${name}\\b`), `let ${name}`)
+  ).ast
+  let done = false
+  const walk = (n: any): void => {
+    if (done || !n || typeof n !== 'object') return
+    if (n.op === 'varSet' && n.key === name) {
+      n.op = 'constSet'
+      done = true
+      return
+    }
+    for (const v of Object.values(n)) {
+      if (Array.isArray(v)) v.forEach(walk)
+      else walk(v)
+    }
+  }
+  walk(ast)
+  if (!done) throw new Error(`no declaration of ${name}`)
+  return ast
+}
+
 const run = async (body: string) => {
   const r = await vm.run(
     transpile(`function f() {\n${body}\n}`).ast,
@@ -28,12 +56,21 @@ describe('const is per binding, per scope', () => {
     ).toEqual({ x: 7 })
   })
   it('reassigning a const — in its own scope or from a block — is still refused', async () => {
-    expect((await run('const x = 1\nx = 2\nreturn { x }')).error).toMatch(
-      /reassign const/
-    )
-    expect((await run('const x = 1\n{ x = 2 }\nreturn { x }')).error).toMatch(
-      /reassign const/
-    )
+    // The transpiler refuses this source (#4107); the VM still refuses the AST.
+    for (const body of [
+      'const x = 1\nx = 2\nreturn { x }',
+      'const x = 1\n{ x = 2 }\nreturn { x }',
+    ]) {
+      expect(() => transpile(`function f() {\n${body}\n}`)).toThrow(
+        /is a const/
+      )
+      const r = await vm.run(
+        constifiedAst(`function f() {\n${body}\n}`, 'x'),
+        {},
+        { fuel: 200 }
+      )
+      expect(r.error?.message).toMatch(/reassign const/)
+    }
   })
 })
 

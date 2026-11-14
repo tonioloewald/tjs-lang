@@ -51,6 +51,16 @@ const TRIGGERS: Record<string, string> = {
     do { i = i + 1 } while (i < n)
     return { i }
   }`,
+  BreakStatement: `function f(n: 0) {
+    let i = 0
+    while (i < n) { if (i > 2) { break } i = i + 1 }
+    return { i }
+  }`,
+  ContinueStatement: `function f(n: 0) {
+    let i = 0
+    while (i < n) { i = i + 1; if (i > 2) { continue } }
+    return { i }
+  }`,
 }
 
 describe('unsupported-construct diagnostics carry a worked remedy', () => {

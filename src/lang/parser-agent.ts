@@ -165,6 +165,10 @@ export function preprocessAgentSource(
   }
 }
 
+/** AJS has no `await`; shared by the parser and the AST emitter (#4107). */
+export const AWAIT_REMEDY = `AJS has no \`await\`: an atom call already waits for its result, and \`async\` changes nothing. Write the call without it:
+  const res = httpFetch({ url })`
+
 /**
  * Parse AJS source into an acorn AST. The AJS counterpart of `parse()`.
  */
@@ -185,11 +189,10 @@ export function parseAgentSource(
     return { ...pre, ast, processedSource: pre.source }
   } catch (e: any) {
     const loc = e.loc || { line: 1, column: 0 }
-    throw new SyntaxError(
-      e.message.replace(/\s*\(\d+:\d+\)$/, ''),
-      loc,
-      pre.originalSource,
-      filename
-    )
+    let message = e.message.replace(/\s*\(\d+:\d+\)$/, '')
+    // acorn's words are right for JavaScript and wrong for AJS, which has no `await` at all
+    // (#4107): say what to write instead.
+    if (/keyword 'await'/.test(message)) message = AWAIT_REMEDY
+    throw new SyntaxError(message, loc, pre.originalSource, filename)
   }
 }

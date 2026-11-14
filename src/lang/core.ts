@@ -78,6 +78,23 @@ export function transpile(
     returnTypes ?? undefined
   )
 
+  // The entry is the LAST function. One that another function calls is almost certainly a
+  // helper written after the agent (#4107): the run then fails with a generic input message,
+  // because the agent's arguments reach the wrong function.
+  if (entryName && helpers.size > 0) {
+    const caller = [...helpers.values()].find((h) =>
+      callsName(h.body, entryName)
+    )
+    if (caller)
+      warnings.push({
+        message:
+          `'${entryName}' is the entry (the last function), but '${caller.id?.name}' calls it ` +
+          `as a helper. If '${caller.id?.name}' is the agent, move it to the end of the file.`,
+        line: caller.loc?.start.line ?? 1,
+        column: caller.loc?.start.column ?? 0,
+      })
+  }
+
   return {
     ast: ast as SeqNode,
     signature,
@@ -271,4 +288,24 @@ export function tjs(
     ''
   )
   return transpileToJS(source)
+}
+
+/** Does this subtree call `name(…)` directly? A plain walk: core.ts takes no walker dependency. */
+function callsName(node: any, name: string): boolean {
+  if (!node || typeof node !== 'object') return false
+  if (
+    node.type === 'CallExpression' &&
+    node.callee?.type === 'Identifier' &&
+    node.callee.name === name
+  )
+    return true
+  for (const key of Object.keys(node)) {
+    if (key === 'loc' || key === 'start' || key === 'end') continue
+    const v = node[key]
+    if (
+      Array.isArray(v) ? v.some((c) => callsName(c, name)) : callsName(v, name)
+    )
+      return true
+  }
+  return false
 }

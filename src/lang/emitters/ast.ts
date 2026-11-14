@@ -57,6 +57,7 @@ import {
   typeForName,
 } from '../inference'
 import { extractTDoc } from '../parser'
+import { AWAIT_REMEDY } from '../parser-agent'
 
 /**
  * Convert TypeDescriptor to JSON Schema
@@ -685,12 +686,9 @@ export const CONSTRUCT_REMEDIES: Record<string, string> = {
     // ...
     i = i + 1
   }`,
-  ForInStatement: `AJS has no \`for...in\`. Get the keys and walk them with \`while\`:
-  let ks = keys({ obj: data })
-  let i = 0
-  while (i < ks.length) {
-    let k = ks[i]
-    i = i + 1
+  ForInStatement: `AJS has no \`for...in\`. Walk the keys with \`for...of\`:
+  for (const k of Object.keys(data)) {
+    // ...
   }`,
   SwitchStatement: `AJS has no \`switch\`. Use \`if\`/\`else if\`:
   if (kind == 'a') {
@@ -698,11 +696,28 @@ export const CONSTRUCT_REMEDIES: Record<string, string> = {
   } else if (kind == 'b') {
     // ...
   }`,
-  DoWhileStatement: `AJS has no \`do...while\`. Use \`while\`, running the body check first:
+  DoWhileStatement: `AJS has no \`do...while\`. Use \`while\`; to run the body at least once, test a flag:
   let i = 0
-  while (i < n) {
+  let again = true
+  while (again) {
     // ...
     i = i + 1
+    again = i < n
+  }`,
+  BreakStatement: `AJS has no \`break\`. End the loop through its own test:
+  let i = 0
+  let done = false
+  while (!done && i < items.length) {
+    if (items[i] == kind) { done = true } else { i = i + 1 }
+  }`,
+  ContinueStatement: `AJS has no \`continue\`. Put the rest of the body under \`if\`:
+  let i = 0
+  while (i < items.length) {
+    let skip = items[i] == kind
+    i = i + 1
+    if (!skip) {
+      // ...
+    }
   }`,
 }
 
@@ -828,6 +843,7 @@ function transformVariableDeclaration(
       // Track variable type
       const type = inferTypeFromValue(declarator.init as Expression)
       ctx.locals.set(name, type)
+      if (isConst) (ctx.consts ??= new Set()).add(name)
     } else {
       // Uninitialized variable (only valid for let, not const)
       if (isConst) {
@@ -929,6 +945,25 @@ function transformExpressionStatement(
 
   // Function call (side effect)
   if (expr.type === 'CallExpression') {
+    // `Object.assign(o, x)` as a statement does nothing in AJS: it returns a NEW object and
+    // never changes `o`, so its result is the whole effect, and here it is discarded (#4107).
+    const callee = (expr as any).callee
+    if (
+      callee?.type === 'MemberExpression' &&
+      callee.object?.type === 'Identifier' &&
+      callee.object.name === 'Object' &&
+      callee.property?.name === 'assign'
+    ) {
+      const target = (expr as any).arguments[0]
+      const name = target?.type === 'Identifier' ? target.name : 'o'
+      ctx.warnings.push({
+        message:
+          `Object.assign does not change its first argument in AJS; it returns a new object, ` +
+          `and this statement discards it. Keep the result: ${name} = Object.assign(${name}, …)`,
+        line: getLocation(stmt).line,
+        column: getLocation(stmt).column,
+      })
+    }
     const { step, resultVar } = transformExpressionToStep(expr, ctx)
     if (step) {
       return step
@@ -991,6 +1026,21 @@ function transformAssignment(
   }
 
   const name = (expr.left as Identifier).name
+  // Assigning a `const` is refused here, where the line is known; it was caught only when the
+  // run reached it (#4107). The scope that DECLARES the name decides, so an inner `let` of the
+  // same name may still be assigned.
+  for (let c: TransformContext | undefined = ctx; c; c = c.parent) {
+    if (!c.locals.has(name)) continue
+    if (c.consts?.has(name))
+      throw new TranspileError(
+        `'${name}' is a const, so it cannot be assigned. Declare it with let if it changes:\n` +
+          `  let ${name} = …`,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
+    break
+  }
   let right = expr.right as Expression
   if (expr.operator !== '=') {
     const op = expr.operator.slice(0, -1)
@@ -1773,6 +1823,34 @@ function transformCallExpression(
   // their empty list.
   if (expr.arguments.length === 0 && !POSITIONAL_BUILTINS.has(funcName))
     delete args.args
+  if (
+    !named &&
+    !POSITIONAL_BUILTINS.has(funcName) &&
+    expr.arguments.length === 1 &&
+    (expr.arguments[0].type === 'Identifier' ||
+      expr.arguments[0].type === 'MemberExpression')
+  ) {
+    // ONE argument that is not an object literal (`storeSet(opts)`) is not a positional call:
+    // the inputs are in a variable, where they cannot be checked against the atom's (#4107).
+    const arg = expr.arguments[0]
+    const pathOf = (n: any): string =>
+      n.type === 'Identifier'
+        ? n.name
+        : n.type === 'MemberExpression' && !n.computed
+        ? `${pathOf(n.object)}.${n.property.name}`
+        : 'opts'
+    const from = pathOf(arg)
+    const keys = atomInputs(funcName, ctx)?.contract.keys ?? ['name']
+    throw new TranspileError(
+      `'${funcName}' takes its inputs as an object literal, so they can be checked against ` +
+        `what it declares. Name them:\n  ${funcName}({ ${keys
+          .map((k) => `${k}: ${from}.${k}`)
+          .join(', ')} })`,
+      getLocation(expr),
+      ctx.source,
+      ctx.filename
+    )
+  }
   if (!named && !POSITIONAL_BUILTINS.has(funcName)) {
     throw new TranspileError(
       `'${funcName}' takes named arguments: write ${funcName}({ name: value, … }), not ${funcName}(a, b). ` +
@@ -1885,6 +1963,9 @@ function ensureHelperTransformed(
   return paramNames
 }
 
+/** Array methods whose callback AJS compiles into the step (#4107). */
+const CALLBACK_METHODS = new Set(['map', 'filter', 'find', 'reduce'])
+
 /**
  * Handle method calls like arr.map(), str.slice(), etc.
  */
@@ -1897,6 +1978,10 @@ function transformMethodCall(
   isConst?: boolean,
   location: { line: number; column: number } = { line: 0, column: 0 }
 ): { step: BaseNode; resultVar: string | undefined } {
+  // A callback passed BY NAME (`xs.map(parseInt)`) fell out of the cases below into the
+  // generic method call, which failed at run time with "Method 'map' is not available"
+  // (#4107). AJS compiles the callback's body into the step, so it must be written in place.
+  refuseCallbackByName(method, args, ctx)
   switch (method) {
     case 'map':
       // arr.map(x => ...) -> map atom
@@ -2113,7 +2198,28 @@ function transformMethodCall(
 
   // Not a method the VM can call. It used to become an ATOM call named after the method
   // (`a.unshift(x)` → "Unknown Atom: unshift" at run time); refused here, where it can be fixed.
-  throw new TranspileError(
+  throw methodNotAvailable(method, location, ctx)
+}
+
+/** A `Schema.…` expression, or a variable initialised from one (#4107). */
+function isSchemaExpression(node: any, ctx: TransformContext): boolean {
+  let root = node
+  while (root?.type === 'CallExpression' || root?.type === 'MemberExpression')
+    root = root.type === 'CallExpression' ? root.callee : root.object
+  if (root?.type === 'Identifier' && root !== node && root.name === 'Schema')
+    return lookupVariable('Schema', ctx) === undefined
+  if (node?.type === 'Identifier')
+    return !!lookupVariable(node.name, ctx)?.unexamined?.startsWith('Schema.')
+  return false
+}
+
+/** "Method X is not available", from either path that compiles a method call (#4107). */
+function methodNotAvailable(
+  method: string,
+  location: { line: number; column: number },
+  ctx: TransformContext
+): TranspileError {
+  return new TranspileError(
     `Method '${method}' is not available in AsyncJS` +
       ([
         'forEach',
@@ -2126,6 +2232,33 @@ function transformMethodCall(
         ? ' — use for...of, or map/filter/find/reduce with an arrow function'
         : ''),
     location,
+    ctx.source,
+    ctx.filename
+  )
+}
+
+/** A callback method's callback must be written in place, not passed by name (#4107). */
+function refuseCallbackByName(
+  method: string,
+  args: readonly any[],
+  ctx: TransformContext
+): void {
+  if (
+    !CALLBACK_METHODS.has(method) ||
+    args.length === 0 ||
+    args[0].type === 'ArrowFunctionExpression' ||
+    args[0].type === 'FunctionExpression'
+  )
+    return
+  const named = args[0].type === 'Identifier' ? args[0].name : 'f'
+  const params = method === 'reduce' ? '(acc, x)' : '(x)'
+  const call = method === 'reduce' ? `${named}(acc, x)` : `${named}(x)`
+  throw new TranspileError(
+    `'${method}' takes its callback written in place, not passed by name. Write:\n` +
+      `  xs.${method}(${params} => ${call}${
+        method === 'reduce' ? ', initial' : ''
+      })`,
+    getLocation(args[0]),
     ctx.source,
     ctx.filename
   )
@@ -2403,6 +2536,64 @@ function expressionToExprNode(
             ? (member.property as Identifier).name
             : String((member.property as Literal).value)
 
+        // The same checks the statement path makes (#4107): this path built a `methodCall`
+        // for ANY name, so `return { m: s.matchAll(re) }` failed at run time where
+        // `let m = s.matchAll(re)` was refused here.
+        // A builtin NAMESPACE (`Schema.number()`, `Math.max()`) is dispatched by the VM itself,
+        // not through the instance method table, so only an instance receiver is checked here.
+        const namespace =
+          member.object.type === 'Identifier' &&
+          AJS_GLOBAL_NAMES.has((member.object as Identifier).name) &&
+          lookupVariable((member.object as Identifier).name, ctx) === undefined
+        if (!namespace) refuseCallbackByName(method, call.arguments, ctx)
+        if (!namespace && CALLBACK_METHODS.has(method))
+          throw new TranspileError(
+            `'${method}' with a callback is a statement in AJS, not part of an expression. ` +
+              `Assign it first:\n  const out = xs.${method}((x) => x * 2)\n  return { out }`,
+            getLocation(call),
+            ctx.source,
+            ctx.filename
+          )
+        if (!namespace && !GUEST_METHODS.has(method))
+          throw methodNotAvailable(method, getLocation(call), ctx)
+        // `push`/`includes` are ARRAY methods: on a Set they passed here and failed at run time
+        // with "'push' is not a function" (#4107). Known when the receiver was built by `Set(…)`.
+        const SET_FOR: Record<string, string> = { push: 'add', includes: 'has' }
+        if (
+          !namespace &&
+          SET_FOR[method] &&
+          member.object.type === 'Identifier' &&
+          lookupVariable(
+            (member.object as Identifier).name,
+            ctx
+          )?.unexamined?.startsWith('Set(')
+        ) {
+          const v = (member.object as Identifier).name
+          throw new TranspileError(
+            `'${v}' is a Set, which has '${SET_FOR[method]}', not '${method}':\n` +
+              `  ${v}.${SET_FOR[method]}(x)`,
+            getLocation(call),
+            ctx.source,
+            ctx.filename
+          )
+        }
+        // `Schema.isValid(schema, value)` — the arguments swapped — returned `false` for every
+        // value, silently (#4107). Refused when the FIRST argument is recognisably a schema.
+        if (
+          namespace &&
+          (member.object as Identifier).name === 'Schema' &&
+          method === 'isValid' &&
+          isSchemaExpression(call.arguments[0], ctx) &&
+          !isSchemaExpression(call.arguments[1], ctx)
+        )
+          throw new TranspileError(
+            `Schema.isValid takes the value first and the schema second:\n` +
+              `  Schema.isValid(value, schema)`,
+            getLocation(call),
+            ctx.source,
+            ctx.filename
+          )
+
         // Check for optional chaining: obj?.method() or obj.method?.()
         const isOptional =
           (member as any).optional === true || (call as any).optional === true
@@ -2678,6 +2869,13 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       // Never `null`: an expression this function did not recognise used to become `null`
       // silently, so `let j = i++` set j to null and the run reported success (tjs-lang#59
       // follow-up). Unsupported syntax in AJS fails loudly everywhere else; so does this.
+      if (expr.type === 'AwaitExpression')
+        throw new TranspileError(
+          AWAIT_REMEDY,
+          getLocation(expr),
+          ctx.source,
+          ctx.filename
+        )
       const hint =
         expr.type === 'UpdateExpression'
           ? ` — use \`${

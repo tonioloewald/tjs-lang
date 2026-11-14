@@ -65,7 +65,12 @@ const REFUSED_AT_TRANSPILE: Array<[string, string, RegExp]> = [
   ['positional values to a named atom', "greet('ann')", NAMED_SHAPE],
   ['positional values to an untyped args atom', 'loose(1, 2, 3)', NAMED_SHAPE],
   ['positional values to a core atom', "storeSet('k', 1)", NAMED_SHAPE],
-  ['a single non-literal argument', 'greet(opts)', NAMED_SHAPE],
+  // A variable holding the inputs is named as such, with the declared inputs spelled out (#4107).
+  [
+    'a single non-literal argument',
+    'greet(opts)',
+    /takes its inputs as an object literal[\s\S]*greet\(\{ name: opts\.name \}\)/,
+  ],
 ]
 
 for (const [label, VM] of [

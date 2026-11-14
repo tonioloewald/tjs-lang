@@ -12,6 +12,33 @@ import { defineAtom } from './runtime'
 
 const run = (src: string, opts: Record<string, unknown> = {}) =>
   new AgentVM().run(transpile(src).ast, {}, { fuel: 1_000_000, ...opts })
+/**
+ * `src` compiled with `let NAME`, then that binding's declaration made a `constSet`: the AST the
+ * transpiler emitted before it refused assigning a const at transpile time (#4107). Hand-shaped
+ * because the transpiler can no longer produce it; the VM's own const rule must still hold for an
+ * AST built by hand or persisted.
+ */
+function constifiedAst(src: string, name: string): any {
+  const ast: any = transpile(
+    src.replace(new RegExp(`\\bconst ${name}\\b`), `let ${name}`)
+  ).ast
+  let done = false
+  const walk = (n: any): void => {
+    if (done || !n || typeof n !== 'object') return
+    if (n.op === 'varSet' && n.key === name) {
+      n.op = 'constSet'
+      done = true
+      return
+    }
+    for (const v of Object.values(n)) {
+      if (Array.isArray(v)) v.forEach(walk)
+      else walk(v)
+    }
+  }
+  walk(ast)
+  if (!done) throw new Error(`no declaration of ${name}`)
+  return ast
+}
 
 describe('B1: the const rule asks about the scope the write actually lands in', () => {
   it('a block `let` may shadow an outer `const` (legal JavaScript)', async () => {
@@ -37,11 +64,18 @@ describe('B1: the const rule asks about the scope the write actually lands in', 
   })
 
   it('assigning an outer `const` from inside a block is still refused', async () => {
-    const r = await run(`function f() {
+    const src = `function f() {
       const x = 1
       for (const i of [1]) { x = 2 }
       return { x }
-    }`)
+    }`
+    // Refused at transpile time since #4107; the VM still refuses the AST.
+    expect(() => transpile(src)).toThrow(/is a const/)
+    const r = await new AgentVM().run(
+      constifiedAst(src, 'x'),
+      {},
+      { fuel: 1_000_000 }
+    )
     expect(r.error?.message ?? '').toMatch(/const/)
   })
 

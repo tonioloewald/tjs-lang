@@ -75,8 +75,9 @@ describe('assignment semantics (#59)', () => {
 
   it('assigning an outer const from a loop body is refused', async () => {
     const r = await run(`const k = 1; for (const v of [2]) { k = v } return k`)
+    // Refused at transpile time since #4107, with the line and the fix.
     expect(r).toEqual({
-      error: expect.stringMatching(/Cannot reassign const variable 'k'/),
+      error: expect.stringMatching(/'k' is a const, so it cannot be assigned/),
     })
   })
 

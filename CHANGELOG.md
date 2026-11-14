@@ -169,6 +169,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AJS diagnostics say what to write, at transpile time** (#4107). `await` (in a plain or an
+  `async` function), `break`, `continue`, `for...in` and `do...while` each get a worked remedy (the
+  `for...in` and `do...while` ones were wrong or garbled). Refused at transpile time instead of at
+  run time, or instead of a misleading message: a callback passed by name (`xs.map(parseInt)`), an
+  unavailable method inside an expression (`return { m: s.matchAll(re) }`), `push`/`includes` on a
+  Set, an atom given its inputs in a variable (`storeSet(opts)`, which now names the inputs),
+  assigning a `const`, and `Schema.isValid(schema, value)` with the arguments swapped. Warned: an
+  entry function that another function calls (a helper written after the agent), and a discarded
+  `Object.assign(o, x)`, which does not change `o` in AJS. The built-in fetch refusal names the run
+  option (`vm.run(ast, args, { context: { allowedFetchDomains } })`), not an internal path.
+
 - **`tjs emit -o dir/` writes `dir/<name>.js`, and a directory emit reads file by file**
   (#4126). A single-file emit took `-o outdir/` as the file to write (ENOENT when missing, EISDIR
   when present); a trailing separator or an existing directory now means `outdir/<name>.js`. A

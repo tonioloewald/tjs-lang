@@ -232,7 +232,7 @@ Four facts about `vm.run` shape everything that follows:
   ```
 
   With no capabilities, `stars` ends with
-  `Fetch blocked: no allowedFetchDomains configured. Set ctx.context.allowedFetchDomains or provide a custom fetch capability.`
+  `Fetch blocked: no allowedFetchDomains configured. The host lists them in the run options, vm.run(ast, args, { context: { allowedFetchDomains: ['api.example.com'] } }), or passes a fetch capability.`
   There are two built-in fallbacks. `httpFetch` uses the platform's own `fetch` for domains the
   host lists in its run options, which is how this page runs `stars` without passing a
   capability. The store atoms use an in-memory store that lasts one run and add a warning to the

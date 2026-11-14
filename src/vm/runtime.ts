@@ -7423,7 +7423,8 @@ export function admitFetchUrl(
     )
   throw new Error(
     `Fetch blocked: no allowedFetchDomains configured. ` +
-      `Set ctx.context.allowedFetchDomains or provide a custom fetch capability.`
+      `The host lists them in the run options, vm.run(ast, args, { context: { allowedFetchDomains: ['api.example.com'] } }), ` +
+      `or passes a fetch capability.`
   )
 }
 
