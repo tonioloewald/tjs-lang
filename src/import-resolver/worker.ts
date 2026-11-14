@@ -19,7 +19,7 @@
  * the playground-specific /iframe/ protocol on top.
  */
 
-import { parseConfig } from './resolve'
+import { parseConfig, staleResolverCaches } from './resolve'
 import { handleResolverFetch } from './worker-core'
 
 declare const self: any
@@ -34,12 +34,12 @@ self.addEventListener('install', () => {
 self.addEventListener('activate', (event: any) => {
   event.waitUntil(
     (async () => {
-      // Drop caches from previous config/versions
+      // Drop EARLIER VERSIONS of this resolver's own cache only, never the host site's caches.
       const keys = await caches.keys()
       await Promise.all(
-        keys
-          .filter((k: string) => k !== config.cacheName)
-          .map((k: string) => caches.delete(k))
+        staleResolverCaches(keys, config.cacheName).map((k: string) =>
+          caches.delete(k)
+        )
       )
       await self.clients.claim()
     })()

@@ -139,23 +139,53 @@ export function buildCdnUrl(
  * (Relative and absolute specifiers are skipped — they resolve without us.)
  */
 export function extractImports(source: string): string[] {
-  const imports: string[] = []
-  const importRegex =
-    /(?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g
+  return [
+    ...new Set(
+      importSpecifiers(source)
+        .map(([start, end]) => source.slice(start, end))
+        .filter(isBareSpecifier)
+    ),
+  ]
+}
 
-  let match
-  while ((match = importRegex.exec(source)) !== null) {
-    const specifier = match[1]
-    if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
-      imports.push(specifier)
-    }
+/**
+ * Whether a specifier names a PACKAGE, the kind the resolver routes: not relative (`./`),
+ * absolute (`/`) or a URL with a scheme (`http:`, `https:`, `data:`, `node:`, `blob:` …).
+ */
+function isBareSpecifier(spec: string): boolean {
+  return !(
+    spec.startsWith('.') ||
+    spec.startsWith('/') ||
+    /^[a-z][a-z0-9+.-]*:/i.test(spec)
+  )
+}
+
+/**
+ * The [start, end) offsets of every module specifier in `source`: after `from`, after a
+ * side-effect `import`, and inside a dynamic `import(…)`. Found in a view with string and comment
+ * contents blanked (`maskLiterals`, offsets preserved), so text that merely MENTIONS an import
+ * inside a string or comment is not one (#4122: it used to be rewritten), and the import clause is
+ * never parsed, so `$`-names and minified `from"x"` need nothing special. A member call such as
+ * `Array.from('x')` is not an import.
+ */
+function importSpecifiers(source: string): Array<[number, number]> {
+  const masked = maskLiterals(source)
+  const out: Array<[number, number]> = []
+  for (const m of masked.matchAll(/\b(?:from\s*|import\s*(?:\(\s*)?)(['"])/g)) {
+    if (m.index! > 0 && masked[m.index! - 1] === '.') continue // `x.from('…')`
+    // `from(` is a call, not a specifier: only `import(` takes a parenthesis
+    if (m[0].startsWith('from') && /\(/.test(m[0])) continue
+    const open = m.index! + m[0].length - 1
+    const close = masked.indexOf(m[1], open + 1)
+    if (close > open) out.push([open + 1, close])
   }
-  return [...new Set(imports)]
+  return out
 }
 
 /**
  * Rewrite bare import specifiers to `<prefix><spec>` URLs the service worker
- * intercepts. Skips relative (./), absolute (/), and http(s):// specifiers.
+ * intercepts. Skips relative (./), absolute (/) and scheme-qualified (http:, data:, node: …)
+ * specifiers, and anything inside a string or comment.
  *
  * Before: import { tosi } from 'tosijs'
  * After:  import { tosi } from '/tfs/tosijs'   (with the default prefix)
@@ -164,19 +194,32 @@ export function rewriteImports(
   source: string,
   prefix: string = DEFAULT_CONFIG.prefix
 ): string {
-  return source.replace(
-    /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
-    (match, importClause, quote, specifier) => {
-      if (
-        specifier.startsWith('.') ||
-        specifier.startsWith('/') ||
-        specifier.startsWith('http://') ||
-        specifier.startsWith('https://')
-      ) {
-        return match
-      }
-      return `${importClause}${quote}${prefix}${specifier}${quote}`
-    }
+  let out = source
+  for (const [start, end] of importSpecifiers(source).reverse()) {
+    const spec = source.slice(start, end)
+    if (isBareSpecifier(spec))
+      out = out.slice(0, start) + prefix + spec + out.slice(end)
+  }
+  return out
+}
+
+/**
+ * The caches an activating worker may delete: earlier versions of ITS OWN cache (the current
+ * name with an older trailing number: `tfs-v3` when the current one is `tfs-v4`). It used to
+ * delete every cache on the origin that was not the current one, wiping a host site's own Cache
+ * API data (2026-11-14). A name with no trailing number has no earlier versions.
+ */
+export function staleResolverCaches(
+  keys: string[],
+  cacheName: string
+): string[] {
+  const family = cacheName.replace(/\d+$/, '')
+  if (family === cacheName) return []
+  return keys.filter(
+    (k) =>
+      k !== cacheName &&
+      k.startsWith(family) &&
+      /^\d+$/.test(k.slice(family.length))
   )
 }
 

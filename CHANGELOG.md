@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **`tjs-lang/import-resolver`: the service worker no longer deletes a host site's caches.** On
+  activation it deleted every Cache API cache on the origin that was not its current one, so a site
+  using the Cache API for anything else lost that data. It now deletes only earlier versions of its
+  own cache (`tfs-v3` when the current one is `tfs-v4`).
+
 - **AJS: no guest object holds an own `__proto__` key, on any route** (#4099). `setGuestKey`
   refused the key, so assignment, spread and `Object.assign` in the guest never made one, but
   four routes went around it: `Object.fromEntries` and `JSON.parse` in the guest (host natives
@@ -163,6 +168,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it to get the check.
 
 ### Fixed
+
+- **`rewriteImports` / `extractImports` are literal-safe and complete** (#4122). They matched a
+  regex over raw source: import-looking text in strings and comments was rewritten, a `$` in the
+  import clause stopped the match, dynamic `import('x')` and minified `from"x"` were missed, and
+  `data:`/`node:` specifiers were prefixed like package names. Specifiers are now found in a view
+  with string and comment contents blanked, as `rewriteCdnBody` already did.
+
+- **AJS: `new Error('x')` is refused as a statement**, as it is as a value, with the remedy
+  `Error('message')` (#4105); it was a silent no-op. **An unknown type name in a parameter is
+  refused** (#4101): `{ a: integer }` is a rename in JavaScript, so `a` silently left the contract.
+  **`| undefined` makes a parameter optional** (#4106), as it does a declared result's member.
+
+- **`Is({ a: undefined }, { b: undefined })` is false** (#4110). Structural equality compared key
+  counts and values but not key names, in both runtimes.
 
 - **The command line runs tests that `await`, and rebuilds `mock` blocks per test** (#3828).
   `tjs()` is synchronous, so one `await` in a test body made every test in the file inconclusive,
