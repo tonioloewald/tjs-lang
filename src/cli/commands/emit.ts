@@ -61,7 +61,16 @@ export async function emit(
   if (stats.isFile()) {
     // Exit code follows the outcome. A single-file emit that failed used to exit 0 with no
     // file written whenever `-o` was given.
-    if (!(await emitFile(input, output, options))) process.exit(1)
+    // `-o outdir/` (a trailing separator) or `-o` naming an existing directory means
+    // `outdir/<name>.js`. It was taken as the file to write: ENOENT on `open 'outdir/'`
+    // when missing, EISDIR when present (#4126).
+    const target =
+      output &&
+      (/[\\/]$/.test(output) ||
+        (existsSync(output) && statSync(output).isDirectory()))
+        ? join(output, basename(input).replace(/\.tjs$/, '') + '.js')
+        : output
+    if (!(await emitFile(input, target, options))) process.exit(1)
   } else if (stats.isDirectory()) {
     if (!output) {
       console.error('Error: Output directory required for directory emit')
@@ -140,16 +149,23 @@ async function emitFile(
     const { passed, inconclusive, failed } = tallyTestResults(testResults)
     const failures = failed
     const hasFailures = failures.length > 0
-    if (hasFailures || (options.verbose && testResults.length > 0)) {
-      console.error(
-        `${hasFailures ? '✗' : '✓'} ${inputPath}: ${passed} passed` +
-          (failed.length ? `, ${failed.length} failed` : '') +
-          (inconclusive.length ? `, ${inconclusive.length} inconclusive` : '')
-      )
-      for (const f of failures) console.error(`  ✗ ${testLabel(f)}: ${f.error}`)
+    const testSummary =
+      `${hasFailures ? '✗' : '✓'} ${inputPath}: ${passed} passed` +
+      (failed.length ? `, ${failed.length} failed` : '') +
+      (inconclusive.length ? `, ${inconclusive.length} inconclusive` : '')
+    // A failure is reported now (nothing is written); a success after the file's own
+    // output line, so a directory emit reads file by file (#4126). The test line belonging to
+    // the NEXT file used to sit between a file's output line and its own.
+    const reportTests = () => {
+      if (hasFailures || (options.verbose && testResults.length > 0)) {
+        console.error(testSummary)
+        for (const f of failures)
+          console.error(`  ✗ ${testLabel(f)}: ${f.error}`)
+      }
+      for (const r of inconclusive)
+        console.error(`  ? ${testLabel(r)} — inconclusive: ${r.error ?? ''}`)
     }
-    for (const r of inconclusive)
-      console.error(`  ? ${testLabel(r)} — inconclusive: ${r.error ?? ''}`)
+    if (hasFailures) reportTests()
 
     // Don't emit if tests failed (unless --jfdi)
     if (hasFailures && !options.jfdi) {
@@ -175,8 +191,9 @@ async function emitFile(
       writeEmitted(outputPath, code, result.hashbang, root)
       if (options.verbose) {
         const suffix = hasFailures ? ' (tests failed, --jfdi)' : ''
-        console.log(`✓ ${inputPath} -> ${outputPath}${suffix}`)
+        console.error(`✓ ${inputPath} -> ${outputPath}${suffix}`)
       }
+      if (!hasFailures) reportTests()
 
       // Generate .d.ts if requested
       if (options.dts) {
@@ -196,11 +213,11 @@ async function emitFile(
           // the fix for it.
           writeEmitted(dtsPath, dtsContent, undefined, root)
           if (options.verbose) {
-            console.log(`  ${dtsPath}`)
+            console.error(`  ${dtsPath}`)
           }
         } catch (dtsError: any) {
           if (options.verbose) {
-            console.log(`  .d.ts skipped: ${dtsError.message}`)
+            console.error(`  .d.ts skipped: ${dtsError.message}`)
           }
         }
       }
@@ -230,12 +247,12 @@ async function emitFile(
             options.docsDir ?? root
           )
           if (options.verbose) {
-            console.log(`  📄 ${docsPath}`)
+            console.error(`  📄 ${docsPath}`)
           }
         } catch (docsError: any) {
           // Don't fail emit if docs generation fails
           if (options.verbose) {
-            console.log(`  ⚠ docs skipped: ${docsError.message}`)
+            console.error(`  ⚠ docs skipped: ${docsError.message}`)
           }
         }
       }
@@ -252,6 +269,7 @@ async function emitFile(
         result.hashbang ? `${result.hashbang}\n${code}` : code
       )
       if (!code.endsWith('\n')) process.stdout.write('\n')
+      if (!hasFailures) reportTests()
     }
     return true
   } catch (error: any) {

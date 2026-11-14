@@ -169,6 +169,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`tjs emit -o dir/` writes `dir/<name>.js`, and a directory emit reads file by file**
+  (#4126). A single-file emit took `-o outdir/` as the file to write (ENOENT when missing, EISDIR
+  when present); a trailing separator or an existing directory now means `outdir/<name>.js`. A
+  verbose directory emit printed output lines on stdout and test lines on stderr, so the next
+  file's test line could sit between a file's output line and its own. All narration is on stderr
+  now, and a file's test line follows its output line.
+
 - **A Type's `.default` resolves the Types its example names** (#4097). With
   `Type Piece { example: { cells: [Cell] } }`, `Piece.default.cells[0]` was the `Cell` Type object
   itself, so `JSON.stringify(Piece.default)` printed it (or `null`). A reference now resolves to
