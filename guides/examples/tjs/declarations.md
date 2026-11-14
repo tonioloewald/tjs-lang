@@ -10,6 +10,9 @@ TypeScript's types vanish when the code runs. TJS declarations do not. Each one 
 TJS keywords, not JavaScript. They work in `.tjs` files, and the transpiler turns each one
 into an ordinary JavaScript value.
 
+This chapter introduces each form. How an example becomes a check (numbers, unions, optional
+members, types that refer to other types) is the next chapter, [Types by Example](/types-by-example/).
+
 | Declaration         | Looks like                                  | Calling it asks                    |
 | ------------------- | ------------------------------------------- | ---------------------------------- |
 | `Type`              | `Type Name 'Alice'`                         | "is this shaped like the example?" |
@@ -35,7 +38,7 @@ The simplest declaration is a name and an example. The example is not a type ann
 accepts any string, so `'Bob'` passes, and a number does not.
 
 ```tjs:inline {"view": "code"}
-Type Name 'Alice'
+Type Name = 'Alice'
 
 test 'a Type is callable, and check is the same function' {
   expect(Name('Bob')).toBe(true)

@@ -375,7 +375,7 @@ annotations that disappear. They need nothing beyond the inline runtime every em
 carries:
 
 ```tjs:inline
-Type Name 'Alice'
+Type Name = 'Alice'
 
 Type Age {
   description: 'a non-negative age'

@@ -401,7 +401,8 @@ check a candidate. They are covered in full in [Declarations](/declarations/); t
 syntax at a glance:
 
 ```tjs:inline
-Type Name 'Alice'                       // from an example
+Type Name = 'Alice'                     // from an example (the older `Type Name 'Alice'`, with no
+                                        // `=`, still works; write it with `=`)
 
 Type User {
   description: 'a user'

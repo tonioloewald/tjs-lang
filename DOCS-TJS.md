@@ -381,7 +381,7 @@ Define named types with predicates:
 
 ```typescript
 // Simple type from example
-Type Name 'Alice'
+Type Name = 'Alice'
 
 // Type with description
 Type User {

@@ -107,7 +107,7 @@ You can see which code answers by asking a type for its example. The library's `
 it as `.example`; the inline one keeps it under another name:
 
 ```tjs:inline
-Type Age 30
+Type Age = 30
 
 console.log(Age.check(30), Age.check('thirty'))   // true false
 console.log(Age.example)                          // undefined
@@ -187,7 +187,7 @@ means a number that is not an integer.)
 The examples in the rest of this chapter use one small module, `price.tjs`:
 
 ```tjs:static
-Type Price 9.99
+Type Price = 9.99
 
 export function total(price: Price, qty: 0):! 0.0 {
   return price * qty
