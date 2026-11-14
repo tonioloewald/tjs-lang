@@ -169,6 +169,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A mixed literal union means the same in any order** (#4112). In a parameter it was folded pair
+  by pair from the left, so `'S' | 'M' | 0` refused `'X'` while `0 | 'S' | 'M'` accepted it. A union
+  is a closed set only when it is all literals of one kind (`'S' | 'M'`); a mixed union is a union of
+  its members' types (`'S' | 'M' | 0` is a string or an integer), in any order, as a `Type` example
+  already read it.
+
 - **`+1.5` as an example is refused** (#4113). A leading `+` marks a non-negative integer, so
   `function f(x: +1.5)` refused its own example; there is no non-negative float, so the example is
   refused with the remedy (in a parameter and in a `Type` example) instead.

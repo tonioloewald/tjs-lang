@@ -412,10 +412,7 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
         // `equality-invariants.test.ts`).
         const values = literalUnionValues(node)
         if (values) return { kind: 'literal-union', values }
-        return {
-          kind: 'union',
-          members: [leftType, rightType],
-        }
+        return groupedUnion(node)
       }
       return { kind: 'any' }
     }
@@ -878,4 +875,35 @@ export function refuseNonNegativeDecimal(
         )} for a non-negative integer.`,
       loc ?? { line: 1, column: 0 }
     )
+}
+
+/**
+ * A MIXED union read the same whatever its order (#4112). It was folded pair by pair from the
+ * left, so `'S' | 'M' | 0` kept `'S' | 'M'` as a closed set while `0 | 'S' | 'M'` widened every
+ * member, and the two accepted different values. `literalUnionValues` judges the WHOLE union: it
+ * is a set only when reading it as types would say nothing (all literals of one kind). A mixed
+ * union says something as types, so every member is read as its type, in any order, exactly as a
+ * Type example reads it (example-kinds-oracle.test.ts). `null` makes it nullable, as before.
+ */
+function groupedUnion(node: any): TypeDescriptor {
+  const flat: any[] = []
+  const walk = (n: any) => {
+    if (n.type === 'BinaryExpression' && n.operator === '|') {
+      walk(n.left)
+      walk(n.right)
+    } else flat.push(n)
+  }
+  walk(node)
+  let nullable = false
+  const members: TypeDescriptor[] = []
+  for (const n of flat) {
+    if (n.type === 'Literal' && n.value === null) {
+      nullable = true
+      continue
+    }
+    members.push(inferTypeFromValue(n))
+  }
+  const result: TypeDescriptor =
+    members.length === 1 ? members[0] : { kind: 'union', members }
+  return nullable ? { ...result, nullable: true } : result
 }
