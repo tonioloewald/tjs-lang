@@ -9,7 +9,7 @@ import { readFileSync, unlinkSync } from 'fs'
 import { resolve, basename, dirname, join } from 'path'
 import { pathToFileURL } from 'url'
 import { transpileToJS } from '../../lang/emitters/js'
-import { dialectForFilename } from '../../lang/dialect'
+import { dialectForSource } from '../../lang/dialect'
 import * as runtime from '../../lang/runtime'
 
 export async function run(file: string): Promise<void> {
@@ -17,7 +17,7 @@ export async function run(file: string): Promise<void> {
   const source = readFileSync(absolutePath, 'utf-8')
 
   // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
-  const dialect = dialectForFilename(file)
+  const dialect = dialectForSource(file, source)
 
   let tempModule: string | undefined
 

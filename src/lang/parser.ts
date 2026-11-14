@@ -5,6 +5,7 @@
  * Transform functions are in parser-transforms.ts, param processing in parser-params.ts.
  */
 
+import { hasConversionMarker } from './dialect'
 import {
   maskLiterals,
   maskLiteralsKeepComments,
@@ -193,9 +194,7 @@ export function preprocess(
   // lowered. `from-ts.ts` itself is such a file — it emits the annotation from a template —
   // so the converter's own source was the first casualty. Literal blindness, the repo's
   // dominant defect class; see src/lang/literal-blindness.test.ts.
-  const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(
-    maskLiteralsKeepComments(source)
-  )
+  const isFromTS = hasConversionMarker(source)
 
   // Native TJS: all modes ON by default (TJS is its own language).
   // Plain JS (dialect: 'js') or TS-originated: all modes OFF + safety none, so the

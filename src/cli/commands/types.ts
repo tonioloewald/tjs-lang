@@ -3,12 +3,12 @@
  */
 
 import { readFileSync } from 'fs'
-import { tjs, dialectForFilename } from '../../lang'
+import { tjs, dialectForSource } from '../../lang'
 
 export async function types(file: string): Promise<void> {
   const source = readFileSync(file, 'utf-8')
 
-  const result = tjs(source, { dialect: dialectForFilename(file) })
+  const result = tjs(source, { dialect: dialectForSource(file, source) })
 
   // Output the type information as JSON
   const typeInfo = {

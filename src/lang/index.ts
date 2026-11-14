@@ -41,6 +41,8 @@ export {
 export { parseAgentSource, preprocessAgentSource } from './parser-agent'
 export {
   dialectForFilename,
+  dialectForSource,
+  hasConversionMarker,
   sourceKindForFilename,
   type Dialect,
   type SourceKind,

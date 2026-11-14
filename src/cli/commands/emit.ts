@@ -16,7 +16,7 @@ import { rewriteTjsSpecifiers } from '../../lang/emitted-specifiers'
 import { readEntries, shouldDescend, writeEmitted } from '../walk'
 import { readFileSync, statSync, existsSync } from 'fs'
 import { join, basename, extname } from 'path'
-import { tjs, dialectForFilename } from '../../lang'
+import { tjs, dialectForSource } from '../../lang'
 import { generateDocs } from '../../lang/docs'
 import { reportWarnings } from '../warnings'
 import { tallyTestResults, testLabel } from '../test-report'
@@ -118,7 +118,7 @@ async function emitFile(
     // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
     const result = tjs(source, {
       filename,
-      dialect: dialectForFilename(inputPath),
+      dialect: dialectForSource(inputPath, source),
       debug: options.debug,
       runTests: 'report',
     })

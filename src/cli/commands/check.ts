@@ -4,7 +4,7 @@
 
 import { readFileSync, statSync } from 'node:fs'
 import { findFiles } from '../walk'
-import { tjs, dialectForFilename } from '../../lang'
+import { tjs, dialectForSource } from '../../lang'
 import { enforceMaxWarnings, reportWarnings } from '../warnings'
 import { tallyTestResults, testLabel } from '../test-report'
 import { lint } from '../../lang/linter'
@@ -86,7 +86,7 @@ async function checkOne(file: string, verbose = true): Promise<number | null> {
 
   try {
     // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
-    const result = tjs(source, { dialect: dialectForFilename(file) })
+    const result = tjs(source, { dialect: dialectForSource(file, source) })
 
     // Warnings FIRST, and to stderr. This is the primary type-checking command — the one
     // CI and agents run — and it used to hide the degradation diagnostic entirely,
@@ -101,7 +101,7 @@ async function checkOne(file: string, verbose = true): Promise<number | null> {
     // Plain .js keeps JavaScript's rules. Under `TjsStrict` safe-assign and excess dictionary
     // keys are ERRORS, which fail the check.
     const lintDiagnostics =
-      dialectForFilename(file) === 'tjs'
+      dialectForSource(file, source) === 'tjs'
         ? lint(source, {
             filename: file,
             strict: !!preprocess(source).tjsModes?.tjsStrict,

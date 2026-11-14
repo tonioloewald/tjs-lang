@@ -30,6 +30,8 @@ export { parseAgentSource, preprocessAgentSource } from './parser-agent'
 // Dialect resolution for file-based tooling (extension → dialect)
 export {
   dialectForFilename,
+  dialectForSource,
+  hasConversionMarker,
   sourceKindForFilename,
   type Dialect,
   type SourceKind,

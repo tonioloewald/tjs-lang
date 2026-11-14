@@ -110,7 +110,7 @@ function cleanupWrappers(wrappers: string[], tempDir: string): void {
 async function runInlineTests(file: string): Promise<void> {
   const { readFileSync } = await import('fs')
   const { tjs } = await import('../../lang')
-  const { dialectForFilename } = await import('../../lang')
+  const { dialectForSource } = await import('../../lang')
 
   let results
   try {
@@ -118,7 +118,7 @@ async function runInlineTests(file: string): Promise<void> {
     results =
       tjs(source, {
         filename: file,
-        dialect: dialectForFilename(file),
+        dialect: dialectForSource(file, source),
         runTests: 'report',
       }).testResults ?? []
   } catch (e: any) {

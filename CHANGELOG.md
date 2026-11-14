@@ -154,6 +154,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The CLI honours the conversion marker, as the Bun plugin does** (#3842). A converted file
+  (`/* tjs <- x.ts */`) means JavaScript semantics, but `tjs emit`, `check`, `run`, `types` and
+  `test` passed the `.tjs` extension's dialect, which overrode it: `a == b` became TJS's `==` and
+  inputs were checked, while a Bun-plugin import kept JavaScript's meaning. `dialectForSource`
+  (exported from `tjs-lang/lang`) now leaves the dialect to the marker; `hasConversionMarker` is
+  the one literal-safe test for it.
+
 - **Line numbers after a directive are right.** Removing a `TjsStrict`, `TjsCompat` or `safety …`
   line also removed the newlines after it, so every later line number (error paths such as
   `file.tjs:3:f.x`, warnings, lint diagnostics) was off by the lines removed.

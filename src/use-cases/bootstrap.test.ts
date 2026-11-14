@@ -44,6 +44,27 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 /**
+ * The parser modules the self-hosting canary transpiles and runs, in dependency order (the
+ * bundle is concatenated). ONE list: it was written out three times, and the module-list test
+ * below checks it is complete (2026-11-14, when parser.ts began importing dialect.ts).
+ */
+const PARSER_MODULES = [
+  'parser-types.ts',
+  'inference.ts', // the Type-example reader (markExampleKinds) resolves type names through it
+  'rt-namespace.ts',
+  'declared-classes.ts',
+  'expression-context.ts',
+  'parser-params.ts',
+  'type-or.ts',
+  'parser-transforms.ts',
+  'type-signature.ts',
+  'keywords.ts',
+  'given-transform.ts',
+  'dialect.ts', // hasConversionMarker, read by parser.ts
+  'parser.ts',
+]
+
+/**
  * Flatten several emitted modules into ONE scope, the way this canary needs them.
  *
  * Every emitted file carries an inline runtime preamble — `const Type`, `const __match`,
@@ -662,20 +683,7 @@ describe('Bootstrap Canary', () => {
           'the import is not on any path it runs.',
       }
       const langDir = path.join(import.meta.dir, '../lang')
-      const listed = [
-        'parser-types.ts',
-        'inference.ts', // the Type-example reader (markExampleKinds) resolves type names through it
-        'rt-namespace.ts',
-        'declared-classes.ts',
-        'expression-context.ts',
-        'parser-params.ts',
-        'type-or.ts',
-        'parser-transforms.ts',
-        'type-signature.ts',
-        'keywords.ts',
-        'given-transform.ts',
-        'parser.ts',
-      ]
+      const listed = PARSER_MODULES
       const missing: string[] = []
       for (const file of listed) {
         const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
@@ -700,20 +708,7 @@ describe('Bootstrap Canary', () => {
 
       // Step 1: Transpile all parser modules (split into types, params, transforms, orchestrator)
       const langDir = path.join(import.meta.dir, '../lang')
-      const moduleFiles = [
-        'parser-types.ts',
-        'inference.ts', // the Type-example reader (markExampleKinds) resolves type names through it
-        'rt-namespace.ts',
-        'declared-classes.ts',
-        'expression-context.ts',
-        'parser-params.ts',
-        'type-or.ts',
-        'parser-transforms.ts',
-        'type-signature.ts',
-        'keywords.ts',
-        'given-transform.ts',
-        'parser.ts',
-      ]
+      const moduleFiles = PARSER_MODULES
 
       const transpileStart = performance.now()
       const combinedCode = flattenModules(moduleFiles, langDir)
@@ -837,20 +832,7 @@ describe('Bootstrap Canary', () => {
     it('should produce identical preprocess results vs native', () => {
       // Transpile and execute all parser modules
       const langDir = path.join(import.meta.dir, '../lang')
-      const moduleFiles = [
-        'parser-types.ts',
-        'inference.ts', // the Type-example reader (markExampleKinds) resolves type names through it
-        'rt-namespace.ts',
-        'declared-classes.ts',
-        'expression-context.ts',
-        'parser-params.ts',
-        'type-or.ts',
-        'parser-transforms.ts',
-        'type-signature.ts',
-        'keywords.ts',
-        'given-transform.ts',
-        'parser.ts',
-      ]
+      const moduleFiles = PARSER_MODULES
 
       const combinedCode = flattenModules(moduleFiles, langDir)
 

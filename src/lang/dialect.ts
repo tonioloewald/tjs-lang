@@ -9,6 +9,8 @@
  * `.js` is never silently "improved" into different semantics.
  */
 
+import { maskLiteralsKeepComments } from '../strip-comments'
+
 /** Source dialect understood by `tjs(src, { dialect })`. */
 export type Dialect = 'js' | 'tjs'
 
@@ -47,4 +49,30 @@ export function sourceKindForFilename(filename: string): SourceKind {
  */
 export function dialectForFilename(filename: string): Dialect {
   return sourceKindForFilename(filename) === 'js' ? 'js' : 'tjs'
+}
+
+/**
+ * Whether `source` carries the conversion marker `fromTS` writes, `/* tjs <- path *\/`, which
+ * means "this file has JavaScript semantics" (unless it also says `TjsStrict`). It is a COMMENT,
+ * so the scan reads a view with string contents blanked and comments intact: a file that merely
+ * MENTIONS the marker in a string is not converted (literal blindness). The parser uses this.
+ */
+export function hasConversionMarker(source: string): boolean {
+  return /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(maskLiteralsKeepComments(source))
+}
+
+/**
+ * The `dialect` to pass `tjs()` for a file, given its SOURCE as well as its name. A converted
+ * file (`hasConversionMarker`) gets none, so `tjs()` infers JavaScript semantics from the marker
+ * and still honours `TjsStrict`, exactly as the Bun plugin does. Passing the extension's
+ * `'tjs'` overrode the marker, so the CLI and the plugin gave one converted file two meanings
+ * (#3842; 2026-11-14: the plugin and the CLI should agree, on the marker).
+ */
+export function dialectForSource(
+  filename: string,
+  source: string
+): Dialect | undefined {
+  const byName = dialectForFilename(filename)
+  if (byName === 'tjs' && hasConversionMarker(source)) return undefined
+  return byName
 }
