@@ -8,7 +8,6 @@
 import { hasConversionMarker } from './dialect'
 import {
   maskLiterals,
-  maskLiteralsKeepComments,
   scanLiterals,
   stripLineComments,
   maskUnsafe,
