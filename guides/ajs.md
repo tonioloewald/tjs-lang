@@ -1,4 +1,4 @@
-<!--{"pin": "top", "order": 20, "book": ["default", "ajs"], "placement": {"language": {"order": 60}}}-->
+<!--{"pin": "top", "order": 20, "book": ["default", "ajs", "language"], "placement": {"language": {"order": 60}}}-->
 <!-- TODO review -->
 
 # AJS: Code That Travels to Data
