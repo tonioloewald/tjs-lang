@@ -858,7 +858,7 @@ describe('Bootstrap Canary', () => {
         `Generic Bar<T> { predicate(x, T) { return true } }`,
         `if (a Is b) { x = 1 }`,
         `Union Dir 'direction' 'up' | 'down'`,
-        `Enum Color 'color' { Red: 'red' }`,
+        `Enum Color 'color' { Red = 'red' }`,
       ]
 
       let passed = 0

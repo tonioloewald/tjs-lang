@@ -3478,7 +3478,11 @@ export function transformEnumDeclarations(
       const blockEnd = k
 
       // Parse enum members
-      const members = parseEnumMembers(blockBody)
+      const members = parseEnumMembers(
+        blockBody,
+        enumName,
+        locAt(source, bodyStart)
+      )
       const membersStr = members
         .map(([key, value]) => `${key}: ${value}`)
         .join(', ')
@@ -3503,7 +3507,11 @@ export function transformEnumDeclarations(
  * Handles: Pending, Active = 5, Done, Name = 'value'
  * Returns array of [key, value] pairs
  */
-function parseEnumMembers(input: string): [string, string][] {
+function parseEnumMembers(
+  input: string,
+  enumName: string,
+  loc: { line: number; column: number } = { line: 1, column: 0 }
+): [string, string][] {
   const members: [string, string][] = []
   let currentNumericValue = 0
 
@@ -3516,6 +3524,18 @@ function parseEnumMembers(input: string): [string, string][] {
   for (const line of lines) {
     // Match: Name or Name = value
     const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*(.+))?$/)
+    // A line that is not a member was skipped silently, so an enum written with colons
+    // (`A: 'a'`, the object-literal habit) came out EMPTY with no error (#4130).
+    if (!match)
+      throw new SyntaxError(
+        /^[A-Za-z_][A-Za-z0-9_]*\s*:/.test(line)
+          ? `Enum ${enumName}: write members with =, not : (\`${line.replace(
+              /\s*:\s*/,
+              ' = '
+            )}\`)`
+          : `Enum ${enumName}: '${line}' is not a member (write Name, or Name = value)`,
+        loc
+      )
     if (match) {
       const key = match[1]
       const explicitValue = match[2]?.trim()

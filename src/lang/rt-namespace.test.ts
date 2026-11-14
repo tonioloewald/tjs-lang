@@ -34,7 +34,7 @@ const parseModule = (code: string) =>
 /** A file that pulls in as much of the inline runtime as one file can. */
 const KITCHEN_SINK = [
   `Type Age 0`,
-  `Enum Color 'a colour' {\n  Red: 'red'\n  Green: 'green'\n}`,
+  `Enum Color 'a colour' {\n  Red = 'red'\n  Green = 'green'\n}`,
   `Union Dir 'up' | 'down'`,
   `Generic Box<T> {\n  description: 'a box'\n  predicate(x, T) { return T(x) }\n}`,
   `FunctionPredicate Cb { params: { x: 0 }, returns: false }`,

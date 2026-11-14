@@ -462,7 +462,7 @@ describe('a declaration inside a literal is data, not a declaration', () => {
     ],
     ['Generic', 'Generic Box<T> { value: T }'],
     ['Union', "Union Status 'task status' { 'pending' | 'done' }"],
-    ['Enum', "Enum Color 'a colour' { Red: 'red', Green: 'green' }"],
+    ['Enum', "Enum Color 'a colour' { Red = 'red', Green = 'green' }"],
     ['const!', 'const! cfg = { a: 1 }'],
   ]
 

@@ -169,6 +169,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An `Enum` line that is not a member is refused** (#4130). `Enum E 'd' { A: 'a' }` (written
+  with colons, the object-literal habit) produced an empty enum with no error, because each line
+  not matching `Name` or `Name = value` was dropped. The colon form is refused with the corrected
+  spelling. Three of our own tests had written enums that way and passed only because they
+  checked that a transform happened.
+
+- **`httpFetch({ responseType: 'text' })` returns text** (#4104); a JSON content type was parsed
+  anyway. An explicit `responseType` wins.
+
 - **`rewriteImports` / `extractImports` are literal-safe and complete** (#4122). They matched a
   regex over raw source: import-looking text in strings and comments was rewritten, a `$` in the
   import clause stopped the match, dynamic `import('x')` and minified `from"x"` were missed, and

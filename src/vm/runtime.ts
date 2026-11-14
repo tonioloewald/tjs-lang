@@ -7616,7 +7616,9 @@ export const fetch = defineAtom(
       }
 
       const text = new TextDecoder().decode(bytes)
-      // Try to parse JSON if content-type says so, else text
+      // An explicit responseType wins (#4104: 'text' still parsed a JSON body); without one,
+      // the content type decides.
+      if (responseType === 'text') return text
       if (responseType === 'json' || contentType.includes('application/json'))
         return JSON.parse(text)
       return text
