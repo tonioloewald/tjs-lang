@@ -47,7 +47,8 @@ const FAILURE =
  */
 const DEMONSTRATES: Record<string, RegExp> = {
   'fuel-limits': /Out of Fuel/,
-  'ajs-error-handling': /Division by zero|is not valid JSON/,
+  'ajs-error-handling':
+    /Division by zero|is not valid JSON|its input does not have the shape the atom declares/,
   'the-universal-endpoint': /Out of Fuel/,
   // A batch that keeps going and collects each item's failure (patterns.md, 2026-11-04).
   patterns: /is not valid JSON/,
@@ -64,6 +65,18 @@ const DEMONSTRATES: Record<string, RegExp> = {
   'ajs-limits':
     /Out of Fuel|Heap limit exceeded|exceeds the \d+-byte membrane budget/,
   'ajs-sandbox': /Out of Fuel|Access to '__proto__' is forbidden/,
+  // Each of these shows a refusal or a failing test on purpose; the prose quotes it (#4124).
+  'llm-with-tool': /unknown operator/,
+  'ts-embedded-tests': /Expected 66 but got 67/,
+  'weather-api':
+    /Latitude must be in range of -90 to 90|Fetch blocked: domain not in allowlist/,
+  'math-operations': /b must not be zero/,
+  'error-handling': /Division by zero/,
+  'inline-tests-test-private-functions': /Must be at least 8 characters/,
+  'ts-classes': /Expected number for '[^']*Calculator\.add\.n'/,
+  'ts-async-functions': /bad is an Error: true/,
+  'ts-the-full-picture': /Order must have at least one product/,
+  'ts-from-zod': /^201 [\s\S]*422 /,
 }
 /** Examples that need a model say so instead of running (site/entry.ts). */
 const NEEDS_LLM = /needs an LLM, which the static site does not provide/
