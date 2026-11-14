@@ -3876,6 +3876,36 @@ export function locAt(
  * Info about a single function variant for polymorphic dispatch
  */
 
+/**
+ * The members of an object example as [key, example source] pairs, or null when it is not a
+ * plain literal (a spread, a computed key, a method): the dispatcher then checks only that the
+ * value is an object.
+ */
+function objectExampleMembers(example: string): [string, string][] | null {
+  let ast: any
+  try {
+    ast = parseJS(`(${example})`, { ecmaVersion: 'latest' })
+  } catch {
+    return null
+  }
+  const obj = ast.body[0]?.expression
+  if (obj?.type !== 'ObjectExpression') return null
+  const out: [string, string][] = []
+  for (const p of obj.properties) {
+    if (p.type !== 'Property' || p.computed || p.kind !== 'init' || p.method)
+      return null
+    const key =
+      p.key.type === 'Identifier'
+        ? p.key.name
+        : typeof p.key.value === 'string'
+        ? p.key.value
+        : null
+    if (key === null) return null
+    out.push([key, example.slice(p.value.start - 1, p.value.end - 1)])
+  }
+  return out
+}
+
 function typeCheckForDefault(
   argExpr: string,
   defaultValue: string,
@@ -3898,9 +3928,24 @@ function typeCheckForDefault(
   // Array literal
   if (dv.startsWith('[')) return `Array.isArray(${argExpr})`
 
-  // Object literal
-  if (dv.startsWith('{'))
-    return `(typeof ${argExpr} === 'object' && ${argExpr} !== null && !Array.isArray(${argExpr}))`
+  // Object literal: an object, AND each member matching its example. The shallow form
+  // ("an object") let the first object variant claim every object, so `g(o: { a: 1 })` took
+  // a `Circle` meant for `g(c: Circle)` and the call failed instead of dispatching (#4111).
+  if (dv.startsWith('{')) {
+    const isObject = `(typeof ${argExpr} === 'object' && ${argExpr} !== null && !Array.isArray(${argExpr}))`
+    const members = objectExampleMembers(dv)
+    if (!members) return isObject
+    const checks = members
+      .map(([key, example]) =>
+        typeCheckForDefault(
+          `${argExpr}[${JSON.stringify(key)}]`,
+          example,
+          declaredTypes
+        )
+      )
+      .filter((c) => c !== 'true')
+    return checks.length ? `(${isObject} && ${checks.join(' && ')})` : isObject
+  }
 
   // Non-negative integer: +N
   if (/^\+\d+/.test(dv))

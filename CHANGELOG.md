@@ -134,6 +134,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Polymorphic dispatch checks an object example's members** (#4111). The dispatcher checked an
+  object example only as "an object", so the first object overload claimed every object:
+  `g(o: { a: 1 })` declared before `g(c: Circle)` took a `Circle`, failed, and the `Circle`
+  overload was never tried. Each member is now checked, recursively, so the first overload whose
+  example the arguments match wins. Extra members are fine; it is a shape, not an exact type.
+
 - **Tests that could not run are visible, and `tjs emit` agrees with `tjs check`** (#4120, #3826,
   #3994 A4.1, #2118). `tjs check` reported ✓ for a file whose test could not run (a typo in a test
   body is inconclusive at build time, since it looks exactly like code naming `document`); each
