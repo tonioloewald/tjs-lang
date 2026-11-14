@@ -17,6 +17,7 @@ import { registerDialect } from 'tosijs-ui/live-example'
 import { transpile } from '../src/lang/core'
 import { installRuntime } from '../src/lang/runtime'
 import { AgentVM, systemClock, systemRandom } from '../src/vm/ast'
+import { pageRunOptions } from './run-options'
 
 /**
  * Keep a <tosi-lottie>'s child image as its PLACEHOLDER until the animation has drawn.
@@ -127,11 +128,12 @@ registerDialect('ajs', {
       report({ error: NEEDS_LLM })
       return undefined
     }
-    const fuel = typeof options.fuel === 'number' ? options.fuel : 10_000
+    // fuel, timeoutMs, maxHeapBytes, membraneMaxBytes and quotas, each capped for a reader's tab
+    const budgets = pageRunOptions(options as Record<string, unknown>)
     const args =
       options.args && typeof options.args === 'object' ? options.args : {}
     const run = await vm.run(ast, args as Record<string, unknown>, {
-      fuel,
+      ...budgets,
       signal,
       // The time and randomness are granted, not ambient (#4091); a doc page grants the real ones.
       capabilities: { clock: systemClock, random: systemRandom },

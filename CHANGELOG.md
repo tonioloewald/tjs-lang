@@ -109,6 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Doc site: live AJS examples can set `timeoutMs`, `quotas`, `maxHeapBytes` and
+  `membraneMaxBytes`**, each capped for a reader's browser (10 seconds, 64MB, 4MB); `fuel`, which
+  was uncapped, is capped at 100,000 (`site/run-options.ts`).
+
 - **`tjs check` runs the linter on `.tjs` files, and `TjsStrict` makes two rules errors**
   (decided 2026-11-14). The linter (unused variables, unreachable code, safe-assign, misspelled
   dictionary-default keys) existed and nothing in the CLI called it. Its findings are warnings,

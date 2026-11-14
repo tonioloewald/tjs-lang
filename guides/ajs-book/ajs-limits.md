@@ -136,9 +136,10 @@ When the deadline passes, the run ends with `Execution timeout after …ms`, and
 `vm.run`. Like running out of fuel, a timeout cannot be caught. It stops a loop that is only
 computing, too.
 
-The live examples on this site can set fuel and arguments, but not a timeout or a quota, which
-only the host can set. So the next two examples are short host programs. You do not need to
-write one: read the agent inside it, and the output. Here the host gives `countTo` an enormous
+In practice the host sets a timeout and quotas, so the next two examples are short host programs
+that show how. You do not need to write one: read the agent inside it, and the output. (The live
+examples on this site can set them too, within caps that keep a reader's browser responsive:
+`timeoutMs` up to 10 seconds, `maxHeapBytes` up to 64MB, and `quotas`.) Here the host gives `countTo` an enormous
 fuel budget and a 200 ms deadline, and the deadline ends it:
 
 ```javascript
