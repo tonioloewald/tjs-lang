@@ -134,6 +134,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BREAKING (AJS): assigning to an undeclared name is refused** (#4103), as reading one has been
+  since #4002. It used to declare the name silently, so a misspelt target (`totl = 5` for
+  `total`) left the real variable unchanged with no error. **What to do:** declare the variable
+  with `let`. A host-provided name (`Eval`'s context keys) can still be assigned. A top-level
+  statement outside the functions (`const RATE = 2`, `console.log(…)`), which was accepted and
+  never run, is refused where it is written.
+
 - **AJS contracts: a literal-union member refuses `undefined`** (#4100). `label: 'low' | 'high'`
   emitted `{ enum: [...] }` with no `type`, and the validator skips an enum for an undefined value,
   so a declared result `{ score: 12, label: undefined }` passed and the key vanished as JSON (the

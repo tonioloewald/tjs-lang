@@ -826,7 +826,7 @@ test 'always fails' { throw new Error('intentional') }
         This should NOT be attached to the function below.
         */
 
-        const someVar = 123
+        function helper() { return 123 }
 
         function test(x: 0): { x: 0 } {
           return { x }

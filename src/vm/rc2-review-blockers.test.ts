@@ -10,8 +10,6 @@ import { AgentVM } from './vm'
 import { defineAtom } from './runtime'
 import { AST_VERSION_KEY } from './ast-version'
 
-const code = { transpile: (src: string) => transpile(src).ast }
-
 describe('B1: atoms whose input IS a variable name read the variable, in v2', () => {
   it('varGet and varsExport (array and alias forms)', async () => {
     const { ast } = transpile(`function f() {
@@ -28,7 +26,20 @@ describe('B1: atoms whose input IS a variable name read the variable, in v2', ()
 })
 
 describe("B2: runCode cannot assign to the caller's variables", () => {
-  const run = (guest: string) =>
+  // The guest's assignment targets a name it never declared. The transpiler refuses that since
+  // #4103, but a hostile AST can still contain one, and the VM must keep it inside runCode's
+  // scope. So the guest AST is HAND-SHAPED, the case CLAUDE.md allows: transpiled with the name
+  // declared, then the declaration (the top-level varSet of `name`) is removed.
+  const undeclared = (name: string) => ({
+    transpile: (src: string) => {
+      const ast: any = transpile(src).ast
+      ast.steps = ast.steps.filter(
+        (st: any) => !(st.op === 'varSet' && st.key === name)
+      )
+      return ast
+    },
+  })
+  const run = (guest: string, name: string) =>
     new AgentVM().run(
       transpile(`function f({ src }) {
         let target = 'https://safe.example'
@@ -37,12 +48,13 @@ describe("B2: runCode cannot assign to the caller's variables", () => {
         return { target, fixed, r }
       }`).ast,
       { src: guest },
-      { fuel: 10_000, capabilities: { code } }
+      { fuel: 10_000, capabilities: { code: undeclared(name) } }
     )
 
   it('an assignment in runCode source does not reach the caller', async () => {
     const r = await run(
-      `function g() { target = 'https://evil.example'; return { seen: target } }`
+      `function g() { let target = ''\n target = 'https://evil.example'\n return { seen: target } }`,
+      'target'
     )
     expect(r.error).toBeUndefined()
     expect(r.result.target).toBe('https://safe.example')
@@ -51,7 +63,10 @@ describe("B2: runCode cannot assign to the caller's variables", () => {
   })
 
   it('assigning a name that is const OUTSIDE the root declares locally, it does not throw', async () => {
-    const r = await run(`function g() { fixed = 2; return { fixed } }`)
+    const r = await run(
+      `function g() { let fixed = 0\n fixed = 2\n return { fixed } }`,
+      'fixed'
+    )
     expect(r.error).toBeUndefined()
     expect(r.result.fixed).toBe(1)
     expect(r.result.r).toEqual({ fixed: 2 })

@@ -962,11 +962,22 @@ function transformAssignment(
   // an assignment, never via a temporary: a temporary held a SECOND copy of every value
   // assigned, so `s = s + …` in a loop counted twice against the heap ceiling.
   const { step, resultVar } = transformExpressionToStep(right, ctx, name)
-  // Assigning a name nothing declared DECLARES it in this scope (the VM's `varAssign`), so later
-  // reads of it are reads of a declared name (#4002). After the right side: `x += 1` on an
-  // undeclared `x` reads it first, and that read is refused.
-  if (lookupVariable(name, ctx) === undefined && !AJS_GLOBAL_NAMES.has(name))
-    ctx.locals.set(name, { kind: 'any' })
+  // Assigning a name nothing declared is refused, as reading one is (#4002): it used to declare
+  // the name silently, so a misspelt target (`totl = 5`) left the real variable unchanged
+  // (#4103). After the right side, so `x += 1` on an undeclared `x` gets the read's refusal.
+  if (
+    lookupVariable(name, ctx) === undefined &&
+    !AJS_GLOBAL_NAMES.has(name) &&
+    // Names the HOST puts in scope without a declaration in the source (`Eval`'s context keys).
+    !ctx.options.globals?.includes(name)
+  )
+    throw new TranspileError(
+      `'${name}' is not declared, so assigning to it would create a new variable silently. ` +
+        `Declare it with let (let ${name} = …), or check the spelling.`,
+      getLocation(expr),
+      ctx.source,
+      ctx.filename
+    )
 
   if (step) {
     const st = step as any

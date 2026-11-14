@@ -361,8 +361,8 @@ Returns `{ a: 6, b: 7 }`. Helpers behave like ordinary functions, with a few del
 - **Top-level siblings, not closures.** A helper sees only its own parameters, never the
   caller's locals. (An arrow function passed to `map` and friends is different: it is part of the
   caller's body, so it may read the caller's variables.)
-- **Nothing else at top level.** A top-level `const` or `let` outside the functions is accepted,
-  but reading it from a function is a transpile error (`'RATE' is not defined`); put constants
+- **Nothing else at top level.** Only the functions run, so a top-level `const`, `let` or
+  statement is refused where it is written (`A top-level variable is never run`); put constants
   inside the entry or pass them as arguments.
   Functions cannot nest: a function declared inside another is a transpile error.
 - **They may return any value** (number, string, array, object). Only the entry function must
@@ -414,11 +414,11 @@ Some messages name the fix ("use for...of, or map/filter/find/reduce"); others a
 as `Unsupported statement type: BreakStatement` or `Only simple variable assignment is
 supported`. This table is the translation.
 
-A name must be declared before it is read: a parameter, a `let`/`const`/`var`, a loop or
-callback variable, or the `catch` binding. Reading anything else (a typo, a helper or atom
-used as a value, `let g = double`) is refused when the agent is transpiled, with the name.
-Assigning to an undeclared name is not, yet: `y = 2` currently creates `y` silently (card
-#4103), so a misspelt assignment target fails silently.
+A name must be declared before it is read or assigned: a parameter, a `let`/`const`/`var`, a
+loop or callback variable, or the `catch` binding. Reading anything else (a typo, a helper or
+atom used as a value, `let g = double`) is refused when the agent is transpiled, with the name,
+and so is assigning to it: `totl = 5`, meant for `total`, would otherwise create a new variable
+and leave `total` unchanged.
 
 ### Differences from JavaScript
 

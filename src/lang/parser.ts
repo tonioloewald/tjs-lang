@@ -963,6 +963,30 @@ export function extractFunctions(
     }
   }
 
+  // A second pass, so the specific refusals above (imports, exports, classes) win over this one.
+  for (const node of ast.body) {
+    // Only the functions run: a top-level `const RATE = 2` or `console.log(…)` was accepted and
+    // never executed, so a function reading RATE got a transpile error far from the cause, and a
+    // top-level statement silently did nothing (#4103, Tonio 2026-11-14: refuse it where it is
+    // declared). Directives ('use strict') and stray semicolons are not statements that run.
+    if (
+      node.type !== 'FunctionDeclaration' &&
+      node.type !== 'EmptyStatement' &&
+      !(node.type === 'ExpressionStatement' && (node as any).directive)
+    ) {
+      throw new SyntaxError(
+        node.type === 'VariableDeclaration'
+          ? 'A top-level variable is never run: only the functions are. Declare it inside the ' +
+            'entry function, or take it as a parameter.'
+          : 'A top-level statement is never run: only the functions are. Move it into the entry ' +
+            'function.',
+        node.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+  }
+
   const functions = ast.body.filter(
     (node): node is FunctionDeclaration => node.type === 'FunctionDeclaration'
   )

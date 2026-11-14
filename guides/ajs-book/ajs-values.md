@@ -166,9 +166,15 @@ return { n: cuont }
 // 'cuont' is not defined. Declare it with let or const, or take it as a parameter.
 ```
 
-A misspelled name you **assign to** is not caught yet. `totl = 5`, meant for `total`, creates a
-new variable `totl` and leaves `total` unchanged, with no error at all. Declare every variable
-with `let` or `const`, and treat an assignment to an undeclared name as a bug.
+A misspelled name you **assign to** is refused the same way. `totl = 5`, meant for `total`, would
+otherwise create a new variable `totl` and leave `total` unchanged:
+
+```javascript
+let total = 0
+totl = 5
+// 'totl' is not declared, so assigning to it would create a new variable silently.
+// Declare it with let (let totl = …), or check the spelling.
+```
 
 Reassigning a `const` is refused when the line runs, with `Cannot reassign const variable 'c'`,
 and a `try` can catch it. The transpiler could see this one too; today it leaves it to the VM.
