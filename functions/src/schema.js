@@ -15,6 +15,8 @@ Validates data against a JSON schema.
 Returns { valid: boolean, errors?: string[] }
 */
 
+
+
 export function validateSchema(schema, data) {
   if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(data)))(!__tjs.toBool(schema)))) return { valid: true }
 
@@ -116,5 +118,5 @@ validateSchema.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "schema.tjs:8"
+  "source": "schema.tjs:10"
 }

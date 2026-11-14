@@ -5,6 +5,8 @@ Server-side decryption using Node.js crypto module.
 Must match the client-side Web Crypto API encryption.
 */
 
+
+
 import * as crypto from 'crypto'
 
 function base64ToBuffer(base64) {
@@ -20,7 +22,7 @@ base64ToBuffer.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "crypto.tjs:10"
+  "source": "crypto.tjs:12"
 }
 
 export async function decrypt(encryptedBase64, keyBase64) {
@@ -56,5 +58,5 @@ decrypt.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "crypto.tjs:14"
+  "source": "crypto.tjs:16"
 }

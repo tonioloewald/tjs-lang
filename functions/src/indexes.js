@@ -37,6 +37,8 @@ indexes: [
 ```
 */
 
+
+
 import { getFirestore } from 'firebase-admin/firestore'
 
 
@@ -48,7 +50,7 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "indexes.tjs:35"
+  "source": "indexes.tjs:37"
 }
 
 
@@ -75,7 +77,7 @@ matchesFilter.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:41"
+  "source": "indexes.tjs:43"
 }
 
 
@@ -113,7 +115,7 @@ extractFields.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:50"
+  "source": "indexes.tjs:52"
 }
 
 
@@ -147,7 +149,7 @@ getIndexPath.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:64"
+  "source": "indexes.tjs:66"
 }
 
 
@@ -257,7 +259,7 @@ updateIndexes.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:73"
+  "source": "indexes.tjs:75"
 }
 
 
@@ -324,5 +326,5 @@ removeFromIndexes.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "indexes.tjs:147"
+  "source": "indexes.tjs:149"
 }

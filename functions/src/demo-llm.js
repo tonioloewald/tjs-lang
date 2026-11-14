@@ -37,6 +37,8 @@ Both are conservative and meant to be raised once there is evidence about real u
 is a security boundary on its own — set a billing alert too.
 */
 
+
+
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { defineSecret } from 'firebase-functions/params'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
@@ -102,7 +104,7 @@ utcDay.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "demo-llm.tjs:81"
+  "source": "demo-llm.tjs:83"
 }
 
 /*#
@@ -177,7 +179,7 @@ claimQuota.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "demo-llm.tjs:94"
+  "source": "demo-llm.tjs:96"
 }
 
 /*#

@@ -29,6 +29,8 @@ Rules are stored in `securityRules/{collection}` and evaluated before each opera
 - Return `{ allow: true/false, reason: string }` for detailed response
 */
 
+
+
 import { getFirestore } from 'firebase-admin/firestore'
 import { validateSchema } from './schema.js'
 
@@ -83,7 +85,7 @@ plainData.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:40"
+  "source": "rbac.tjs:42"
 }
 
 
@@ -95,7 +97,7 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "rbac.tjs:61"
+  "source": "rbac.tjs:63"
 }
 
 
@@ -136,7 +138,7 @@ getSecurityRule.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:73"
+  "source": "rbac.tjs:75"
 }
 
 /*#
@@ -217,7 +219,7 @@ evaluateAccessShortcut.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:110"
+  "source": "rbac.tjs:112"
 }
 
 /*#
@@ -343,7 +345,7 @@ evaluateSecurityRule.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:177"
+  "source": "rbac.tjs:179"
 }
 
 /*#
@@ -374,5 +376,5 @@ loadUserRoles.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "rbac.tjs:281"
+  "source": "rbac.tjs:283"
 }

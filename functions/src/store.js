@@ -15,6 +15,8 @@ Each operation checks the relevant security rule before proceeding.
 User roles are loaded once and cached for all operations in the request.
 */
 
+
+
 import { getFirestore } from 'firebase-admin/firestore'
 import { getSecurityRule, evaluateSecurityRule, loadUserRoles } from './rbac.js'
 import { updateIndexes, removeFromIndexes } from './indexes.js'
@@ -28,7 +30,7 @@ function db() {
 db.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "store.tjs:15"
+  "source": "store.tjs:17"
 }
 
 export function createStoreCapability(uid) {
@@ -237,5 +239,5 @@ createStoreCapability.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "store.tjs:20"
+  "source": "store.tjs:22"
 }

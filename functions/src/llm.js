@@ -15,6 +15,8 @@ Creates an LLM capability using the user's API keys.
 Supports OpenAI, Anthropic, Gemini, and DeepSeek providers.
 */
 
+
+
 export function createLlmCapability(apiKeys) {
   return {
     async predict(prompt, options = {}) {
@@ -107,5 +109,5 @@ createLlmCapability.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "llm.tjs:8"
+  "source": "llm.tjs:10"
 }

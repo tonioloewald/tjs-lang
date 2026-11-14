@@ -26,6 +26,8 @@ Modular architecture with separate concerns:
 - Benchmark `safety none` vs `safety inputs` - likely negligible overhead for small payloads
 */
 
+
+
 import { onRequest } from 'firebase-functions/v2/https'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { TJS_LANG_VERSION } from './version.js'
@@ -95,7 +97,7 @@ getUserApiKeys.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:49"
+  "source": "index.tjs:51"
 }
 
 /*#
@@ -146,7 +148,7 @@ hashPayload.__tjs = {
   },
   "description": "## Agent Run Endpoint\n\nUniversal AJS endpoint - accepts code, args, and fuel limit.\nExecutes the code in a sandboxed VM with user's API keys as capabilities.",
   "unsafe": true,
-  "source": "index.tjs:105"
+  "source": "index.tjs:107"
 }
 
 export const agentRun = onCall(async (request) => {
