@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
-import { createRuntime } from './runtime'
+import { createRuntime, isMonadicError } from './runtime'
 
 function run(src: string, name: string): any {
   const prev = (globalThis as any).__tjs
@@ -44,9 +44,14 @@ describe('a nested function keeps its annotation out of its defaults', () => {
   for (const [where, src] of SHAPES)
     it(where, () => {
       const g = run(src, 'g')
-      expect(g()).toEqual(
-        where === 'a returned arrow' ? [undefined, undefined] : undefined
-      )
+      if (where === 'an object property')
+        // A property's function is validated since #4119, so the missing required
+        // argument is refused rather than read as undefined. Not a default either way.
+        expect(isMonadicError(g())).toBe(true)
+      else
+        expect(g()).toEqual(
+          where === 'a returned arrow' ? [undefined, undefined] : undefined
+        )
       const code = tjs(src, { runTests: false }).code
       expect(code).not.toMatch(/\(x = /)
     })

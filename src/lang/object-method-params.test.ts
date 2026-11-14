@@ -23,6 +23,8 @@ const o = load(`const o = {
   n: function (x: 0) { return x },
   k: (y: '') => { return y },
   e: (z: '') => z,
+  d: (opts = { a: 1, b: 2 }) => opts,
+  p: (x: 0) => ({ x }),
   get g() { return 1 },
 }`)
 
@@ -35,8 +37,13 @@ describe('object-literal methods', () => {
     expect(isMonadicError(o.k(3))).toBe(true)
     expect(o.n(4)).toBe(4)
   })
-  it('an expression-bodied arrow and a getter are left as they were', () => {
-    expect(o.e(3)).toBe(3) // no body to hold a preamble
+  it('an expression-bodied arrow grows a body and is checked too (#4119)', () => {
+    expect(isMonadicError(o.e(3))).toBe(true)
+    expect(o.e('s')).toBe('s')
+    expect(o.d({ a: 5 })).toEqual({ a: 5, b: 2 })
+    expect(o.p(2)).toEqual({ x: 2 }) // a parenthesised object body survives
+  })
+  it('a getter is left as it was', () => {
     expect(o.g).toBe(1)
   })
 })

@@ -2130,60 +2130,8 @@ export function transpileToJS(
       if (validation && relocation) relocations.push(relocation)
       if (validation)
         for (const p of positional.values()) relocations.push(p.relocation)
-      if (validation && func.body && func.body.start !== undefined) {
-        if ((func as any).__exprBody) {
-          // A concise arrow body has no braces to insert into, so grow one:
-          //   (n: 0) => n   ->   (n: 0) => { <checks> return n }
-          //
-          // Anchored on the ARROW, not on `func.body`. A parenthesised concise body puts
-          // the `(` OUTSIDE the body node's span, so inserting at `body.start` dropped the
-          // opening brace inside the parens and the result parsed as an object literal:
-          //
-          //   (a, b) => ({ a, b })
-          //   -> (a, b) => ({ __tjs.pushStack(…); … return { a, b } })   // PARSE ERROR
-          //
-          // `(x, y) => ({ x, y })` is one of the most ordinary shapes in JavaScript, and
-          // it needs no annotation to break — plain JS in a `.tjs` file emitted output
-          // that would not parse, which is a PRINCIPLES.md "TJS ⊇ JS" subset violation.
-          // `tjs check` reported the file clean; only `tjs run` failed.
-          //
-          // Inserting just past the `=>` puts the brace outside any parens, so they nest
-          // instead of colliding, and the expression is still preserved verbatim —
-          // evaluation order and `this` binding are untouched.
-          const arrowAt = preprocessed.source.lastIndexOf('=>', func.body.start)
-          const openAt = arrowAt === -1 ? func.body.start : arrowAt + 2
-          if (validation.suffix) {
-            // The preamble opens a `try` and the suffix is its `finally` (the pop), so the
-            // expression is returned INSIDE the try and the pop still runs after it.
-            insertions.push({
-              position: openAt,
-              text: ` {\n  ${validation.preamble}\n  return (`,
-            })
-            insertions.push({
-              position: func.end,
-              text: `);\n  ${validation.suffix}\n}`,
-            })
-          } else {
-            insertions.push({
-              position: openAt,
-              text: ` {\n  ${validation.preamble}\n  return (`,
-            })
-            insertions.push({ position: func.end, text: `)\n}` })
-          }
-        } else {
-          // Insert preamble right after the opening brace
-          insertions.push({
-            position: func.body.start + 1,
-            text: `\n  ${validation.preamble}\n`,
-          })
-          if (validation.suffix) {
-            insertions.push({
-              position: func.body.end - 1,
-              text: `\n  ${validation.suffix}\n`,
-            })
-          }
-        }
-      }
+      if (validation && func.body && func.body.start !== undefined)
+        insertValidation(func, validation)
     }
   }
 
@@ -2370,6 +2318,69 @@ export function transpileToJS(
    * The parameter preamble a function gets (checks, dictionary-default merge), for a method:
    * class methods since #3598, object-literal methods since 2026-11-14.
    */
+  /**
+   * Put a function's validation preamble (and suffix) into its body. Shared by declared
+   * functions and object-literal methods and properties, so a concise arrow property
+   * (`m: (o = { a: 1 }) => o`) grows a body the same way a `const` arrow does (#4119).
+   */
+  function insertValidation(
+    func: any,
+    validation: { preamble: string; suffix?: string }
+  ): void {
+    if ((func as any).__exprBody || func.body.type !== 'BlockStatement') {
+      // A concise arrow body has no braces to insert into, so grow one:
+      //   (n: 0) => n   ->   (n: 0) => { <checks> return n }
+      //
+      // Anchored on the ARROW, not on `func.body`. A parenthesised concise body puts
+      // the `(` OUTSIDE the body node's span, so inserting at `body.start` dropped the
+      // opening brace inside the parens and the result parsed as an object literal:
+      //
+      //   (a, b) => ({ a, b })
+      //   -> (a, b) => ({ __tjs.pushStack(…); … return { a, b } })   // PARSE ERROR
+      //
+      // `(x, y) => ({ x, y })` is one of the most ordinary shapes in JavaScript, and
+      // it needs no annotation to break — plain JS in a `.tjs` file emitted output
+      // that would not parse, which is a PRINCIPLES.md "TJS ⊇ JS" subset violation.
+      // `tjs check` reported the file clean; only `tjs run` failed.
+      //
+      // Inserting just past the `=>` puts the brace outside any parens, so they nest
+      // instead of colliding, and the expression is still preserved verbatim —
+      // evaluation order and `this` binding are untouched.
+      const arrowAt = preprocessed.source.lastIndexOf('=>', func.body.start)
+      const openAt = arrowAt === -1 ? func.body.start : arrowAt + 2
+      if (validation.suffix) {
+        // The preamble opens a `try` and the suffix is its `finally` (the pop), so the
+        // expression is returned INSIDE the try and the pop still runs after it.
+        insertions.push({
+          position: openAt,
+          text: ` {\n  ${validation.preamble}\n  return (`,
+        })
+        insertions.push({
+          position: func.end,
+          text: `);\n  ${validation.suffix}\n}`,
+        })
+      } else {
+        insertions.push({
+          position: openAt,
+          text: ` {\n  ${validation.preamble}\n  return (`,
+        })
+        insertions.push({ position: func.end, text: `)\n}` })
+      }
+    } else {
+      // Insert preamble right after the opening brace
+      insertions.push({
+        position: func.body.start + 1,
+        text: `\n  ${validation.preamble}\n`,
+      })
+      if (validation.suffix) {
+        insertions.push({
+          position: func.body.end - 1,
+          text: `\n  ${validation.suffix}\n`,
+        })
+      }
+    }
+  }
+
   const validateMethodParams = (fn: any, displayName: string): void => {
     const { types } = extractFunctionTypeInfo(
       fn,
@@ -2432,15 +2443,7 @@ export function transpileToJS(
     if (!validation) return
     if (relocation) relocations.push(relocation)
     for (const q of positional.values()) relocations.push(q.relocation)
-    insertions.push({
-      position: fn.body.start + 1,
-      text: `\n  ${validation.preamble}\n`,
-    })
-    if (validation.suffix)
-      insertions.push({
-        position: fn.body.end - 1,
-        text: `\n  ${validation.suffix}\n`,
-      })
+    insertValidation(fn, validation)
   }
 
   walk.ancestor(program as any, {
@@ -2485,8 +2488,7 @@ export function transpileToJS(
       if (
         !(
           fn?.type === 'FunctionExpression' ||
-          (fn?.type === 'ArrowFunctionExpression' &&
-            fn.body?.type === 'BlockStatement')
+          fn?.type === 'ArrowFunctionExpression'
         ) ||
         !fn.params?.length
       )

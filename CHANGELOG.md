@@ -169,6 +169,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An arrow function with an expression body, as an object property, gets the parameter
+  preamble** (#4119). `{ m: (o = { a: 1, b: 2 }) => o }` received `{ a: 5 }` unmerged and its
+  parameter examples were not checked, while the same arrow assigned to a `const`, or written as a
+  method, merged and checked. It now grows a body the same way a `const` arrow does.
+
 - **`.toJSONSchema()` works on an exported Type and on a recursive one** (#4119). The schema
   helper was inlined only into a module that itself called `.toJSONSchema()`, so a Type exported
   from one module and asked for its schema by another threw `toJSONSchema is not a function`; a
