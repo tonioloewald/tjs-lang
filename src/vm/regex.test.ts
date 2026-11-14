@@ -267,7 +267,10 @@ describe('every unit of engine work is charged (rc.2 eighth re-review B1–B3)',
       const fuel = work * REGEX_FUEL_PER_STEP
       expect({ ms, fuel, ok: ms <= 10 * fuel + 50 }).toMatchObject({ ok: true })
       expect(threadBytes(re)).toBeGreaterThan(0)
-    })
+      // The assertion above is the check: wall time per unit of fuel, a ratio. Bun's default
+      // 5s per-test limit is not, and it killed the widest case on a loaded CI runner (5.8s,
+      // 2026-11-14; ~0.1s locally) before the ratio could be judged.
+    }, 30_000)
 
   it('a capture copy is charged in proportion to its width', () => {
     const work = (src: string) => {
