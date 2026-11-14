@@ -144,6 +144,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Union` and `Enum` accept a boxed member, as a literal-union parameter does.** A parameter
+  `d: 'n' | 's'` accepted `Object('s')`, but a declared `Union` or `Enum` refused it, so one value
+  got two answers. All three use one membership rule now, in the inline runtime and the shared one.
+
 - **Polymorphic dispatch checks an object example's members** (#4111). The dispatcher checked an
   object example only as "an object", so the first object overload claimed every object:
   `g(o: { a: 1 })` declared before `g(c: Circle)` took a `Circle`, failed, and the `Circle`

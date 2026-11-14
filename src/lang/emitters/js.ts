@@ -2524,7 +2524,10 @@ export function transpileToJS(
   const needsOneOf =
     FULL_PRELUDE ||
     code.includes('__oneOf(') ||
-    code.includes(`${RT_NS}.__k('set'`)
+    code.includes(`${RT_NS}.__k('set'`) ||
+    // Enum and Union test membership with it, so they agree with a literal-union parameter
+    // about a boxed value (`Object('n')`): parameters unwrapped it, these did not (2026-11-14).
+    /\b(?:Enum|Union)\(/.test(code)
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
   const needsType = FULL_PRELUDE || /\bType\(/.test(code)
   const needsGeneric = FULL_PRELUDE || /\bGeneric\(/.test(code)
@@ -3031,12 +3034,12 @@ export function transpileToJS(
         // `values`, so that documented access returned `undefined` in every emitted file.
         // The stub is not a fallback (it always wins in emitted code), so a field it omits
         // is a field the language does not have — see docs/type-identity.md.
-        `function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;const p=__pred({description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true${setSchema}},d);for(const k of Object.keys(mm)){const v=mm[k];if(!(k in p))Object.defineProperty(p,k,{value:v});if(typeof v==='number'&&!(String(v) in p))Object.defineProperty(p,String(v),{value:k})}return p}`
+        `function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;const p=__pred({description:d,check:v=>__oneOf(v,vals),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true${setSchema}},d);for(const k of Object.keys(mm)){const v=mm[k];if(!(k in p))Object.defineProperty(p,k,{value:v});if(typeof v==='number'&&!(String(v) in p))Object.defineProperty(p,String(v),{value:k})}return p}`
       )
     }
     if (needsUnion) {
       inlineParts.push(
-        `function Union(d,...v){const vals=v.flat();return __pred({description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}},d)}`
+        `function Union(d,...v){const vals=v.flat();return __pred({description:d,check:x=>__oneOf(x,vals),values:vals,__runtimeType:true${setSchema}},d)}`
       )
     }
     // Exactly — a closed set of VALUES, for literals and discriminants. Emitted as a value

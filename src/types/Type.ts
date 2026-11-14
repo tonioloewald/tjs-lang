@@ -16,7 +16,7 @@
  *   ZipCode.description // '5-digit US zip code'
  */
 
-import { unwrapTosi } from '../unwrap-boxed'
+import { unwrapBoxed, unwrapTosi } from '../unwrap-boxed'
 import {
   validate,
   filter as schemaFilter,
@@ -746,6 +746,16 @@ export function Optional<T>(
  * // From literal values (used by TJS syntax)
  * const Direction = Union('cardinal direction', ['up', 'down', 'left', 'right'])
  */
+/**
+ * The value a membership check compares: a boxed primitive (`Object('n')`) unwrapped, and
+ * `undefined` read as `null`, exactly as a literal-union parameter and the emitted `__oneOf`
+ * read it, so `Union`, `Enum` and a parameter agree about one value (2026-11-14).
+ */
+function memberValue(v: unknown): unknown {
+  const u = unwrapBoxed(v)
+  return u === undefined ? null : u
+}
+
 export function Union<T extends unknown[]>(
   descriptionOrType: string | RuntimeType,
   valuesOrType?: T | RuntimeType,
@@ -759,7 +769,7 @@ export function Union<T extends unknown[]>(
 
     const result: RuntimeType & { values: unknown[] } = {
       description,
-      check: (v: unknown): v is T[number] => valueSet.has(v),
+      check: (v: unknown): v is T[number] => valueSet.has(memberValue(v)),
       toJSONSchema: () => ({
         enum: values,
       }),
@@ -998,7 +1008,8 @@ export function Enum<T extends Record<string, string | number>>(
 
   const enumType: EnumType<T> = {
     description,
-    check: (v: unknown): v is T[keyof T] => valueSet.has(v as T[keyof T]),
+    check: (v: unknown): v is T[keyof T] =>
+      valueSet.has(memberValue(v) as T[keyof T]),
     toJSONSchema: () => ({
       enum: values as unknown[],
     }),
