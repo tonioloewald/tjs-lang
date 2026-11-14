@@ -63,12 +63,14 @@ afterEach(() => {
 describe('the emitted ring is bounded', () => {
   it('does not grow with call count', () => {
     const s = inlineStack()
-    s.greet('x')
-    const afterOne = s.getStack().length
     for (let i = 0; i < 5000; i++) s.greet('x')
     expect(s.getStack().length).toBeLessThanOrEqual(64)
-    // Not vacuous: it must actually be recording something.
-    expect(afterOne).toBeGreaterThan(0)
+    // A returned call leaves no frame: the pop runs in a `finally` (2026-11-14). It used to sit
+    // after the `return`, unreachable, so every call left its frame behind.
+    expect(s.getStack().length).toBe(0)
+    // Not vacuous: the ring records what is pushed.
+    s.pushStack('probe')
+    expect(s.getStack()).toEqual(['probe'])
   })
 
   it('keeps the MOST RECENT entries, in call order', () => {

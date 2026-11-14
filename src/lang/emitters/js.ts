@@ -997,18 +997,17 @@ function generateInlineValidationCode(
 
     if (lines.length === 0) return null
 
-    // The ring buffer tolerates a missed popStack, so no try/finally is needed — the
-    // suffix below is emitted after the `return` and does not run on the happy path.
-    //
-    // (This comment used to add "pushStack is a no-op unless callStacks/debug is enabled
-    // at runtime". True of `lang/runtime.ts`, and false of the inline stub that emitted
-    // code actually calls — which was neither gated nor, until recently, bounded. See
-    // `inline-stack.test.ts`.)
-    lines.unshift(`__tjs.pushStack('${stackEntry}');`)
+    // The frame is pushed first and popped in a `finally` that encloses the checks AND the
+    // body, so every exit pops, an early type-error return included, and a failing check still
+    // has its own frame on the stack. The pop used to sit after the `return`, where it never
+    // ran, so `callStacks` listed frames that had already returned (2026-11-14). The preamble
+    // and the body share the try block, so a preamble declaration is visible to the body.
+    // (The inline stub's push is not gated on `callStacks`: see `inline-stack.test.ts`.)
+    lines.unshift(`__tjs.pushStack('${stackEntry}'); try {`)
 
     return {
       preamble: lines.join('\n  '),
-      suffix: '__tjs.popStack();',
+      suffix: '} finally { __tjs.popStack() }',
     }
   }
 
@@ -1151,14 +1150,12 @@ function generateInlineValidationCode(
 
   if (lines.length === 0) return null
 
-  // The ring buffer tolerates a missed popStack (the suffix is emitted after the
-  // `return`), so no try/finally is needed. NOT a no-op in a standalone file: the inline
-  // stub always runs there — see `inline-stack.test.ts`.
-  lines.unshift(`__tjs.pushStack('${stackEntry}');`)
+  // Pushed first, popped in a `finally` around checks and body: every exit pops (see above).
+  lines.unshift(`__tjs.pushStack('${stackEntry}'); try {`)
 
   return {
     preamble: lines.join('\n  '),
-    suffix: '__tjs.popStack();',
+    suffix: '} finally { __tjs.popStack() }',
   }
 }
 
@@ -2047,18 +2044,15 @@ export function transpileToJS(
           const arrowAt = preprocessed.source.lastIndexOf('=>', func.body.start)
           const openAt = arrowAt === -1 ? func.body.start : arrowAt + 2
           if (validation.suffix) {
-            // The suffix (`popStack`) must run BEFORE returning, so bind the result
-            // first. Appending it after the `return` left it unreachable, and with
-            // `callStacks: true` the stack then grew without bound for every concise
-            // arrow — the leak was invisible because the code still parsed.
-            const tmp = `__tjs_r${func.body.start}`
+            // The preamble opens a `try` and the suffix is its `finally` (the pop), so the
+            // expression is returned INSIDE the try and the pop still runs after it.
             insertions.push({
               position: openAt,
-              text: ` {\n  ${validation.preamble}\n  const ${tmp} = (`,
+              text: ` {\n  ${validation.preamble}\n  return (`,
             })
             insertions.push({
               position: func.end,
-              text: `);\n  ${validation.suffix}\n  return ${tmp}\n}`,
+              text: `);\n  ${validation.suffix}\n}`,
             })
           } else {
             insertions.push({

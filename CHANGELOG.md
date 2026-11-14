@@ -148,6 +148,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`callStacks` no longer lists calls that already returned** (#4118, #3994 A5.3). The emitter put
+  `popStack()` after each function's `return`, where it never ran, so the ring kept every finished
+  frame and an error's `callStack` mixed live calls with returned ones. The frame is now pushed
+  first and popped in a `finally` around the checks and the body, so every exit pops (a return, a
+  refused argument, a throw) and a failing check still has its own frame.
+
 - **Object-literal methods merge dictionary defaults and check their parameters**, as class
   methods do (decided 2026-11-14). `{ m(opts = { a: 1, b: 2 }) {} }` received `{ a: 5 }` unmerged,
   and an object method's parameter examples were not checked. Method shorthand and block-bodied
