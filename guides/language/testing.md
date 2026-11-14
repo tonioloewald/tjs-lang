@@ -231,8 +231,9 @@ and `tjs test` reports "no inline tests". Test such a function with a `test` blo
 
 **Some functions get no signature test.**
 
-- An `async` function's return example is never run, because TJS does not await during
-  transpilation.
+- An `async` function's return example is not run at transpile time, because TJS does not
+  await there. It is reported as inconclusive (`tjs check` warns), and the page's runner runs
+  it.
 - An arrow function or function expression assigned to a `const` is not tested. Its
   annotation is accepted and still documents the return type, but nothing checks it, at
   transpile time or at runtime.
@@ -748,9 +749,10 @@ These are gaps in today's tools, not the design. Each is described above where i
 this is the list in one place.
 
 - **`await` in a `test` block** makes every test in the file inconclusive under the
-  command-line tools, and `tjs check` still passes the file. Put async tests in `*.test.tjs`.
-- **`async` functions** get no signature test, yet `tjs test` lists the example with a ✓ and
-  `tjs()` reports it in `testResults` with `passed: true`. It was not run.
+  command-line tools. `tjs check` warns about each one (and `--max-warnings 0` fails), but they
+  do not run. Put async tests in `*.test.tjs`.
+- **`async` functions** get no signature test at transpile time: `tjs()` reports the example as
+  inconclusive, and `tjs check` warns that it could not run.
 - **Arrow functions and function expressions** assigned to a `const` get no signature test,
   and neither do methods of a class with no constructor.
 - **A `Type`-named parameter** supplies no example, so the function gets no signature test,

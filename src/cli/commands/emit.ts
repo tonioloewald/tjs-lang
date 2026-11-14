@@ -19,6 +19,7 @@ import { join, basename, extname } from 'path'
 import { tjs, dialectForFilename } from '../../lang'
 import { generateDocs } from '../../lang/docs'
 import { reportWarnings } from '../warnings'
+import { tallyTestResults, testLabel } from '../test-report'
 import { generateDTS } from '../../lang/emitters/dts'
 
 export interface EmitOptions {
@@ -128,45 +129,28 @@ async function emitFile(
     // was dropped is before that, not after.
     reportWarnings(inputPath, result.warnings)
 
-    // Check test results
+    // Test results: passed / INCONCLUSIVE / failed, the classification `tjs test` and `convert`
+    // use (test-report.ts). An inconclusive test could not RUN (it names something only the
+    // page or the host provides); it is reported and does not stop the emit. Counting it as a
+    // failure made `check` pass a file that `emit` refused (#3994 A4.1). All narration goes to
+    // STDERR, so `tjs emit file.tjs > out.js` writes only JavaScript (#2118).
     const testResults = result.testResults || []
-    const failures = testResults.filter((r) => !r.passed)
+    const { passed, inconclusive, failed } = tallyTestResults(testResults)
+    const failures = failed
     const hasFailures = failures.length > 0
-
-    // Report test results
-    if (testResults.length > 0) {
-      const passed = testResults.filter((r) => r.passed).length
-      const failed = failures.length
-
-      if (options.verbose || hasFailures) {
-        if (hasFailures) {
-          console.log(`\n${inputPath}: ${passed} passed, ${failed} failed`)
-          for (const f of failures) {
-            if (f.isSignatureTest) {
-              console.log(`  ✗ Signature: ${f.error}`)
-            } else {
-              console.log(`  ✗ ${f.description}: ${f.error}`)
-            }
-          }
-        } else if (options.verbose) {
-          console.log(`  ✓ ${testResults.length} tests passed`)
-        }
-      }
+    if (hasFailures || (options.verbose && testResults.length > 0)) {
+      console.error(
+        `${hasFailures ? '✗' : '✓'} ${inputPath}: ${passed} passed` +
+          (failed.length ? `, ${failed.length} failed` : '') +
+          (inconclusive.length ? `, ${inconclusive.length} inconclusive` : '')
+      )
+      for (const f of failures) console.error(`  ✗ ${testLabel(f)}: ${f.error}`)
     }
+    for (const r of inconclusive)
+      console.error(`  ? ${testLabel(r)} — inconclusive: ${r.error ?? ''}`)
 
     // Don't emit if tests failed (unless --jfdi)
     if (hasFailures && !options.jfdi) {
-      if (!options.verbose) {
-        // Show failures even in non-verbose mode
-        console.error(`✗ ${inputPath}: ${failures.length} test(s) failed`)
-        for (const f of failures) {
-          if (f.isSignatureTest) {
-            console.error(`  Signature: ${f.error}`)
-          } else {
-            console.error(`  ${f.description}: ${f.error}`)
-          }
-        }
-      }
       console.error(`  (use --jfdi to emit anyway)`)
       // A failed signature test means NO FILE IS WRITTEN, so it is a failure and must be
       // reported as one. A bare `return` here was counted as success.

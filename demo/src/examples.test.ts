@@ -49,7 +49,10 @@ describe('TJS Playground Examples with tests', () => {
 
     test(`"${example.title}" tests pass`, () => {
       const result = tjs(example.code, { runTests: 'report' })
-      const failures = (result.testResults || []).filter((t: any) => !t.passed)
+      // inconclusive is not a failure: an async signature example runs on the page (#3826)
+      const failures = (result.testResults || []).filter(
+        (t: any) => !t.passed && !t.inconclusive
+      )
       if (failures.length > 0) {
         const msgs = failures.map((f: any) => `${f.description}: ${f.error}`)
         throw new Error(`Test failures:\n${msgs.join('\n')}`)

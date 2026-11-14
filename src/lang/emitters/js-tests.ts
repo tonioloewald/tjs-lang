@@ -1051,14 +1051,19 @@ export function runAllTests(
     }
   }
 
-  // Add skipped results for async signature tests
+  // An async function's signature example cannot run at transpile time (tjs() is synchronous),
+  // so it is INCONCLUSIVE, never passed: reporting it as passed read as green for a test that
+  // never ran (#3826). The page runs it (the async runner tjs() returns).
   for (const info of asyncSigTestInfos) {
     const label = info.className
       ? `${info.className}.${info.funcName}`
       : info.funcName
     results.push({
       description: `${label} signature example`,
-      passed: true,
+      passed: false,
+      inconclusive: true,
+      error:
+        'an async function: its signature example runs on the page, not at transpile time',
       isSignatureTest: true,
       line: info.line,
     })

@@ -101,8 +101,13 @@ function sliceGroup(
 ): string {
   const text = match[group]
   if (text === undefined) return ''
-  // Locate the group within the match by searching the masked match text; the group's
-  // content is unique enough in practice, and a miss falls back to the masked text.
+  // The group's OFFSETS (the regex's `d` flag), read back out of the original source: the
+  // masked view blanks string contents, so searching for the masked text matched the wrong
+  // place, and a one-character description (one blank) matched the space after `test`, which
+  // renamed `test 'x'` to `test 1` (#4120).
+  const span = (match as RegExpExecArray & { indices?: [number, number][] })
+    .indices?.[group]
+  if (span) return source.slice(span[0], span[1])
   const at = scanned.indexOf(text, match.index)
   return at === -1 ? text : source.slice(at, at + text.length)
 }
@@ -131,7 +136,7 @@ function extractEmbeddedTests(source: string): ExtractedTest[] {
   // Each quote type gets its own alternative so the description can contain
   // the other quote types (e.g. `test 'typeof null is "null"' {`).
   const embeddedRegex =
-    /\/\*test\s+'([^']*)'\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+"([^"]*)"\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+`([^`]*)`\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s*\{([\s\S]*?)\}\s*\*\//g
+    /\/\*test\s+'([^']*)'\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+"([^"]*)"\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+`([^`]*)`\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s*\{([\s\S]*?)\}\s*\*\//dg
 
   let match
   while ((match = embeddedRegex.exec(scanned)) !== null) {
@@ -185,7 +190,7 @@ export function extractTests(source: string): TestExtractionResult {
   // Each quote type has its own alternative so the description can contain
   // the other quote types (e.g. `test 'typeof null is "null"' {`).
   const testRegex =
-    /test\s+'([^']*)'\s*\{|test\s+"([^"]*)"\s*\{|test\s+`([^`]*)`\s*\{|test\s*\(\s*'([^']*)'\s*\)\s*\{|test\s*\(\s*"([^"]*)"\s*\)\s*\{|test\s*\(\s*`([^`]*)`\s*\)\s*\{|test\s*\{/g
+    /test\s+'([^']*)'\s*\{|test\s+"([^"]*)"\s*\{|test\s+`([^`]*)`\s*\{|test\s*\(\s*'([^']*)'\s*\)\s*\{|test\s*\(\s*"([^"]*)"\s*\)\s*\{|test\s*\(\s*`([^`]*)`\s*\)\s*\{|test\s*\{/dg
   const mockRegex = /mock\s*\{/g
 
   let cleanCode = source

@@ -134,6 +134,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Tests that could not run are visible, and `tjs emit` agrees with `tjs check`** (#4120, #3826,
+  #3994 A4.1, #2118). `tjs check` reported ✓ for a file whose test could not run (a typo in a test
+  body is inconclusive at build time, since it looks exactly like code naming `document`); each
+  inconclusive test is now a warning, counted by `--max-warnings`. `tjs emit` counted an
+  inconclusive test as a failure and refused files `check` passed; it now uses the same
+  passed / inconclusive / failed split as `tjs test`, and all its test narration goes to stderr,
+  so `tjs emit file.tjs > out.js` writes only JavaScript. An `async` function's signature example,
+  which never runs at transpile time, is reported as inconclusive instead of passed. A
+  one-character test name (`test 'x'`) is kept instead of becoming `test 1`.
+
+- **AJS: an entry function that falls off the end returns `{}`** (#4102), as a bare `return` does.
+  It returned `undefined` with no error. A declared result still applies.
+
 - **BREAKING (AJS): assigning to an undeclared name is refused** (#4103), as reading one has been
   since #4002. It used to declare the name silently, so a misspelt target (`totl = 5` for
   `total`) left the real variable unchanged with no error. **What to do:** declare the variable

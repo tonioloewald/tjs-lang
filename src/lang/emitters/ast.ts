@@ -492,6 +492,12 @@ export function transformFunction(
 
   steps.push(...hoisted)
   steps.push(...bodySteps)
+  // An entry that falls off the end returns `{}`, as a bare `return` does (#4102, decided
+  // 2026-11-14). It used to give `result: undefined` with no error, against the rule that an
+  // agent returns an object. Unreachable when an earlier `return` runs; a declared result
+  // still applies (`{}` fails one with required members).
+  if ((steps[steps.length - 1] as any)?.op !== 'return')
+    steps.push({ op: 'return', value: {} } as BaseNode)
 
   // Build signature
   const signatureParams = Object.fromEntries(parameters)

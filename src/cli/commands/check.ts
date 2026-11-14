@@ -6,6 +6,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { findFiles } from '../walk'
 import { tjs, dialectForFilename } from '../../lang'
 import { enforceMaxWarnings, reportWarnings } from '../warnings'
+import { tallyTestResults, testLabel } from '../test-report'
 
 /**
  * Source files under `dir`.
@@ -88,7 +89,17 @@ async function checkOne(file: string, verbose = true): Promise<number | null> {
     // Warnings FIRST, and to stderr. This is the primary type-checking command — the one
     // CI and agents run — and it used to hide the degradation diagnostic entirely,
     // reporting `✓` for a file whose types had silently been dropped to `any`.
-    const warningCount = reportWarnings(file, result.warnings)
+    // An INCONCLUSIVE test could not run here (an async signature example, or a test that names
+    // something only the page or the host provides, such as `document`, or a typo: at build time
+    // they look alike). It is not a failure, but `check` reporting ✓ said nothing at all (#4120),
+    // so each is a warning, counted by `--max-warnings`.
+    const inconclusive = tallyTestResults(result.testResults ?? []).inconclusive
+    const warningCount = reportWarnings(file, [
+      ...(result.warnings ?? []),
+      ...inconclusive.map(
+        (r) => `${testLabel(r)} could not run: ${r.error ?? 'inconclusive'}`
+      ),
+    ])
 
     // Report function info from types
     if (verbose && result.types && Object.keys(result.types).length > 0) {

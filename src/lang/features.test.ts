@@ -1055,9 +1055,11 @@ describe('signature tests (transpile-time)', () => {
     `,
       { runTests: 'report' }
     )
-    // Async signature test should be skipped (passed = true, not errored)
+    // An async signature example cannot run at transpile time: inconclusive, never passed
+    // (#3826; it used to read as passed, green for a test that never ran) and never failed.
     expect(result.testResults).toHaveLength(1)
-    expect(result.testResults![0].passed).toBe(true)
+    expect(result.testResults![0].passed).toBe(false)
+    expect(result.testResults![0].inconclusive).toBe(true)
     expect(result.testResults![0].description).toContain('fetchData')
   })
 
