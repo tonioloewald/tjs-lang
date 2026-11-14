@@ -51,6 +51,19 @@ const DEMONSTRATES: Record<string, RegExp> = {
   'the-universal-endpoint': /Out of Fuel/,
   // A batch that keeps going and collects each item's failure (patterns.md, 2026-11-04).
   patterns: /is not valid JSON/,
+  // The book chapters (2026-11-14). Each example's prose says the failure is the point.
+  'types-by-example':
+    /which is not defined \(or is undefined\) where the type is checked/,
+  // the documented `extend` limit: only literal receivers are rewritten (#3823)
+  'classes-and-dispatch': /xs\.last\(\): TypeError/,
+  'ajs-calling-atoms': /Fetch blocked: domain not in allowlist/,
+  'ajs-errors':
+    /Division by zero|is not valid JSON|Fetch blocked: domain not in allowlist|its input does not have the shape the atom declares/,
+  'ajs-contracts':
+    /Input validation failed|Agent must return an object|Result does not match the declared result type/,
+  'ajs-limits':
+    /Out of Fuel|Heap limit exceeded|exceeds the \d+-byte membrane budget/,
+  'ajs-sandbox': /Out of Fuel|Access to '__proto__' is forbidden/,
 }
 /** Examples that need a model say so instead of running (site/entry.ts). */
 const NEEDS_LLM = /needs an LLM, which the static site does not provide/

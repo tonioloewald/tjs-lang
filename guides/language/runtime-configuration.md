@@ -30,7 +30,7 @@ is a different thing entirely and has nothing to do with this chapter; see the
 
 Save one small function as `greet.tjs`:
 
-```tjs:inline
+```tjs:static
 export function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
@@ -186,7 +186,7 @@ means a number that is not an integer.)
 
 The examples in the rest of this chapter use one small module, `price.tjs`:
 
-```tjs:inline
+```tjs:static
 Type Price 9.99
 
 export function total(price: Price, qty: 0):! 0.0 {
@@ -289,7 +289,7 @@ in production.
 **`callStacks: true`** adds a `callStack` to every error, listing the TJS functions entered
 before it, ending with the one whose check failed. With this `app.tjs`:
 
-```tjs:inline
+```tjs:static
 export function inner(n: 0):! 0 {
   return n
 }
