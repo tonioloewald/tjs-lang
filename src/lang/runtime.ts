@@ -637,61 +637,22 @@ const DEFAULT_CONFIG: TJSConfig = {
 let config: TJSConfig = { ...DEFAULT_CONFIG }
 
 /**
- * Late-configure guard (#23). A converted module snapshots its config when it
- * captures the runtime (`globalThis.__tjs.createRuntime()` at module-eval time),
- * so `configure()` called *after* the module graph has evaluated reaches nothing
- * — a silent no-op that made tosijs's debug/safe bundles inert. We can't fix
- * that silently in a patch (making config a live global read changes the
- * intentional per-instance isolation), but a silent no-op is the worst outcome,
- * so warn loudly instead.
+ * Configuration is LIVE and layered (#4118; #23). Each runtime instance holds its own overrides
+ * on top of its parent's current configuration: the module-level `configure()` for the root,
+ * and the instance it was created from for an emitted module (`globalThis.__tjs.createRuntime()`).
+ * It used to be a snapshot taken when an instance was created, so whether `configure()` reached a
+ * module depended on load order: a module loaded before `installRuntime()` (reading the global)
+ * honoured a later `configure()`, one loaded after ignored it, and configuring an installed
+ * `createRuntime()` instance reached no module at all. A warning (#23) made the late case audible;
+ * now there is no late case.
  *
- * `modulesCaptured` distinguishes an emitted module's capture from the install:
- * during `globalThis.__tjs = createRuntime()` the RHS runs while `globalThis.__tjs`
- * is still undefined; an emitted `globalThis.__tjs.createRuntime()` runs while it
- * is already set. So a createRuntime call that sees an installed global IS a
- * post-install capture. Configuring after that can't reach it.
+ * `configEpoch` changes on every `configure()`, anywhere, so an instance re-merges its view only
+ * then: the hot paths (`pushStack` on every checked call) read a cached object.
  */
-let modulesCaptured = false
-let warnedLateConfigure = false
+let configEpoch = 0
 
-/**
- * The `createRuntime` reachable through an INSTALLED `globalThis.__tjs`.
- *
- * An emitted module captures its runtime with `globalThis.__tjs.createRuntime()` at
- * module-eval time, so every route to that property must record the capture — otherwise a
- * later `configure()` stays silent about not reaching the module, which is the exact silent
- * no-op #23 exists to make audible.
- *
- * It used to be an inline arrow on the object returned by `createRuntime()`, so the flag was
- * set only when the global was installed as `globalThis.__tjs = createRuntime()`. The other
- * documented form — `installRuntime()`, and the primary one — installs the `runtime` singleton
- * below, which carried the BARE `createRuntime`. So on the main path the guard never fired and
- * the warning it exists to produce was unreachable. Measured against two emitted modules
- * loaded in Node: form two warned, `installRuntime()` said nothing.
- *
- * One function, referenced by both, so the two paths cannot drift again.
- */
-const capturingCreateRuntime = () => {
-  modulesCaptured = true
-  return createRuntime()
-}
-
-function warnLateConfigureOnce(): void {
-  if (warnedLateConfigure || !modulesCaptured) return
-  warnedLateConfigure = true
-  const msg =
-    'TJS: configure() was called after a converted module already captured the ' +
-    'runtime — the change will NOT reach modules that already evaluated (their ' +
-    'config was snapshotted at import). Configure before importing converted ' +
-    'modules (e.g. an import-order-first `configure-tjs` module). See ' +
-    'https://github.com/tonioloewald/tjs-lang/issues/23'
-  try {
-    console.warn(msg)
-  } catch {
-    // never let the warning break the program
-  }
-  recorder.record({ source: 'app', severity: 'warning', message: msg })
-}
+/** The `createRuntime` reachable through the root runtime singleton (`installRuntime()`). */
+const rootCreateRuntime = () => createRuntime()
 
 /** Ring buffer for call stack tracking — fixed size, zero allocation */
 const STACK_SIZE = 64
@@ -924,7 +885,7 @@ export function isUnsafeMode(): boolean {
  */
 export function configure(options: TJSConfig): void {
   config = { ...config, ...options }
-  warnLateConfigureOnce()
+  configEpoch++
 }
 
 /**
@@ -1055,8 +1016,7 @@ export function resetRuntime(): void {
   callStackCount = 0
   recorder.reset()
   unsafeDepth = 0
-  modulesCaptured = false
-  warnedLateConfigure = false
+  configEpoch++
 }
 
 /**
@@ -2245,28 +2205,37 @@ export function wrapClass<T extends new (...args: any[]) => any>(
  *
  * Use this to prevent state leaking between transpiled modules.
  */
-export function createRuntime() {
-  // Per-instance state - inherit current global config
-  let instanceConfig: TJSConfig = { ...config }
-  const instStackSize = instanceConfig.maxStackSize ?? STACK_SIZE
+export function createRuntime(parentConfig: () => TJSConfig = () => config) {
+  // Per-instance state: this instance's overrides over its parent's LIVE config (#4118).
+  let overrides: TJSConfig = {}
+  let merged: TJSConfig = { ...parentConfig() }
+  let mergedAt = configEpoch
+  const cfg = (): TJSConfig => {
+    if (mergedAt !== configEpoch) {
+      merged = { ...parentConfig(), ...overrides }
+      mergedAt = configEpoch
+    }
+    return merged
+  }
+  const instStackSize = cfg().maxStackSize ?? STACK_SIZE
   const instanceStackBuffer: string[] = new Array(instStackSize).fill('')
   let instanceStackHead = 0
   let instanceStackCount = 0
-  const instanceRecorder = createRecorder(() => instanceConfig, globalMirror)
+  const instanceRecorder = createRecorder(cfg, globalMirror)
   let instanceUnsafeDepth = 0
 
   // Per-instance stateful functions
   function instanceConfigure(options: TJSConfig): void {
-    instanceConfig = { ...instanceConfig, ...options }
-    warnLateConfigureOnce()
+    overrides = { ...overrides, ...options }
+    configEpoch++
   }
 
   function instanceGetConfig(): TJSConfig {
-    return { ...instanceConfig }
+    return { ...cfg() }
   }
 
   function instancePushStack(name: string): void {
-    if ((instanceConfig.callStacks || instanceConfig.debug) && name) {
+    if ((cfg().callStacks || cfg().debug) && name) {
       instanceStackBuffer[instanceStackHead] = name
       instanceStackHead = (instanceStackHead + 1) % instStackSize
       if (instanceStackCount < instStackSize) instanceStackCount++
@@ -2274,10 +2243,7 @@ export function createRuntime() {
   }
 
   function instancePopStack(): void {
-    if (
-      (instanceConfig.callStacks || instanceConfig.debug) &&
-      instanceStackCount > 0
-    ) {
+    if ((cfg().callStacks || cfg().debug) && instanceStackCount > 0) {
       instanceStackHead =
         (instanceStackHead - 1 + instStackSize) % instStackSize
       instanceStackCount--
@@ -2296,7 +2262,8 @@ export function createRuntime() {
   }
 
   function instanceResetRuntime(): void {
-    instanceConfig = { ...DEFAULT_CONFIG }
+    overrides = {}
+    configEpoch++
     instanceStackHead = 0
     instanceStackCount = 0
     instanceRecorder.reset()
@@ -2404,9 +2371,7 @@ export function createRuntime() {
     // the only honest answer here.
     const actual = describeActual(value)
     const stack =
-      instanceConfig.callStacks || instanceConfig.debug
-        ? instanceGetStack()
-        : undefined
+      cfg().callStacks || cfg().debug ? instanceGetStack() : undefined
     const err = received(
       new MonadicError(
         `Expected ${expected} for '${path}', got ${actual}`,
@@ -2427,10 +2392,10 @@ export function createRuntime() {
       stack,
     })
 
-    if (instanceConfig.logTypeErrors) {
+    if (cfg().logTypeErrors) {
       console.error(`[TJS TypeError] ${err.message}`)
     }
-    if (instanceConfig.throwTypeErrors) {
+    if (cfg().throwTypeErrors) {
       throw err
     }
 
@@ -2460,10 +2425,7 @@ export function createRuntime() {
       message,
       ...details,
     }
-    if (
-      (instanceConfig.callStacks || instanceConfig.debug) &&
-      instanceStackCount > 0
-    ) {
+    if ((cfg().callStacks || cfg().debug) && instanceStackCount > 0) {
       const fullStack = details?.path
         ? [...instanceGetStack(), details.path]
         : instanceGetStack()
@@ -2507,12 +2469,9 @@ export function createRuntime() {
     wrapClass,
     compareVersions,
     versionsCompatible,
-    // Create child runtime instances. Emitted/converted modules capture their
-    // runtime via THIS method (`globalThis.__tjs.createRuntime()`) at module-eval
-    // time — whereas the top-level install calls the bare module-level
-    // `createRuntime()`. Flag the former so a later configure() knows a module
-    // already snapshotted its config and can warn it won't reach it (#23).
-    createRuntime: capturingCreateRuntime,
+    // A child runtime: an emitted module's (`globalThis.__tjs.createRuntime()`), which reads
+    // THIS instance's config live under its own overrides (#4118).
+    createRuntime: () => createRuntime(cfg),
     // Debug mode (instance-specific)
     configure: instanceConfigure,
     getConfig: instanceGetConfig,
@@ -2640,7 +2599,7 @@ export const runtime = {
   exitUnsafe,
   isUnsafeMode,
   // Factory for isolated instances
-  createRuntime: capturingCreateRuntime,
+  createRuntime: rootCreateRuntime,
   // Type system (used by transpiled Type declarations)
   validate,
   infer: s.infer.bind(s),

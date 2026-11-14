@@ -552,11 +552,9 @@ While debugging, it can be easier to have a refused call shout. `configure` from
   the call. What is thrown is the same `MonadicError`, so a `catch` can test it with
   `isMonadicError`.
 
-**Configure before any `.tjs` module is imported.** Each module takes a snapshot of the
-configuration when it loads, and a later `configure` does not reach it (the runtime prints
-a warning saying so). Because ES imports run before the importing module's own code,
-calling `configure` at the top of `main.ts` is already too late. Put it in its own preload
-file, after the plugin:
+**`configure` reaches every module, whenever it loaded.** Each module reads the current
+settings when it needs them, so the call can go anywhere. A preload file keeps it out of
+the application code:
 
 ```typescript
 // tjs-debug.ts

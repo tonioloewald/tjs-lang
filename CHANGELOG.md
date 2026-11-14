@@ -169,6 +169,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BREAKING (runtime): configuration is live and layered, so load order no longer decides
+  whether `configure()` reaches a module** (#4118; #23). Each runtime instance took a snapshot of
+  the settings when it was created. So `globalThis.__tjs = createRuntime(); __tjs.configure(…)`
+  reached no module loaded afterwards, and a module loaded before `installRuntime()` honoured a
+  later `configure()` while one loaded after it did not. Now each instance reads its parent's
+  settings live, under its own overrides: `configure()` reaches every module whenever it loaded,
+  and a setting made on an instance reaches the modules created from it. The "configure() was
+  called after a converted module already captured the runtime" warning is gone, as there is no
+  longer a late case. `createRuntime()` takes an optional parent-config reader. **What to do:**
+  nothing, unless code relied on an instance keeping old settings after a later `configure()`;
+  set them on that instance (`instance.configure(…)`), which wins over its parent.
+
 - **An arrow function with an expression body, as an object property, gets the parameter
   preamble** (#4119). `{ m: (o = { a: 1, b: 2 }) => o }` received `{ a: 5 }` unmerged and its
   parameter examples were not checked, while the same arrow assigned to a `const`, or written as a

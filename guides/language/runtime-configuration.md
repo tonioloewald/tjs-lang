@@ -202,7 +202,7 @@ shared runtime with `installRuntime()` from `tjs-lang/runtime`, then load the TJ
 import { installRuntime } from 'tjs-lang/runtime'
 installRuntime()
 
-// A dynamic import, so price.js loads after installRuntime(): see "When settings reach a module".
+// Loaded after installRuntime(), so callStacks can reach it: see "When settings reach a module".
 const { total } = await import('./price.js')
 total('9.99', 2)
 total(9.99, 2.5)
@@ -309,12 +309,9 @@ An error's `path` says where the check failed; `callStack` says how the program 
 It adds work to every call, not only to failing ones (roughly doubling the cost of a call),
 so turn it on while debugging.
 
-Read it as a log of the last 64 functions entered, not as an exact stack. A function that
-returns normally is not removed from the list: the emitted code does not wrap each function
-in a `try`/`finally` to remove it, which would cost every call, and the fixed-size ring
-makes a missed removal harmless. So if `outer(1)` fails, then `inner(2)` and `inner(3)`
-succeed, and then `outer(1)` fails again, the second error's `callStack` lists all six
-calls, oldest first, not only the last two.
+It is the stack of checked functions at the moment the check failed: a function is removed
+when it returns or throws, so an earlier `inner(2)` that succeeded is not listed. The ring
+holds the latest 64 entries (`maxStackSize`); a deeper stack keeps its innermost calls.
 
 **`trackErrors: false`** turns the flight recorder off. It is on by default and costs nothing
 until a check fails, because recording happens only on the error path. The recorder keeps
@@ -333,87 +330,30 @@ The settings type lists a few more, none of which you need for compiled `.tjs` c
 
 ### When settings reach a module
 
-This is the part people get wrong. Whether a setting reaches a module depends on when the
-module loaded, because of two mechanisms in the listing above:
-
-- The `const __tjs = …` line runs **once, when the module is evaluated**. A module that
-  loads after the shared runtime is installed gets an instance from `createRuntime()`, and
-  that instance **copies the settings as they are at that moment**. A later `configure()`
-  changes the shared runtime's settings, not the copy.
-- A module that loaded before any shared runtime existed uses the inline helpers. The inline
-  `typeError` looks for `globalThis.__tjs` **each time it reports an error**, records the
-  error there if it finds one, and reads `logTypeErrors` and `throwTypeErrors` from it. It
-  has no way to attach a call stack, so `callStacks` cannot reach it.
-
-That gives three cases:
-
-| The TJS module loaded… | Errors recorded in the shared runtime | `logTypeErrors`, `throwTypeErrors` | `callStacks` |
-| --- | --- | --- | --- |
-| before `installRuntime()` | yes | yes: read when each error happens | no |
-| after `installRuntime()`, before `configure()` | yes | no: the module kept the settings from before the call | no |
-| after both | yes | yes | yes |
-
-The middle row is the surprise: a module loaded before the install picks up a later
-`configure()`, and a module loaded after the install does not. Only the last row gets
-everything, so install and configure first.
-
-A static `import` is evaluated before any code in the importing file runs, even code written
-above it. So this puts `price.js` in the first row, not the last:
+Every module sees the current settings, whenever it loaded. Each module's instance (the
+`const __tjs = …` line) reads the settings of the runtime it came from each time it needs
+them, so a `configure()` reaches modules loaded before it and after it alike. Install and
+configure in whatever order suits the program:
 
 ```javascript
-// Wrong: price.js is evaluated before installRuntime() runs.
 import { installRuntime, configure } from 'tjs-lang/runtime'
 import { total } from './price.js'
 
 installRuntime()
-configure({ callStacks: true })
-total('9.99', 2).callStack // undefined
+configure({ logTypeErrors: true })
+total('9.99', 2) // logs: [TJS TypeError] Expected … for 'price.tjs:3:total.price', got string
 ```
 
-There are two correct shapes. Load the TJS modules with `await import()` after installing,
-as in `main.js` above, or install and configure in a module of its own and import that
-first:
+A module that loaded before any shared runtime existed uses its inline helpers, which look
+for `globalThis.__tjs` each time they report an error, so they also follow `logTypeErrors`
+and `throwTypeErrors`. They have no way to attach a call stack, so `callStacks` reaches only
+modules loaded after the runtime was installed.
 
-```javascript
-// configure-tjs.js
-import { installRuntime, configure } from 'tjs-lang/runtime'
-installRuntime()
-configure({ callStacks: true })
-```
-
-```javascript
-// main.js
-import './configure-tjs.js' // must be the first import
-import { total } from './price.js'
-```
-
-Imports are evaluated in order, so `configure-tjs.js` finishes before `price.js` starts.
-
-### Configuring too late
-
-When `configure()` runs after a module has already taken its copy of the settings (the
-middle row), the runtime says so instead of failing silently:
-
-```text
-TJS: configure() was called after a converted module already captured the runtime —
-the change will NOT reach modules that already evaluated (their config was snapshotted
-at import). Configure before importing converted modules (e.g. an import-order-first
-`configure-tjs` module). See https://github.com/tonioloewald/tjs-lang/issues/23
-```
-
-"Converted module" here means any module emitted by TJS, including the `.tjs` modules this
-chapter is about, and the `configure-tjs` module it suggests is the one shown above. The
-warning is printed once per process: a second late `configure()` prints nothing, and
-reaches the already-loaded modules no better than the first.
-
-You will see it if you call `__tjs.configure({ … })` on a page that already has the runtime
-and its modules loaded, such as this one. Modules loaded after the call get the new
-settings; the ones already loaded keep the old.
-
-Prefer the imported `configure` to `__tjs.configure`. After `installRuntime()` they are the
-same function. After `globalThis.__tjs = createRuntime()` they are not: `__tjs.configure`
-then changes only that one instance, and modules loaded afterwards do not inherit it. The
-imported `configure` works with either form.
+`__tjs.configure` and the imported `configure` differ only in where the setting lives. After
+`installRuntime()` they are the same function. After `globalThis.__tjs = createRuntime()`,
+`__tjs.configure` sets it on that instance, and every module created from the instance
+inherits it. A module's own instance can override a setting for itself
+(`__tjs.configure` inside the module); its override wins over later changes to the parent.
 
 ## The shared prelude
 

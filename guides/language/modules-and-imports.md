@@ -457,9 +457,10 @@ What the inline runtimes do not give you is one place for settings. For a single
 errors that `__tjs.errors()` returns, for the whole program), install the shared runtime
 with `installRuntime()` from `tjs-lang/runtime`.
 
-Order matters. Each module picks up its runtime and settings once, when it is evaluated, and
-static imports are evaluated before any code in the importing file. So install and configure
-in a module of its own, and import it first:
+The settings reach every module whenever it loaded, so `configure()` can go anywhere. One
+thing does depend on order: a module evaluated before the shared runtime is installed uses
+its inline helpers, which cannot attach a call stack. So install the runtime in a module of
+its own and import it first:
 
 ```javascript
 // setup-tjs.js
@@ -477,12 +478,11 @@ add('2', 3)                        // logs: [TJS TypeError] Expected integer for
 console.log(__tjs.errors().length) // 1
 ```
 
-Put `installRuntime()` and `configure()` in `main.js` itself, after the imports, and the
-setting arrives too late: `mymath.tjs` has already been evaluated, and its error is not
-logged. The other correct shape is to install first and load the TJS modules afterwards with
-`await import()`. `tjs run` and the Bun preload install the runtime for you, but not your
-settings. [The Runtime](/runtime-configuration/#install-it-before-your-modules-load) has the
-details.
+Installed in `main.js` itself, after the imports, the runtime still receives `mymath.tjs`'s
+errors and its `logTypeErrors` setting applies, but `callStacks` does not reach
+`mymath.tjs`, which was evaluated first. `tjs run` and the Bun preload install the runtime
+for you, but not your settings. [The Runtime](/runtime-configuration/#when-settings-reach-a-module)
+has the details.
 
 ## Summary
 

@@ -42,9 +42,8 @@ export function num${suffix}(v: 0): 0 { return v }`,
 /**
  * Run a script in real Node and return stdout AND stderr.
  *
- * Both streams, deliberately: the #23 warning is a `console.warn`, so a helper that returned
- * only stdout reported it missing — and reported it missing in the direction that makes the
- * guard look unnecessary rather than broken.
+ * Both streams, deliberately: a warning is a `console.warn`, so a helper that returned only
+ * stdout would report one missing.
  */
 const node = (name: string, src: string): string => {
   writeFileSync(join(dir, name), src)
@@ -229,14 +228,11 @@ console.log('errors:', globalThis.__tjs.errors().length)`,
   }
 })
 
-describe('the late-configure warning (#23) fires for EVERY install form', () => {
-  // It did not. `installRuntime()` installs the `runtime` singleton, which carried the BARE
-  // `createRuntime`; only the object returned by `createRuntime()` had the capture-recording
-  // wrapper. So `globalThis.__tjs = createRuntime()` warned and `installRuntime()` — the
-  // primary documented form — was silent, on the exact path the warning exists for.
-  //
-  // A guard reachable through one of two documented routes is worse than no guard, because
-  // the silence reads as "nothing to report". Both routes now share one function.
+describe('a late configure() reaches loaded modules, for EVERY install form (#4118)', () => {
+  // These rows used to pin #23's WARNING that it did not: an emitted module snapshotted its
+  // config when it captured the runtime, so a configure() after the import reached nothing.
+  // Configuration is live and layered now, so the late case is no longer late. Both documented
+  // install forms, in real Node, because that is where consumers load modules.
   for (const [form, install] of [
     ['installRuntime()', `installRuntime()`],
     [
@@ -244,34 +240,32 @@ describe('the late-configure warning (#23) fires for EVERY install form', () => 
       `globalThis.__tjs = createRuntime()`,
     ],
   ] as const) {
-    it(`warns when the runtime is installed with ${form}`, () => {
+    it(`reaches a module loaded before it, installed with ${form}`, () => {
       const out = node(
         `late-${form.slice(0, 6).replace(/\W/g, '')}.mjs`,
         `import { installRuntime, createRuntime, configure } from './rt.mjs'
 ${install}
-await import('./libA.mjs')
+const { numA } = await import('./libA.mjs')
 configure({ throwTypeErrors: true })
-console.log('done')
+let threw = false
+try { numA('nope') } catch { threw = true }
+console.log('threw:', threw)
 `
       )
-      expect(out).toContain('done')
-      expect(out).toContain('configure() was called after a converted module')
+      expect(out).toContain('threw: true')
+      expect(out).not.toContain('configure() was called after')
     })
   }
 
-  it('does NOT warn when configure() precedes every module capture', () => {
-    // The other direction: a warning that fires unconditionally is noise, and would train
-    // people to ignore the one case that matters.
+  it('without configure(), a refusal is returned, not thrown (the other direction)', () => {
     const out = node(
-      'early-cfg.mjs',
-      `import { installRuntime, configure } from './rt.mjs'
+      'no-cfg.mjs',
+      `import { installRuntime } from './rt.mjs'
 installRuntime()
-configure({ throwTypeErrors: true })
-await import('./libA.mjs')
-console.log('done')
+const { numA } = await import('./libA.mjs')
+console.log('returned:', numA('nope')?.name === 'MonadicError')
 `
     )
-    expect(out).toContain('done')
-    expect(out).not.toContain('configure() was called after')
+    expect(out).toContain('returned: true')
   })
 })
