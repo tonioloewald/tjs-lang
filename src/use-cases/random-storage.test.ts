@@ -2,12 +2,15 @@ import { describe, it, expect, mock } from 'bun:test'
 import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
+import { systemRandom } from '../vm/system-sources'
 
 describe('Use Case: Random ID Storage', () => {
   const VM = new AgentVM()
   // Shared store for persisting data between agent runs
   const db = new Map<string, any>()
   const caps = {
+    // the random and uuid atoms read the granted random source (#4091)
+    random: systemRandom,
     store: {
       get: mock(async (key) => db.get(key)),
       set: mock(async (key, value) => {
@@ -66,7 +69,7 @@ describe('Use Case: Random ID Storage', () => {
       .as('uuid')
       .return(s.object({ uuid: s.string }))
 
-    const res = await VM.run(uuidAgent.toJSON(), {})
+    const res = await VM.run(uuidAgent.toJSON(), {}, { capabilities: caps })
     expect(res.result.uuid).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     )
@@ -81,7 +84,9 @@ describe('Use Case: Random ID Storage', () => {
     const ast = genAgent.toJSON()
     const count = 50
     const results = await Promise.all(
-      Array.from({ length: count }, () => VM.run(ast, {}))
+      Array.from({ length: count }, () =>
+        VM.run(ast, {}, { capabilities: caps })
+      )
     )
 
     const values = results.map((r) => r.result.val)

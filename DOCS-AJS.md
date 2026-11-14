@@ -1,4 +1,4 @@
-<!--{"section": "ajs", "group": "docs", "order": 1, "navTitle": "The Language", "parent": "ajs.md"}-->
+<!--{"section": "ajs", "group": "docs", "order": 20, "navTitle": "The Language", "parent": "ajs.md"}-->
 <!-- TODO review -->
 
 # The AJS Language
@@ -327,7 +327,7 @@ The atoms an author reaches for most:
 | `storeGet({ key })`                                            | the stored value, or `undefined`                                                         |
 | `storeSet({ key, value })`                                     | nothing                                                                                  |
 | `agentRun({ agentId, input })`                                 | the other agent's result object                                                          |
-| `random()`, `uuid()`                                           | a number from 0 up to 1; a UUID string                                                   |
+| `random()`, `uuid()`                                           | a number from 0 up to 1; a UUID string (from the host's random source)                   |
 | `hash({ value, algorithm? })`                                  | a hex digest string, SHA-256 unless `algorithm` says otherwise                           |
 
 `httpFetch` goes through the host's `fetch` capability, `llmPredict` through its model, and the
@@ -647,7 +647,8 @@ Expressions have these builtin namespaces and constructors. All are called, neve
 
 ### Math
 
-All of JavaScript's `Math`, including `Math.PI`:
+All of JavaScript's `Math`, including `Math.PI`. `Math.random()` reads the random source the host
+grants (see [Time and randomness](#time-and-randomness)):
 
 ```ajs
 function maths() {
@@ -720,9 +721,20 @@ function sets() {
 
 Sets also have `clear()` and `toArray()`.
 
+### Time and randomness
+
+An agent has no clock and no random number generator of its own. `Date()` with no argument,
+`Date.now()`, `Math.random()`, and the `random` and `uuid` atoms read two capabilities the host
+grants: `clock` (`now()`, milliseconds since the epoch) and `random` (`next()`, a number from 0
+up to 1). Without them, those calls are refused, as `httpFetch` is without a fetch. `Eval`,
+`SafeFunction`, the batteries and this site grant the real ones (`systemClock`, `systemRandom`);
+a host can grant a fixed clock or a seeded source to replay a run, or withhold either. `Date(x)`
+with an argument and date arithmetic need neither. See
+[The Sandbox](/ajs-sandbox/#time-and-randomness-are-capabilities).
+
 ### Date
 
-`Date(x)` (or `Date()` for now) makes a date. `x` is an ISO string, a number of milliseconds,
+`Date(x)` (or `Date()` for now, read from the host's clock) makes a date. `x` is an ISO string, a number of milliseconds,
 another date, or a **stored** date: an object with a numeric `timestamp`, which is what a date
 becomes after JSON, a store or a capability. `Date(stored)` turns it back into a date; until you
 do, it is a plain object without date methods. `Date.parse(text)` is the same as `Date(text)`.

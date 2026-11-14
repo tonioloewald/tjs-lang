@@ -15,7 +15,7 @@ import { parseAgentSource } from './parser-agent'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
 import { parse as parseJS } from 'acorn'
 import { maskLiterals } from '../strip-comments'
-import { builtins } from '../vm/runtime'
+import { builtins, systemClock, systemRandom } from '../vm/runtime'
 import { BUILTIN_GLOBALS, BUILTIN_OBJECTS } from './emitters/ast'
 
 // This entry exists to execute SOURCE, so it must supply the transpiler the VM no longer
@@ -62,6 +62,16 @@ function wrapReturnValues(node: any): void {
  * `loop` (a for...of body, whose `return` IS the snippet's). */
 const CALLBACK_OPS = new Set(['map', 'reduce', 'memoize', 'cache'])
 
+/**
+ * Eval and SafeFunction grant the real clock and random source unless the caller says
+ * otherwise (#4091): they are the convenience doors, and `Date.now()` in eval'd code is
+ * expected to work. A caller's own `clock`/`random` wins, and passing `undefined` for one
+ * withholds it (the key is present, so the default does not fill it in).
+ */
+function withSystemSources(capabilities: SafeCapabilities): SafeCapabilities {
+  return { clock: systemClock, random: systemRandom, ...capabilities }
+}
+
 /** Capabilities that can be injected into SafeFunction/Eval */
 export interface SafeCapabilities {
   /**
@@ -87,6 +97,16 @@ export interface SafeCapabilities {
   fetch?: (url: string, init?: Record<string, unknown>) => Promise<unknown>
   /** Console for logging */
   console?: Pick<typeof console, 'log' | 'warn' | 'error'>
+  /**
+   * The clock guest `Date.now()` and `Date()` read (#4091). Granted by default as the real
+   * one (`systemClock`); pass your own to control time, or `undefined` to withhold it.
+   */
+  clock?: { now: () => number }
+  /**
+   * The random source guest `Math.random()`, `random` and `uuid` read (#4091). Granted by
+   * default as `systemRandom`; pass a seeded one to replay a run, or `undefined` to withhold it.
+   */
+  random?: { next: () => number }
   /** Additional capabilities to expose */
   [key: string]: unknown
 }
@@ -337,7 +357,7 @@ export async function Eval(options: EvalOptions): Promise<{
     const vmResult = await vm.run(ast, args, {
       fuel,
       timeoutMs,
-      capabilities,
+      capabilities: withSystemSources(capabilities),
       argsMaxBytes,
       context: fetchContext(fetchPolicy),
     })
@@ -434,7 +454,7 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
       const vmResult = await vm.run(ast, context, {
         fuel,
         timeoutMs,
-        capabilities,
+        capabilities: withSystemSources(capabilities),
         argsMaxBytes,
         context: fetchContext(fetchPolicy),
       })

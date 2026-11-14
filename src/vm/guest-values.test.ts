@@ -13,6 +13,7 @@ import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { defineAtom } from './runtime'
 import { s } from 'tosijs-schema'
+import { systemClock, systemRandom } from './system-sources'
 
 /** Run AJS source; return the refusal message, or the result. */
 async function attempt(src: string, vm = new AgentVM(), opts: any = {}) {
@@ -593,7 +594,9 @@ describe('round 14: one reading of every member and call shape (eighteenth re-re
 describe('round 15: one definition per rule, and the empty case (nineteenth re-review)', () => {
   it('a zero-argument call to an atom with all-optional named inputs runs (random())', async () => {
     const r = await attempt(
-      'function f() { const r = random()\n return { ok: typeof r == "number" } }'
+      'function f() { const r = random()\n return { ok: typeof r == "number" } }',
+      new AgentVM(),
+      { capabilities: { clock: systemClock, random: systemRandom } } // random() reads it (#4091)
     )
     expect((r as any).result).toEqual({ ok: true })
   })

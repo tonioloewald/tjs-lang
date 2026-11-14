@@ -1,4 +1,4 @@
-/*{"parent": "ajs.md", "order": 9}*/
+/*{"parent": "ajs.md", "order": 9, "book": ["default"]}*/
 import {
   checkedCost,
   timerMs,
@@ -207,8 +207,96 @@ export interface Capabilities {
     /** Transpile AsyncJS source to AST */
     transpile: (source: string) => { op: string; steps: any[] }
   }
+  /**
+   * The wall clock (#4091). Guest `Date.now()` and `Date()` with no argument read it, and
+   * without it they are refused: time is something a host grants, like `fetch`. A game host
+   * injects a fixed-timestep clock; a replay injects the recorded one. `now()` returns ms since
+   * the epoch, synchronously. `systemClock` is the real one.
+   */
+  clock?: { now: () => number }
+  /**
+   * The random source (#4091). Guest `Math.random()` and the `random` and `uuid` atoms read
+   * it, and without it they are refused. `next()` returns a number in [0, 1), synchronously.
+   * `systemRandom` is the real one (crypto-backed); a seeded source makes a run replayable.
+   */
+  random?: { next: () => number }
   [key: string]: any
 }
+
+export { systemClock, systemRandom } from './system-sources'
+
+/**
+ * Read a host source a guest asked for: `capabilities[key][method]()`, called synchronously,
+ * its result checked by `valid`. Absent, not callable, asynchronous or out of range is refused
+ * with the remedy, never replaced by the host's own clock or RNG: that substitution is the
+ * ambient authority #4091 removed.
+ */
+function readSource(
+  ctx: RuntimeContext,
+  key: 'clock' | 'random',
+  method: 'now' | 'next',
+  valid: (v: number) => boolean,
+  what: string,
+  op: string
+): number {
+  const remedy = `${what} needs the '${key}' capability: the host passes capabilities: { ${key} } (${
+    key === 'clock' ? 'systemClock' : 'systemRandom'
+  } for the real one)`
+  const caps = ctx.capabilities
+  const source =
+    caps && Object.prototype.hasOwnProperty.call(caps, key)
+      ? (caps as any)[key]
+      : undefined
+  if (source === undefined || source === null) throw new AgentError(remedy, op)
+  const fn =
+    typeof source === 'object' && typeof source[method] === 'function'
+      ? source[method]
+      : undefined
+  if (!fn)
+    throw new AgentError(
+      `capabilities.${key} must be an object with a ${method}() method`,
+      op
+    )
+  const v = fn.call(source)
+  if (typeof v !== 'number' || !valid(v))
+    throw new AgentError(
+      `capabilities.${key}.${method}() returned ${
+        v && typeof (v as any).then === 'function'
+          ? 'a Promise (it must answer synchronously)'
+          : typeof v === 'number'
+          ? String(v)
+          : `a ${typeof v}`
+      }; expected ${
+        key === 'clock'
+          ? 'a finite number of ms within the Date range'
+          : 'a number in [0, 1)'
+      }`,
+      op
+    )
+  return v
+}
+
+/** The guest's `Date.now()`: the injected clock (#4091). */
+export const guestNow = (ctx: RuntimeContext, op: string): number =>
+  readSource(
+    ctx,
+    'clock',
+    'now',
+    (v) => Number.isFinite(v) && Math.abs(v) <= 8.64e15,
+    op === 'Date()' ? 'Date() with no argument' : 'Date.now()',
+    op
+  )
+
+/** The guest's `Math.random()`: the injected random source (#4091). */
+export const guestRandom = (ctx: RuntimeContext, op: string): number =>
+  readSource(
+    ctx,
+    'random',
+    'next',
+    (v) => v >= 0 && v < 1,
+    op === 'Math.random' ? 'Math.random()' : `the ${op} atom`,
+    op
+  )
 
 export interface TraceEvent {
   op: string
@@ -2209,14 +2297,11 @@ export const builtins: Record<string, any> = Object.assign(
       imul: Math.imul,
       fround: Math.fround,
 
-      // Random - use crypto when available
+      // Never called: a guest `Math.random()` reads `capabilities.random` (`guestRandom`, in
+      // `methodCall`), because randomness is granted, not ambient (#4091). Kept as an entry so
+      // the method table admits the call, and refusing so no other route reaches the host RNG.
       random: () => {
-        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-          const arr = new Uint32Array(1)
-          crypto.getRandomValues(arr)
-          return arr[0] / (0xffffffff + 1)
-        }
-        return Math.random()
+        throw new Error("Math.random() needs the 'random' capability")
       },
     }),
 
@@ -2359,10 +2444,15 @@ export const builtins: Record<string, any> = Object.assign(
     // a guest Date is DATA: a frozen object of fields the VM recognises (see `makeGuestDate`).
     // Also supports Date.now() / Date.parse() for compatibility.
     Date: (() => {
+      // `Date()` with no argument reads `capabilities.clock` (`guestNow`, at the call site),
+      // because the time is granted, not ambient (#4091). Reaching here without an argument
+      // (`Date(undefined)`) is refused rather than read from the host's clock.
       const DateFactory = (init?: unknown) => {
-        const date = new globalThis.Date(
-          init === undefined ? globalThis.Date.now() : timestampOf(init)
-        )
+        if (init === undefined)
+          throw new Error(
+            "Date() with no argument needs the 'clock' capability; pass a date to Date(x)"
+          )
+        const date = new globalThis.Date(timestampOf(init))
         if (isNaN(date.getTime()))
           throw new Error(
             typeof init === 'string'
@@ -2371,7 +2461,9 @@ export const builtins: Record<string, any> = Object.assign(
           )
         return makeGuestDate(date)
       }
-      DateFactory.now = () => globalThis.Date.now()
+      DateFactory.now = () => {
+        throw new Error("Date.now() needs the 'clock' capability")
+      }
       DateFactory.parse = (str: unknown) => DateFactory(str)
       return DateFactory
     })(),
@@ -3445,6 +3537,22 @@ export const methodBudgets = {
  * Call a guest-callable method through the gate: the one way a data ATOM performs the operation
  * its method twin performs, so the two cannot drift (docs/vm-budgets.md).
  */
+/**
+ * `Math.random()` and `Date.now()` read what the host granted (#4091), on every route a method
+ * call takes (`methodCall` and `guestCall`). Undefined for any other call.
+ */
+function grantedSource(
+  ctx: RuntimeContext,
+  receiver: unknown,
+  method: string
+): number | undefined {
+  if (method === 'random' && receiver === builtins.Math)
+    return guestRandom(ctx, 'Math.random')
+  if (method === 'now' && receiver === builtins.Date)
+    return guestNow(ctx, 'Date.now')
+  return undefined
+}
+
 function guestCall(
   ctx: RuntimeContext,
   receiver: any,
@@ -3455,6 +3563,8 @@ function guestCall(
   const bound = methodGate(receiver, method, args, ctx)
   if (bound === 'vm') return vmMethod(ctx, receiver, method, args)
   allocate(ctx, bound, op)
+  const granted = grantedSource(ctx, receiver, method)
+  if (granted !== undefined) return granted
   const fn = intrinsicMethod(receiver, method)
   if (typeof fn !== 'function')
     throw new AgentError(`'${method}' is not a method of this value`, op)
@@ -4885,6 +4995,8 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
             (sig.bound as AllocBound)(undefined, args, ctx),
             `expr.${node.callee}`
           ) // I1
+          if (node.callee === 'Date' && args.length === 0)
+            return builtins.Date(guestNow(ctx, 'Date()'))
           return fn(...args)
         }
       }
@@ -4944,6 +5056,8 @@ function evaluateCallable(node: ExprNode, ctx: RuntimeContext): any {
       if (typeof fn !== 'function')
         throw new Error(`'${method}' is not a function`)
       allocate(ctx, bound, `expr.${method}`)
+      const granted = grantedSource(ctx, obj, method)
+      if (granted !== undefined) return granted
       // An in-place insertion is checked and charged BEFORE it happens — one walk over what is
       // INSERTED (never an Object.assign target, which is already guest state): a refusal after
       // the mutation left the value inside a structure a guest `catch` could reach, and a second,
@@ -8215,7 +8329,7 @@ export const cache = defineAtom(
       // Standard KV doesn't enforce TTL usually unless Redis.
       // We implement soft TTL logic wrapper here.
       if (typeof cached === 'object' && cached._exp) {
-        if (Date.now() < cached._exp) return cached.val
+        if (cacheNow(ctx) < cached._exp) return cached.val
         // Expired
       } else {
         // No expiry metadata, assume valid if exists (or legacy data)
@@ -8247,7 +8361,7 @@ export const cache = defineAtom(
     if (ctx.error) return undefined
 
     // Store with TTL
-    const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000)
+    const expiry = cacheNow(ctx) + (ttlMs ?? 24 * 3600 * 1000)
 
     if ((ctx.fuel.current -= 5) <= 0) throw new Error('Out of Fuel')
     // Through the outbound membrane: the store receives a copy, paid for (`egressValue`).
@@ -8260,6 +8374,18 @@ export const cache = defineAtom(
   },
   { docs: 'Cache steps result in store with TTL', cost: 5 }
 )
+
+/**
+ * The time a cache entry is judged by. An entry's expiry is the HOST's store policy, not a value
+ * the guest reads, so without a granted clock it is the host's own; with one it is the granted
+ * clock, so a replayed or simulated run sees the same hits and misses (#4091).
+ */
+const cacheNow = (ctx: RuntimeContext): number =>
+  ctx.capabilities &&
+  Object.prototype.hasOwnProperty.call(ctx.capabilities, 'clock') &&
+  ctx.capabilities.clock
+    ? guestNow(ctx, 'cache')
+    : Date.now()
 
 // 13. Utils
 export const random = defineAtom(
@@ -8277,32 +8403,16 @@ export const random = defineAtom(
     const mn = resolveValue(min, ctx) ?? 0
     const mx = resolveValue(max, ctx) ?? 1
 
+    // The host's random source, never the host's own RNG (#4091).
     if (f === 'base36') {
       const chars = '0123456789abcdefghijklmnopqrstuvwxyz'
       let result = ''
-      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-        const values = new Uint8Array(len)
-        crypto.getRandomValues(values)
-        for (let i = 0; i < len; i++) {
-          result += chars[values[i] % 36]
-        }
-      } else {
-        for (let i = 0; i < len; i++) {
-          result += chars.charAt(Math.floor(Math.random() * 36))
-        }
-      }
+      for (let i = 0; i < len; i++)
+        result += chars[Math.floor(guestRandom(ctx, 'random') * 36)]
       return result
     }
 
-    // Prefer cryptographically secure random when available
-    let val: number
-    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-      const arr = new Uint32Array(1)
-      crypto.getRandomValues(arr)
-      val = arr[0] / (0xffffffff + 1)
-    } else {
-      val = Math.random()
-    }
+    const val = guestRandom(ctx, 'random')
 
     const range = mx - mn
     const result = val * range + mn
@@ -8319,31 +8429,19 @@ export const uuid = defineAtom(
   'uuid',
   s.object({}),
   s.string,
-  async () => {
-    // Prefer crypto.randomUUID when available
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-      return crypto.randomUUID()
-    }
-    // Fallback using crypto.getRandomValues if available
-    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-      const bytes = new Uint8Array(16)
-      crypto.getRandomValues(bytes)
-      bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
-      bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 10
-      const hex = Array.from(bytes, (b) =>
-        b.toString(16).padStart(2, '0')
-      ).join('')
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(
-        12,
-        16
-      )}-${hex.slice(16, 20)}-${hex.slice(20)}`
-    }
-    // Last resort fallback (insecure, for legacy environments only)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0
-      const v = c === 'x' ? r : (r & 0x3) | 0x8
-      return v.toString(16)
-    })
+  async (_input, ctx) => {
+    // A version-4 UUID from the host's random source, never the host's own RNG (#4091), so an
+    // injected source makes it reproducible. Sixteen bytes, version and variant bits set.
+    const bytes = Array.from({ length: 16 }, () =>
+      Math.floor(guestRandom(ctx, 'uuid') * 256)
+    )
+    bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 10
+    const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(
+      12,
+      16
+    )}-${hex.slice(16, 20)}-${hex.slice(20)}`
   },
   { docs: 'Generate UUID', cost: 1 }
 )

@@ -16,7 +16,7 @@ import 'tosijs-ui/bodymovin-player'
 import { registerDialect } from 'tosijs-ui/live-example'
 import { transpile } from '../src/lang/core'
 import { installRuntime } from '../src/lang/runtime'
-import { AgentVM } from '../src/vm/ast'
+import { AgentVM, systemClock, systemRandom } from '../src/vm/ast'
 
 /**
  * Keep a <tosi-lottie>'s child image as its PLACEHOLDER until the animation has drawn.
@@ -133,6 +133,8 @@ registerDialect('ajs', {
     const run = await vm.run(ast, args as Record<string, unknown>, {
       fuel,
       signal,
+      // The time and randomness are granted, not ambient (#4091); a doc page grants the real ones.
+      capabilities: { clock: systemClock, random: systemRandom },
       context: { allowedFetchDomains: ALLOWED_FETCH_DOMAINS },
     })
     if (run.error) {

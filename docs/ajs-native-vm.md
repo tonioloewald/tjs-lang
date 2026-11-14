@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 6}-->
+<!--{"parent": "ajs.md", "order": 6, "book": ["default"]}-->
 <!-- TODO review -->
 
 # AJS Native VM (Rust → wasm): the planned 1.0 VM
@@ -184,6 +184,7 @@ These are the only things the initial release must do to keep this option open. 
 | 4   | Accumulate golden fixtures                       | Started (0.14.0) |
 | 5   | Do not promise that a variable may change type   | Open             |
 | 6   | Refuse JS constructs that cost the VM complexity | Open             |
+| 7   | No ambient time or randomness                    | Done (0.14.0)    |
 
 ### 1. Do not document JS builtin behaviour as AJS behaviour
 
@@ -238,6 +239,16 @@ VM must implement is conformance surface for the native one: `for…in`/`in` (pr
 `var`/hoisting/`arguments`, accessors and `__proto__` in literals, sparse arrays, `delete`, the
 comma operator, labels, `switch` fallthrough. The transpiler, which can see the construct, would
 refuse each with an error naming what to write instead. (Card #2789.)
+
+### 7. No ambient time or randomness
+
+The guest reads the clock and the random source only through capabilities the host grants:
+`capabilities.clock` (`now()`) and `capabilities.random` (`next()`), behind `Date.now()`,
+`Date()` with no argument, `Math.random()`, `random` and `uuid` (#4091, 0.14.0). The first
+native host, a 3D engine (native tosi-3d), needs to inject its own simulation clock, and a VM
+that read the host's clock directly would make that impossible. Deciding this before the native
+VM exists keeps the two VMs one contract: neither has ambient time, and a run with a recorded
+clock and a seeded source replays exactly on either.
 
 ## Phases
 

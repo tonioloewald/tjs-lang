@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { ajs, AgentVM } from '..'
+import { systemClock, systemRandom } from '../vm/system-sources'
 
 describe('Builtins', () => {
   const vm = new AgentVM()
@@ -34,7 +35,12 @@ describe('Builtins', () => {
         return { a, b, different: a !== b }
       }
     `)
-    const result = await vm.run(ast, {})
+    // Math.random() reads the granted random source (#4091)
+    const result = await vm.run(
+      ast,
+      {},
+      { capabilities: { clock: systemClock, random: systemRandom } }
+    )
     expect(result.error).toBeUndefined()
     expect(result.result.a).toBeGreaterThanOrEqual(0)
     expect(result.result.a).toBeLessThan(1)
@@ -297,7 +303,12 @@ describe('Builtins', () => {
         return { now, isNumber: typeof now === 'number' }
       }
     `)
-    const result = await vm.run(ast, {})
+    // Date.now() reads the granted clock (#4091)
+    const result = await vm.run(
+      ast,
+      {},
+      { capabilities: { clock: systemClock, random: systemRandom } }
+    )
     expect(result.error).toBeUndefined()
     expect(result.result.isNumber).toBe(true)
     expect(result.result.now).toBeGreaterThan(1700000000000)

@@ -1,6 +1,7 @@
 import { getStoreCapability as getStoreCapabilityDefault } from './store'
 import { getLLMCapability } from './llm'
 import { LocalModels } from './models'
+import { systemClock, systemRandom } from '../vm/system-sources'
 
 // Check if we're in a browser on HTTPS (can't connect to local HTTP endpoints)
 const isBrowser = typeof window !== 'undefined'
@@ -38,6 +39,9 @@ async function ensureInitialized() {
 export async function getBatteries() {
   const { localModels, llm } = await ensureInitialized()
   return {
+    // zero-config local development grants the real clock and random source (#4091)
+    clock: systemClock,
+    random: systemRandom,
     vector: llm ? { embed: llm.embed } : undefined,
     store: getStoreCapabilityDefault(),
     llmBattery: llm,
@@ -54,6 +58,8 @@ export { LocalModels, getLLMCapability, getStoreCapabilityDefault }
 
 // Synchronous batteries object for tests and simple use cases
 export const batteries = {
+  clock: systemClock,
+  random: systemRandom,
   store: getStoreCapabilityDefault(),
   llmBattery: null as ReturnType<typeof getLLMCapability> | null,
   vector: undefined as

@@ -3,6 +3,7 @@ import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 import { ajs } from '../transpiler'
+import { systemClock, systemRandom } from '../vm/system-sources'
 
 describe('Simple Examples', () => {
   const VM = new AgentVM()
@@ -299,7 +300,12 @@ describe('Simple Examples', () => {
           hash: s.string,
         })
       )
-    const result = await VM.run(logic.toJSON(), {})
+    // random and uuid read the granted random source (#4091)
+    const result = await VM.run(
+      logic.toJSON(),
+      {},
+      { capabilities: { clock: systemClock, random: systemRandom } }
+    )
     expect(typeof result.result.randomNumber).toBe('number')
     expect(result.result.randomNumber).toBeGreaterThanOrEqual(0)
     expect(result.result.randomNumber).toBeLessThanOrEqual(1)

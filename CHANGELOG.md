@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **BREAKING (AJS): the clock and the random source are capabilities** (#4091). Guest code read
+  the host's clock (`Date.now()`, `Date()` with no argument) and random source (`Math.random()`,
+  the `random` and `uuid` atoms) with no capability: ambient authority in a capability VM. An
+  agent could time things (a timing channel the host never granted), a run could not be replayed,
+  and a host could not run a fixed-timestep or lockstep simulation. They now read
+  `capabilities.clock` (`{ now() }`, ms since the epoch) and `capabilities.random`
+  (`{ next() }`, a number in [0, 1)), both synchronous and checked, and are refused without
+  them, as `httpFetch` is without a fetch. `Date(x)` with an argument and date arithmetic need
+  neither. **What to do:** a host that ran agents using the time or random numbers passes
+  `capabilities: { clock: systemClock, random: systemRandom }` (both exported by `tjs-lang/vm`,
+  `tjs-lang/vm-ast` and the main entry), or its own. `Eval`, `SafeFunction` and the batteries
+  grant those two by default, and passing `clock: undefined` withholds one. A `cache` entry's
+  expiry uses the granted clock when there is one. Asked for by a native 3D engine that embeds
+  the VM; also a constraint on the planned native VM, so both share one contract.
+
 - **AJS: a custom atom tagged `pure` can only return guest data** (#3991). `pure` skips the
   capability membrane, which is right for core atoms (they work on data already inside the VM)
   but let a HOST atom tagged `pure` put a live `Map`, class instance or getter-bearing object

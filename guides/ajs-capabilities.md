@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 6}-->
+<!--{"parent": "embedding-the-vm.md", "order": 2}-->
 <!-- TODO review -->
 
 # Capabilities and Custom Atoms
@@ -96,6 +96,8 @@ atoms. In the table, `data` means plain data, as defined in
 | `agent`      | `{ run(agentId, input) => Promise<data> }`                  | `agentRun`, for an `agentId` that is neither an AST nor a stored procedure token                            | `agentRun` with such an id fails: `Capability 'agent.run' missing`                       |
 | `code`       | `{ transpile(source) => ast }`                              | `runCode`, `transpileCode`                                                                                  | Both fail: `Capability 'code.transpile' missing. …`                                      |
 | `xml`        | `{ parse(xml) => Promise<data> }`                           | `xmlParse`                                                                                                  | `xmlParse` fails: `Capability 'xml.parse' missing`                                       |
+| `clock`      | `{ now() => number }`, synchronous                          | `Date.now()`, `Date()` with no argument                                                                     | Those calls fail: `Date.now() needs the 'clock' capability: …`                           |
+| `random`     | `{ next() => number }`, synchronous, in [0, 1)              | `Math.random()`, `random`, `uuid`                                                                           | Those calls fail: `Math.random() needs the 'random' capability: …`                       |
 | `llmBattery` | `{ predict(system, user, tools?, responseFormat?), embed }` | `llmPredictBattery`, `llmVision` (battery atoms)                                                            | Those atoms fail                                                                         |
 | `vector`     | `{ embed(text) => Promise<number[]> }`                      | `storeVectorize` (battery atom)                                                                             | `storeVectorize` fails                                                                   |
 
@@ -266,6 +268,35 @@ may hold at once) and its capabilities, but sees only the `args` it is given.
 
 `xmlParse({ str })` calls `xml.parse(str)` with the agent's string and returns what it resolves
 to, under the same rules as every other capability: plain data only, through the boundary.
+
+### clock and random
+
+An agent has no clock and no random number generator of its own: time and randomness are
+granted, like everything else. `clock.now()` returns milliseconds since the epoch and
+`random.next()` a number from 0 up to 1. Both are called synchronously, from inside an
+expression, so they must return a number, not a Promise; what they return is checked, and a
+string, `NaN`, a Promise or a value out of range is refused.
+
+```javascript
+import { AgentVM, systemClock, systemRandom } from 'tjs-lang/vm-ast'
+
+// the real ones
+await vm.run(ast, args, { capabilities: { clock: systemClock, random: systemRandom } })
+
+// a simulation clock that the host advances, and a seeded random source
+let tick = 0
+const clock = { now: () => tick * 16 } // 16 ms per frame
+let seed = 42
+const random = { next: () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646 }
+await vm.run(ast, args, { capabilities: { clock, random } })
+```
+
+Withholding them is the default: a run with neither cannot read the time or draw a random
+number, so it cannot time anything and its result depends only on its inputs. `Eval`,
+`SafeFunction` and the batteries grant `systemClock` and `systemRandom` unless you pass your own
+(or `clock: undefined` to withhold one). A `cache` entry's expiry uses the granted clock when
+there is one, so a replay sees the same hits and misses. Why this is a capability, and what it
+protects against, is in [The Sandbox](/ajs-sandbox/#time-and-randomness-are-capabilities).
 
 ### llmBattery and vector (the batteries)
 

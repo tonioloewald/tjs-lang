@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 7}-->
+<!--{"parent": "ajs.md", "order": 21}-->
 <!-- TODO review -->
 
 # Atom Reference
@@ -656,14 +656,16 @@ let released = releaseProcedure({ token }) // true
 | -------- | ------------------------------ | ------- | ---- | ------- | ------- | ------------------------ | -------- |
 | `memoize` | `key, steps`                  | any     | 1    | 1 s     | io      | —                        | builder  |
 | `cache`   | `key, steps, ttlMs?`          | any     | 5    | 1 s     | io      | `store.get`, `store.set` (default store if none) | builder  |
-| `random`  | `min?, max?, format?, length?` | any    | 1    | 1 s     | io      | —                        | call     |
-| `uuid`    | none                          | string  | 1    | 1 s     | io      | —                        | call     |
+| `random`  | `min?, max?, format?, length?` | any    | 1    | 1 s     | io      | `random.next`            | call     |
+| `uuid`    | none                          | string  | 1    | 1 s     | io      | `random.next`            | call     |
 | `hash`    | `value, algorithm?`           | string  | 1    | 1 s     | pure    | —                        | call     |
 
 `random()` returns a float in `[min, max)`, from 0 to 1 by default. `format: 'integer'` rounds it
 down, and `format: 'base36'` returns a random string of `length` characters (default 10)
-instead. `uuid()` returns a version 4 UUID. Both use the platform's secure random source when it
-has one.
+instead. `uuid()` returns a version 4 UUID. Both read the random source the host grants,
+`capabilities.random`, whose `next()` returns a number from 0 up to 1, and are refused without
+one. `systemRandom` (exported by the VM) is the real, crypto-backed source; a seeded one makes a
+run replayable. `Eval`, `SafeFunction` and the batteries grant `systemRandom` by default.
 
 `hash({ value })` returns a hex digest, SHA-256 unless `algorithm` names another one the platform
 supports (`'SHA-1'`, `'SHA-384'`, `'SHA-512'`). A value that is not a string is hashed as its

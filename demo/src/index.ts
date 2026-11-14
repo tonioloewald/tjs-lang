@@ -82,6 +82,9 @@ const demoRuntime = {
     return vm.run(ast, args, {
       ...options,
       capabilities: {
+        // time and randomness are granted, not ambient (#4091)
+        clock: agent.systemClock,
+        random: agent.systemRandom,
         ...options.capabilities,
         llm: caps.llm,
       },

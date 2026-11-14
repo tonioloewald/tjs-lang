@@ -20,6 +20,7 @@ import { defineAtom } from './runtime'
 import { AgentVM as FullVM } from './index'
 import { createAgent } from '../lang/core'
 import * as langIndex from '../lang/index'
+import { systemClock, systemRandom } from './system-sources'
 
 const greet = defineAtom(
   'greet',
@@ -73,7 +74,14 @@ for (const [label, VM] of [
 ] as const)
   describe(`${label}: atoms take named arguments`, () => {
     const run = (ast: unknown) =>
-      new (VM as any)(atoms).run(ast, {}, { fuel: 1000 })
+      new (VM as any)(atoms).run(
+        ast,
+        {},
+        {
+          fuel: 1000,
+          capabilities: { clock: systemClock, random: systemRandom }, // random() reads it (#4091)
+        }
+      )
 
     for (const [cell, call, want] of RUNS)
       it(`runs: ${cell}`, async () => {

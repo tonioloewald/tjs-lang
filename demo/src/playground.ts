@@ -33,6 +33,8 @@ import {
   type TranspileResult,
   coreAtoms,
   batteryAtoms,
+  systemClock,
+  systemRandom,
 } from '../../src'
 import { getStoreCapabilityDefault } from '../../src/batteries'
 import {
@@ -894,6 +896,9 @@ export class Playground extends Component<PlaygroundParts> {
         trace: true,
         fuel: 10000,
         capabilities: {
+          // time and randomness are granted, not ambient (#4091)
+          clock: systemClock,
+          random: systemRandom,
           fetch: async (url: string, options?: any) => {
             const response = await fetch(url, options)
 

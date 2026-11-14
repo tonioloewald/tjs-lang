@@ -17,6 +17,9 @@ import { join } from 'path'
 import { transpile } from '../lang/core'
 import { AgentVM } from './vm'
 import { astVersionOf } from './ast-version'
+import { systemClock, systemRandom } from './system-sources'
+
+const GRANTED = { clock: systemClock, random: systemRandom }
 
 const DIR = join(import.meta.dir, 'ast-fixtures')
 const load = (f: string) => JSON.parse(readFileSync(join(DIR, f), 'utf8'))
@@ -40,7 +43,10 @@ describe('v2 fixtures: the emitter writes exactly this, and it means exactly thi
       expect(astVersionOf(f.ast)).toBe(2)
     })
     it(`${f.name}: runs to the recorded result`, async () => {
-      const r = await new AgentVM().run(f.ast, f.args)
+      // fixtures that read the clock or random source are granted the real ones (#4091)
+      const r = await new AgentVM().run(f.ast, f.args, {
+        capabilities: GRANTED,
+      })
       expect(r.error ? { error: r.error.message } : r.result).toEqual(f.result)
     })
   }
@@ -50,7 +56,10 @@ describe('v1 fixtures: stored v1 ASTs keep their meaning', () => {
   for (const f of load('v1.json'))
     it(`${f.name}`, async () => {
       expect(astVersionOf(f.ast)).toBe(1)
-      const r = await new AgentVM().run(f.ast, f.args)
+      // fixtures that read the clock or random source are granted the real ones (#4091)
+      const r = await new AgentVM().run(f.ast, f.args, {
+        capabilities: GRANTED,
+      })
       expect(r.error ? { error: r.error.message } : r.result).toEqual(f.result)
     })
 })

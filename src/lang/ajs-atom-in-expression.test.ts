@@ -12,6 +12,7 @@ import { s } from 'tosijs-schema'
 import { transpile } from './core'
 import { AgentVM } from '../vm/ast'
 import { defineAtom } from '../vm/runtime'
+import { systemClock, systemRandom } from '../vm/system-sources'
 
 describe('an atom inside an expression', () => {
   it('a core atom is refused, with the remedy', () => {
@@ -40,7 +41,15 @@ describe('an atom inside an expression', () => {
   const id = uuid({})
   return { ok: typeof id == 'string' }
 }`)
-    const r = await new AgentVM().run(ast, {}, { fuel: 100 })
+    // uuid reads the granted random source (#4091)
+    const r = await new AgentVM().run(
+      ast,
+      {},
+      {
+        fuel: 100,
+        capabilities: { clock: systemClock, random: systemRandom },
+      }
+    )
     expect(r.error).toBeUndefined()
     expect(r.result).toEqual({ ok: true })
   })

@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from 'bun:test'
 import { AgentVM } from '../vm'
 import { defineAtom } from '../vm/runtime'
 import { ajs, transpile, createAgent, getToolDefinitions } from '../transpiler'
+import { systemClock, systemRandom } from '../vm/system-sources'
 
 describe('Transpiler Integration', () => {
   describe('End-to-end execution', () => {
@@ -875,7 +876,12 @@ describe('Transpiler Integration', () => {
       `)
 
       const vm = new AgentVM()
-      const result = await vm.run(ast, {})
+      // Date() with no argument reads the granted clock (#4091)
+      const result = await vm.run(
+        ast,
+        {},
+        { capabilities: { clock: systemClock, random: systemRandom } }
+      )
 
       expect(result.result.hasValue).toBe(true)
       expect(result.result.hasTimestamp).toBe(true)
