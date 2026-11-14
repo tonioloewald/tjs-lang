@@ -927,6 +927,17 @@ export function membraneValue(
       const proto = admitted.proto
       const own = readOwnData(v, bytes, maxBytes)
       if (!own.ok) return own
+      // An own `__proto__` key is valid JSON (JSON.parse makes one), and a host that merges the
+      // value naively (`Object.assign({}, v)`) has its target's prototype replaced. No guest object
+      // may hold one (`setGuestKey`), so none crosses either way (#4099). JSON can express it, so
+      // inbound it is the world's doing: 'limit', catchable. Outbound, every refusal ends the run.
+      if (own.entries.some(([key]) => key === '__proto__'))
+        return {
+          ok: false,
+          kind: 'limit',
+          walked: bytes,
+          reason: `capability return contains an object with an own '__proto__' key, which would replace the prototype of anything it is merged into`,
+        }
       bytes += own.bytes
       if (bytes > maxBytes) return overBudget(maxBytes, bytes)
       // An object copy is built on its REAL prototype and written with `defineProperty` (an own
@@ -1656,15 +1667,19 @@ function diffObjects(
  * (`constructor`/`prototype` as KEYS are ordinary own properties — counted, and readable only
  * through the member guards — so data that uses them, e.g. model JSON, still works.)
  */
+/** The one refusal for an own `__proto__` key in a guest object, wherever it would be made. */
+function refuseProtoKey(): never {
+  throw new Error(
+    "Security Error: '__proto__' is not allowed as an object key (it would replace the object's prototype)"
+  )
+}
+
 export function setGuestKey(
   obj: Record<string, any>,
   key: string,
   value: unknown
 ): void {
-  if (key === '__proto__')
-    throw new Error(
-      "Security Error: '__proto__' is not allowed as an object key (it would replace the object's prototype)"
-    )
+  if (key === '__proto__') refuseProtoKey()
   obj[key] = value
 }
 
@@ -2307,7 +2322,13 @@ export const builtins: Record<string, any> = Object.assign(
 
     // JSON - parse and stringify
     JSON: createBuiltinProxy('JSON', {
-      parse: (text: string) => JSON.parse(text),
+      // No guest object holds an own `__proto__` key (`setGuestKey`); JSON.parse would make one
+      // from text the guest chose, so it is refused here, as `{ ...a }` refuses it (#4099).
+      parse: (text: string) =>
+        JSON.parse(text, (key, value) => {
+          if (key === '__proto__') refuseProtoKey()
+          return value
+        }),
       // No special cases: a guest value (a Date included) has ONE form, the same here as in every
       // host serializer and in the run result (rc.2 eighteenth re-review B1). `replacer` is
       // nullish by the method table's signature.
@@ -2357,7 +2378,12 @@ export const builtins: Record<string, any> = Object.assign(
         keys: (obj: any) => Object.keys(obj),
         values: (obj: any) => Object.values(obj),
         entries: (obj: any) => Object.entries(obj),
-        fromEntries: (entries: any) => Object.fromEntries(entries),
+        fromEntries: (entries: any) => {
+          const o = Object.fromEntries(entries)
+          if (Object.prototype.hasOwnProperty.call(o, '__proto__'))
+            refuseProtoKey() // as setGuestKey and `{ ...a }` do (#4099)
+          return o
+        },
         // Not the native `Object.assign`: it would invoke the `__proto__` SETTER for a source
         // that has an own `__proto__` key (e.g. from `JSON.parse`) — see `setGuestKey`.
         assign: (target: any, ...sources: any[]) => {

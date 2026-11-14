@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **AJS: no guest object holds an own `__proto__` key, on any route** (#4099). `setGuestKey`
+  refused the key, so assignment, spread and `Object.assign` in the guest never made one, but
+  four routes went around it: `Object.fromEntries` and `JSON.parse` in the guest (host natives
+  that create keys themselves), a capability's return, and the run arguments. Each put an own
+  `__proto__` key into the host's result, and a host that merged the result naively
+  (`Object.assign({}, result.o)`) had its target's prototype replaced. The VM's own prototypes
+  were never affected. All four now refuse the key: in the guest with the same Security Error as
+  spread, and at the membrane as a catchable `'limit'` refusal inbound (JSON can express the key,
+  so a server sending one is the world's doing). **What to do:** nothing, unless a capability
+  legitimately returns data with a `__proto__` key; rename the key before returning it.
+
 - **BREAKING (AJS): the clock and the random source are capabilities** (#4091). Guest code read
   the host's clock (`Date.now()`, `Date()` with no argument) and random source (`Math.random()`,
   the `random` and `uuid` atoms) with no capability: ambient authority in a capability VM. An
@@ -122,6 +133,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it to get the check.
 
 ### Fixed
+
+- **AJS contracts: a literal-union member refuses `undefined`** (#4100). `label: 'low' | 'high'`
+  emitted `{ enum: [...] }` with no `type`, and the validator skips an enum for an undefined value,
+  so a declared result `{ score: 12, label: undefined }` passed and the key vanished as JSON (the
+  same hole admitted `{ label: undefined }` as an argument). A literal union now carries its type
+  (`{ type: 'string', enum }`, or one branch per type when the values are mixed). `| undefined`
+  still makes a member optional.
+
+- **WASM: a typed-array parameter never takes a plain array as a pointer** (#4108). The binding
+  passed any non-typed-array argument straight through as the parameter, so `[1, 2]` became
+  address 0 and the wasm code overwrote whatever lived there (another `wasmBuffer` was silently
+  changed), and a typed array of the wrong kind had its bytes reinterpreted. Any array-like is now
+  copied in as the declared kind and its results written back element by element, as the JS
+  fallback does, with the existing copy notice; anything else is a `TypeError` naming the function
+  and parameter.
 
 - **A member expression in a `Type` example is checked** (#4052). `cells: [Cell.example]`
   validated nothing: a Type has no `.example` property, so the example was `undefined` and the

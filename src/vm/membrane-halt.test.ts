@@ -750,14 +750,15 @@ describe('the membrane builds its copy: checked = forwarded (cumulative review 1
     expect(Object.getPrototypeOf(r.value.n)).toBe(null)
   })
 
-  it('a key named __proto__ stays DATA in the copy', () => {
+  it('a key named __proto__ is refused, never copied (#4099)', () => {
+    // It used to cross as an own DATA property, which kept the copy's prototype safe but handed
+    // the guest (and, through the result, the host) an object that replaces the prototype of
+    // anything it is merged into. No guest object may hold one (setGuestKey), so the membrane
+    // refuses it. JSON can express it, so inbound it is the world's doing: 'limit', catchable.
     const input = JSON.parse('{"__proto__": {"polluted": true}, "x": 1}')
     const r = crossed(input)
-    expect(r.ok).toBe(true)
-    expect(Object.getPrototypeOf(r.value)).toBe(Object.prototype)
-    expect(Object.prototype.hasOwnProperty.call(r.value, '__proto__')).toBe(
-      true
-    )
+    expect(r.ok).toBe(false)
+    expect(r.kind).toBe('limit')
     expect(({} as any).polluted).toBeUndefined()
   })
 

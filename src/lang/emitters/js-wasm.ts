@@ -126,17 +126,22 @@ for(const{id,n,c,m}of __wasmExports){
   if(!hasArrays){globalThis[id]=compute;continue}
   let __copied=false;
   globalThis[id]=function(...args){
-    const mv=new Uint8Array(__wasmMem.buffer);let off=__woff;const ptrs=[];
+    // An argument for a typed-array parameter is a wasm POINTER. A typed array of the declared
+    // kind in wasm memory passes as its offset; any other array-like (a typed array elsewhere, of
+    // another kind, or a plain array) is copied in as the declared kind and its results copied
+    // back element by element, which is what the JS fallback does to it. Anything else is
+    // refused: it used to be passed through as the pointer, address 0, and the wasm code
+    // overwrote whatever lived there (#4108).
+    const mv=new Uint8Array(__wasmMem.buffer);let off=__woff;const ptrs=[];const back=[];
     for(let i=0;i<params.length;i++){const p=params[i],a=args[i];
-      if(p.a&&a?.buffer){
-        if(a.buffer===__wasmMem.buffer){ptrs.push(a.byteOffset)}
-        else{if(!__copied){__copied=true;__rec({source:'wasm',severity:'notice',message:"'"+id+"' was passed a typed array outside wasm memory — copying in and out on every call. This can be SLOWER than plain JS. Allocate it with wasmBuffer() to pass it zero-copy.",data:{fn:id,param:p.n,bytes:a.byteLength}})}const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);off=(off+15)&~15;mv.set(ab,off);ptrs.push(off);off+=ab.length}
-      } else ptrs.push(a)}
-    const r=compute(...ptrs);off=__woff;
-    for(let i=0;i<params.length;i++){const p=params[i],a=args[i];
-      if(p.a&&a?.buffer){
-        if(a.buffer===__wasmMem.buffer) continue;
-        const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);off=(off+15)&~15;ab.set(mv.slice(off,off+ab.length));off+=ab.length}}
+      if(!p.a){ptrs.push(a);continue}
+      const Want=globalThis[p.at];
+      if(a instanceof Want&&a.buffer===__wasmMem.buffer){ptrs.push(a.byteOffset);continue}
+      if(!(a instanceof Want)&&!Array.isArray(a)&&!ArrayBuffer.isView(a))throw new TypeError("'"+id.replace(/^__tjs_wasm_/,'')+"' expects a "+p.at+" (or an array of numbers) for '"+p.n+"', got "+(a===null?'null':Array.isArray(a)?'an array':typeof a));
+      const t=a instanceof Want?a:new Want(a);
+      if(!__copied){__copied=true;__rec({source:'wasm',severity:'notice',message:"'"+id+"' was passed "+(a instanceof Want?'a typed array outside wasm memory':'an array that is not a '+p.at)+" — copying in and out on every call. This can be SLOWER than plain JS. Allocate it with wasmBuffer() to pass it zero-copy.",data:{fn:id,param:p.n,bytes:t.byteLength}})}const ab=new Uint8Array(t.buffer,t.byteOffset,t.byteLength);off=(off+15)&~15;mv.set(ab,off);ptrs.push(off);back.push([a,t,ab,off]);off+=ab.length}
+    const r=compute(...ptrs);
+    for(const[a,t,ab,o]of back){ab.set(mv.slice(o,o+ab.length));if(a!==t)for(let k=0;k<t.length;k++)a[k]=t[k]}
     return r};
 }};
 const __fail=e=>{try{globalThis.__tjs?.record?.({source:'wasm',severity:'warning',message:'wasm module failed to instantiate — every wasm{} block in this file is running its JS fallback: '+((e&&e.message)||e),data:{error:String(e)}})}catch{}};

@@ -94,7 +94,7 @@ function kindToJsonSchema(
       return { type: 'integer', minimum: 0 }
     case 'literal-union':
       // Stored canonicalised: undefined is already folded to null.
-      return { enum: [...(type.values ?? [])] }
+      return literalUnionSchema(type.values ?? [])
     case 'boolean':
       return { type: 'boolean' }
     case 'null':
@@ -172,6 +172,25 @@ function kindToJsonSchema(
       )
     }
   }
+}
+
+/**
+ * A closed set of literals, WITH its type (#4100). A bare `{ enum }` let `undefined` through: the
+ * member is required, a key holding `undefined` counts as present, and the validator skips an
+ * enum for an undefined value, so `label: 'low' | 'high'` accepted `{ label: undefined }` and the
+ * key vanished as JSON. `label: ''` was refused only because it carries a `type`. One type when
+ * the values share it, else one branch per type.
+ */
+function literalUnionSchema(values: unknown[]): any {
+  const typeOf = (v: unknown) =>
+    v === null ? 'null' : typeof v === 'string' ? 'string' : typeof v
+  const byType = new Map<string, unknown[]>()
+  for (const v of values) {
+    const t = typeOf(v)
+    byType.set(t, [...(byType.get(t) ?? []), v])
+  }
+  const branches = [...byType].map(([t, vs]) => ({ type: t, enum: vs }))
+  return branches.length === 1 ? branches[0] : { anyOf: branches }
 }
 
 /** Whether a member's example lets it be absent: `T | undefined`, or plain `undefined`. */

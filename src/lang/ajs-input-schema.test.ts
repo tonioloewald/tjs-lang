@@ -83,7 +83,9 @@ describe('declared AJS inputs are enforced', () => {
       type: 'integer',
       minimum: 0,
     })
+    // a literal union carries its type, or undefined passes the enum (#4100)
     expect(props("function f(m: 'a' | 'b') { return { m } }").m).toEqual({
+      type: 'string',
       enum: ['a', 'b'],
     })
   })
