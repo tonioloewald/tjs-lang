@@ -7,7 +7,7 @@ This page is for readers who already know JavaScript. If you are learning to pro
 with [Decisions](/decisions/), which introduces `==` from scratch.
 
 JavaScript's `==` converts between types before it compares, so `0 == ''` is `true`. Its
-`===` doesn't convert, but it says a boxed `new String('hi')` is not `'hi'` and that `NaN`
+`===` doesn't convert, but it says a boxed string is not `'hi'` and that `NaN`
 is not `NaN`. In a `.tjs` file, `==` and `!=` are fixed, `typeof null` is `'null'`, and
 deep comparison has its own name, `Is`. This page covers all of it, including the escapes
 back to JavaScript's behaviour.
@@ -38,14 +38,17 @@ console.log(1 != '1')        // true
 
 ## Boxed primitives unwrap
 
-A _boxed primitive_ is the object that `new String('hi')` makes, as opposed to the plain
-string `'hi'`. JavaScript's `===` compares the box, not what is in it, so
-`new String('hi') === 'hi'` is `false`. TJS's `==` looks inside:
+A _boxed primitive_ is an object wrapped around a plain value: `Object('hi')` is a box
+holding the string `'hi'`. (JavaScript also makes one with `new String('hi')`; a `.tjs` file
+refuses that spelling, because it is almost always a mistake for `String('hi')`, and keeps
+`Object(x)` for the times you mean it.) Boxes still arrive from JavaScript libraries and
+converted code. JavaScript's `===` compares the box, not what is in it, so
+`Object('hi') === 'hi'` is `false`. TJS's `==` looks inside:
 
 ```tjs:inline
-console.log(new String('hi') == 'hi')       // true
-console.log(new Boolean(false) == false)    // true
-console.log(new Number(42) == 42)           // true
+console.log(Object('hi') == 'hi')       // true
+console.log(Object(false) == false)     // true
+console.log(Object(42) == 42)           // true
 ```
 
 ## `null`, `undefined` and `NaN`
@@ -109,7 +112,7 @@ For objects, `==` and `===` agree (both check identity) unless the class defines
 
 `==` is the one you will use almost everywhere. It is JavaScript's `===` with these changes:
 
-- a boxed primitive equals its plain value: `new String('hi') == 'hi'`
+- a boxed primitive equals its plain value: `Object('hi') == 'hi'`
 - `null` equals `undefined`, so `x == null` still checks for both
 - `NaN` equals `NaN`
 - an object with an `asCompared()` method compares as the value that method returns
@@ -125,7 +128,7 @@ comparison of two large objects would quietly walk both of them.
 ```tjs:inline
 const obj = { x: 1 }
 console.log(obj === obj)                  // true
-console.log(new String('a') === 'a')      // false: the box is not the string
+console.log(Object('a') === 'a')          // false: the box is not the string
 console.log(NaN === NaN)                  // false, as in JavaScript
 ```
 
@@ -284,7 +287,7 @@ console.log(DangerousLegacyEquals(0, ''))       // true: conversion and all
 console.log(DangerousLegacyEquals('5', 5))      // true
 console.log(DangerousLegacyNot(0, ''))          // false
 console.log(LegacyExactly(NaN, NaN))            // false
-console.log(LegacyNotExactly(new String('a'), 'a'))  // true
+console.log(LegacyNotExactly(Object('a'), 'a'))  // true
 console.log(LegacyTypeOf(null))                 // object
 ```
 
@@ -307,7 +310,7 @@ it matters, compare with `==` or `Is` yourself.
 
 ```tjs:inline
 const list = [1, 2, 3]
-const boxed = new Number(1)
+const boxed = Object(1)
 
 console.log(boxed == 1)                    // true: your code, TJS rules
 console.log(list.includes(boxed))          // false: JavaScript's method
@@ -319,7 +322,7 @@ console.log([NaN].indexOf(NaN))            // -1: two methods, two rules
 
 ### `switch` compares with `===`
 
-`switch` keeps JavaScript's semantics exactly, so `switch (new String('cat'))` never
+`switch` keeps JavaScript's semantics exactly, so `switch (Object('cat'))` never
 reaches `case 'cat':`, and the transpiler warns when it sees a `switch` in a `.tjs` file.
 Use [`given`](/given-dispatch/), which compares with `==` and has no fallthrough:
 
@@ -331,7 +334,7 @@ function label(kind) {
     return 'other'
   }
 }
-console.log(label(new String('cat')))      // pet
+console.log(label(Object('cat')))          // pet
 ```
 
 ### `Is` is not free

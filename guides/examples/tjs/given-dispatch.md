@@ -110,7 +110,7 @@ An arm matches when the value `==` the arm's value, using TJS's
 [honest equality](/honest-equality/). Three rules follow from that:
 
 - **A boxed primitive matches its plain value.** A boxed string is an object wrapped around
-  a string, made with `new String('cat')`. `===` says it is not `'cat'`; TJS's `==` unwraps
+  a string, made with `Object('cat')`. `===` says it is not `'cat'`; TJS's `==` unwraps
   it and compares the string inside.
 - **Nothing is coerced.** Coercion is JavaScript converting one type to another before
   comparing. TJS does not do that, so the number `200` does not match the string `'200'`.
@@ -137,7 +137,7 @@ console.log('fr ->', greet('fr')) // Bonjour !
 
 // Local values, because `describe(kind: '')` above only accepts plain strings.
 function boxedStillMatches() {
-  const kind = new String('cat')
+  const kind = Object('cat')
   given kind {
     'cat', 'dog' { return 'pet' }
   } else {
@@ -163,7 +163,7 @@ function nullVsUndefined() {
   }
 }
 
-console.log('new String("cat") ->', boxedStillMatches()) // pet
+console.log('Object("cat")     ->', boxedStillMatches()) // pet
 console.log('200 vs "200"      ->', numberVsString())    // no match
 console.log('undefined vs null ->', nullVsUndefined())   // matched null
 
