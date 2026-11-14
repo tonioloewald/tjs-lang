@@ -2263,6 +2263,83 @@ export function transpileToJS(
   // which JavaScript allows. Getters take no parameters. SETTERS are left alone too: their
   // return value is discarded, so a refusal would silently DROP the assignment, which is
   // worse than accepting it.
+  /**
+   * The parameter preamble a function gets (checks, dictionary-default merge), for a method:
+   * class methods since #3598, object-literal methods since 2026-11-14.
+   */
+  const validateMethodParams = (fn: any, displayName: string): void => {
+    const { types } = extractFunctionTypeInfo(
+      fn,
+      originalSource,
+      requiredParams,
+      null,
+      cleanSource,
+      preprocessed.declaredTypes,
+      preprocessed.requiredValueOffsets,
+      importedNames,
+      preprocessed.source
+    )
+    const relocation =
+      types.isDestructuredParam && types.destructuredShape
+        ? destructuredRelocation(
+            fn.params.length === 1 ? fn.params[0] : undefined,
+            DESTRUCTURED_ARG,
+            relocationSeq++
+          )
+        : undefined
+    const positional = new Map<
+      string,
+      {
+        relocation: DestructuredRelocation
+        members: Record<string, ParameterDescriptor>
+        declared: boolean
+      }
+    >()
+    for (const [k, at] of Object.entries(types.destructuredAt ?? {})) {
+      const r = destructuredRelocation(
+        fn.params[at.index],
+        at.binding,
+        relocationSeq++
+      )
+      if (r)
+        positional.set(k, {
+          relocation: r,
+          members: at.members,
+          declared: at.declared,
+        })
+    }
+    const sourceStr = `${effectiveFilename}:${fn.loc?.start.line ?? 0}`
+    const validation = generateInlineValidationCode(
+      displayName,
+      types,
+      sourceStr,
+      preprocessed.tjsModes.tjsDictDefaults,
+      relocation && {
+        arg: DESTRUCTURED_ARG,
+        prologue: relocation.prologue(
+          `${sourceStr}:${displayName}`,
+          destructuredArgChecks(
+            types.destructuredArg,
+            `${sourceStr}:${displayName}`
+          )
+        ),
+      },
+      positional
+    )
+    if (!validation) return
+    if (relocation) relocations.push(relocation)
+    for (const q of positional.values()) relocations.push(q.relocation)
+    insertions.push({
+      position: fn.body.start + 1,
+      text: `\n  ${validation.preamble}\n`,
+    })
+    if (validation.suffix)
+      insertions.push({
+        position: fn.body.end - 1,
+        text: `\n  ${validation.suffix}\n`,
+      })
+  }
+
   walk.ancestor(program as any, {
     MethodDefinition(node: any, _state: unknown, ancestors: any[]) {
       const fn = node.value
@@ -2292,76 +2369,43 @@ export function transpileToJS(
           ? `#${node.key.name}`
           : 'method'
       const displayName = `${cls?.id?.name ?? 'class'}.${key}`
-      const { types } = extractFunctionTypeInfo(
-        fn,
-        originalSource,
-        requiredParams,
-        null,
-        cleanSource,
-        preprocessed.declaredTypes,
-        preprocessed.requiredValueOffsets,
-        importedNames,
-        preprocessed.source
+      validateMethodParams(fn, displayName)
+    },
+    // Object-literal methods get the same preamble (Tonio 2026-11-14: dictionary defaults apply
+    // to them as to declarations and class methods; before, `{ m(o = { a: 1, b: 2 }) {} }`
+    // received `{ a: 5 }` unmerged and its parameters were not checked at all). Method
+    // shorthand and block-bodied function values; getters and setters are skipped, as for
+    // classes, and so are expression-bodied arrows (no body to put a preamble in).
+    Property(node: any, _state: unknown, ancestors: any[]) {
+      if (node.kind !== 'init' || node.computed) return
+      const fn = node.value
+      if (
+        !(
+          fn?.type === 'FunctionExpression' ||
+          (fn?.type === 'ArrowFunctionExpression' &&
+            fn.body?.type === 'BlockStatement')
+        ) ||
+        !fn.params?.length
       )
-      const relocation =
-        types.isDestructuredParam && types.destructuredShape
-          ? destructuredRelocation(
-              fn.params.length === 1 ? fn.params[0] : undefined,
-              DESTRUCTURED_ARG,
-              relocationSeq++
-            )
-          : undefined
-      const positional = new Map<
-        string,
-        {
-          relocation: DestructuredRelocation
-          members: Record<string, ParameterDescriptor>
-          declared: boolean
-        }
-      >()
-      for (const [k, at] of Object.entries(types.destructuredAt ?? {})) {
-        const r = destructuredRelocation(
-          fn.params[at.index],
-          at.binding,
-          relocationSeq++
-        )
-        if (r)
-          positional.set(k, {
-            relocation: r,
-            members: at.members,
-            declared: at.declared,
-          })
-      }
-      const sourceStr = `${effectiveFilename}:${fn.loc?.start.line ?? 0}`
-      const validation = generateInlineValidationCode(
-        displayName,
-        types,
-        sourceStr,
-        preprocessed.tjsModes.tjsDictDefaults,
-        relocation && {
-          arg: DESTRUCTURED_ARG,
-          prologue: relocation.prologue(
-            `${sourceStr}:${displayName}`,
-            destructuredArgChecks(
-              types.destructuredArg,
-              `${sourceStr}:${displayName}`
-            )
-          ),
-        },
-        positional
+        return
+      if (preprocessed.moduleSafety === 'none') return
+      const paramsSrc = maskLiteralsKeepComments(preprocessed.source).slice(
+        fn.start,
+        fn.body.start
       )
-      if (!validation) return
-      if (relocation) relocations.push(relocation)
-      for (const q of positional.values()) relocations.push(q.relocation)
-      insertions.push({
-        position: fn.body.start + 1,
-        text: `\n  ${validation.preamble}\n`,
-      })
-      if (validation.suffix)
-        insertions.push({
-          position: fn.body.end - 1,
-          text: `\n  ${validation.suffix}\n`,
-        })
+      if (paramsSrc.includes('/* unsafe */')) return
+      const owner = [...ancestors]
+        .reverse()
+        .find((a: any) => a.type === 'VariableDeclarator')
+      const key =
+        node.key?.type === 'Identifier'
+          ? node.key.name
+          : typeof node.key?.value === 'string'
+          ? node.key.value
+          : 'method'
+      const ownerName =
+        owner?.id?.type === 'Identifier' ? owner.id.name : 'object'
+      validateMethodParams(fn, `${ownerName}.${key}`)
     },
   })
 

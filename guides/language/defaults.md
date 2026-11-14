@@ -70,9 +70,9 @@ console.log(JSON.stringify(both({ a: 9 }, { d: 9 })))
 
 (A TJS class is called without `new`; see [Classes and Dispatch](/classes-and-dispatch/).)
 
-One form is missing: a method written inside an object literal (`{ m(opts = { … }) { … } }`,
-or a property holding a function) currently keeps JavaScript's all-or-nothing default.
-Declare the function separately, or use a class, until that is fixed.
+A method written inside an object literal (`{ m(opts = { … }) { … } }`, or a property holding a
+function with a block body) gets dictionary defaults too. One holding an expression-bodied arrow
+(`{ m: (opts = { … }) => opts }`) keeps JavaScript's all-or-nothing default: give it braces.
 
 ### What about destructuring?
 

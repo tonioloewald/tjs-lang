@@ -148,6 +148,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Object-literal methods merge dictionary defaults and check their parameters**, as class
+  methods do (decided 2026-11-14). `{ m(opts = { a: 1, b: 2 }) {} }` received `{ a: 5 }` unmerged,
+  and an object method's parameter examples were not checked. Method shorthand and block-bodied
+  function values; getters, setters and expression-bodied arrows are unchanged.
+
 - **AJS: a helper's declared return is enforced**, as the entry's is (decided 2026-11-14).
   `function h(x): '' { return 5 }` was accepted and ignored. A mismatch now raises an error naming
   the helper (catchable); a callback's own `return` inside the helper is not checked against it,
