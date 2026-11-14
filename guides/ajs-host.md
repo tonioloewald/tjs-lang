@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 5}-->
+<!--{"parent": "embedding-the-vm.md", "order": 1}-->
 <!-- TODO review -->
 
 # Embedding the AJS VM

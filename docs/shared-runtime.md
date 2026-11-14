@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 8}-->
+<!--{"parent": "the-tjs-language.md", "order": 8, "book": ["default"]}-->
 <!-- TODO review -->
 
 # One runtime for many TJS libraries (proposed spike, after 1.0)

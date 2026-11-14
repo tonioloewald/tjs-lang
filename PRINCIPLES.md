@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 2}-->
+<!--{"parent": "the-tjs-language.md", "order": 910}-->
 <!-- TODO review -->
 
 # Design Principles & Invariants

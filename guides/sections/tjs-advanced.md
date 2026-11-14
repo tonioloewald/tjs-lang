@@ -1,4 +1,4 @@
-<!--{"parent": "tjs-examples.md", "order": 3, "book": ["default", "language"]}-->
+<!--{"parent": "tjs-examples.md", "order": 3, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Advanced

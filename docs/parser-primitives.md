@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 11}-->
+<!--{"parent": "the-tjs-language.md", "order": 11, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Small parsers for the TJS preprocessor

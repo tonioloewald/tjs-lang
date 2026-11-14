@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 5.5}-->
+<!--{"parent": "ajs.md", "order": 5.5, "book": ["default"]}-->
 <!-- TODO review -->
 
 # VM budgets: fuel, memory and boundary limits

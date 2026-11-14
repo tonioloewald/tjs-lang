@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 6.5}-->
+<!--{"parent": "ajs.md", "order": 30}-->
 <!-- TODO review -->
 
 # Local models with MLX

@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 12}-->
+<!--{"parent": "the-tjs-language.md", "order": 12, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Ambient Contracts — probe reality, derive verified predicate contracts

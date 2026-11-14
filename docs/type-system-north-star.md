@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 8}-->
+<!--{"parent": "the-tjs-language.md", "order": 8, "book": ["default"]}-->
 <!-- TODO review -->
 
 # North star: JSON-Schema + predicates as the single source of truth for types

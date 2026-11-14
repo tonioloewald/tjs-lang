@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 14}-->
+<!--{"parent": "ajs.md", "order": 14, "book": ["default"]}-->
 <!-- TODO review -->
 
 # A Lean 4 specification of the AJS VM

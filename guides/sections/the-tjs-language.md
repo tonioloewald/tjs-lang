@@ -3,18 +3,17 @@
 
 # The TJS Language
 
-Why TJS exists, the rules it will not bend, the reference for its declarations and syntax,
-and the design notes behind the harder decisions. This part assumes you already write
-JavaScript. The worked examples live elsewhere, in
-[TJS Interactive Examples](/tjs-examples/) and its Basics, Patterns and Advanced sections;
-this part is where you look things up and find out why they are the way they are.
+The language in depth, one feature per chapter, for a reader who already writes JavaScript.
+Each chapter starts with the problem a feature solves, shows it running, and then gives the
+rules and the edge cases. The [TJS Syntax Reference](/TJS-SYNTAX/) is where you look a
+construct up once you know it.
 
 Where to start depends on you:
 
 - **New to programming?** Start with [Learn to Program](/learn-to-program/), which teaches
   from scratch in the page. Come back here once you are comfortable.
-- **You write JavaScript and want to start coding:** read [Hello TJS](/hello-tjs/), then
-  keep the [TJS Syntax Reference](/TJS-SYNTAX/) at hand.
+- **You write JavaScript and want to start coding:** read
+  [TJS: Typed JavaScript](/tjs/), the ten-minute tour, then come back here.
 - **You want the reasoning first:** read [Why TJS](/why-tjs/), then
   [Design Principles & Invariants](/PRINCIPLES/).
 
@@ -64,53 +63,57 @@ Each of these rules has a section in the syntax reference:
 
 ## How to read this part
 
-The chapters fall into three tiers: the argument for TJS, the reference you look things up
-in, and the design notes you open when a question about _why_ comes up.
+[Why TJS](/why-tjs/) comes first: what earlier attempts to fix JavaScript left on the table,
+and what TJS does instead. Then one chapter per feature, in an order where each builds on the
+last:
 
-### The argument
+- [Declarations](/declarations/): the types that exist while your program runs.
+- [Types by Example](/types-by-example/): how an example becomes a check, and the type
+  declarations built on that.
+- [Classes and Dispatch](/classes-and-dispatch/): classes without `new`, functions that
+  choose by their arguments, local extensions, and `given`.
+- [Safety and Validation](/safety-markers/): where TJS checks values, what that costs, and
+  how to opt out.
+- [Dictionary Defaults](/defaults/): options objects whose missing members are filled in.
+- [Equality and the Footguns TJS Removes](/equality/): `==` that means what it says, and the
+  other JavaScript surprises a `.tjs` file fixes.
+- [Errors as Values](/errors-as-values/): errors returned, not thrown, and the flight
+  recorder that remembers them.
+- [Testing](/testing/): signatures that are tests, and test blocks.
+- [Modules and Imports](/modules-and-imports/): files, dialects, imports with and without a
+  bundler.
+- [Inline WebAssembly](/inline-wasm/): WASM inside a function, compiled when the file is.
+- [The Runtime](/runtime-configuration/): what runs a TJS program, and how to configure it.
 
-- [Why TJS](/why-tjs/) explains what earlier attempts to fix JavaScript left on the table,
-  and what TJS does instead.
-- [Design Principles & Invariants](/PRINCIPLES/) are the rules every later decision is held
-  to. The chief one: the TJS toolchain accepts every legal JavaScript program, read as
-  JavaScript with the same meaning, and every legal program in
-  [AJS](/ajs/), the sandboxed agent language built on the same syntax. The stricter rules
-  apply only to `.tjs` files. When a rule elsewhere in the book looks strange, it is usually
-  one of these invariants at work.
+<!--{ "only": "book" }-->
+The appendices hold the [TJS Syntax Reference](/TJS-SYNTAX/), the
+[TJS vs TypeScript](/tjs-vs-typescript/) table and the
+[Design Principles & Invariants](/PRINCIPLES/): the rules every decision is held to. The chief
+one is that TJS accepts every legal JavaScript program, with the same meaning; the stricter
+rules apply only to `.tjs` files.
+<!--{ "end": "only" }-->
 
-### The reference
-
-- [Declarations](/declarations/) covers the types that exist while your program runs.
-  TypeScript's types are erased when it compiles; these are values your code can check
-  against. `Type` names a shape or a test, `Enum` a fixed set of names, `Union` a choice
-  between values, `Generic` a type with parameters, and `FunctionPredicate` a function type.
-- The [TJS Syntax Reference](/TJS-SYNTAX/) has every construct, each with a working example.
-  A `.tjs` file fixes JavaScript's surprises in equality, `typeof`, `new` and `Date`, and the
-  reference names an escape back to JavaScript's behaviour for each one.
-- [Dictionary Defaults](/dictionary-defaults/) gets a chapter of its own because it is the
-  one place where the same source means something different in TJS and in JavaScript: an
-  object default is merged with a partial argument instead of being replaced by it. The
-  chapter is a design record: it sets out the problem, the alternatives considered and why
-  this one won. For the rules alone, read
-  [Object shapes and dictionary defaults](/TJS-SYNTAX/#object-shapes-and-dictionary-defaults)
-  in the syntax reference.
-
+<!--{ "only": "site" }-->
 ### The design notes
 
 These are for readers who want to know why a decision went the way it did, or who are about
-to change one. None of them is needed to write TJS. Each is marked with where it stands,
-because a design note and a description of shipped behaviour read alike.
+to change one. None of them is needed to write TJS, and they are not part of the book. Each is
+marked with where it stands, because a design note and a description of shipped behaviour
+read alike.
 
 | Note                                                             | Status                                                                    |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [Dictionary Defaults: the design record](/dictionary-defaults/)  | Shipped: the problem, the alternatives and why merge-on-partial won       |
 | [Type identity](/type-identity/)                                 | Current: a map of how TJS checks types today, kept honest by a test       |
 | [Runtime fusion](/runtime-fusion/)                               | Shipped for TJS's error type; the same rule decides what else is shared   |
+| [Shared runtime](/shared-runtime/)                               | Proposed, after 1.0: one runtime for many published libraries             |
 | [North star: JSON-Schema + predicates](/type-system-north-star/) | Direction: where the type system is heading, possibly after 1.0           |
 | [FunctionPredicate: Design Notes](/function-predicate-design/)   | Partly shipped: checks only that a value is a function                    |
 | [Case study: fixing switch](/case-study-switch/)                 | Shipped: `given` exists; `switch` keeps its fall-through, with a warning  |
 | [Small scoped parsers, not a rewrite](/parser-primitives/)       | Partly shipped: colon disambiguation is built, expression extent is not   |
 | [Ambient Contracts](/ambient-contracts/)                         | Exploratory: a design idea with experimental spikes, not built            |
 | [Native Engine Integration](/native-engine-integration/)         | Exploratory: what native V8 or JavaScriptCore support could unlock        |
+<!--{ "end": "only" }-->
 
 ## All chapters in order
 

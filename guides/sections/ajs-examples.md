@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 2}-->
+<!--{"parent": "ajs.md", "order": 2, "book": ["default"]}-->
 <!-- TODO review -->
 
 # AJS Examples

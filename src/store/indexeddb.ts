@@ -1,4 +1,4 @@
-/*{"parent": "ajs.md", "order": 13}*/
+/*{"parent": "ajs.md", "order": 13, "book": ["default"]}*/
 /*#
 # IndexedDB Store
 

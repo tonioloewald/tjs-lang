@@ -1,4 +1,4 @@
-<!--{"section": "tjs-for-ts", "group": "docs", "order": 30, "navTitle": "TJS for TS Devs", "pin": "top", "book": ["default", "ts"]}-->
+<!--{"section": "tjs-for-ts", "group": "docs", "order": 30, "navTitle": "TJS for TS Devs", "pin": "top", "book": ["default", "ts"], "placement": {"language": {"parent": "for-programmers.md", "order": 30}}}-->
 <!-- TODO review -->
 
 # TJS for TypeScript Programmers

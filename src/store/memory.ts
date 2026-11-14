@@ -1,4 +1,4 @@
-/*{"parent": "ajs.md", "order": 12}*/
+/*{"parent": "ajs.md", "order": 12, "book": ["default"]}*/
 /*#
 # In-Memory Store
 

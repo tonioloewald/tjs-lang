@@ -1,4 +1,4 @@
-/*{"parent": "ajs.md", "order": 11}*/
+/*{"parent": "ajs.md", "order": 11, "book": ["default"]}*/
 /*#
 # Store Interface
 

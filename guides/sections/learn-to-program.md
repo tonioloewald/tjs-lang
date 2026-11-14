@@ -6,9 +6,9 @@
 Programming from scratch, in TJS, in your browser. You need nothing installed and no
 experience.
 
-If you already program, skip this part and start at [Basics](/tjs-basics/), which is written
-for working developers. If you come from TypeScript, there is also
-[TJS for TypeScript Developers](/TJS-FOR-TS/).
+If you already program, skip this part and start at [For Programmers](/for-programmers/),
+which is written for working developers and has a chapter for JavaScript and one for
+TypeScript.
 
 **TJS** is a programming language built on JavaScript, the language every web browser runs.
 Nearly everything you learn here is also JavaScript, so it carries over to the programs you
@@ -62,8 +62,8 @@ Some things this part leaves out. Classes (templates for making many similar thi
 modules (splitting a program across files) are covered later in this book. Servers (programs
 that run on another computer, not in the page) are not in this book; the tjs-lang website has
 a [Full Stack](/tjs-fullstack/) section about them. When you finish Tetris, go on to
-[Basics](/tjs-basics/), whose first chapter is Hello TJS. Those chapters are written for people
-who already program, so they move faster, but by then that is you.
+[The TJS Language](/the-tjs-language/), which takes each feature in depth. Those chapters are
+written for people who already program, so they move faster, but by then that is you.
 
 ## How to read this part
 

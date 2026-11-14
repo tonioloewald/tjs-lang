@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 7}-->
+<!--{"parent": "the-tjs-language.md", "order": 7, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Runtime fusion: what may be shared between TJS modules, and what may not

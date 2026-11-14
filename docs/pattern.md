@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 8}-->
+<!--{"parent": "ajs.md", "order": 8, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Pattern: the planned replacement for regex in AJS

@@ -95,7 +95,7 @@ function section(d: Difference): string {
 }
 
 export function render(): string {
-  return `<!--{"section": "home", "order": 1, "navTitle": "TJS vs TypeScript", "parent": "typescript-good-bad-ugly.md"}-->
+  return `<!--{"section": "home", "order": 1, "navTitle": "TJS vs TypeScript", "parent": "typescript-good-bad-ugly.md", "placement": {"language": {"parent": "the-tjs-language.md", "order": 920}}}-->
 
 # TJS vs TypeScript vs JavaScript
 

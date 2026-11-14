@@ -1,4 +1,4 @@
-<!--{"section": "ajs", "group": "docs", "order": 14, "navTitle": "Technical Context", "parent": "ajs.md"}-->
+<!--{"section": "ajs", "group": "docs", "order": 14, "navTitle": "Technical Context", "parent": "ajs.md", "book": ["default"]}-->
 <!-- TODO review -->
 
 # The AJS VM: Technical Context

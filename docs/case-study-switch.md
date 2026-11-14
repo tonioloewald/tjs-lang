@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 10}-->
+<!--{"parent": "the-tjs-language.md", "order": 10, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Case study: fixing `switch`

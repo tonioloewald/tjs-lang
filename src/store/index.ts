@@ -1,4 +1,4 @@
-/*{"parent": "ajs.md", "order": 10}*/
+/*{"parent": "ajs.md", "order": 10, "book": ["default"]}*/
 /*#
 # Store Module
 

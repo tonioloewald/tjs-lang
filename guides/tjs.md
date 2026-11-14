@@ -1,4 +1,4 @@
-<!--{"pin": "top", "order": 10}-->
+<!--{"pin": "top", "order": 10, "placement": {"language": {"parent": "for-programmers.md", "order": 10}}}-->
 
 # TJS: Typed JavaScript
 

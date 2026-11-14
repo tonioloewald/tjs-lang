@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 6}-->
+<!--{"parent": "the-tjs-language.md", "order": 6, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Type identity: who answers "does this value satisfy this type?"

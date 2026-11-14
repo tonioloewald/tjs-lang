@@ -1,4 +1,4 @@
-<!--{"parent": "ajs.md", "order": 6.6}-->
+<!--{"parent": "ajs.md", "order": 31}-->
 <!-- TODO review -->
 
 # Running a local model (LM Studio)

@@ -1,4 +1,4 @@
-<!--{"section": "home", "order": 3, "navTitle": "Post-mortem: the borrowed emitter", "parent": "typescript-good-bad-ugly.md"}-->
+<!--{"section": "home", "order": 3, "navTitle": "Post-mortem: the borrowed emitter", "parent": "typescript-good-bad-ugly.md", "book": ["default"]}-->
 <!-- TODO review -->
 
 # Post-mortem: we spent nearly eight months testing TypeScript's compiler

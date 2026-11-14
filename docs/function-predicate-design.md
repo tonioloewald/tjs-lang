@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 9}-->
+<!--{"parent": "the-tjs-language.md", "order": 9, "book": ["default"]}-->
 <!-- TODO review -->
 
 # FunctionPredicate: Design Notes

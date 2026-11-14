@@ -1,4 +1,4 @@
-<!--{"parent": "typescript-good-bad-ugly.md", "order": 2}-->
+<!--{"parent": "typescript-good-bad-ugly.md", "order": 2, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Generic .d.ts Emission: Design Notes

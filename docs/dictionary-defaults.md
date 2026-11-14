@@ -1,4 +1,4 @@
-<!--{"parent": "the-tjs-language.md", "order": 5}-->
+<!--{"parent": "the-tjs-language.md", "order": 5, "book": ["default"]}-->
 <!-- TODO review -->
 
 # Dictionary Defaults
