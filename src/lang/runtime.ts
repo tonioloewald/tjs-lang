@@ -2358,7 +2358,7 @@ export function createRuntime(parentConfig: () => TJSConfig = () => config) {
     path: string,
     expected: string,
     value: unknown,
-    _reason?: string,
+    reason?: string,
     root?: unknown
   ): MonadicError {
     // Already a TJS error: propagate it (see `typeError`, including `root`).
@@ -2372,13 +2372,19 @@ export function createRuntime(parentConfig: () => TJSConfig = () => config) {
     const actual = describeActual(value)
     const stack =
       cfg().callStacks || cfg().debug ? instanceGetStack() : undefined
+    // The reason, when given, as `typeError` and the inline runtime report it: the instance
+    // dropped it, so a refusal that explained itself standalone did not once a shared runtime
+    // was installed (#4121).
     const err = received(
       new MonadicError(
-        `Expected ${expected} for '${path}', got ${actual}`,
+        reason
+          ? `Expected ${expected} for '${path}': ${reason}`
+          : `Expected ${expected} for '${path}', got ${actual}`,
         path,
         expected,
         actual,
-        stack
+        stack,
+        reason
       ),
       root !== undefined ? root : value
     )

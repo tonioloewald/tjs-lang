@@ -1369,10 +1369,55 @@ export function transformIsOperators(source: string): string {
         after === '||'
       if (!beforeOk || !afterOk) {
         const fn = word
+        // The WIDER reading takes everything back to the statement's boundary and forward to
+        // its end: for `a + 1 Is b` that is `Is(a + 1, b)`. Offering only the narrow one,
+        // `Is(1, b)`, suggested the reading the author was least likely to mean (#4121).
+        let ws = leftStart
+        let depth = 0
+        while (ws > 0) {
+          const c = masked[ws - 1]!
+          if (c === ')' || c === ']' || c === '}') depth++
+          else if (c === '(' || c === '[' || c === '{') {
+            if (depth === 0) break
+            depth--
+          } else if (
+            depth === 0 &&
+            (c === '\n' ||
+              c === ',' ||
+              c === ';' ||
+              // an ASSIGNMENT `=`, not one inside `==`, `!=`, `<=`, `>=` or `=>`
+              (c === '=' &&
+                !/[=!<>]/.test(masked[ws - 2] ?? '') &&
+                masked[ws] !== '=' &&
+                masked[ws] !== '>'))
+          )
+            break
+          ws--
+        }
+        let we = rightEnd
+        depth = 0
+        while (we < masked.length) {
+          const c = masked[we]!
+          if (c === '(' || c === '[' || c === '{') depth++
+          else if (c === ')' || c === ']' || c === '}') {
+            if (depth === 0) break
+            depth--
+          } else if (depth === 0 && (c === '\n' || c === ',' || c === ';'))
+            break
+          we++
+        }
+        const wideLeft = source
+          .slice(ws, leftStart + left.length)
+          .replace(/^\s*(?:return|throw|yield|case)\b/, '')
+          .trim()
+        const wideRight = source.slice(rightStart, we).trim()
+        const readings = [`${fn}(${left}, ${right})`]
+        const wide = `${fn}(${wideLeft || left}, ${wideRight || right})`
+        if (wide !== readings[0]) readings.unshift(wide)
         throw new SyntaxError(
           `Infix ${fn}: another operator touches \`${left} ${fn} ${right}\`, so precedence ` +
             `would decide what it compares. Write the call with the operands you mean: ` +
-            `${fn}(${left}, ${right}) (in general, ${fn}(a, b)).`,
+            `${readings.join(' or ')}.`,
           locAt(source, m.index)
         )
       }
@@ -1619,8 +1664,8 @@ export function insertAsiProtection(
           `Line ${i + 1} starts with \`${
             line.trim()[0]
           }\`, which JavaScript would join to ` +
-            `the previous line. TJS treats them as separate statements. If you meant the ` +
-            `continuation, put it on one line or start this line with \`;\`.`
+            `the previous line. TJS treats them as separate statements, as a leading \`;\` ` +
+            `would make them in JavaScript. If you meant the continuation, join the two lines.`
         )
         const match = line.match(/^(\s*)/)
         const indent = match ? match[1] : ''

@@ -68,6 +68,8 @@ describe('where precedence would decide, it refuses with the remedy', () => {
     'const x = 1 +\n  a Is b; return x', // a continued line is not a new statement
   ])
     it(body, () => {
-      expect(() => run(body, 1, 1)).toThrow(/Is\(a, b\)|write .*Is\(/)
+      expect(() => run(body, 1, 1)).toThrow(
+        /Write the call with the operands you mean: .*Is\(/
+      )
     })
 })

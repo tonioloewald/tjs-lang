@@ -336,8 +336,8 @@ in the `tjs-lang/linalg` package, also documented there.
   `wasm function s` (line 1) did not compile: Math.sin requires JS import (not yet implemented).
   ```
 
-  A call to an ordinary function `g` gives a less helpful message that does not name it:
-  `Unsupported function call: Identifier.`
+  A call to an ordinary function `g` is refused by name:
+  `'g' cannot be called from WASM: it is not a WASM intrinsic or another \`wasm function\` in this module`.
 - **Only parameters and locals.** A `wasm function` cannot read module-level variables:
   `return x * K`, with `const K = 3` at the top of the file, stops with
   `Unknown identifier: K.` Pass the value as a parameter.

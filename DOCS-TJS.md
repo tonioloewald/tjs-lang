@@ -932,7 +932,8 @@ No try/catch gambling. The host survives invalid inputs.
 **Propagation.** A `MonadicError` passed where it does not fit a parameter's type is returned
 unchanged, without running the body — so an error travels down a call chain to the one place
 you check it. It is decided AT the type check, which means a function that declares it takes
-an error receives one: `describe(e: Error)`, `log(detail: any)` and `isErr(x: unknown)` run.
+any value receives one: `log(detail: any)` and `isErr(x: unknown)` run. (Not `e: Error`:
+`Error` is not a runtime type, so that parameter warns and checks nothing.)
 A plain `Error` where something else is expected is an ordinary type error, and that `Error`
 is its `received`.
 

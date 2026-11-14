@@ -246,8 +246,8 @@ The rest of the rules are short:
   JavaScript number. `return x` in a function declared `: i32` returns `2.7` for `x = 2.7`.
 - **Calls stay inside WASM.** A `wasm function` can call the math intrinsics, the `f32x4_*`
   intrinsics and other `wasm function`s in the same module, and nothing else: no host
-  functions, no logging, no callbacks. A call to an ordinary function is refused with
-  `Unsupported function call: Identifier`, a message that does not name the function.
+  functions, no logging, no callbacks. A call to an ordinary function is refused by name:
+  `'log' cannot be called from WASM: it is not a WASM intrinsic or another \`wasm function\``.
 - **Only parameters come in.** A `wasm function` cannot read module-level variables:
   `return x * K` with a top-level `const K = 3` stops with `Unknown identifier: K`. Pass the
   value as a parameter.
@@ -754,7 +754,7 @@ console.log(vecDot(v, v, 4))  // 25
 ```
 
 In the boundary form this does not compile: `norm`'s call to the imported `vecDot` is a call
-WASM cannot make (`Unsupported function call: Identifier`). It needs composition, in which the
+WASM cannot make (`'vecDot' cannot be called from WASM`). It needs composition, in which the
 transpiler reads `vec.tjs` and compiles `vecDot` into `app.tjs`'s own WASM module. The import
 disappears from the output, the consumer ships one module with one memory, and `norm`'s call
 to `vecDot` is a WASM-to-WASM call.

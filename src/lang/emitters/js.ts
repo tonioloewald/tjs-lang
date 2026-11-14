@@ -3558,10 +3558,17 @@ export function transpileToJS(
         } did not compile: ${w.error ?? 'unknown error'}.`
       }
       const loc = located.get(failed[0].id) ?? { line: 1, column: 0 }
+      // A `wasm function` has no wrapper to drop and no JavaScript fallback: its remedy is a
+      // plain `function` (#4121).
+      const allFunctions = failed.every(
+        (w) => preprocessed.wasmBlocks.find((b) => b.id === w.id)?.name
+      )
       throw new TJSSyntaxError(
         failed.map(describe).join('\n') +
           `\n\nRewrite it within the supported subset (DOCS-WASM, "Supported subset"), or ` +
-          `drop the \`wasm { }\` wrapper to run it as JavaScript.`,
+          (allFunctions
+            ? `declare it as a plain \`function\` to run it as JavaScript.`
+            : `drop the \`wasm { }\` wrapper to run it as JavaScript.`),
         loc,
         source,
         filename
@@ -4114,7 +4121,7 @@ function emitDictLevel(
     (k) => `${p}k === ${JSON.stringify(k)}`
   ).join(' || ')
   lines.push(
-    `for (const ${p}k in ${access}) { if (Object.prototype.hasOwnProperty.call(${access}, ${p}k)) { if (${forbiddenCheck}) return __tjs.typeError('${displayPath}.' + ${p}k, 'safe key', ${p}k, undefined, ${root}); } }`
+    `for (const ${p}k in ${access}) { if (Object.prototype.hasOwnProperty.call(${access}, ${p}k)) { if (${forbiddenCheck}) return __tjs.typeError('${displayPath}.' + ${p}k, 'safe key', ${p}k, "'" + ${p}k + "' is refused as a key: it would change the object's prototype", ${root}); } }`
   )
   lines.push(`let ${p}f = 0;`)
   lines.push(`let ${p}c = false;`)

@@ -169,6 +169,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **TJS diagnostics that pointed the wrong way** (#4121). The infix-`Is` refusal for `a + 1 Is b`
+  suggested only `Is(1, b)`; it now offers `Is(a + 1, b)` first. The ASI warning told a reader who
+  meant a continuation to start the line with `;`, which keeps the lines separate; it now says to
+  join them. A refused prototype key (`__proto__` in a dictionary default) says why, and a shared
+  runtime's `typeError` now keeps the reason every other copy reports (it dropped it). A
+  `wasm function` that does not compile names the function it cannot call (it said
+  "Unsupported function call: Identifier"), is told to become a plain `function` rather than to
+  drop a `wasm { }` wrapper it does not have, and a stray `;` in its body compiles. The docs no
+  longer teach `describe(e: Error)`: `Error` is not a runtime type, so that parameter warns and
+  checks nothing.
+
 - **AJS diagnostics say what to write, at transpile time** (#4107). `await` (in a plain or an
   `async` function), `break`, `continue`, `for...in` and `do...while` each get a worked remedy (the
   `for...in` and `do...while` ones were wrong or garbled). Refused at transpile time instead of at

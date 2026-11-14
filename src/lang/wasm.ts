@@ -810,6 +810,10 @@ function compileStatement(
       })
     }
 
+    // A stray `;` is a statement that does nothing; it was refused as "EmptyStatement" (#4121).
+    case 'EmptyStatement':
+      return []
+
     default:
       ctx.errors.push(`Unsupported statement type: ${node.type}`)
       return []
@@ -1680,7 +1684,26 @@ function compileCall(
     }
   }
 
-  ctx.errors.push(`Unsupported function call: ${node.callee.type}`)
+  // Name the callee (#4121): "Unsupported function call: Identifier" named the node type.
+  // A name that is not a WASM intrinsic or another `wasm function` in this module (imported
+  // ones only through composition) cannot be called from WASM.
+  const calleeText =
+    node.callee.type === 'Identifier'
+      ? (node.callee as acorn.Identifier).name
+      : node.callee.type === 'MemberExpression' &&
+        (node.callee as any).object?.type === 'Identifier' &&
+        (node.callee as any).property?.type === 'Identifier'
+      ? `${(node.callee as any).object.name}.${
+          (node.callee as any).property.name
+        }`
+      : node.callee.type
+  ctx.errors.push(
+    node.callee.type === 'Identifier'
+      ? `'${calleeText}' cannot be called from WASM: it is not a WASM intrinsic or another ` +
+          `\`wasm function\` in this module (an imported one is reached by composition: ` +
+          `DOCS-WASM, "Libraries and composition")`
+      : `Unsupported function call: ${calleeText}`
+  )
   return [Op.f64_const, ...encodeF64(0)]
 }
 
