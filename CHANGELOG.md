@@ -169,6 +169,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`.toJSONSchema()` works on an exported Type and on a recursive one** (#4119). The schema
+  helper was inlined only into a module that itself called `.toJSONSchema()`, so a Type exported
+  from one module and asked for its schema by another threw `toJSONSchema is not a function`; a
+  module that exports a type now carries it. A recursive Type's schema stopped after one level
+  (`items: {}`); a recursion is now a `$ref` into `$defs`, so the schema validates trees of any
+  depth. A reference that does not recurse stays inline, as before.
+
 - **`Is` returns a boolean whatever an equality hook returns** (#4119). A `.Equals` or
   `[tjsEquals]` hook's result was passed through, so `Equals() { return 'yes' }` made `Is(a, b)`
   return `'yes'`. A hook now answers equal only with `true`, in the runtime and in the inline copy

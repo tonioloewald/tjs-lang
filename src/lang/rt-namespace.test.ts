@@ -137,6 +137,8 @@ describe('the emitted runtime never lands in the author’s namespace', () => {
         'finds a MonadicError carried in a failed argument, for typeError',
       __goIs: 'the recursive worker behind Is',
       __ex2js: 'example -> JSON Schema, reached via a Type’s .toJSONSchema()',
+      __jsDefs:
+        'the $defs collected during one .toJSONSchema() call, for recursive types',
       __match: 'structural matcher, reached via Type/Generic .check()',
       __pred:
         'wraps a runtime type into a callable predicate; reached via Type()',

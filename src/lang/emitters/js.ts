@@ -2694,9 +2694,13 @@ export function transpileToJS(
   const needsSolver =
     FULL_PRELUDE || (needsKind && code.includes(`${RT_NS}.__k('ref'`))
   // `.toJSONSchema()` / `.strip()` on a runtime type — only inline the
-  // example→schema helper for files that actually call them.
+  // example→schema helper for files that call them, or that EXPORT a type: an exported Type
+  // is asked for its schema by the module that imports it, and without the helper that was
+  // `toJSONSchema is not a function` (#4119).
   const needsExampleSchema =
-    FULL_PRELUDE || /\.(toJSONSchema|strip)\(/.test(code)
+    FULL_PRELUDE ||
+    /\.(toJSONSchema|strip)\(/.test(code) ||
+    (/\bexport\b/.test(code) && /\b__tjs_rt\.(?:Type|Enum|Union)\(/.test(code))
   const needsBang = FULL_PRELUDE || code.includes('__tjs.bang(')
   // checkFnShape and bang both build MonadicErrors, so they pull in the core too
   const needsMonadicCore =
@@ -2944,21 +2948,20 @@ export function transpileToJS(
     // stub returns `false`. Same source, different answers, depending only on
     // whether a runtime happened to be installed.
     //
-    // The consequence to be aware of: the stubs carry none of the real type's API
-    // (no `.toJSONSchema()`, no `.strip()`), so emitted code cannot use it. That
-    // is why examples/json-schema.tjs imports the standalone
-    // `functionMetaToJSONSchema` from `tjs-lang/lang` rather than calling
-    // `Type(…).toJSONSchema()`.
+    // The stubs carry only part of the real type's API.
     // `.toJSONSchema()` / `.strip()` — derived purely from the example value, so
     // the stub can carry them without tosijs-schema. A TJS type that survives to
     // runtime but can't describe itself there isn't much of a runtime type; this
     // is the whole "types are examples that survive" claim, and it did not work
     // from inside .tjs code at all (examples/json-schema.tjs died on
-    // `User.toJSONSchema is not a function`). Emitted only when actually used, so
-    // files that don't ask for a schema pay nothing.
+    // `User.toJSONSchema is not a function`). Emitted only when used or when the file
+    // exports a type, so other files pay nothing.
     if (needsExampleSchema) {
       inlineParts.push(
-        `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){${
+        // `__jsDefs` is live during one top-level `.toJSONSchema()`: a named reference that
+        // recurses goes into `$defs` and is referenced by `$ref`, instead of the walk stopping
+        // after one level with `{}` (#4119).
+        `let __jsDefs=null;function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){${
           needsKind ? 'if(v.__k)return __kjs(v,__ex2js);' : ''
         }const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);${
           needsKind ? 'if(!__kOpt(v[k]))' : ''
@@ -3077,7 +3080,7 @@ export function transpileToJS(
         })}return v===ex}`
       )
       const typeExtras = needsExampleSchema
-        ? `t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
+        ? `t.toJSONSchema=()=>{const top=!__jsDefs;if(top)__jsDefs={defs:{},rec:new Set()};try{const s=t.__ex===undefined?{}:__ex2js(t.__ex);return top&&Object.keys(__jsDefs.defs).length?{...s,$defs:__jsDefs.defs}:s}finally{if(top)__jsDefs=null}};t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
         : ''
       if (needsKind) {
         // A marker is a runtime type, so `__match` already defers to its `.check`. `Type`
@@ -3121,7 +3124,7 @@ export function transpileToJS(
           // Only `__ex2js` (`.toJSONSchema()`) reads a marker's schema.
           ...(needsExampleSchema
             ? [
-                `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return typeof m.arg[0]==='bigint'?{type:'integer'}:{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){if(m.__busy)return{};m.__busy=true;try{const r=m.peek();if(r===__kUnset)return{};return r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r)}finally{m.__busy=false}}return{}}`,
+                `function __kjs(m,sub){const t=m.__k;if(t==='float')return{type:'number'};if(t==='nonneg')return{type:'integer',minimum:0};if(t==='set')return typeof m.arg[0]==='bigint'?{type:'integer'}:{enum:m.arg};if(t==='union'){const s=m.arg.filter(e=>!(e&&e.__k==='undef')).map(sub);return s.length===1?s[0]:{anyOf:s}}if(t==='ref'){const ref={$ref:'#/$defs/'+m.name};if(m.__busy){if(!__jsDefs)return{};__jsDefs.rec.add(m.name);return ref}m.__busy=true;try{const r=m.peek();if(r===__kUnset)return{};const s=r&&typeof r.toJSONSchema==='function'?r.toJSONSchema():sub(r);if(__jsDefs&&__jsDefs.rec.has(m.name)){__jsDefs.defs[m.name]=s;return ref}return s}finally{m.__busy=false}}return{}}`,
               ]
             : []),
           `function __unk(v){if(!v||typeof v!=='object')return v;if(v.__k){if(v.__k==='union')return __unk(v.arg[0]);if(v.__k!=='ref')return v.value;const r=v.peek();return r===__kUnset?undefined:__unk(r)}if(Array.isArray(v)){let c=false;const a=v.map(x=>{const y=__unk(x);if(y!==x)c=true;return y});return c?a:v}if(Object.getPrototypeOf(v)!==Object.prototype)return v;let c=false;const o={};for(const k of Object.keys(v)){const y=__unk(v[k]);if(y!==v[k])c=true;o[k]=y}return c?o:v}`
