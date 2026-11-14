@@ -502,9 +502,29 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       return { kind: 'any' }
     }
 
+    // A call or a member path as an example is not evaluated at transpile time, so it says
+    // nothing about the type. It stays `any`, MARKED, so a colon example that names one is
+    // reported instead of silently checking nothing (#4114).
+    case 'CallExpression':
+    case 'MemberExpression':
+      return { kind: 'any', unexamined: expressionLabel(node) }
+
     default:
       return { kind: 'any' }
   }
+}
+
+/** A short label for a call or member path: `Math.round(…)`, `k.n`. */
+function expressionLabel(node: any): string {
+  if (node?.type === 'Identifier') return node.name
+  if (node?.type === 'ThisExpression') return 'this'
+  if (node?.type === 'MemberExpression')
+    return node.computed
+      ? `${expressionLabel(node.object)}[…]`
+      : `${expressionLabel(node.object)}.${node.property?.name ?? '…'}`
+  if (node?.type === 'CallExpression')
+    return `${expressionLabel(node.callee)}(…)`
+  return '…'
 }
 
 /**

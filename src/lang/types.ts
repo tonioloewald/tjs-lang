@@ -19,6 +19,12 @@ export interface TypeDescriptor {
    */
   unresolved?: string
   /**
+   * Set when an example was a call or a member path (`Math.round(1.0)`, `k.n`): it is not
+   * evaluated at transpile time, so the type is `any`. Carries a short label of the
+   * expression so the transpiler can report the parameter as unchecked (#4114).
+   */
+  unexamined?: string
+  /**
    * For `kind: 'string'` declared with a REGEXP example (`s: /^\d{5}$/`) — the value
    * must be a string AND match. This is finer grain than TypeScript can express without
    * template-literal-type gymnastics, and unlike those it survives to runtime.

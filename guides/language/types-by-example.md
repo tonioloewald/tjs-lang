@@ -694,10 +694,10 @@ calls the function with its parameter examples, and `Point` is a type, not an ex
 So `function g(p: Point): 0 { return 1 }` transpiles even though `1` is not `0`: the return
 example is never compared with anything. Write a test block instead; see [Testing](/testing/).
 
-**A call or dotted path in a parameter example is silently unchecked.** Written in a
-parameter, `n: Math.round(1.0)` or `n: limits.max` is not evaluated, and today the parameter
-accepts anything without a warning (`tjs check` reports it as `any`). Put the expression in a
-`Type` and use the type's name.
+**A call or dotted path in a parameter example is unchecked.** Written in a parameter,
+`n: Math.round(1.0)` or `n: limits.max` is not evaluated, so the parameter accepts anything,
+and `tjs check` warns that it is unchecked. Put the expression in a `Type` and use the type's
+name.
 
 **A typed default is not a dictionary.** A plain object default, `p = { x: 1, y: 2 }`, is a
 _dictionary default_: a partial argument is merged with it, so missing members are filled in.

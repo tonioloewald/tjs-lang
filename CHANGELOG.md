@@ -169,6 +169,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A call or dotted path as a parameter example is reported** (#4114). `function k(n:
+  Math.round(1.0))` and `function f(n: k.n)` left `n` unchecked with no word: examples are not
+  evaluated at transpile time, so the expression said nothing about the type. The parameter is
+  still unchecked, and the transpiler (and so `tjs check`) now warns, naming the path, including
+  a member of an object example (`o.n`). A default (`t = Date.now()`) is ordinary JavaScript and
+  is not reported.
+
 - **Two modules may each declare a `wasm function` of the same name** (#4109). Each bound
   `globalThis.__tjs_wasm_<name>`, so loading the second module rebound the first module's function
   to the second's body: module A's `f(2)` returned 3, then 200 once module B loaded. The global now

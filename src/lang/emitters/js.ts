@@ -783,6 +783,36 @@ function extractFunctionTypeInfo(
       for (const key of Object.keys(t.shape))
         t.shape[key] = promote(t.shape[key])
   }
+  // A colon example that is a call or a member path is not evaluated, so whatever it stands
+  // for is unchecked; say so rather than checking nothing in silence (#4114). Only REQUIRED
+  // parameters: a default (`t = Date.now()`) is ordinary JavaScript, computed at call time.
+  const unexamined = (t: any, path: string): [string, string] | null => {
+    if (!t || typeof t !== 'object') return null
+    if (t.unexamined) return [path, String(t.unexamined)]
+    if (t.kind === 'array') return unexamined(t.items, `${path}[]`)
+    if (t.kind === 'object' && t.shape)
+      for (const key of Object.keys(t.shape)) {
+        const hit = unexamined(t.shape[key], `${path}.${key}`)
+        if (hit) return hit
+      }
+    if (t.kind === 'union' && Array.isArray(t.members))
+      for (const m of t.members) {
+        const hit = unexamined(m, path)
+        if (hit) return hit
+      }
+    return null
+  }
+  for (const [name, descriptor] of Object.entries(params)) {
+    const hit = descriptor.required ? unexamined(descriptor.type, name) : null
+    if (hit)
+      warnings.push(
+        `In '${name}', the example '${hit[1]}' is an expression, and examples are not ` +
+          `evaluated, so '${hit[0]}' is unchecked. Write the value it stands for ` +
+          `(${hit[0]
+            .split('.')
+            .pop()}: 1.0), a type (number), or a declared Type name.`
+      )
+  }
   for (const [name, descriptor] of Object.entries(params)) {
     promoteNested(descriptor.type)
     // `unresolved` is set only when an annotation DEGRADED; an explicit `any`
@@ -3614,6 +3644,7 @@ const SERIALIZED_FIELDS: Record<
   values: 'copy',
   typeName: 'copy',
   unresolved: 'copy',
+  unexamined: 'copy',
   params: 'params',
   returns: 'type',
   // A destructured parameter's members are emitted as the parameter's own `destructured`
