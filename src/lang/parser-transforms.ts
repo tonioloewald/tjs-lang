@@ -234,9 +234,9 @@ export function transformTryWithoutCatch(source: string): string {
  * unique per module while staying fully deterministic (same source ⇒ same id),
  * which the metadata cache and the tests both rely on.
  *
- * NOTE: named `wasm function` declarations keep their `__tjs_wasm_<name>` id
- * (see `transformWasmFunctions`) — that name IS the cross-file composition
- * contract, and hashing it would break importing a wasm function by name.
+ * Named `wasm function` declarations are salted the same way
+ * (`__tjs_wasm_<tag>_<name>`, #4109). Cross-file composition matches on the
+ * block's `name`, never its id, so importing a wasm function by name still works.
  */
 
 /**
@@ -563,7 +563,7 @@ export function extractWasmBlocks(source: string): {
  *
  *   becomes:
  *
- *   (export)? function dot(a, b, n) { return globalThis.__tjs_wasm_dot(a, b, n) }
+ *   (export)? function dot(a, b, n) { return globalThis.__tjs_wasm_<tag>_dot(a, b, n) }
  *
  * This runs BEFORE `extractWasmBlocks` so its output (a regular JS function
  * wrapper) isn't disturbed by the inline-block scanner.
@@ -594,6 +594,7 @@ export function extractWasmFunctions(source: string): {
   source: string
   blocks: WasmBlock[]
 } {
+  const tag = moduleTag(source)
   const blocks: WasmBlock[] = []
   let result = ''
   let i = 0
@@ -694,7 +695,11 @@ export function extractWasmFunctions(source: string): {
     // compiler: each entry is either `name` or `name: type`.
     const captures = parseWasmFunctionParams(paramsSource)
 
-    const id = `__tjs_wasm_${name}`
+    // Salted with the module's tag, as inline blocks are: a bare `__tjs_wasm_<name>` let two
+    // modules declaring `wasm function f` bind the same global, so loading the second rebound
+    // the first module's `f` to the second's body (#4109). Cross-file composition matches on
+    // `name` and carries the library block's `id` over, so it is unaffected.
+    const id = `__tjs_wasm_${tag}_${name}`
     const block: WasmBlock = {
       id,
       name, // enables Phase 3 cross-file matching against imported symbols

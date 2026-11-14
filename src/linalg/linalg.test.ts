@@ -20,6 +20,10 @@ import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { writeFileSync, unlinkSync } from 'node:fs'
 
+/** A `wasm function` id without its per-module tag (#4109): `__tjs_wasm_<tag>_dot` → `__tjs_wasm_dot`. */
+const bareId = (id: string) =>
+  id.replace(/^__tjs_wasm_[0-9a-z]+_(?=[A-Za-z_])/, '__tjs_wasm_')
+
 const LINALG_PATH = join(import.meta.dir, 'index.tjs')
 const LINALG_SOURCE = readFileSync(LINALG_PATH, 'utf8')
 
@@ -71,7 +75,7 @@ describe('tjs-lang/linalg v1', () => {
     expect(result.wasmCompiled).toHaveLength(4)
     expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
 
-    const ids = result.wasmCompiled!.map((b) => b.id).sort()
+    const ids = result.wasmCompiled!.map((b) => bareId(b.id)).sort()
     expect(ids).toEqual([
       '__tjs_wasm_dot',
       '__tjs_wasm_dot_at',
@@ -176,7 +180,7 @@ function cosine(a, b, n) {
     // The consumer's emitted module contains both linalg functions as
     // local exports (Phase 3 acceptance criterion: composed-not-imported).
     expect(result.wasmCompiled).toHaveLength(2)
-    const ids = result.wasmCompiled!.map((b) => b.id).sort()
+    const ids = result.wasmCompiled!.map((b) => bareId(b.id)).sort()
     expect(ids).toEqual(['__tjs_wasm_dot', '__tjs_wasm_norm_sq'])
     const modules = (result.code.match(/const __wasmModuleB64=/g) || []).length
     expect(modules).toBe(1)
@@ -258,6 +262,7 @@ function cosine(a, b, n) {
     })
     const consumerSource = `
 import { dot, norm_sq } from './linalg.tjs'
+
 `
     const consumerResult = tjs(consumerSource, {
       moduleLoader: loader,

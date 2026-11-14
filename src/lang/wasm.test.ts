@@ -12,6 +12,15 @@ import {
 } from './wasm'
 import type { WasmBlock } from './parser'
 
+/** A `wasm function` id without its per-module tag (#4109): `__tjs_wasm_<tag>_dot` → `__tjs_wasm_dot`. */
+const bareId = (id: string) =>
+  id.replace(/^__tjs_wasm_[0-9a-z]+_(?=[A-Za-z_])/, '__tjs_wasm_')
+const bareCode = (code: string) =>
+  code.replace(
+    /globalThis\.__tjs_wasm_[0-9a-z]+_(?=[A-Za-z_])/g,
+    'globalThis.__tjs_wasm_'
+  )
+
 describe('WASM Compiler', () => {
   describe('compileToWasm - basic expressions', () => {
     it('should compile a simple return expression', () => {
@@ -2163,7 +2172,10 @@ wasm function add(a: f64, b: f64): f64 {
     const result = tjs(source)
     expect(result.wasmCompiled).toBeDefined()
     expect(result.wasmCompiled).toHaveLength(1)
-    expect(result.wasmCompiled![0]).toMatchObject({
+    expect({
+      ...result.wasmCompiled![0],
+      id: bareId(result.wasmCompiled![0].id),
+    }).toMatchObject({
       id: '__tjs_wasm_add',
       success: true,
     })
@@ -2180,7 +2192,7 @@ wasm function add(a: f64, b: f64): f64 {
     // The declaration is replaced with a wrapper function — that wrapper
     // forwards to globalThis.__tjs_wasm_add, which the bootstrap sets up.
     expect(result.code).toContain('function add(a, b)')
-    expect(result.code).toContain('globalThis.__tjs_wasm_add(a, b)')
+    expect(bareCode(result.code)).toContain('globalThis.__tjs_wasm_add(a, b)')
   })
 
   it('preserves the export modifier on the wrapper', async () => {
@@ -2192,7 +2204,7 @@ export wasm function mul(a: f64, b: f64): f64 {
 `
     const result = tjs(source)
     expect(result.code).toContain('export function mul(a, b)')
-    expect(result.code).toContain('globalThis.__tjs_wasm_mul(a, b)')
+    expect(bareCode(result.code)).toContain('globalThis.__tjs_wasm_mul(a, b)')
   })
 
   it('runs end-to-end: declare wasm function, call it, get correct result', async () => {
@@ -2289,7 +2301,7 @@ function inline(x: 0, y: 0) {
 `
     const result = tjs(source, { runTests: false })
     expect(result.wasmCompiled).toHaveLength(2)
-    const ids = result.wasmCompiled!.map((b) => b.id)
+    const ids = result.wasmCompiled!.map((b) => bareId(b.id))
     // A named `wasm function` keeps its exact name — that IS the cross-file
     // composition contract, so it must never be hashed.
     expect(ids).toContain('__tjs_wasm_topLevel')
@@ -2315,7 +2327,7 @@ wasm function answer(): f64 {
     expect(result.wasmCompiled).toHaveLength(1)
     expect(result.wasmCompiled![0].success).toBe(true)
     expect(result.code).toContain('function answer()')
-    expect(result.code).toContain('globalThis.__tjs_wasm_answer()')
+    expect(bareCode(result.code)).toContain('globalThis.__tjs_wasm_answer()')
   })
 
   it('does not match identifiers that contain "wasm" (e.g. mywasm)', async () => {
@@ -2377,8 +2389,8 @@ export wasm function mul(a: f64, b: f64): f64 { return a * b }
     expect(result.code).toContain('export function mul(a, b)')
 
     // Each wrapper forwards to its globalThis-registered wasm function
-    expect(result.code).toContain('globalThis.__tjs_wasm_add(a, b)')
-    expect(result.code).toContain('globalThis.__tjs_wasm_mul(a, b)')
+    expect(bareCode(result.code)).toContain('globalThis.__tjs_wasm_add(a, b)')
+    expect(bareCode(result.code)).toContain('globalThis.__tjs_wasm_mul(a, b)')
 
     // The wasm module is base64-embedded and instantiated at the top —
     // synchronously, so an importer can call an exported wasm function
@@ -2522,7 +2534,10 @@ function compute(a: 0.0, b: 0.0): 0.0 {
     // The imported wasm function got composed in
     expect(result.wasmCompiled).toBeDefined()
     expect(result.wasmCompiled).toHaveLength(1)
-    expect(result.wasmCompiled![0]).toMatchObject({
+    expect({
+      ...result.wasmCompiled![0],
+      id: bareId(result.wasmCompiled![0].id),
+    }).toMatchObject({
       id: '__tjs_wasm_dot',
       success: true,
     })
@@ -2530,7 +2545,7 @@ function compute(a: 0.0, b: 0.0): 0.0 {
     // The import statement was rewritten to a local wrapper
     expect(result.code).not.toContain("import { dot } from './linalg.tjs'")
     expect(result.code).toContain('function dot(a, b)')
-    expect(result.code).toContain('globalThis.__tjs_wasm_dot(a, b)')
+    expect(bareCode(result.code)).toContain('globalThis.__tjs_wasm_dot(a, b)')
   })
 
   it('keeps imports unchanged when no loader is supplied', async () => {
@@ -2594,9 +2609,9 @@ function compute(x: 0.0): 0.0 {
     })
     // fast was composed; slow remains imported
     expect(result.wasmCompiled).toHaveLength(1)
-    expect(result.wasmCompiled![0].id).toBe('__tjs_wasm_fast')
+    expect(bareId(result.wasmCompiled![0].id)).toBe('__tjs_wasm_fast')
     expect(result.code).toContain('function fast(a)')
-    expect(result.code).toContain('globalThis.__tjs_wasm_fast(a)')
+    expect(bareCode(result.code)).toContain('globalThis.__tjs_wasm_fast(a)')
     // The remaining import keeps `slow` only
     expect(result.code).toMatch(/import\s*\{\s*slow\s*\}\s*from/)
     expect(result.code).not.toMatch(/import\s*\{\s*fast\s*,\s*slow\s*\}\s*from/)
@@ -2624,7 +2639,7 @@ function compute(a: 0.0, b: 0.0): 0.0 {
       runTests: false,
     })
     expect(result.wasmCompiled).toHaveLength(2)
-    const ids = result.wasmCompiled!.map((b) => b.id).sort()
+    const ids = result.wasmCompiled!.map((b) => bareId(b.id)).sort()
     expect(ids).toEqual(['__tjs_wasm_add', '__tjs_wasm_dot'])
     // One consolidated WebAssembly.Module per file (Phase 0.5 acceptance)
     const modules = (result.code.match(/const __wasmModuleB64=/g) || []).length
@@ -2659,7 +2674,7 @@ function compute(a: 0.0, b: 0.0): 0.0 { return dot(a, b) }
       .parseResult.wasmBlocks
     const composed = compileBlocksToModule(linalgBlocks)
     expect(composed.exports).toHaveLength(1)
-    expect(composed.exports[0].id).toBe('__tjs_wasm_dot')
+    expect(bareId(composed.exports[0].id)).toBe('__tjs_wasm_dot')
 
     // The composed module needs no memory for a pure-scalar `dot(a, b) = a*b`
     expect(composed.needsMemory).toBe(false)
@@ -2746,7 +2761,7 @@ function go() { return wanted(5) }
       })
       // Only `wanted` should be in the composed module
       expect(result.wasmCompiled).toHaveLength(1)
-      expect(result.wasmCompiled![0].id).toBe('__tjs_wasm_wanted')
+      expect(bareId(result.wasmCompiled![0].id)).toBe('__tjs_wasm_wanted')
     })
 
     it('pulls in transitive wasm-to-wasm callees automatically', async () => {
@@ -2773,7 +2788,7 @@ import { outer } from './lib.tjs'
       // Both pulled in
       expect(result.wasmCompiled).toHaveLength(2)
       expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
-      const ids = result.wasmCompiled!.map((b) => b.id).sort()
+      const ids = result.wasmCompiled!.map((b) => bareId(b.id)).sort()
       expect(ids).toEqual(['__tjs_wasm_inner', '__tjs_wasm_outer'])
 
       // Run end-to-end to confirm the call actually works
@@ -2821,7 +2836,7 @@ import { a } from './lib.tjs'
       })
       // a, b, c pulled in; unrelated is not
       expect(result.wasmCompiled).toHaveLength(3)
-      const ids = result.wasmCompiled!.map((b) => b.id).sort()
+      const ids = result.wasmCompiled!.map((b) => bareId(b.id)).sort()
       expect(ids).toEqual(['__tjs_wasm_a', '__tjs_wasm_b', '__tjs_wasm_c'])
     })
 
@@ -2877,7 +2892,7 @@ import { user } from './lib.tjs'
       })
       // user is pulled in; add is NOT (word-boundary regex doesn't match _add as add)
       expect(result.wasmCompiled).toHaveLength(1)
-      expect(result.wasmCompiled![0].id).toBe('__tjs_wasm_user')
+      expect(bareId(result.wasmCompiled![0].id)).toBe('__tjs_wasm_user')
     })
   })
 })
@@ -3082,6 +3097,7 @@ wasm function triple(x: f64): f64 { return x * 3 }
     })
     const consumerSource = `
 import { double, triple } from './lib.tjs'
+
 
 wasm function fancy(x: f64): f64 {
   return double(x) + triple(x)

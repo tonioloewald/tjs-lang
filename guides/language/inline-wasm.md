@@ -634,7 +634,7 @@ A `wasm function` is WASM only. Its JavaScript wrapper calls the WASM export dir
 the export does not exist, the call throws a `TypeError`:
 
 ```text
-TypeError: globalThis.__tjs_wasm_sq is not a function
+TypeError: globalThis.__tjs_wasm_1q2w3e_sq is not a function
 ```
 
 That happens in a runtime with no `WebAssembly`, after a refused instantiation, and on a
@@ -800,17 +800,10 @@ An `exports` condition such as `"bun": "./src/index.tjs"` still has a use: with 
 preloaded, Bun imports the source and transpiles it on load. That is the boundary form, the
 same as importing the `.js`; it does not compose.
 
-Two current limits to design around:
-
-- **Each `.js` dependency carries its own copy** of the kernels it embeds, so two libraries
-  that both bundle the same kernels ship two copies.
-- **Kernel names are global.** A `wasm function` binds a global named after the function
-  (`globalThis.__tjs_wasm_vecDot`), so two files that each declare a `wasm function` with the
-  same name, loaded as separate modules, share one binding: the last file loaded wins for
-  both, and calls to the first file's kernel run the second file's code. Give exported
-  kernels distinctive names. In particular, [`tjs-lang/linalg`](#ready-made-kernels)
-  claims `dot`, `norm_sq`, `dot_at` and `norm_sq_at`: in a program that loads it, do not
-  declare a `wasm function` with any of those names.
+One current limit to design around: **each `.js` dependency carries its own copy** of the
+kernels it embeds, so two libraries that both bundle the same kernels ship two copies.
+(Kernel names are not global: two files may each declare a `wasm function` of the same name,
+and each keeps its own.)
 
 The [WASM Library: SIMD Linalg](/wasm-library-author/) and
 [Using a WASM Library](/wasm-library-consumer/) examples build and consume a library end to

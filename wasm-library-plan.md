@@ -291,7 +291,7 @@ Done. New `src/lang/module-loader.ts` provides a `ModuleLoader` class with `reso
 
 Done. New `extractWasmFunctions` transform in `parser-transforms.ts` recognizes top-level `(export)? wasm function NAME(params): RetType { body }` declarations. The body is the wasm-subset source; captures are the function's parameters with their type annotations (using existing wasm type names: `i32`/`i64`/`f32`/`f64`/`Float32Array`/`Float64Array`/`Int32Array`/`Uint8Array`).
 
-- Each `wasm function` declaration is replaced in source with a regular JS wrapper: `function NAME(...args) { return globalThis.__tjs_wasm_NAME(...args) }`, preserving the `export` modifier when present
+- Each `wasm function` declaration is replaced in source with a regular JS wrapper: `function NAME(...args) { return globalThis.__tjs_wasm_<tag>_NAME(...args) }` (the module's tag since #4109), preserving the `export` modifier when present
 - The wrapper goes through the regular tjs pipeline (monadic error guards, `__tjs` metadata, etc.); the body is stored on the block and compiled via the Phase 0.5 `compileBlocksToModule` path
 - **Critical ordering fix:** the new extractor runs BEFORE `transformParenExpressions`. `wasm function` params use wasm-specific type syntax (`name: i32`, etc.) and must not be rewritten into tjs's example-based `name = example` default-value form. The inline `wasm {}` extractor still runs later in the pipeline as before
 - 8 new tests in `wasm.test.ts` under `describe('wasm function declarations (Phase 1)')`: extraction, wrapper emission, export modifier, end-to-end call, Float32Array params (zero-copy), coexistence with inline blocks (one consolidated module), no-params functions, and identifier-boundary check (so `mywasm` isn't matched)

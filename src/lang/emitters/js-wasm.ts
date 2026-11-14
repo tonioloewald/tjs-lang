@@ -75,8 +75,12 @@ export function generateWasmBootstrap(blocks: WasmBlock[]): {
     .filter((e) => !e.failed)
     .map(
       (e) =>
+        // `f` names the function in a refusal: its declared name, not the id, which carries
+        // the module's tag (#4109).
         `{id:${JSON.stringify(e.id)},n:${JSON.stringify(
           e.exportName
+        )},f:${JSON.stringify(
+          e.name ?? e.id.replace(/^__tjs_wasm_/, '')
         )},c:${JSON.stringify(e.captures)},m:${e.needsMemory}}`
     )
     .join(',')
@@ -119,7 +123,7 @@ globalThis.wasmBuffer=function(Ctor,len){if(!__wasmMem)return new Ctor(len);cons
     : ''
 }
 const __bind=__wasmInst=>{
-for(const{id,n,c,m}of __wasmExports){
+for(const{id,n,f,c,m}of __wasmExports){
   const compute=__wasmInst.exports[n];
   const params=c.map(__parseType);
   const hasArrays=params.some(p=>p.a);
@@ -137,7 +141,7 @@ for(const{id,n,c,m}of __wasmExports){
       if(!p.a){ptrs.push(a);continue}
       const Want=globalThis[p.at];
       if(a instanceof Want&&a.buffer===__wasmMem.buffer){ptrs.push(a.byteOffset);continue}
-      if(!(a instanceof Want)&&!Array.isArray(a)&&!ArrayBuffer.isView(a))throw new TypeError("'"+id.replace(/^__tjs_wasm_/,'')+"' expects a "+p.at+" (or an array of numbers) for '"+p.n+"', got "+(a===null?'null':Array.isArray(a)?'an array':typeof a));
+      if(!(a instanceof Want)&&!Array.isArray(a)&&!ArrayBuffer.isView(a))throw new TypeError("'"+f+"' expects a "+p.at+" (or an array of numbers) for '"+p.n+"', got "+(a===null?'null':Array.isArray(a)?'an array':typeof a));
       const t=a instanceof Want?a:new Want(a);
       if(!__copied){__copied=true;__rec({source:'wasm',severity:'notice',message:"'"+id+"' was passed "+(a instanceof Want?'a typed array outside wasm memory':'an array that is not a '+p.at)+" — copying in and out on every call. This can be SLOWER than plain JS. Allocate it with wasmBuffer() to pass it zero-copy.",data:{fn:id,param:p.n,bytes:t.byteLength}})}const ab=new Uint8Array(t.buffer,t.byteOffset,t.byteLength);off=(off+15)&~15;mv.set(ab,off);ptrs.push(off);back.push([a,t,ab,off]);off+=ab.length}
     const r=compute(...ptrs);

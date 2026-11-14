@@ -23,6 +23,9 @@ wasm function scale(a: Float32Array, n: i32): f64 {
 }
 `
 
+// The function's global, per-module tag included (#4109).
+const ID = tjs(SRC).wasmCompiled![0].id
+
 describe('wasm typed-array parameters', () => {
   let saved: any
   beforeEach(async () => {
@@ -31,7 +34,7 @@ describe('wasm typed-array parameters', () => {
     g.__tjs = { record: rt.record, records: rt.records }
     new Function(tjs(SRC).code)()
     await g.__tjs_wasm_ready?.()
-    if (typeof g.__tjs_wasm_scale !== 'function')
+    if (typeof g[ID] !== 'function')
       throw new Error('wasm export missing — test needs a compiled module')
   })
   afterEach(() => {
@@ -45,7 +48,7 @@ describe('wasm typed-array parameters', () => {
     const other = g.wasmBuffer(Float32Array, 2)
     other.set([5, 6])
     const plain = [1, 2]
-    g.__tjs_wasm_scale(plain, 2)
+    g[ID](plain, 2)
     expect(plain).toEqual([2, 4]) // what the JS fallback does
     expect([...other]).toEqual([5, 6]) // untouched (was 10,12)
   })
@@ -56,25 +59,25 @@ describe('wasm typed-array parameters', () => {
     // 0x3F800000 is 1.0 read as float bits: reinterpreted, it would double to 2.0's bits
     // (1073741824). Small integers are denormals, whose bits double too, so they cannot tell.
     const ints = new Int32Array([1065353216, 4])
-    g.__tjs_wasm_scale(ints, 2)
+    g[ID](ints, 2)
     expect([...ints]).toEqual([2130706432, 8])
     expect([...other]).toEqual([5, 6])
   })
 
   it('anything else is refused, naming the function and parameter', () => {
-    expect(() => g.__tjs_wasm_scale(null, 2)).toThrow(
+    expect(() => g[ID](null, 2)).toThrow(
       /'scale' expects a Float32Array .* for 'a', got null/
     )
-    expect(() => g.__tjs_wasm_scale(7, 2)).toThrow(/got number/)
+    expect(() => g[ID](7, 2)).toThrow(/got number/)
   })
 
   it('the zero-copy and copy-in paths still work (the other direction)', () => {
     const fast = g.wasmBuffer(Float32Array, 2)
     fast.set([1, 2])
-    g.__tjs_wasm_scale(fast, 2)
+    g[ID](fast, 2)
     expect([...fast]).toEqual([2, 4])
     const outside = new Float32Array([3, 4])
-    g.__tjs_wasm_scale(outside, 2)
+    g[ID](outside, 2)
     expect([...outside]).toEqual([6, 8])
   })
 })

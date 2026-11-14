@@ -55,7 +55,7 @@ describe('flight recorder: wasm', () => {
     new Function(code)()
     await g.__tjs_wasm_ready?.()
 
-    const wasmFn = g.__tjs_wasm_total
+    const wasmFn = g[tjs(SRC).wasmCompiled![0].id]
     if (typeof wasmFn !== 'function') {
       throw new Error('wasm export missing — test needs a compiled block')
     }
@@ -77,7 +77,7 @@ describe('flight recorder: wasm', () => {
     new Function(code)()
     await g.__tjs_wasm_ready?.()
 
-    const wasmFn = g.__tjs_wasm_total
+    const wasmFn = g[tjs(SRC).wasmCompiled![0].id]
     const fast = g.wasmBuffer(Float32Array, 4)
     fast.set([1, 2, 3, 4])
     for (let i = 0; i < 50; i++) wasmFn(fast, 4)

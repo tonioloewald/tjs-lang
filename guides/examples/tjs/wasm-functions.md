@@ -123,7 +123,7 @@ products in four interleaved partial sums, and floating-point addition is not as
 A file's WASM module is compiled when the file loads. That is synchronous everywhere except a
 browser's main thread, where a module over 4KB must compile asynchronously. A `wasm function`
 has no fallback to run in the meantime, so a call that arrives first throws a `TypeError`
-(`globalThis.__tjs_wasm_dot_simd is not a function`). The runtime provides
+(`globalThis.__tjs_wasm_1q2w3e_dot_simd is not a function`). The runtime provides
 `globalThis.__tjs_wasm_ready()`, which returns a promise that resolves once every module in
 the page is ready. It resolves at once when they already are, so in browser code await it once
 at startup:

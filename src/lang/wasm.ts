@@ -2335,6 +2335,8 @@ export interface BlockExport {
   id: string
   /** Export name in the composed module (e.g. 'compute_0') */
   exportName: string
+  /** The declared name of a `wasm function` (undefined for an inline block) */
+  name?: string
   /** Capture annotations (preserved for runtime wrapper) */
   captures: string[]
   /** Whether this function reads/writes memory */
@@ -2425,6 +2427,7 @@ export function compileBlocksToModule(
       compiledFns.push(stubFunction(preSignatures[i]))
       exports.push({
         id: block.id,
+        name: block.name,
         exportName: `compute_${i}`,
         captures: block.captures,
         needsMemory: false,
@@ -2436,6 +2439,7 @@ export function compileBlocksToModule(
     compiledFns.push(r.fn)
     exports.push({
       id: block.id,
+      name: block.name,
       exportName: `compute_${i}`,
       captures: block.captures,
       needsMemory: r.fn.needsMemory,

@@ -169,6 +169,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two modules may each declare a `wasm function` of the same name** (#4109). Each bound
+  `globalThis.__tjs_wasm_<name>`, so loading the second module rebound the first module's function
+  to the second's body: module A's `f(2)` returned 3, then 200 once module B loaded. The global now
+  carries the module's tag (`__tjs_wasm_<tag>_<name>`), as inline `wasm {}` blocks already did.
+  Importing a `wasm function` across files is unaffected (it matches on the name). Code that read
+  `globalThis.__tjs_wasm_<name>` directly must call the exported function instead.
+
 - **A `try` with no `catch` returns a `MonadicError` when no shared runtime is installed** (#4116).
   The emitted catch built `new (__tjs?.MonadicError ?? Error)(…)`, so standalone output returned a
   plain `Error`: `isMonadicError` said no, and a checked caller treated it as a wrong value rather
