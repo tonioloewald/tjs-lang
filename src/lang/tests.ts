@@ -438,6 +438,8 @@ function expect(actual) {
       if (a === null || b === null) return a === b
       if (a === undefined || b === undefined) return a === undefined && b === undefined
       if (typeof a !== typeof b) return false
+      // NaN equals NaN, as in the signature-test harness and Jest's toBe (#4119)
+      if (typeof a === 'number' && a !== a && b !== b) return true
       if (typeof a !== 'object') return a === b
       if (Array.isArray(a) !== Array.isArray(b)) return false
       if (seen === null) seen = new WeakMap()

@@ -1130,10 +1130,12 @@ function goIs(
     }
     return null
   }
+  // A hook answers equal only with `true`: `Is` returns a boolean, so a hook's other results
+  // (`'yes'`, `1`, a MonadicError) are not equal rather than passed through as is (#4119).
   const aEquals = customEquals(a)
-  if (aEquals) return aEquals(b)
+  if (aEquals) return aEquals(b) === true
   const bEquals = customEquals(b)
-  if (bEquals) return bEquals(a)
+  if (bEquals) return bEquals(a) === true
 
   // Unwrap boxed primitives (new String, new Number, new Boolean) so structural equality
   // honors the intent: new String('foo') == 'foo'. Via the internal slot, like `Eq` and

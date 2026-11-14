@@ -169,6 +169,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Is` returns a boolean whatever an equality hook returns** (#4119). A `.Equals` or
+  `[tjsEquals]` hook's result was passed through, so `Equals() { return 'yes' }` made `Is(a, b)`
+  return `'yes'`. A hook now answers equal only with `true`, in the runtime and in the inline copy
+  emitted code carries.
+
+- **NaN and Infinity work as examples and in tests** (#4119). A `: NaN` return example was
+  serialised through JSON and expected `null`; `Infinity` likewise. In a test block,
+  `expect(NaN).toBe(NaN)` failed because that harness compared with `===`, while the signature
+  harness already treated NaN as equal to NaN.
+
 - **Three `wasm` code-generation defects** (#4117). A `wasm function` with a typed-array
   parameter whose body never touched memory threw `ReferenceError: __wasmMem is not defined`
   (the memory was declared only when the module used it). Storing an `i32` into a

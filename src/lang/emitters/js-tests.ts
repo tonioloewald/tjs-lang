@@ -1371,6 +1371,13 @@ function splitMemberBinding(
  */
 function toSourceLiteral(value: unknown): string {
   if (typeof value === 'bigint') return `${value}n`
+  // JSON has no NaN, Infinity or -0: it wrote `null` and `0`, so a `: NaN` return example
+  // expected null (#4119).
+  if (
+    typeof value === 'number' &&
+    (!Number.isFinite(value) || Object.is(value, -0))
+  )
+    return Object.is(value, -0) ? '-0' : String(value)
   if (Array.isArray(value)) {
     return `[${value.map(toSourceLiteral).join(', ')}]`
   }
