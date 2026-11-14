@@ -105,8 +105,13 @@ describe('signature examples: page and build agree across the docs', () => {
     )
     const prevPreview = g.preview
     const prevLog = console.log
+    const prevFetch = g.fetch
     g.preview = { append() {}, replaceChildren() {}, textContent: '' }
     console.log = () => {}
+    // No network: an example that fetches (async-functions.md calls a live weather API) made
+    // this test hang until its limit whenever the API did not answer from CI (2026-11-14).
+    // A fetch is never part of a signature verdict (async examples are not checked).
+    g.fetch = () => Promise.reject(new Error('no network in this test'))
     let compared = 0
     const disagree: string[] = []
     try {
@@ -151,11 +156,11 @@ describe('signature examples: page and build agree across the docs', () => {
     } finally {
       g.preview = prevPreview
       console.log = prevLog
+      g.fetch = prevFetch
     }
     expect(compared).toBeGreaterThan(20) // apparatus: the corpus has signature examples
     expect(disagree).toEqual([])
-    // It runs every signature example in the docs, so its time grows with them: ~2s locally
-    // and over 5s on CI once the book chapters added ~200 examples (2026-11-14).
+    // It runs every signature example in the docs, so its time grows with them (~2s locally).
   }, 30_000)
 })
 
