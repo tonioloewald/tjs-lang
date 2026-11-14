@@ -184,7 +184,13 @@ export function transformTryWithoutCatch(source: string): string {
         // No catch or finally - add monadic error handler
         // Returns MonadicError to maintain monadic flow (propagates through function chains)
         const body = source.slice(bodyStart, j - 1)
-        result += `try {${body}} catch (__try_err) { return new (__tjs?.MonadicError ?? Error)(__try_err?.message || String(__try_err), 'try', undefined, undefined, __tjs?.getStack?.()) }`
+        // The module's OWN runtime's MonadicError (always emitted when named), not
+        // `__tjs?.MonadicError ?? Error`: with no shared runtime installed that built a plain
+        // Error, which isMonadicError rejects and a checked callee replaced instead of passing
+        // on (#4116).
+        result += `try {${body}} catch (__try_err) { return new ${rt(
+          'MonadicError'
+        )}(__try_err?.message || String(__try_err), 'try', undefined, undefined, __tjs?.getStack?.()) }`
         i = j
       }
     } else {

@@ -169,6 +169,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `try` with no `catch` returns a `MonadicError` when no shared runtime is installed** (#4116).
+  The emitted catch built `new (__tjs?.MonadicError ?? Error)(…)`, so standalone output returned a
+  plain `Error`: `isMonadicError` said no, and a checked caller treated it as a wrong value rather
+  than passing the error on. It now uses the module's own `MonadicError`, as every other emitted
+  error does.
+
 - **A mixed literal union means the same in any order** (#4112). In a parameter it was folded pair
   by pair from the left, so `'S' | 'M' | 0` refused `'X'` while `0 | 'S' | 'M'` accepted it. A union
   is a closed set only when it is all literals of one kind (`'S' | 'M'`); a mixed union is a union of
