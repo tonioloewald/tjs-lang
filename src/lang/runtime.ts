@@ -1235,7 +1235,13 @@ function goIs(
   const keysA = Object.keys(a as object)
   const keysB = Object.keys(b as object)
   if (keysA.length !== keysB.length) return false
-  return keysA.every((k) => goIs((a as any)[k], (b as any)[k], depth + 1, memo))
+  // Same COUNT is not same keys: { a: undefined } and { b: undefined } compared equal, because
+  // indexing the other object by a missing key also gives undefined (#4110).
+  return keysA.every(
+    (k) =>
+      Object.prototype.hasOwnProperty.call(b, k) &&
+      goIs((a as any)[k], (b as any)[k], depth + 1, memo)
+  )
 }
 
 /**

@@ -233,7 +233,9 @@ function parametersToJsonSchema(
 
   for (const [name, param] of Object.entries(parameters)) {
     properties[name] = typeToJsonSchema(param.type, (why) => refuse(name, why))
-    if (param.required) {
+    // `| undefined` makes a parameter optional, as it makes a declared result's member optional
+    // (#4106): a parameter `note: '' | undefined` used to stay required.
+    if (param.required && !mayBeAbsent(param.type)) {
       required.push(name)
     }
   }
@@ -391,6 +393,26 @@ export function transformFunction(
             required: true,
           }
           if (parsed.type.shape) parsed.type.shape[prop.key.name] = type
+        } else if (
+          prop.type === 'Property' &&
+          !prop.shorthand &&
+          !prop.computed &&
+          prop.key.type === 'Identifier' &&
+          prop.value.type === 'Identifier'
+        ) {
+          // Any other name there is, to JavaScript, a RENAME: `{ a: integer }` binds `a` to a
+          // variable called `integer`, so `a` was never imported and the contract silently
+          // dropped it (#4101). An agent's signature has no use for a rename; refuse it with the
+          // remedy instead.
+          throw new TranspileError(
+            `Parameter '${prop.key.name}': '${prop.value.name}' is not a type AJS knows. ` +
+              `Write an example (${prop.key.name}: 0 for an integer, ${prop.key.name}: 0.0 for any ` +
+              `number, ${prop.key.name}: '' for a string) or a known type name (string, number, ` +
+              `int, unsigned, float, boolean, object, any).`,
+            getLocation(prop),
+            source,
+            options.filename || '<source>'
+          )
         }
 
     // Handle destructured parameters - expand into individual params
@@ -919,6 +941,21 @@ function transformExpressionStatement(
       return { op: 'evaluate', value: resultVar }
     }
     return null
+  }
+
+  // `new X(…)` as a statement is refused, as it is as a value: `new Error('x')` was only
+  // warned about, so JavaScript-style code that meant to fail ran on silently (#4105).
+  if (expr.type === 'NewExpression') {
+    const callee = (expr as any).callee
+    const name = callee?.type === 'Identifier' ? callee.name : 'constructor'
+    throw new TranspileError(
+      `The 'new' keyword is not supported in AsyncJS.${getNewExpressionSuggestion(
+        name
+      )}`,
+      getLocation(expr),
+      ctx.source,
+      ctx.filename
+    )
   }
 
   // Other expressions (e.g., just a value) - no-op
@@ -1484,7 +1521,8 @@ function getNewExpressionSuggestion(constructorName: string): string {
     Map: ' Use plain objects instead of Map.',
     Array: ' Use array literals like [1, 2, 3] instead.',
     Object: ' Use object literals like { key: value } instead.',
-    Error: " Return an error object like { error: 'message' } instead.",
+    Error:
+      " Use Error('message') instead - no 'new' needed; it raises an error a try can catch.",
     RegExp: ' Use string methods or the regexMatch atom.',
     Promise: ' Not needed - all operations are implicitly async.',
     WeakSet: ' WeakSet is not available.',
