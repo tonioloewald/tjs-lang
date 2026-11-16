@@ -148,6 +148,8 @@ export function preprocessAgentSource(
     // The AST emitter cannot carry `name: Type = default`'s type into the input schema
     // yet, and dropping it fails open (rc.10 review). Refused, as rc.9 did, with a remedy.
     refuseTypedDefaults: true,
+    // TJS's safety markers mean nothing here; accepting and discarding them failed open (#2262).
+    refuseSafetyMarkers: true,
   })
   source = transformed
 

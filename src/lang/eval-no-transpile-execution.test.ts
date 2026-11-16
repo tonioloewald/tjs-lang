@@ -449,6 +449,16 @@ describe('TJS constructs the AJS path does not accept (ratchet)', () => {
       'typed default, literal union',
       "function f(m: 'r' | 'w' = 'r') { return m }",
     ],
+    // TJS's safety markers, which AJS accepted and DISCARDED through the same shared code:
+    // `function main(!apiKey: '')` got the opposite of what `!` documents (#2262).
+    ['unsafe param marker', "function f(!a: '') { return { a } }"],
+    ['safe param marker', "function f(? a: '') { return { a } }"],
+    ['unsafe return marker', 'function f(a: 0):! { a: 0 } { return { a } }'],
+    ['safe return marker', 'function f(a: 0):? { a: 0 } { return { a } }'],
+    [
+      'unsafe arrow marker',
+      'function f(a: 0) { const g = (! x) => x\n return { a } }',
+    ],
   ]
 
   it('accepts exactly the known leaks, and nothing more', () => {

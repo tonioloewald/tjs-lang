@@ -33,6 +33,8 @@
  * making it one would turn a hardening change into a breaking one.
  */
 import { parseExpressionAt } from 'acorn'
+import { FORBIDDEN_KEYS } from '../forbidden-keys'
+import { stripComments } from '../strip-comments'
 
 export type LiteralResult =
   | { ok: true; value: unknown }
@@ -122,6 +124,11 @@ function evaluateNode(
           prop.key.type === 'Identifier'
             ? prop.key.name
             : String(prop.key.value)
+        // The canonical forbidden keys (#2264): `{ __proto__: { p: 1 } }` chose the rebuilt
+        // object's prototype, so an example meant one thing to `Object.keys` and another to
+        // `in`. Refused, as the dictionary-default merge refuses them in a payload.
+        if ((FORBIDDEN_KEYS as readonly string[]).includes(key))
+          return { ok: false, reason: `'${key}' is not allowed as a key` }
         const r = evaluateNode(prop.value)
         if (!r.ok) return r
         out[key] = r.value
@@ -155,13 +162,19 @@ function evaluateNode(
  */
 export function parseLiteralValue(text: string): LiteralResult {
   let node: any
+  const trimmed = text.trim()
   try {
-    node = parseExpressionAt(text.trim(), 0, {
+    node = parseExpressionAt(trimmed, 0, {
       ecmaVersion: 2022,
       sourceType: 'module',
     })
   } catch (e: any) {
     return { ok: false, reason: e?.message ?? 'parse failed' }
   }
+  // The whole input, or nothing (#2263): `0; globalThis.__X__ = 1` was accepted as `0`, though
+  // the node types below are meant to be the ENTIRE accepted grammar.
+  // A trailing comment is not more input.
+  if (stripComments(trimmed.slice(node.end)).trim() !== '')
+    return { ok: false, reason: 'text follows the literal' }
   return evaluateNode(node)
 }

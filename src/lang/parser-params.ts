@@ -377,6 +377,13 @@ export function transformParenExpressions(
      * only the JS emitter reads, so on the AJS path the type was silently DROPPED.
      */
     refuseTypedDefaults?: boolean
+    /**
+     * Refuse TJS's safety markers (AJS, #2262): `!`/`?` on a parameter list and `:!`/`:?` on a
+     * return. They switch TJS validation off or on; the AST emitter has nothing to switch, so
+     * on the AJS path they were accepted and DISCARDED, and `function main(!apiKey: '')` got
+     * the opposite of what the marker documents, with no diagnostic.
+     */
+    refuseSafetyMarkers?: boolean
   }
 ): {
   source: string
@@ -384,6 +391,15 @@ export function transformParenExpressions(
   returnSafety?: 'safe' | 'unsafe'
   returnTypes?: Record<string, string>
 } {
+  const refuseMarker = (marker: string, at: number): void => {
+    if (!ctx.refuseSafetyMarkers) return
+    throw new SyntaxError(
+      `AJS has no safety marker \`${marker}\`: in TJS it switches validation off or on, and ` +
+        `an agent's inputs are always checked against its signature. Remove it.`,
+      locAt(source, at),
+      ctx.originalSource ?? source
+    )
+  }
   // The bound lives HERE, in the recursion it bounds — see MAX_PAREN_DEPTH.
   const parenDepth = ctx.parenDepth ?? 0
   if (parenDepth > (ctx.maxParenDepth ?? Infinity))
@@ -776,6 +792,7 @@ export function transformParenExpressions(
       let paramStart = i + matchLen
 
       if (afterParen === '?' || afterParen === '!') {
+        refuseMarker(afterParen, i + matchLen)
         safetyMarker = afterParen
         paramStart++
         if (safetyMarker === '!') {
@@ -823,6 +840,7 @@ export function transformParenExpressions(
         const colonMarker = source.slice(j, j + 2)
         let safety: 'safe' | 'unsafe' | undefined
         if (colonMarker === ':?' || colonMarker === ':!') {
+          refuseMarker(colonMarker, j)
           j += 2
           safety = colonMarker === ':?' ? 'safe' : 'unsafe'
         } else {
@@ -994,6 +1012,7 @@ export function transformParenExpressions(
       if (source[j] === ':') {
         const colonMarker = source.slice(j, j + 2)
         if (colonMarker === ':?' || colonMarker === ':!') {
+          refuseMarker(colonMarker, j)
           j += 2
         } else {
           j++
@@ -1138,6 +1157,7 @@ export function transformParenExpressions(
       ) {
         const colonMarker = source.slice(j, j + 2)
         if (colonMarker === ':?' || colonMarker === ':!') {
+          refuseMarker(colonMarker, j)
           j += 2
         } else {
           j++
@@ -1168,12 +1188,14 @@ export function transformParenExpressions(
           trimmedContent.startsWith('?') &&
           (trimmedContent.length === 1 || /\s/.test(trimmedContent[1]))
         ) {
+          refuseMarker('?', i)
           safetyMarker = '?'
           params = trimmedContent.slice(1)
         } else if (
           trimmedContent.startsWith('!') &&
           (trimmedContent.length === 1 || /\s/.test(trimmedContent[1]))
         ) {
+          refuseMarker('!', i)
           safetyMarker = '!'
           params = trimmedContent.slice(1)
         }
@@ -1952,6 +1974,7 @@ function processParamString(
     /** For locating an error in a parameter (every caller passes it). */
     originalSource?: string
     refuseTypedDefaults?: boolean
+    refuseSafetyMarkers?: boolean
   },
   trackRequired: boolean
 ): string {
@@ -1968,6 +1991,7 @@ function processParamString(
     parenDepth: (ctx.parenDepth ?? 0) + 1,
     work: ctx.work,
     refuseTypedDefaults: ctx.refuseTypedDefaults,
+    refuseSafetyMarkers: ctx.refuseSafetyMarkers,
   }).source
 
   // Now split and process each parameter

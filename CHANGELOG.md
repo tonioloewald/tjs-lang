@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **AJS refuses TJS's safety markers; example literals are parsed whole and without prototype
+  keys** (#2262, #2263, #2264). On the AJS path `function main(!apiKey: '')`, `(? x) => x` and the
+  `:!`/`:?` return forms were accepted and silently discarded (they reached it through the parser
+  code TJS and AJS share), so an author got the opposite of what `!` documents with no diagnostic;
+  they are now refused. No execution, capability or fuel was ever involved. `parseLiteralValue`,
+  which rebuilds TJS example values from source text without evaluating it, accepted
+  `0; globalThis.__X__ = 1` as `0` (nothing ran) and let `{ __proto__: { … } }` choose the rebuilt
+  object's prototype (`Object.prototype` was never touched); it now requires the literal to be the
+  whole input (a trailing comment is fine) and refuses `__proto__`, `constructor` and `prototype`
+  keys, the canonical forbidden list.
+
 - **The scan for dynamic execution on the transpile path now covers the whole path** (#2261).
   A `new Function` or `eval` reachable while transpiling runs before fuel, timeouts, capabilities
   and the membrane apply, which is how the 0.13.7 remote-code-execution defect worked. The test
