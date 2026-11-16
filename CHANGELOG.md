@@ -169,6 +169,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`extend` methods work on any receiver of the extended type** (#3823). The call rewrite
+  matched only literal receivers in the text, so `const xs = [1, 2]; xs.last()` threw "not a
+  function", a chained call broke after the first, `rows[1].last()` and `v2.clamp()` were rewritten
+  into names that did not exist, and `extend Map`, `extend Date` or a class extension compiled but
+  never ran. Each call to an `extend` method now goes through a dispatcher belonging to the file,
+  which runs the extension when the receiver is of the extended type and the call as written
+  otherwise (so an object with its own `last` keeps it, and `xs?.last()` still short-circuits). No
+  prototype is touched. Because the extension now applies to every receiver, a method named like a
+  built-in (`extend Array { map(f) {…} }`) replaces it for every array in the file, not only for
+  literals. An arrow-function member, a field or a getter in an `extend` block, which compiled to
+  nothing, is now refused with the form to write.
+
 - **TJS diagnostics that pointed the wrong way** (#4121). The infix-`Is` refusal for `a + 1 Is b`
   suggested only `Is(1, b)`; it now offers `Is(a + 1, b)` first. The ASI warning told a reader who
   meant a continuation to start the line with `;`, which keeps the lines separate; it now says to

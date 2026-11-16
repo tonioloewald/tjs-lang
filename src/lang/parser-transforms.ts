@@ -3684,12 +3684,25 @@ export function transformExtendDeclarations(source: string): {
     const methods: { name: string; isAsync: boolean; fullText: string }[] = []
     let j = 0
     const bodySource = source.slice(blockStart + 1, blockEnd - 1)
+    const bodyMasked = maskedSource.slice(blockStart + 1, blockEnd - 1)
+    // Anything in the block that is not a method used to be skipped a character at a time, so
+    // `first: () => 1` compiled to nothing, silently, and `get size() {…}` became a plain
+    // method `size` (#3823). Refused, with the form that works.
+    const refuseMember = (at: number): never => {
+      const text = bodySource.slice(at).split('\n')[0].trim()
+      throw new SyntaxError(
+        `'${text}' is not a method, and an extend block holds only methods (extend ${typeName}). ` +
+          `Write it as one, so it gets 'this':\n  name(params) { … }`,
+        locAt(source, blockStart + 1 + at)
+      )
+    }
 
     while (j < bodySource.length) {
       const methodRemaining = bodySource.slice(j)
       const methodMatch = methodRemaining.match(/^(\s*)(async\s+)?(\w+)\s*\(/)
 
       if (!methodMatch) {
+        if (!/[\s,;]/.test(bodyMasked[j] ?? ' ')) refuseMember(j)
         j++
         continue
       }
@@ -3733,10 +3746,8 @@ export function transformExtendDeclarations(source: string): {
         )
       }
 
-      if (bodySource[afterParams] !== '{') {
-        j++
-        continue
-      }
+      if (bodySource[afterParams] !== '{')
+        refuseMember(j + (methodMatch[1]?.length ?? 0))
 
       // Find matching closing brace for the method body
       const methodBodyEnd = findFunctionBodyEnd(bodySource, afterParams)
@@ -3813,21 +3824,200 @@ export function transformExtendDeclarations(source: string): {
 }
 
 /**
- * Transform method calls on known-type receivers to use extension objects.
- *
- * For literals and typed variables where the type is known:
- *   'hello'.capitalize()  ->  __ext_String.capitalize.call('hello')
- *   [1,2,3].last()        ->  __ext_Array.last.call([1,2,3])
- *
- * This is a best-effort source-level transform. For unknown types,
- * the runtime fallback (resolveExtension) handles it.
+ * Rewrite calls to `extend` methods so they run on any receiver of the extended type:
+ *   xs.last()  ->  __tjs_ext_last(xs)
+ * (see `rewriteExtensionCallsByAst`). The literal-only rewrite remains as the fallback for a
+ * source that does not parse at this stage.
  */
 export function transformExtensionCalls(
   source: string,
   extensions: Map<string, Set<string>>
 ): string {
   if (extensions.size === 0) return source
+  const viaAst = rewriteExtensionCallsByAst(source, extensions)
+  if (viaAst !== null) return viaAst
+  return rewriteExtensionCallsOnLiterals(source, extensions)
+}
 
+/** How an extended type is recognised at the call site (#3823). */
+function extensionTypeCheck(typeName: string, r: string): string {
+  switch (typeName) {
+    case 'Array':
+      return `Array.isArray(${r})`
+    case 'String':
+      return `(typeof ${r} === 'string' || ${r} instanceof String)`
+    case 'Number':
+      return `(typeof ${r} === 'number' || ${r} instanceof Number)`
+    case 'Boolean':
+      return `(typeof ${r} === 'boolean' || ${r} instanceof Boolean)`
+    case 'BigInt':
+      return `typeof ${r} === 'bigint'`
+    case 'Function':
+      return `typeof ${r} === 'function'`
+    case 'Object':
+      return `(${r} !== null && typeof ${r} === 'object')`
+    default:
+      return `(typeof ${typeName} === 'function' && ${r} instanceof ${typeName})`
+  }
+}
+
+/**
+ * Every call `R.m(…)` whose method `m` an `extend` block in this file declares becomes a call
+ * through a dispatcher, `__tjs_ext_m(R, …)`, which runs the extension when `R` is of an extended
+ * type and `R.m(…)` otherwise (#3823). The rewrite used to match only LITERAL receivers in the
+ * text (`[1, 2].last()`), so `const xs = [1, 2]; xs.last()` threw "not a function", and since it
+ * was textual, a call written inside a string could be rewritten. Done on the parsed program, so
+ * any receiver works (a variable, a parameter, a call's result) and no prototype is touched.
+ * `R?.m(…)` keeps its short-circuit: the arguments are not evaluated when `R` is nullish.
+ *
+ * Returns null when the source does not parse here, and the literal rewrite runs instead.
+ */
+function rewriteExtensionCallsByAst(
+  source: string,
+  extensions: Map<string, Set<string>>
+): string | null {
+  const methodToTypes = new Map<string, string[]>()
+  for (const [typeName, methods] of extensions)
+    for (const m of methods) {
+      if (!methodToTypes.has(m)) methodToTypes.set(m, [])
+      methodToTypes.get(m)!.push(typeName)
+    }
+  let ast: any
+  try {
+    ast = parseJS(source, {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      allowReturnOutsideFunction: true,
+      allowAwaitOutsideFunction: true,
+      allowHashBang: true,
+    })
+  } catch {
+    return null
+  }
+  const masked = maskLiterals(source)
+  // [position, depth, text]: inserted text, applied from the end; at one position the OUTER
+  // call's prefix goes first.
+  const edits: { at: number; end: number; depth: number; text: string }[] = []
+  const used = new Set<string>()
+  const visit = (node: any, depth: number): void => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      for (const c of node) visit(c, depth)
+      return
+    }
+    if (typeof node.type !== 'string') return
+    if (node.type === 'CallExpression') {
+      const callee = node.callee
+      const name =
+        callee?.type === 'MemberExpression' &&
+        !callee.computed &&
+        callee.property?.type === 'Identifier'
+          ? callee.property.name
+          : null
+      const recv = callee?.object
+      if (
+        name &&
+        methodToTypes.has(name) &&
+        recv.type !== 'Super' &&
+        !(recv.type === 'Identifier' && recv.name.startsWith('__ext_'))
+      ) {
+        const optional = !!(callee.optional || node.optional)
+        const open = masked.indexOf('(', callee.end)
+        // From the `.` (or `?.`) before the method name, not from the receiver's end: a
+        // parenthesised receiver, `(7).clamp()`, ends before its `)`.
+        const dot = masked.lastIndexOf(
+          optional && callee.optional ? '?.' : '.',
+          callee.property.start
+        )
+        const first = node.arguments[0]
+        const fn = `__tjs_ext_${name}`
+        used.add(name)
+        if (!optional) {
+          edits.push({ at: node.start, end: node.start, depth, text: `${fn}(` })
+          edits.push({
+            at: dot,
+            end: open + 1,
+            depth,
+            text: first ? ', ' : '',
+          })
+        } else {
+          edits.push({
+            at: node.start,
+            end: node.start,
+            depth,
+            text: `__tjs_ext_q(`,
+          })
+          edits.push({
+            at: dot,
+            end: open + 1,
+            depth,
+            text: `, (__r) => ${fn}(__r${first ? ', ' : ''}`,
+          })
+          edits.push({ at: node.end, end: node.end, depth: -depth, text: ')' })
+        }
+      }
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'loc' || key === 'start' || key === 'end') continue
+      visit(node[key], depth + 1)
+    }
+  }
+  visit(ast, 0)
+  if (used.size === 0) return source
+  edits.sort((a, b) => b.at - a.at || b.depth - a.depth)
+  let out = source
+  for (const e of edits) out = out.slice(0, e.at) + e.text + out.slice(e.end)
+  return out
+}
+
+/**
+ * The dispatchers the rewritten calls name (#3823), for the EMITTER to append after it has
+ * processed the author's functions: written into the source, they were taken for the author's
+ * own and got validation, call-stack entries and a place in `types` and the `.d.ts`.
+ * `texts` are the emitted module and every test body that runs beside it.
+ */
+export function extensionDispatchers(
+  texts: string[],
+  extensions: Map<string, Set<string>>
+): string {
+  const methodToTypes = new Map<string, string[]>()
+  for (const [typeName, methods] of extensions)
+    for (const m of methods) {
+      if (!methodToTypes.has(m)) methodToTypes.set(m, [])
+      methodToTypes.get(m)!.push(typeName)
+    }
+  const used = new Set<string>()
+  let optional = false
+  for (const t of texts) {
+    for (const m of t.matchAll(/\b__tjs_ext_(\w+)\(/g))
+      if (m[1] === 'q') optional = true
+      else if (methodToTypes.has(m[1])) used.add(m[1])
+  }
+  const out = [...used].map((m) => {
+    const branches = methodToTypes
+      .get(m)!
+      .map(
+        (t) =>
+          `if (${extensionTypeCheck(
+            t,
+            'r'
+          )}) return __ext_${t}.${m}.apply(r, a);`
+      )
+      .join(' ')
+    return `function __tjs_ext_${m}(r, ...a) { ${branches} return r.${m}(...a) }`
+  })
+  if (optional)
+    out.push(
+      `function __tjs_ext_q(r, f) { return r == null ? undefined : f(r) }`
+    )
+  return out.length ? `\n${out.join('\n')}\n` : ''
+}
+
+/** The literal-receiver rewrite, for a source that does not parse at this stage. */
+function rewriteExtensionCallsOnLiterals(
+  source: string,
+  extensions: Map<string, Set<string>>
+): string {
   // Build a map of method names to possible type names for quick lookup
   const methodToTypes = new Map<string, string[]>()
   for (const [typeName, methods] of extensions) {

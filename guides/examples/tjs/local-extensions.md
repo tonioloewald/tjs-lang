@@ -3,13 +3,10 @@
 
 # Local Class Extensions
 
-`extend TypeName { ... }` lets you write `'hello world'.capitalize()` or `[1, 2, 3].last()`
-without adding anything to `String.prototype` or `Array.prototype`. It works at compile time:
-the transpiler rewrites each such call into a plain function call, in the current file only.
-
-> **The limit:** a call is rewritten only when the receiver is written out as a literal, such
-> as `'hello'` or `[1, 2, 3]`. `xs.last()` on a variable is not rewritten and fails when it
-> runs. The section "The limit you will hit" below explains why and what to do instead.
+`extend TypeName { ... }` lets you write `'hello world'.capitalize()` or `xs.last()` without
+adding anything to `String.prototype` or `Array.prototype`. The transpiler rewrites each call to
+one of the block's methods, in the current file only, so it runs the extension whenever the
+receiver is of the extended type.
 
 ```tjs:inline
 extend String {
@@ -67,10 +64,8 @@ test 'no prototype pollution' {
 The `test '…' { }` blocks are TJS inline tests: they run with the example, and a failing one is
 reported alongside the output. See [inline tests](/inline-tests-test-private-functions/).
 
-`extend` is useful for `String`, `Array` and `Number`, the types whose values you can write as
-literals. You may write `extend Map`, `extend Date` or `extend` one of your own classes, and it
-compiles, but no call is ever rewritten for them: `new Map().size2()` fails at runtime with a
-`TypeError`.
+Any type can be extended: `String`, `Array` and `Number`, and also `Map`, `Date` or one of your
+own classes. A call on a value of that type, however you got the value, runs the extension.
 
 ## Why not assign to the prototype?
 
@@ -87,20 +82,25 @@ the global change too; what `extend` adds is only the `value.method()` way of wr
 
 ## What the transpiler does
 
-The methods are collected into a plain object belonging to this file, and each call on a
-literal is rewritten to an ordinary function call with the literal as `this`:
+The methods are collected into a plain object belonging to this file, and each call to one of
+them is rewritten to a small dispatcher that checks the receiver's type:
 
 ```javascript
 // You write
-'hello world'.capitalize();
-[1, 2, 3].last();
+xs.last()
 
-// TJS emits
-__ext_String.capitalize.call('hello world');
-__ext_Array.last.call([1, 2, 3]);
+// TJS emits, roughly
+__tjs_ext_last(xs)
+// where
+function __tjs_ext_last(r, ...a) {
+  if (Array.isArray(r)) return __ext_Array.last.apply(r, a)
+  return r.last(...a)
+}
 ```
 
-Nothing is added to any prototype, and the call costs the same as calling a function.
+Nothing is added to any prototype. A value that is not of the extended type gets the call as
+written, so an object with its own `last` method keeps it, and `r?.last()` still returns
+`undefined` for `null` without evaluating its arguments.
 
 ## Rules for extension methods
 
@@ -111,23 +111,20 @@ Nothing is added to any prototype, and the call costs the same as calling a func
   extend Array {
     last() { return this[this.length - 1] }  // correct
     last() => this[0]                        // compile error: arrow functions are not allowed
-    last = () => this[0]                     // compiles, but defines nothing
+    last = () => this[0]                     // compile error: not a method
   }
   ```
 
-  The last form is not reported. `[1].last()` is then not rewritten and throws
-  `TypeError: [1].last is not a function` when it runs.
+  An extend block holds only methods: a field, an arrow-function member or a getter is refused
+  when the file compiles, with the form to write instead.
 
-- **Parameter examples become defaults, not checks.** In an ordinary TJS function,
-  `min: 0.0` means "required, must be a number" (see [parameters](/TJS-SYNTAX/)). Inside
-  `extend`, the same `min: 0.0` means "defaults to 0, not checked". So `7.5.clamp()` uses
-  `min = 0` and `max = 1` and returns `1`, and `7.5.clamp('a', 5)` returns `NaN`, not an
-  error. If the arguments matter, check them inside the method, or write an ordinary function,
-  where the checks do apply.
-- **A method with the same name as a built-in one replaces it, on literals only.** With
-  `extend Array { map(f) { … } }`, `[1].map(f)` calls your `map`, while `xs.map(f)` still calls
-  `Array.prototype.map`. The same call then behaves differently depending on how the receiver
-  is written, so choose names the built-in types do not use.
+- **Parameter examples are defaults, and a value you pass is checked.** Inside `extend`,
+  `min: 0.0` means "defaults to 0, and must be a number when given". So `7.5.clamp()` uses
+  `min = 0` and `max = 1` and returns `1`, while `7.5.clamp('a', 5)` returns a type error.
+- **A method with the same name as a built-in one replaces it in this file.** With
+  `extend Array { map(f) { … } }`, every `.map(…)` on an array in the file calls your `map`,
+  including any inside your own extension methods, so a `map` that calls `this.map` calls
+  itself. Choose names the built-in types do not use.
 - **`async` methods work** and return a promise like any async function:
   `extend String { async fetchJSON() { return (await fetch(this)).json() } }` lets you write
   `await 'https://example.com/data.json'.fetchJSON()`.
@@ -155,34 +152,12 @@ console.log('Ada Lovelace'.initials()) // AL
 console.log(typeof String.prototype.shout) // undefined: nothing was patched
 ```
 
-## The limit you will hit: only literal receivers are rewritten
+## Which receivers work
 
-The rewrite is a source transform: it runs on the text of the file, before the file is parsed
-and before any type information exists. It sees `xs.last()` as a name followed by `.last()`,
-with no way to know what `xs` holds, and a variable can be reassigned to something else
-anyway. So it acts only where the text itself shows the type:
-
-| Receiver                                                 | Rewritten?                 |
-| -------------------------------------------------------- | -------------------------- |
-| `'text'`, `"text"`, `` `text ${x}` ``                    | yes                        |
-| an array literal, including one built by spread: `[1, 2]`, `[...xs]` | yes            |
-| a number written as plain digits: `7`, `7.5`, `12.0`     | yes                        |
-| a negative number: `-7.5.clamp(0, 5)`                    | yes, but the minus applies last: `-5` |
-| `(7).clamp()`, `7..clamp()`                              | no                         |
-| a variable: `xs`, `name`                                 | no                         |
-| a call result: `'a'.shout().shout()`                     | only the first call        |
-| an indexed element `rows[1].last()`, or a name ending in a digit `v2.clamp()` | wrongly rewritten (see below) |
-
-**Chaining extension methods does not work.** In `'a'.shout().shout()` the second call is not
-rewritten and throws a `TypeError`.
-
-As in JavaScript, `-7.5.clamp(0, 5)` means `-(7.5.clamp(0, 5))`, so it returns `-5`, not `0`.
-Writing `(-7.5).clamp(0, 5)` does not help, because parenthesised numbers are not rewritten. For
-a negative value, use an ordinary function.
-
-When the call is not rewritten it runs exactly as written. No prototype was changed, so the
-method really does not exist, and the call fails with a `TypeError` when it runs, not when it
-compiles:
+Any expression whose value is of the extended type: a literal, a variable, a parameter, an
+indexed element such as `rows[1].last()`, a parenthesised value such as `(7).clamp(0, 5)`, or
+the result of another call, so `'a'.shout().shout()` chains. The type is checked when the call
+runs, which is why a value passed around works as well as one written in place:
 
 ```tjs:inline
 extend Array {
@@ -193,37 +168,25 @@ extend Array {
 
 // `xs: [0]` means: an array of numbers, for example [0].
 function lastOf(xs: [0]) {
-  return xs[xs.length - 1]
+  return xs.last()
 }
 
 const xs = [3, 1, 4]
+console.log(xs.last()) // 4
+console.log(lastOf([5, 9])) // 9
 
-try {
-  xs.last()
-} catch (e) {
-  console.log('xs.last() failed:', e instanceof TypeError) // true
-}
-
-// Wrapping the value in a literal works, at the cost of a copy.
-console.log([...xs].last()) // 4
-
-// For values you pass around, an ordinary function is the honest choice.
-console.log(lastOf(xs)) // 4
+// Something that is not an array gets the call as written.
+const playlist = { last() { return 'the final track' } }
+console.log(playlist.last()) // the final track
 ```
 
-The string form of the same workaround is a template literal: `` `${name}`.capitalize() ``.
-
-**Two receivers are rewritten wrongly instead of being left alone.** Because the rewrite matches
-text, it mistakes `[1]` in `rows[1].last()` for an array literal, producing
-`rows__ext_Array.last.call([1])`, and the `2` in `v2.clamp()` for a number, producing
-`v__ext_Number.clamp.call(2)`. Both fail at runtime with a `ReferenceError` naming a variable
-you never wrote (`rows__ext_Array is not defined`). This is a bug in the transform; until it is
-fixed, avoid calling extension methods on indexed elements and on names that end in a digit.
+One reading follows JavaScript and can surprise: `-7.5.clamp(0, 5)` means
+`-(7.5.clamp(0, 5))`, so it returns `-5`, not `0`. Write `(-7.5).clamp(0, 5)` for the clamped
+negative. A number literal also needs its decimal point or parentheses, `7.0.clamp()` or
+`(7).clamp()`, because `7.clamp()` is not valid JavaScript.
 
 ## When to use it
 
-`extend` is a limited feature. It pays off where the receivers really are written in place:
-string and array constants in tests, configuration tables, or small scripts, where
-a `toDate()` extension lets you write `'2026-11-06'.toDate()` instead of `toDate('2026-11-06')`. For anything you store in a
-variable or pass around, which is most code, an ordinary function does the same job and works
-on every value.
+`extend` gives the `value.method()` style for helpers that belong to one file, such as a
+`toDate()` that lets you write `'2026-11-06'.toDate()` instead of `toDate('2026-11-06')`.
+Extensions are file-local, so for helpers several files share, export ordinary functions.

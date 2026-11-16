@@ -789,10 +789,9 @@ Two variants with the same types at the same arity do not transpile. See
 
 ## `extend`: local class extensions
 
-An `extend` block adds methods to a built-in type without touching its prototype, and they
-apply **only where the receiver is written as a literal**. It suits helpers you call on
-literals in your own file, such as string and array literals in a template or a table of
-data:
+An `extend` block adds methods to a built-in type without touching its prototype. Within the
+file, a call to one of its methods works on any receiver of that type: a literal, a variable, a
+parameter or a call's result.
 
 ```tjs:inline
 extend String {
@@ -803,23 +802,23 @@ extend Array {
   last() { return this[this.length - 1] }
 }
 
+const xs = [3, 1, 4]
 console.log('hello'.shout())                       // HELLO!
-console.log([3, 1, 4].last())                      // 4
+console.log(xs.last())                             // 4
 console.log(typeof String.prototype.shout)         // undefined: nothing was patched
 ```
 
-A call is rewritten during transpilation to an ordinary call with the receiver as `this`.
-The receivers that are rewritten are a string or template literal, an array literal, and a
-number literal. Write a number with its decimal point, `7.0.double()`: that is also valid
-JavaScript, where `7.double()` is not. (`7.double()` works in TJS too, but do not rely on it in
-code that may leave for JavaScript.) A call on anything else, a variable or a parenthesised
-number such as `(7)`, is left as written and fails when it runs (`xs.last is not a
-function`), because no prototype was changed. Use an ordinary function for values you pass
-around. The full receiver table is in [Local Class Extensions](/local-extensions/).
+A call `r.last()` is rewritten during transpilation to a small dispatcher: when `r` is of an
+extended type (an array here) it runs the extension with `r` as `this`; otherwise it calls
+`r.last()` as written, so an object with its own `last` keeps it. `r?.last()` still
+short-circuits on `null`. Write a number literal with its decimal point, `7.0.double()`, or in
+parentheses, `(7).double()`: `7.double()` is not valid JavaScript. The full receiver table is in
+[Local Class Extensions](/local-extensions/).
 
-Methods must use method syntax, since they need `this`; an arrow-function member is left
-out. Several `extend` blocks for one type merge. Extension methods do not validate their
-parameters. Extensions are file-local: an importing module never sees them.
+An extend block holds only methods, in method syntax, since they need `this`; anything else
+(an arrow-function member, a getter, a field) is refused with the form to write. Several
+`extend` blocks for one type merge. Extension methods check their parameters like any other
+function. Extensions are file-local: an importing module never sees them.
 
 ## `const!`: compile-time immutability
 

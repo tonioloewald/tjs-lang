@@ -81,7 +81,10 @@ import {
 
 // Re-exported for the test emitter (`emitters/js-tests.ts`), which transforms
 // extension calls inside test bodies.
-export { transformExtensionCalls } from './parser-transforms'
+export {
+  transformExtensionCalls,
+  extensionDispatchers,
+} from './parser-transforms'
 
 export function preprocess(
   source: string,

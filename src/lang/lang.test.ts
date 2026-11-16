@@ -464,7 +464,7 @@ extend String {
 }
 const x = 'hello'.shout()
 `)
-      expect(result.source).toContain("__ext_String.shout.call('hello')")
+      expect(result.source).toContain("__tjs_ext_shout('hello')")
     })
 
     it('should rewrite double-quoted string method calls', () => {
@@ -474,7 +474,7 @@ extend String {
 }
 const x = "hello".shout()
 `)
-      expect(result.source).toContain('__ext_String.shout.call("hello")')
+      expect(result.source).toContain('__tjs_ext_shout("hello")')
     })
 
     it('should rewrite method calls with arguments', () => {
@@ -484,7 +484,7 @@ extend String {
 }
 const x = 'hi'.pad(10)
 `)
-      expect(result.source).toContain("__ext_String.pad.call('hi', 10)")
+      expect(result.source).toContain("__tjs_ext_pad('hi', 10)")
     })
   })
 
@@ -496,7 +496,7 @@ extend Array {
 }
 const x = [1, 2, 3].last()
 `)
-      expect(result.source).toContain('__ext_Array.last.call([1, 2, 3])')
+      expect(result.source).toContain('__tjs_ext_last([1, 2, 3])')
     })
   })
 

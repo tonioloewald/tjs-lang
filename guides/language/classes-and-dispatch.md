@@ -339,17 +339,13 @@ the same name with different behaviour. It has happened: the array method now ca
 was going to be `flatten`, until a popular library's incompatible `Array.prototype.flatten`
 forced the standard to pick another name.
 
-An `extend` block gives you the method-call syntax in one file, with nothing patched. It has
-one large limit, so here it is up front: **it works only when the receiver is written out as
-a literal**, as in `'hello'.shout()`. A call on a variable, `name.shout()`, is not rewritten
-and fails. That makes `extend` a tool for helpers on literals: string and array constants in
-tests, data tables, templates, small scripts. For values you keep in variables, write an
-ordinary function.
+An `extend` block gives you the method-call syntax in one file, with nothing patched.
 
-### Methods on literals, with nothing patched
+### Methods on a type, with nothing patched
 
-An `extend` block declares methods for a built-in type. The transpiler rewrites each call on
-a literal into an ordinary function call with the literal as `this`:
+An `extend` block declares methods for a type. The transpiler rewrites each call to one of
+them, so a call on any value of that type runs the extension, whether the value is a literal,
+a variable or a parameter:
 
 ```tjs:inline
 extend String {
@@ -364,86 +360,39 @@ extend Array {
   }
 }
 
+const xs = [3, 1, 4]
 console.log('hello'.shout()) // HELLO!
-console.log([3, 1, 4].last()) // 4
+console.log(xs.last()) // 4
 console.log(typeof String.prototype.shout) // undefined: nothing was patched
 
-test 'extensions work on literals without patching' {
+test 'extensions work on any receiver without patching' {
   expect('hi'.shout()).toBe('HI!')
-  expect([1, 2, 3].last()).toBe(3)
+  expect(xs.last()).toBe(4)
   expect(typeof String.prototype.shout).toBe('undefined')
   expect(typeof Array.prototype.last).toBe('undefined')
 }
 ```
 
-`'hello'.shout()` becomes, roughly, `__ext_String.shout.call('hello')`: a plain call on a
-plain object that belongs to this file.
-
-### Why only literals
-
-> **Only a call whose receiver is written out as a literal is rewritten.** That means a
-> string or template literal, an array literal, or a number literal such as `7.5`. A call on
-> a variable, `xs.last()`, is left exactly as written, and since no prototype was changed it
-> fails when it runs with a `TypeError`: `xs.last is not a function`.
-
-The rewrite runs on the text of the file before any type information exists. It sees
-`xs.last()` as a name followed by `.last()`, with no way to know what `xs` holds, so it acts
-only where the text itself shows the type.
-
-```tjs:inline
-extend Array {
-  last() {
-    return this[this.length - 1]
-  }
-}
-
-const xs = [3, 1, 4]
-
-let failure = ''
-try {
-  xs.last()
-} catch (e) {
-  failure = e instanceof TypeError ? 'TypeError' : 'other'
-}
-console.log('xs.last():', failure) // TypeError
-
-// Spreading into a literal works, at the cost of a copy:
-console.log([...xs].last()) // 4
-
-// For values you pass around, write an ordinary function.
-function lastOf(items: [0]) {
-  return items[items.length - 1]
-}
-console.log(lastOf(xs)) // 4
-
-test 'a variable receiver is not rewritten' {
-  expect(failure).toBe('TypeError')
-  expect([...xs].last()).toBe(4)
-  expect(lastOf(xs)).toBe(4)
-}
-```
-
-Chained calls hit the same limit: in `'a'.shout().shout()` the second receiver is a call
-result, not a literal, so only the first call is rewritten. The full receiver table is in
-[Local Class Extensions](/local-extensions/), which also lists two receivers the current
-transform rewrites wrongly; those are bugs, not rules.
+`xs.last()` becomes, roughly, `__tjs_ext_last(xs)`: a small function belonging to this file
+that runs the extension when `xs` is an array and calls `xs.last()` as written otherwise. So an
+object with its own `last` method keeps it, and `xs?.last()` still returns `undefined` when `xs`
+is `null`. The full receiver table is in [Local Class Extensions](/local-extensions/).
 
 ### Rules
 
 - **Method syntax only.** Methods use `this`, so they must be written as methods:
-  `last() { … }`. Writing `last() => …` is a compile error ("Arrow functions are not allowed
-  in extend blocks"). Writing `last = () => …` or `last: () => …` compiles but defines
-  nothing: the block is read for method declarations, and anything else in it is skipped
-  without a warning.
+  `last() { … }`. Anything else in the block (`last() => …`, `last = () => …`,
+  `last: () => …`, a getter) is a compile error that shows the form to write.
 - **Blocks merge.** Several `extend String` blocks add up, so you can group extensions by
   topic.
-- **No parameter validation.** Inside `extend`, `clamp(min: 0.0, max: 1.0)` gives `min` and
-  `max` defaults but does not check them. If the arguments matter, check them in the body or
-  write an ordinary function.
+- **Parameters are checked.** Inside `extend`, `clamp(min: 0.0, max: 1.0)` gives `min` and
+  `max` defaults, and an argument you do pass must be a number: `7.5.clamp('a', 5)` returns a
+  type error.
 - **File-local.** Extensions apply only to calls in the file that declares them. A module
   that imports yours never sees them, and there is no way to share an `extend` block.
-- **A name a built-in already uses replaces it on literals only.** `extend Array { map(f) {…} }`
-  changes `[1].map(f)` but not `xs.map(f)`. Pick names the built-in types do not use.
+- **A name a built-in already uses replaces it for the whole file.** `extend Array { map(f) {…} }`
+  changes every `.map(f)` on an array in the file, including any inside your extensions. Pick
+  names the built-in types do not use.
 
 ## Polymorphic functions
 

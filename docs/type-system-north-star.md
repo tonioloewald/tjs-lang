@@ -408,28 +408,19 @@ _Status: still true (re-measured 2026-11). It did not block `asCompared`, which 
 own table rather than dispatching extension methods._
 
 `asCompared` in an `extend` block works, as the `Timestamp` example shows. Calling an
-`extend` method on a variable does not, today. Measured first at 0.13.3, and unchanged since:
+`extend` method works on any receiver since 0.14.0 (#3823). Until then only a LITERAL receiver
+was rewritten (measured at 0.13.3): `'hello'.cap()` became `__ext_String.cap.call('hello')`,
+while `s.cap()` on a parameter, annotated or not, stayed as written and threw
+`s.cap is not a function`.
 
-| receiver | emitted | works? |
-| --- | --- | --- |
-| literal — `'hello'.cap()` | `__ext_String.cap.call('hello')` | yes |
-| annotated param — `s: ''` | `s.cap()` | **no** — `s.cap is not a function` |
-| untyped param | `s.cap()` | **no** |
-
-Only a LITERAL receiver is rewritten. Even a parameter the transpiler knows is a string
-emits an unrewritten call, which needs `String.prototype.cap` — deliberately absent.
-
-For method calls the registry is **write-only**: emitted code calls `registerExtension`, and
-the emitter never emits a `resolveExtension` call. The resolver exists, is exported, walks
-prototype chains correctly, and is never called. `TJS-SYNTAX.md` documents the literal-only
-behaviour. (The docstring of `transformExtensionCalls` in `src/lang/parser-transforms.ts`
-still promises a runtime fallback and says typed variables are rewritten; neither is true.)
-
-So `extend` is local by ACCIDENT rather than design: local because the only working
-mechanism is a lexical rewrite, and the mechanism that would make it non-local is unreachable.
-Wiring the resolver without the chain model above would turn it into a flat global table —
-the prototype pollution the feature exists to avoid. If extension methods ever dispatch at
-runtime, they should use the same module → global → type → host chain.
+Now every call to a method an `extend` block declares goes through a dispatcher belonging to
+the file, `__tjs_ext_cap(s)`, which checks the receiver's type when the call runs and falls
+back to `s.cap()` as written. That is the MODULE level of the chain above, by design rather
+than by accident: no prototype is touched and nothing is global. The registry is still
+write-only (emitted code calls `registerExtension`, nothing calls `resolveExtension`), and
+wiring it remains the open question below: done without the chain model it would be a flat
+global table, the prototype pollution the feature exists to avoid. If extension methods ever
+dispatch beyond the file, they should use the same module → global → type → host chain.
 
 ### Still open
 

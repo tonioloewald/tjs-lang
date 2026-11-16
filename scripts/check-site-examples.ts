@@ -55,8 +55,6 @@ const DEMONSTRATES: Record<string, RegExp> = {
   // The book chapters (2026-11-14). Each example's prose says the failure is the point.
   'types-by-example':
     /which is not defined \(or is undefined\) where the type is checked/,
-  // the documented `extend` limit: only literal receivers are rewritten (#3823)
-  'classes-and-dispatch': /xs\.last\(\): TypeError/,
   'ajs-calling-atoms': /Fetch blocked: domain not in allowlist/,
   'ajs-errors':
     /Division by zero|is not valid JSON|Fetch blocked: domain not in allowlist|its input does not have the shape the atom declares/,

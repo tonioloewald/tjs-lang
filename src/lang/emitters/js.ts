@@ -102,6 +102,7 @@ import {
   preprocess,
   stripLineComments,
   transformExtensionCalls,
+  extensionDispatchers,
 } from '../parser'
 import { DESTRUCTURED_SHAPE_MARK, TYPED_DEFAULT_MARK } from '../parser-params'
 
@@ -2649,6 +2650,14 @@ export function transpileToJS(
       })),
     ])
   )
+
+  // The dispatchers rewritten `extend` calls name (#3823), appended after the author's
+  // functions were processed, so they are not taken for the author's own.
+  if (preprocessed.extensions.size > 0)
+    code += extensionDispatchers(
+      [code, ...tests.map((t) => t.body), ...mocks.map((m) => m.body)],
+      preprocessed.extensions
+    )
 
   // Add __tjs reference for monadic error handling and structural equality
   // The equality, TypeOf and bool helpers are also needed by REWRITTEN test and mock bodies,
