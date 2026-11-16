@@ -43,13 +43,53 @@ import { describe, it, expect, afterEach } from 'bun:test'
 import { Eval, SafeFunction } from './eval'
 import { transpile } from './core'
 import { tjs } from './index'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import {
+  dirname,
+  join,
+  relative as relativePath,
+  resolve as resolvePath,
+} from 'node:path'
+import * as ts from 'typescript'
 import { maskLiterals } from '../strip-comments'
 // Error-tolerant, because the file under inspection is TypeScript and acorn proper dies on
 // the first `interface`. The imports are plain ES either way, and this is the same dependency
 // the editor scope-extraction uses for half-typed buffers.
 import * as acornLoose from 'acorn-loose'
+
+const SRC_ROOT = join(import.meta.dir, '..')
+const DYNAMIC_EXEC = /(^|[^.\w])(new Function\s*\(|eval\s*\()/
+
+/**
+ * Every source file the transpile entry points import, transitively (#2261): `parser-agent.ts`
+ * and `core.ts` (the AJS and TJS cores) and `transpiler.ts` (the `tjs-lang/lang` entry). Imports
+ * are read with TypeScript's own `preProcessFile` (imports, re-exports and dynamic `import()`),
+ * never a regex, and paths are relative to `src/`.
+ */
+function transpileClosure(): string[] {
+  const roots = ['lang/parser-agent.ts', 'lang/core.ts', 'lang/transpiler.ts']
+  const resolveSpec = (from: string, spec: string): string | null => {
+    if (!spec.startsWith('.')) return null
+    const base = resolvePath(dirname(from), spec)
+    for (const c of [base, `${base}.ts`, `${base}.tjs`, `${base}/index.ts`])
+      if (/\.(ts|tjs)$/.test(c) && existsSync(c) && statSync(c).isFile())
+        return c
+    return null
+  }
+  const seen = new Set<string>()
+  const queue = roots.map((r) => resolvePath(SRC_ROOT, r))
+  while (queue.length) {
+    const f = queue.pop()!
+    if (seen.has(f)) continue
+    seen.add(f)
+    for (const im of ts.preProcessFile(readFileSync(f, 'utf8'), true, true)
+      .importedFiles) {
+      const r = resolveSpec(f, im.fileName)
+      if (r && !seen.has(r)) queue.push(r)
+    }
+  }
+  return [...seen].map((f) => relativePath(SRC_ROOT, f)).sort()
+}
 
 const SENTINELS = ['__TJS_PWNED__', '__TJS_PWNED_2__', '__TJS_PWNED_3__']
 afterEach(() => {
@@ -173,26 +213,44 @@ describe('the AJS path runs AJS and nothing else', () => {
     // `new Function(\`return ${…}\`)` sites sat in the emitters evaluating TJS example
     // values, so `tjs check` on an untrusted `.tjs` executed it; the 0.13.8 re-review found
     // them and `literal-value.ts` replaced them with parsing.
-    const files = [
-      'parser.ts',
-      'parser-agent.ts',
-      'parser-transforms.ts',
-      'parser-params.ts',
-      'core.ts',
-      'predicate.ts',
-      'literal-value.ts',
-      'emitters/js.ts',
-      'emitters/js-tests.ts',
-    ]
+    // The files are COMPUTED: the transitive import closure of the transpile entry points
+    // (#2261). The list used to be written by hand, nine files, while the closure was 35 then
+    // (and 60 now): `emitters/ast.ts`, which runs on every piece of untrusted agent source,
+    // `inference.ts`, `tests.ts`, `given-transform.ts` and `wasm.ts` were all unscanned, and a
+    // `new Function` in any of them would run upstream of fuel, timeout, capabilities and the
+    // membrane. A file added to the path is now scanned without anyone remembering to list it.
+    const files = transpileClosure()
+    // Apparatus: the closure reaches what the hand-written list missed and what it covered.
+    for (const must of [
+      'lang/parser-agent.ts',
+      'lang/core.ts',
+      'lang/parser.ts',
+      'lang/parser-transforms.ts',
+      'lang/emitters/js.ts',
+      'lang/emitters/js-tests.ts',
+      'lang/emitters/ast.ts',
+      'lang/inference.ts',
+      'lang/tests.ts',
+      'lang/given-transform.ts',
+      'lang/wasm.ts',
+    ])
+      expect(files).toContain(must)
     const sites: string[] = []
     for (const f of files) {
-      const src = readFileSync(join(import.meta.dir, f), 'utf8')
+      const src = readFileSync(join(SRC_ROOT, f), 'utf8')
       // Executable occurrences only — the file is full of diagnostic STRINGS naming these.
       for (const line of maskLiterals(src).split('\n')) {
-        if (/(^|[^.\w])(new Function\s*\(|eval\s*\()/.test(line))
-          sites.push(`${f}: ${line.trim().slice(0, 60)}`)
+        if (DYNAMIC_EXEC.test(line))
+          sites.push(`${f.replace(/^lang\//, '')}: ${line.trim().slice(0, 60)}`)
       }
     }
+    // Apparatus: the scan sees a real site and ignores one named in a string.
+    expect(DYNAMIC_EXEC.test(maskLiterals('const f = new Function(x)'))).toBe(
+      true
+    )
+    expect(DYNAMIC_EXEC.test(maskLiterals("const s = 'new Function(x)'"))).toBe(
+      false
+    )
     // Three sites, each deliberate and each named. The two in the test path — extraction and
     // the runner — are TJS inline tests, a headline feature, and both sit downstream of the
     // `vmTarget` gate, so a VM-target transpile reaches neither. `predicate.ts` compiles only

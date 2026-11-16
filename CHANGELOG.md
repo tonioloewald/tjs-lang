@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The scan for dynamic execution on the transpile path now covers the whole path** (#2261).
+  A `new Function` or `eval` reachable while transpiling runs before fuel, timeouts, capabilities
+  and the membrane apply, which is how the 0.13.7 remote-code-execution defect worked. The test
+  guarding against that scanned a hand-written list of 9 files, while the transpile path imports
+  60: `emitters/ast.ts`, which runs on every piece of untrusted agent source, `inference.ts`,
+  `tests.ts`, `given-transform.ts` and `wasm.ts` were not scanned. The list is now computed from
+  the import graph of the entry points, so a file added to the path is scanned automatically. The
+  wider scan found no new site: the three known ones (inline tests, the test runner, verified
+  predicates) remain, each documented.
+
 - **`tjs-lang/import-resolver`: the service worker no longer deletes a host site's caches.** On
   activation it deleted every Cache API cache on the origin that was not its current one, so a site
   using the Cache API for anything else lost that data. It now deletes only earlier versions of its
