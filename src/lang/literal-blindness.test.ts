@@ -1385,3 +1385,25 @@ describe('trimTrailingWhitespace leaves literals byte-identical (pre-tag review 
   for (const [name, src, want] of rows)
     it(name, () => expect(trimTrailingWhitespace(src)).toBe(want))
 })
+
+describe('the extend call rewrite inside a template literal (0.14.0 final review M1)', () => {
+  // The rewrite found the call's `.` and `(` in a literal-masked view, which blanks a
+  // template's `${…}` too, so a call there was spliced at the wrong place: "Unterminated
+  // template". The text of the template around the call must come out byte-identical.
+  const ext = 'extend String { shout() { return this.toUpperCase() } }\n'
+  const out = (body: string) => {
+    const r = tjs(ext + body, { runTests: false })
+    return new Function(r.code + '\nreturn t')()
+  }
+  it('a literal receiver inside ${…}', () => {
+    expect(out("const t = `<${'b'.shout()}>`")).toBe('<B>')
+  })
+  it('a variable receiver inside ${…}, with the text around it intact', () => {
+    expect(out("const v = 'c'\nconst t = `x .( ${v.shout()} ). y`")).toBe(
+      'x .( C ). y'
+    )
+  })
+  it('a call written as text in a template is not rewritten', () => {
+    expect(out('const t = `v.shout()`')).toBe('v.shout()')
+  })
+})

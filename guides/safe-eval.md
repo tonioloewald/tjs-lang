@@ -176,8 +176,8 @@ but it cannot read a file, call a server or loop forever.
 | `params`         |        | yes            | `[]`           | Parameter names; each call's arguments are copied in under these names.  |
 | `fuel`           | yes    | yes (per call) | `1000`         | The work budget (see [Three words](#three-words-used-throughout)).       |
 | `timeoutMs`      | yes    | yes (per call) | 4 minutes      | Wall-clock limit (see [Nothing runs forever](#nothing-runs-forever)).    |
-| `capabilities`   | yes    | yes            | none           | `fetch`, `llm`, and any others the code may use.                          |
-| `fetchPolicy`    | yes    | yes            | none           | `{ domains, methods, headers }` for `httpFetch` (see below).             |
+| `capabilities`   | yes    | yes            | `clock`, `random` | `fetch`, `llm`, and any others the code may use. The real clock and random source are granted by default; pass `clock: undefined` or `random: undefined` to withhold one. |
+| `fetchPolicy`    | yes    | yes            | none           | `{ domains, methods, headers, privateNetwork }` for `httpFetch` (see below). |
 | `maxSourceBytes` | yes    | yes            | 8192           | Source size cap, checked before transpiling; `0` disables it.            |
 | `argsMaxBytes`   | yes    | yes            | 4 MB           | Cap on the context or call arguments copied in.                          |
 
@@ -294,9 +294,10 @@ There are **two ways to grant network access**, and the code uses `httpFetch` in
    in it.
 2. **Set `fetchPolicy.domains` with no `fetch` capability.** That turns on the VM's built-in
    fetch, for those domains only. It calls the host's `fetch`, follows no redirects (a redirect
-   comes back to the code as data), and sends no cookies or HTTP auth. The allowlist is the
-   whole destination check, so list only public hosts: a private or loopback address you list
-   (`127.0.0.1`, say) is fetched.
+   comes back to the code as data), and sends no cookies or HTTP auth. A loopback, private or
+   link-local address is refused even when you list it (`127.0.0.1`, `localhost`, `10.0.0.5`,
+   `app.localhost`), unless you also set `fetchPolicy.privateNetwork: true`: an allowlist entry
+   alone does not open your internal network.
 
 With neither, `httpFetch` fails: `Fetch blocked: no allowedFetchDomains configured…`.
 

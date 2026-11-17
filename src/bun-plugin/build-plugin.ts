@@ -21,7 +21,10 @@
  * `convertTs` (opt-in): `.ts` files load through `fromTS`; see the option below.
  */
 import type { BunPlugin } from 'bun'
-import { basename, join } from 'path'
+import { basename, join, resolve, sep } from 'path'
+
+/** tjs-lang's own package root: this file is `src/bun-plugin/build-plugin.ts` beneath it. */
+const OWN_PACKAGE = resolve(import.meta.dir, '..', '..')
 
 export interface TjsPluginOptions {
   /** Run signature examples and `test` blocks on load; a failure fails the load. */
@@ -72,11 +75,17 @@ export function tjsPlugin(options: TjsPluginOptions = {}): BunPlugin {
       })
       if (options.convertTs)
         build.onLoad({ filter: /\.[mc]?ts$/ }, async (args) => {
+          // Left as TypeScript: declaration files, dependencies, and tjs-lang's OWN sources.
+          // The last one matters: the converter below is itself `.ts`, so loading it through
+          // this hook recursed into a RangeError whenever tjs-lang was a checkout, a link or a
+          // workspace (0.14.0 final review M2). A skip returns the file as `ts`: Bun's
+          // runtime `plugin()` refuses an `undefined` result, though `Bun.build` accepts it.
           if (
             /\.d\.[mc]?ts$/.test(args.path) ||
-            /[\\/]node_modules[\\/]/.test(args.path)
+            /[\\/]node_modules[\\/]/.test(args.path) ||
+            args.path.startsWith(OWN_PACKAGE + sep)
           )
-            return undefined
+            return { contents: await Bun.file(args.path).text(), loader: 'ts' }
           // Lazy, and only when opted in: this is the one route that loads the TypeScript
           // compiler (src/index-tsfree.test.ts keeps it out of every other path).
           const { fromTS } = await import('../lang/emitters/from-ts')

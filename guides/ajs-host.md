@@ -235,6 +235,20 @@ with a named agent, and whatever your own atoms read. A missing one is an ordina
 (`Capability 'llm.predict' missing`). With no `store`, the store atoms use an in-memory store
 that lasts one run, and the result's `warnings` says so.
 
+The clock and the random source are capabilities too: `clock` (`{ now() }`, milliseconds since
+the epoch) for `Date.now()`, `Date()` with no argument and cache expiry, and `random`
+(`{ next() }`, a number in [0, 1)) for `Math.random()` and the `random` and `uuid` atoms.
+Without them those are refused, so a run cannot time things or produce a value you cannot
+replay. Pass the real ones, or your own (a fixed clock for a replay, a seeded generator for a
+simulation):
+
+```javascript
+import { systemClock, systemRandom } from 'tjs-lang/vm-ast'
+await vm.run(ast, args, { capabilities: { clock: systemClock, random: systemRandom } })
+```
+
+`Eval` and `SafeFunction` grant both by default.
+
 `agent` is `{ run(agentId, input) }`, returning the sub-agent's `RunResult` (or its result
 alone). An agent's `agentRun` names its sub-agent one of two ways:
 
@@ -258,13 +272,14 @@ your own atoms are in [Capabilities and Custom Atoms](/ajs-capabilities/).
 ## Fetch policy
 
 `context` is yours: put request metadata in it (a user id, a tenant) and your own atoms read
-it as `ctx.context`. The VM itself reads four keys, all for `httpFetch`:
+it as `ctx.context`. The VM itself reads five keys, all for `httpFetch`:
 
 | Key                     | Type       | Effect                                                                                                                                                                  |
 | ----------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `allowedFetchDomains`   | `string[]` | The hosts `httpFetch` may reach. `api.example.com` admits the default port only; `api.example.com:8443` names one; `*.example.com` admits the domain and its subdomains. |
 | `allowedFetchMethods`   | `string[]` | Methods beyond the default `GET` and `HEAD`. `CONNECT`, `TRACE` and `TRACK` are never admitted.                                                                         |
 | `allowedRequestHeaders` | `string[]` | Header names beyond the default list (below).                                                                                                                           |
+| `allowPrivateNetwork`   | `true`     | Opens loopback, private and link-local destinations (`127.0.0.1`, `localhost`, `10.0.0.5`, `app.localhost`) that `allowedFetchDomains` names. Without it they are refused even when listed. Anything but a literal `true` is not an opt-in. |
 | `requestDepth`          | number     | How many agent hops deep this request already is. A fetch at depth 10 is refused; 9 is the last allowed.                                                               |
 
 A list must be an array of strings; a single string is refused rather than read one character
@@ -316,8 +331,9 @@ the built-in client sends it only to the page's own origin, because a custom hea
 every cross-origin request a CORS preflight.
 
 [`Eval` and `SafeFunction`](/safe-eval/), the two-line wrappers over this VM, take the same
-policy as `fetchPolicy: { domains, methods, headers }`, which becomes `allowedFetchDomains`,
-`allowedFetchMethods` and `allowedRequestHeaders`. They cannot set `requestDepth`.
+policy as `fetchPolicy: { domains, methods, headers, privateNetwork }`, which becomes
+`allowedFetchDomains`, `allowedFetchMethods`, `allowedRequestHeaders` and `allowPrivateNetwork`.
+They cannot set `requestDepth`.
 
 ## What `vm.run` returns
 

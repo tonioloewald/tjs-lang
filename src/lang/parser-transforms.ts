@@ -3839,6 +3839,28 @@ export function transformExtensionCalls(
   return rewriteExtensionCallsOnLiterals(source, extensions)
 }
 
+/**
+ * The index of the next (dir 1) or previous (dir -1) character at or from `at` that is not
+ * whitespace or inside a comment. Backward, a `*` + `/` is skipped to its opening `/` + `*`; a line
+ * comment cannot sit between a receiver's `.` and its name without a newline, which is whitespace.
+ */
+function skipTrivia(source: string, at: number, dir: 1 | -1): number {
+  let i = at
+  for (;;) {
+    while (i >= 0 && i < source.length && /\s/.test(source[i])) i += dir
+    if (dir === 1 && source.startsWith('/*', i)) {
+      const close = source.indexOf('*/', i + 2)
+      i = close === -1 ? source.length : close + 2
+    } else if (dir === 1 && source.startsWith('//', i)) {
+      const nl = source.indexOf('\n', i)
+      i = nl === -1 ? source.length : nl + 1
+    } else if (dir === -1 && source[i] === '/' && source[i - 1] === '*') {
+      const opening = source.lastIndexOf('/*', i - 2)
+      i = opening === -1 ? -1 : opening - 1
+    } else return i
+  }
+}
+
 /** How an extended type is recognised at the call site (#3823). */
 function extensionTypeCheck(typeName: string, r: string): string {
   switch (typeName) {
@@ -3894,7 +3916,6 @@ function rewriteExtensionCallsByAst(
   } catch {
     return null
   }
-  const masked = maskLiterals(source)
   // [position, depth, text]: inserted text, applied from the end; at one position the OUTER
   // call's prefix goes first.
   const edits: { at: number; end: number; depth: number; text: string }[] = []
@@ -3922,13 +3943,16 @@ function rewriteExtensionCallsByAst(
         !(recv.type === 'Identifier' && recv.name.startsWith('__ext_'))
       ) {
         const optional = !!(callee.optional || node.optional)
-        const open = masked.indexOf('(', callee.end)
-        // From the `.` (or `?.`) before the method name, not from the receiver's end: a
-        // parenthesised receiver, `(7).clamp()`, ends before its `)`.
-        const dot = masked.lastIndexOf(
-          optional && callee.optional ? '?.' : '.',
-          callee.property.start
-        )
+        // Positions come from the RAW source, stepping over whitespace and comments from the
+        // AST's own offsets. A literal-masked view blanks a template's `${…}` too, so inside a
+        // template the search ran past the call and cut unrelated source (0.14.0 final review M1).
+        // The `(` follows the callee; the `.` (or `?.`) precedes the method name, which a
+        // parenthesised receiver, `(7).clamp()`, needs (its node ends before its `)`).
+        let open = skipTrivia(source, callee.end, 1)
+        if (source.startsWith('?.', open))
+          open = skipTrivia(source, open + 2, 1)
+        let dot = skipTrivia(source, callee.property.start - 1, -1)
+        if (source[dot - 1] === '?') dot--
         const first = node.arguments[0]
         const fn = `__tjs_ext_${name}`
         used.add(name)

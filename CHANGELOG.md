@@ -207,6 +207,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An `extend` call inside a template literal compiles again; the `TJS_CONVERT_TS` preload
+  works** (0.14.0 final review). The `extend` rewrite (#3823, unreleased) located a call's `.` and
+  `(` in a view of the source with literals blanked, which blanks a template's `${…}` too, so
+  `` `${'b'.shout()}` `` failed with "Unterminated template"; it now reads them from the source
+  itself. The `TJS_CONVERT_TS=1` preload (`tjs-lang/bun-plugin`, unreleased) crashed in both
+  layouts: with tjs-lang as a checkout or link it converted tjs-lang's own sources, recursing
+  into a RangeError, and a skipped file returned nothing, which Bun's runtime plugin refuses.
+  Both are fixed, and a subprocess test runs the preload.
+
 - **`extend` methods work on any receiver of the extended type** (#3823). The call rewrite
   matched only literal receivers in the text, so `const xs = [1, 2]; xs.last()` threw "not a
   function", a chained call broke after the first, `rows[1].last()` and `v2.clamp()` were rewritten
