@@ -388,6 +388,12 @@ function parseGroup(st: ParseState): Node {
     ) {
       const m = /^\?<([A-Za-z_$][\w$]*)>/.exec(ahead(st, st.i, 260))
       if (!m) throw new RegexError(`Invalid group name in /${st.src}/`)
+      // `match().groups` is an object keyed by these names, so `(?<__proto__>…)` gave it an own
+      // `__proto__` key (0.14.0 final review, the #4099 class): refused where the name is read.
+      if (m[1] === '__proto__')
+        throw new RegexError(
+          `'__proto__' is not allowed as a group name (it would replace the groups object's prototype)`
+        )
       index = ++st.groups
       if (st.names.has(m[1]))
         throw new RegexError(`Duplicate group name '${m[1]}'`)

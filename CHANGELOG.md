@@ -11,8 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **AJS: three more doors to an own `__proto__` key or a loopback host, closed** (0.14.0 final
+  review). **Affected: a custom `pure` atom's return, every published version through
+  0.14.0-rc.10; a regex named group, 0.14.0-rc.2 through 0.14.0-rc.10; the private-network gate,
+  0.2.0 through 0.14.0-rc.10.** A custom atom tagged `pure` skips the membrane, and its return was
+  not checked for an own `__proto__` key, so a host `JSON.parse` of guest text put one into the
+  host's result, where a naive merge (`Object.assign({}, result.o)`) replaced the target's
+  prototype: the same class as #4099, by a route that fix did not list. A regex named group
+  `(?<__proto__>…)` gave `match().groups` the same key. Both are now refused where the value
+  enters guest data, and a test now parses the VM for every host function that creates object keys
+  from data (`JSON.parse`, `Object.fromEntries`, `Object.groupBy`, `structuredClone`, besides the
+  writes it already pinned), so a new one fails until its reason is written down. Separately, the
+  private-network gate missed a trailing dot (`localhost.`, `metadata.google.internal.`) and names
+  under `localhost` (`app.localhost`, loopback per RFC 6761): an allowlist naming one reached the
+  host without `allowPrivateNetwork`. Both spellings are now refused. **What to do:** nothing,
+  unless a `pure` atom legitimately returns a `__proto__` key; rename the key, or tag the atom
+  `effects: 'io'`.
+
 - **AJS refuses TJS's safety markers; example literals are parsed whole and without prototype
-  keys** (#2262, #2263, #2264). On the AJS path `function main(!apiKey: '')`, `(? x) => x` and the
+  keys** (#2262, #2263, #2264). **Affected: the AJS safety markers, every published version with AJS through 0.14.0-rc.10; `parseLiteralValue`, 0.13.9 through 0.14.0-rc.10.** On the AJS path `function main(!apiKey: '')`, `(? x) => x` and the
   `:!`/`:?` return forms were accepted and silently discarded (they reached it through the parser
   code TJS and AJS share), so an author got the opposite of what `!` documents with no diagnostic;
   they are now refused. No execution, capability or fuel was ever involved. `parseLiteralValue`,
@@ -22,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whole input (a trailing comment is fine) and refuses `__proto__`, `constructor` and `prototype`
   keys, the canonical forbidden list.
 
-- **The scan for dynamic execution on the transpile path now covers the whole path** (#2261).
+- **The scan for dynamic execution on the transpile path now covers the whole path** (#2261). **Not a shipped defect: the change is to a test, and the wider scan found no new site.**
   A `new Function` or `eval` reachable while transpiling runs before fuel, timeouts, capabilities
   and the membrane apply, which is how the 0.13.7 remote-code-execution defect worked. The test
   guarding against that scanned a hand-written list of 9 files, while the transpile path imports
@@ -32,12 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wider scan found no new site: the three known ones (inline tests, the test runner, verified
   predicates) remain, each documented.
 
-- **`tjs-lang/import-resolver`: the service worker no longer deletes a host site's caches.** On
+- **`tjs-lang/import-resolver`: the service worker no longer deletes a host site's caches.** **Affected: 0.11.0 through 0.14.0-rc.10.** On
   activation it deleted every Cache API cache on the origin that was not its current one, so a site
   using the Cache API for anything else lost that data. It now deletes only earlier versions of its
   own cache (`tfs-v3` when the current one is `tfs-v4`).
 
-- **AJS: no guest object holds an own `__proto__` key, on any route** (#4099). `setGuestKey`
+- **AJS: no guest object holds an own `__proto__` key, on any route** (#4099). **Affected: every published version through 0.14.0-rc.10.** `setGuestKey`
   refused the key, so assignment, spread and `Object.assign` in the guest never made one, but
   four routes went around it: `Object.fromEntries` and `JSON.parse` in the guest (host natives
   that create keys themselves), a capability's return, and the run arguments. Each put an own
@@ -48,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a server sending one is the world's doing). **What to do:** nothing, unless a capability
   legitimately returns data with a `__proto__` key; rename the key before returning it.
 
-- **BREAKING (AJS): the clock and the random source are capabilities** (#4091). Guest code read
+- **BREAKING (AJS): the clock and the random source are capabilities** (#4091). **Affected: every published version through 0.14.0-rc.10 (guest code always had ambient access to both).** Guest code read
   the host's clock (`Date.now()`, `Date()` with no argument) and random source (`Math.random()`,
   the `random` and `uuid` atoms) with no capability: ambient authority in a capability VM. An
   agent could time things (a timing channel the host never granted), a run could not be replayed,
@@ -63,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expiry uses the granted clock when there is one. Asked for by a native 3D engine that embeds
   the VM; also a constraint on the planned native VM, so both share one contract.
 
-- **AJS: a custom atom tagged `pure` can only return guest data** (#3991). `pure` skips the
+- **AJS: a custom atom tagged `pure` can only return guest data** (#3991). **Affected: every published version through 0.14.0-rc.10 (before 0.13.6 every custom atom, since `pure` was the default).** `pure` skips the
   capability membrane, which is right for core atoms (they work on data already inside the VM)
   but let a HOST atom tagged `pure` put a live `Map`, class instance or getter-bearing object
   into guest state and into `run.result`, breaking the closed guest value domain. A custom pure
@@ -73,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `effects: 'io'`, so its return is copied. Copying every custom atom's return is a planned
   opt-in (#4007).
 
-- **AJS: an allowlist entry alone no longer opens the private network (BREAKING)** (#3991).
+- **AJS: an allowlist entry alone no longer opens the private network (BREAKING)** (#3991). **Affected: 0.2.0 through 0.14.0-rc.10.**
   `allowedFetchDomains` was the whole destination policy: naming a loopback, private or
   link-local address (a typo, a config copied from a dev setup) let agents reach the internal
   network, and the private-range block applied only when no allowlist was set, when nothing

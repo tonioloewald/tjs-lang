@@ -91,3 +91,41 @@ describe('the private network needs its own opt-in', () => {
     expect(open.error).toBeUndefined()
   })
 })
+
+/**
+ * Loopback and internal names in the forms the gate missed (0.14.0 final review): a trailing dot
+ * is the same host as a fully qualified name, and WHATWG URL keeps it, so `localhost.` and
+ * `metadata.google.internal.` matched neither the blocked set nor the suffixes; and every name
+ * under `localhost` is loopback (RFC 6761).
+ */
+describe('loopback and internal names in every spelling', () => {
+  const hosts = [
+    'localhost.',
+    'foo.localhost',
+    'foo.localhost.',
+    'metadata.google.internal.',
+    'db.internal.',
+    'printer.local.',
+  ]
+  for (const h of hosts) {
+    it(`${h} is refused even when allowlisted`, () => {
+      expect(() => admitFetchUrl(`http://${h}/x`, [h])).toThrow(
+        /loopback or private address/
+      )
+    })
+    it(`${h} is admitted with the explicit opt-in`, () => {
+      expect(admitFetchUrl(`http://${h}/x`, [h], true, true)).toContain(h)
+    })
+  }
+  it('127.0.0.1. is refused (URL normalises it to 127.0.0.1, which no dotted entry names)', () => {
+    expect(() => admitFetchUrl('http://127.0.0.1./x', ['127.0.0.1.'])).toThrow()
+    expect(() => admitFetchUrl('http://127.0.0.1./x', ['127.0.0.1'])).toThrow(
+      /loopback or private address/
+    )
+  })
+  it('a public name with a trailing dot is unaffected (the other direction)', () => {
+    expect(
+      admitFetchUrl('https://api.example.com./x', ['api.example.com.'])
+    ).toBe('https://api.example.com./x')
+  })
+})

@@ -76,7 +76,23 @@ const ALLOWED: Record<string, string> = {
   'regex.ts › add › n[capSlots + ins.r]':
     "a thread's empty-check registers (VM-internal)",
   'string-methods.ts › matchArray › Object.assign':
-    'named groups onto Object.create(null): a group named __proto__ is an ordinary key there',
+    "named groups onto Object.create(null); a group named '__proto__' is refused when the pattern compiles (regex.ts), since the groups object reaches the host's result",
+  'string-methods.ts › matchArray › Object.fromEntries':
+    "the group names, refused '__proto__' when the pattern compiles (regex.ts)",
+  'runtime.ts › <module> › Object.fromEntries':
+    'static tables (GUEST_SCHEMA, method signatures, the Math/Schema/console namespaces) keyed by literals in the VM source; module scope runs at import, before any guest exists',
+  'runtime.ts › <module> › structuredClone':
+    "tosijs-schema's own built-in schemas, cloned into GUEST_SCHEMA at import (host data)",
+  'runtime.ts › <module> › JSON.parse':
+    "the default fetch's body; it is an IO atom's return, so it enters guest data only through the membrane, which refuses an own '__proto__' key",
+  'runtime.ts › parse › JSON.parse':
+    "guest JSON.parse: its reviver refuses an own '__proto__' key (refuseProtoKey) as each key is created",
+  'runtime.ts › fromEntries › Object.fromEntries':
+    "guest Object.fromEntries: the result is refused if it holds an own '__proto__' key",
+  'runtime.ts › admittedSchema › structuredClone':
+    "clones a schema converted from a guest value, which holds no own '__proto__' key: every door into guest data refuses one (membrane, run arguments, pure-atom returns, JSON.parse, fromEntries, regex groups)",
+  'date-tz.probe.ts › <module> › JSON.parse':
+    'a probe script that prints host Date behaviour; not loaded by the VM',
   'runtime.ts › inputsResolvedContext › Object.defineProperty':
     "`field` iterates the literal tuple ['error', 'output']",
   'runtime.ts › <module> › Object.assign':
@@ -93,6 +109,13 @@ const SETTING_CALLS = new Set([
   'Object.defineProperty',
   'Object.defineProperties',
   'Object.setPrototypeOf',
+  // Natives that CREATE keys from data (0.14.0 final review B1, the #4099 class): an own
+  // `__proto__` key they produce is a plain property in the VM and a prototype replacement in a
+  // host that merges the result. Each site says why its keys are refused or the host's.
+  'JSON.parse',
+  'Object.fromEntries',
+  'Object.groupBy',
+  'structuredClone',
 ])
 
 const ASSIGNMENT_OPS = new Set([

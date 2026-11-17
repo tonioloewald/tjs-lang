@@ -17,6 +17,8 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile } from '../lang/core'
 import { AgentVM } from './ast'
+import { defineAtom } from './runtime'
+import { s as schema } from 'tosijs-schema'
 
 const hostile = () => JSON.parse('{"__proto__":{"polluted":true}}')
 
@@ -103,5 +105,54 @@ describe('ordinary data still crosses (the other direction)', () => {
       p: { proto: 1, __proto: 2, a: { b: [1] } },
       q: { x: 1 },
     })
+  })
+})
+
+/**
+ * Two more routes, found by the 0.14.0 final review (B1): a custom atom tagged `pure` skips the
+ * membrane, and its return was checked for non-data but not for this key, so a host `JSON.parse`
+ * of guest text reached the host's result; and a regex named group `(?<__proto__>…)` gave
+ * `match().groups` an own `__proto__` key. Both now refuse it where the value enters guest data.
+ */
+describe('routes through host code and the regex engine', () => {
+  const parseJson = defineAtom(
+    'parseJson',
+    schema.object({ text: schema.string }),
+    undefined,
+    async ({ text }: { text: string }) => JSON.parse(text),
+    { effects: 'pure' }
+  )
+  const atoms = { parseJson }
+  const runWith = (src: string) =>
+    new AgentVM(atoms).run(transpile(src, { atoms }).ast, {}, { fuel: 1000 })
+
+  it("a custom pure atom's return", async () => {
+    const r = await runWith(
+      `function f({}) { let o = parseJson({ text: '{"__proto__":{"polluted":true}}' }) \n return { o } }`
+    )
+    expect(r.error?.message).toMatch(/own '__proto__' key/)
+    expect(pollutes(r.result)).toBe(false)
+  })
+  it("a custom pure atom's ordinary return still crosses (the other direction)", async () => {
+    const r = await runWith(
+      `function f({}) { let o = parseJson({ text: '{"proto":{"a":1}}' }) \n return { o } }`
+    )
+    expect(r.error).toBeUndefined()
+    expect(r.result).toEqual({ o: { proto: { a: 1 } } })
+  })
+  it('a regex named group, as a literal (refused at transpile time)', () => {
+    expect(() =>
+      transpile(
+        `function f({ s = 'a' }) { let m = s.match(/(?<__proto__>a)/) \n return { m } }`
+      )
+    ).toThrow(/'__proto__' is not allowed as a group name/)
+  })
+  it('a regex named group, from a string at run time', async () => {
+    const r = await run(
+      `function f({ p = '(?<__proto__>a)' }) { let m = 'a'.match(p) \n return { m } }`
+    )
+    expect(r.error?.message).toMatch(
+      /'__proto__' is not allowed as a group name/
+    )
   })
 })

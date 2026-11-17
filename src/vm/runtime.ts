@@ -1461,13 +1461,21 @@ function isBlockedUrl(urlString: string): boolean {
       return true
     }
 
-    const host = url.hostname.toLowerCase()
+    // One trailing dot is the same host (a fully qualified name): WHATWG URL keeps it, so
+    // `localhost.` and `metadata.google.internal.` matched neither the set nor the suffixes
+    // (0.14.0 final review).
+    const host = url.hostname.toLowerCase().replace(/\.$/, '')
 
     // Block known dangerous hosts
     if (BLOCKED_HOSTS.has(host)) return true
 
-    // Block internal suffixes
-    if (host.endsWith('.internal') || host.endsWith('.local')) return true
+    // Block internal suffixes, and every name under `localhost` (RFC 6761: loopback)
+    if (
+      host.endsWith('.internal') ||
+      host.endsWith('.local') ||
+      host.endsWith('.localhost')
+    )
+      return true
 
     // IPv6 literals arrive bracketed (e.g. "[fe80::1]"); strip for range checks.
     if (host.startsWith('[') && host.endsWith(']')) {
@@ -5436,8 +5444,15 @@ function pureReturnRefusal(
     const kind = admitKind(v)
     if (kind.kind === 'refused') return kind.reason
     if (kind.kind === 'date') continue
-    for (const d of Object.values(Object.getOwnPropertyDescriptors(v))) {
+    for (const [key, d] of Object.entries(
+      Object.getOwnPropertyDescriptors(v)
+    )) {
       if (!('value' in d)) return 'an accessor property (a getter or setter)'
+      // The membrane refuses this key inbound; a pure atom's return skipped the membrane, so a
+      // host `JSON.parse` of guest text put an own `__proto__` key into the host's result, and a
+      // naive merge replaced the target's prototype (0.14.0 final review B1, the #4099 class).
+      if (key === '__proto__')
+        return "an object with an own '__proto__' key, which would replace the prototype of anything it is merged into"
       stack.push(d.value)
     }
   }
