@@ -58,4 +58,16 @@ export interface AuditExemption {
  * advisory until October. That is exactly what happened again here, and the trigger was
  * again external: Dependabot being switched on.
  */
-export const AUDIT_EXEMPTIONS: AuditExemption[] = []
+export const AUDIT_EXEMPTIONS: AuditExemption[] = [
+  {
+    ghsa: 'GHSA-fc5q-39xc-vjpf',
+    package: 'picomatch',
+    reason:
+      'ReDoS through repeated extglobs; affects <=4.0.7 and 4.0.7 is the latest release ' +
+      '(checked 2026-11-17: no published fix, so no override is possible). Dev-only: ' +
+      'typescript-eslint > tinyglobby > picomatch, globbing our own source in lint. Not in ' +
+      'the published package or functions/. Re-check `npm view picomatch version` and ' +
+      'replace this with an override the day a fix ships.',
+    until: '2026-12-15',
+  },
+]
