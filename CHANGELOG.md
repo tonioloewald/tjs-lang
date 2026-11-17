@@ -207,6 +207,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The `extend` rewrite and the private-network gate handle the remaining spellings** (0.14.0
+  remediation re-review). The `extend` call rewrite now finds a call's `.` and `(` scanning
+  forward, so a comment holding `/*` between a receiver and its method is stepped over, and a
+  parenthesised callee, `((7).clamp)(0, 5)`, is left as written instead of being spliced into
+  output that does not parse. The private-network gate strips every trailing dot, not one, so
+  `localhost..` is refused too.
+
 - **An `extend` call inside a template literal compiles again; the `TJS_CONVERT_TS` preload
   works** (0.14.0 final review). The `extend` rewrite (#3823, unreleased) located a call's `.` and
   `(` in a view of the source with literals blanked, which blanks a template's `${…}` too, so

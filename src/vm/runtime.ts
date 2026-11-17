@@ -1461,10 +1461,10 @@ function isBlockedUrl(urlString: string): boolean {
       return true
     }
 
-    // One trailing dot is the same host (a fully qualified name): WHATWG URL keeps it, so
+    // Trailing dots are the same host (a fully qualified name): WHATWG URL keeps them, so
     // `localhost.` and `metadata.google.internal.` matched neither the set nor the suffixes
     // (0.14.0 final review).
-    const host = url.hostname.toLowerCase().replace(/\.$/, '')
+    const host = url.hostname.toLowerCase().replace(/\.+$/, '')
 
     // Block known dangerous hosts
     if (BLOCKED_HOSTS.has(host)) return true

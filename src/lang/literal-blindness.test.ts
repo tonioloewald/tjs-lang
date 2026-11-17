@@ -1406,4 +1406,15 @@ describe('the extend call rewrite inside a template literal (0.14.0 final review
   it('a call written as text in a template is not rewritten', () => {
     expect(out('const t = `v.shout()`')).toBe('v.shout()')
   })
+  // Re-review follow-ups: positions are found scanning forward, so a comment holding `/*`
+  // between the dot and the name is stepped over, not mistaken for a comment's start.
+  it('a comment with a nested /* between receiver and name', () => {
+    expect(out("const v = 'a'\nconst t = v./* a /* b */shout()")).toBe('A')
+  })
+  it('a parenthesised receiver is rewritten; a parenthesised callee is left as written', () => {
+    expect(out("const t = ('b').shout()")).toBe('B')
+    expect(() =>
+      tjs(ext + "const t = (('c').shout)()", { runTests: false })
+    ).not.toThrow()
+  })
 })

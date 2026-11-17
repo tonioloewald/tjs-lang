@@ -106,6 +106,8 @@ describe('loopback and internal names in every spelling', () => {
     'metadata.google.internal.',
     'db.internal.',
     'printer.local.',
+    'localhost..',
+    'a.localhost..',
   ]
   for (const h of hosts) {
     it(`${h} is refused even when allowlisted`, () => {

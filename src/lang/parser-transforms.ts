@@ -3840,23 +3840,20 @@ export function transformExtensionCalls(
 }
 
 /**
- * The index of the next (dir 1) or previous (dir -1) character at or from `at` that is not
- * whitespace or inside a comment. Backward, a `*` + `/` is skipped to its opening `/` + `*`; a line
- * comment cannot sit between a receiver's `.` and its name without a newline, which is whitespace.
+ * The index of the first character at or after `at` that is not whitespace or inside a comment.
+ * Forward only: comments do not nest, so a forward scan is unambiguous, where a backward one
+ * mistook a `/*` inside a comment for the comment's start (0.14.0 remediation re-review).
  */
-function skipTrivia(source: string, at: number, dir: 1 | -1): number {
+function skipTrivia(source: string, at: number): number {
   let i = at
   for (;;) {
-    while (i >= 0 && i < source.length && /\s/.test(source[i])) i += dir
-    if (dir === 1 && source.startsWith('/*', i)) {
+    while (i < source.length && /\s/.test(source[i])) i++
+    if (source.startsWith('/*', i)) {
       const close = source.indexOf('*/', i + 2)
       i = close === -1 ? source.length : close + 2
-    } else if (dir === 1 && source.startsWith('//', i)) {
+    } else if (source.startsWith('//', i)) {
       const nl = source.indexOf('\n', i)
       i = nl === -1 ? source.length : nl + 1
-    } else if (dir === -1 && source[i] === '/' && source[i - 1] === '*') {
-      const opening = source.lastIndexOf('/*', i - 2)
-      i = opening === -1 ? -1 : opening - 1
     } else return i
   }
 }
@@ -3948,15 +3945,28 @@ function rewriteExtensionCallsByAst(
         // template the search ran past the call and cut unrelated source (0.14.0 final review M1).
         // The `(` follows the callee; the `.` (or `?.`) precedes the method name, which a
         // parenthesised receiver, `(7).clamp()`, needs (its node ends before its `)`).
-        let open = skipTrivia(source, callee.end, 1)
-        if (source.startsWith('?.', open))
-          open = skipTrivia(source, open + 2, 1)
-        let dot = skipTrivia(source, callee.property.start - 1, -1)
-        if (source[dot - 1] === '?') dot--
+        // Forward scans only (comments do not nest, so forward is unambiguous), stepping over
+        // the `)` of a parenthesised receiver, `(7).clamp`, or callee, `((7).clamp)(0, 5)`.
+        const past = (from: number): number => {
+          let i = skipTrivia(source, from)
+          while (source[i] === ')') i = skipTrivia(source, i + 1)
+          return i
+        }
+        let open = past(callee.end)
+        if (source.startsWith('?.', open)) open = skipTrivia(source, open + 2)
+        const dot = past(recv.end)
+        // A PARENTHESISED callee, `((7).clamp)(0, 5)`, is not spliced: removing `.clamp)(`
+        // would leave the callee's opening `(` unmatched. It is left as written.
+        const spliceable =
+          source[skipTrivia(source, callee.end)] !== ')' &&
+          source[open] === '(' &&
+          (source[dot] === '.' || source.startsWith('?.', dot))
         const first = node.arguments[0]
         const fn = `__tjs_ext_${name}`
         used.add(name)
-        if (!optional) {
+        if (!spliceable) {
+          // A shape this rewrite cannot splice: the call is left exactly as written.
+        } else if (!optional) {
           edits.push({ at: node.start, end: node.start, depth, text: `${fn}(` })
           edits.push({
             at: dot,
