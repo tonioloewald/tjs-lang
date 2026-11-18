@@ -15,20 +15,31 @@ const changelog = readFileSync(
   'utf8'
 )
 
-/** The bullets of the first `### Security` block after the newest `## [` heading. */
+/**
+ * The bullets of the `### Security` blocks in `[Unreleased]` and in the newest released section:
+ * right after a release, `[Unreleased]` is empty and the entries being shipped sit below it.
+ */
 function securityBullets(text: string): string[] {
-  const top = text.indexOf('\n## [')
-  const next = text.indexOf('\n## [', top + 5)
-  const section = text.slice(top, next === -1 ? undefined : next)
-  const at = section.indexOf('\n### Security')
-  if (at === -1) return []
-  const end = section.indexOf('\n### ', at + 5)
-  const block = section.slice(at, end === -1 ? undefined : end)
-  return block.split(/\n(?=- \*\*)/).filter((b) => b.startsWith('- **'))
+  const starts: number[] = []
+  let i = text.indexOf('\n## [')
+  while (i !== -1 && starts.length < 3) {
+    starts.push(i)
+    i = text.indexOf('\n## [', i + 5)
+  }
+  const out: string[] = []
+  for (let n = 0; n < Math.min(2, starts.length); n++) {
+    const section = text.slice(starts[n], starts[n + 1])
+    const at = section.indexOf('\n### Security')
+    if (at === -1) continue
+    const end = section.indexOf('\n### ', at + 5)
+    const block = section.slice(at, end === -1 ? undefined : end)
+    out.push(...block.split(/\n(?=- \*\*)/).filter((b) => b.startsWith('- **')))
+  }
+  return out
 }
 
 describe('CHANGELOG Security entries', () => {
-  it('the newest section has Security entries (apparatus)', () => {
+  it('[Unreleased] or the newest release has Security entries (apparatus)', () => {
     expect(securityBullets(changelog).length).toBeGreaterThan(0)
   })
   it('each names the affected shipped versions', () => {
