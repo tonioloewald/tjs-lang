@@ -193,3 +193,6 @@ src/**/*.d.ts.map
 # Every SHA the full suite passed for on this machine (release-gate.ts + .githooks/pre-push).
 .release-gate-verified
 .prr.workflow.tmp.js
+
+# Claude Code agent worktrees: local checkouts for isolated agents, never committed
+.claude/worktrees/
