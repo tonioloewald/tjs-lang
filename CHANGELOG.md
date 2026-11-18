@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-11-18
+
+> **0.14.0 is the release the candidates since 0.13.13 led up to.** This section lists what
+> changed since `0.14.0-rc.10`; the release-candidate sections below it, down to 0.13.13, list
+> the rest. Upgrading from 0.13: read every **BREAKING** entry, here and in those sections,
+> starting with "Read this first: what breaks since rc.3" in the rc.4 section. Each Security
+> entry names the shipped versions it affected.
+
 ### Security
 
 - **AJS: three more doors to an own `__proto__` key or a loopback host, closed** (0.14.0 final
@@ -1121,7 +1129,7 @@ below.
   does (`x != x` is the NaN test), so the body and its implicit JavaScript fallback agree. An
   explicit `fallback {}` is the author's own code and has TJS semantics, as before.
 
-## [0.14.0] — unreleased
+## [0.14.0-rc.4] and earlier release candidates — 2026-10-07
 
 > **Release candidate: `0.14.0-rc.4`** (2026-10-07), on the `rc` dist-tag. WASM blocks mean
 > what they say (a block that cannot compile is a compile error, and the WASM path and the
