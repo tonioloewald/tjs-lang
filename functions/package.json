@@ -18,7 +18,7 @@
   "dependencies": {
     "firebase-admin": "^14.3.0",
     "firebase-functions": "^7.3.2",
-    "tjs-lang": "^0.13.11"
+    "tjs-lang": "^0.14.0"
   },
   "comment:overrides": [
     "Transitive advisories in the DEPLOYED tree, pinned past their affected ranges.",
